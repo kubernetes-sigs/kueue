@@ -3927,7 +3927,8 @@ func TestScheduleForTAS(t *testing.T) {
 	}
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
 		ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
-			Resource(corev1.ResourceCPU, "50").Obj()).
+			Resource(corev1.ResourceCPU, "50").
+			Resource(corev1.ResourceMemory, "50Gi").Obj()).
 		Obj()
 	queues := []kueue.LocalQueue{
 		{
@@ -4455,6 +4456,78 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[string]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "500m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"workload gets admitted next to already admitted workload, multiple resources used": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(tasHostLabel).
+						Request(corev1.ResourceCPU, "500m").
+						Request(corev1.ResourceMemory, "500Mi").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("bar-admitted", "default").
+					Queue("tas-main").
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
+							Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).Obj(),
+					).
+					Admitted(true).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(tasHostLabel).
+						Request(corev1.ResourceCPU, "500m").
+						Request(corev1.ResourceMemory, "500Mi").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "500m").
+					Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
 					AssignmentPodCount(1).
 					TopologyAssignment(&kueue.TopologyAssignment{
 						Levels: utiltas.Levels(&defaultSingleLevelTopology),

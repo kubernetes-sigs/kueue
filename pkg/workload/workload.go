@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -261,15 +262,26 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+// IsUsingTAS returns information if the workload is using TAS
+func (i *Info) IsUsingTAS() bool {
+	return slices.ContainsFunc(i.TotalRequests,
+		func(ps PodSetResources) bool {
+			return ps.TopologyRequest != nil
+		})
+}
+
 // TASUsage returns topology usage requested by the Workload
-func (i *Info) TASUsage() []TopologyDomainRequests {
-	if !features.Enabled(features.TopologyAwareScheduling) {
-		return nil
-	}
-	result := make([]TopologyDomainRequests, 0)
+func (i *Info) TASUsage() map[kueue.ResourceFlavorReference][]TopologyDomainRequests {
+	result := make(map[kueue.ResourceFlavorReference][]TopologyDomainRequests, 0)
 	for _, ps := range i.TotalRequests {
 		if ps.TopologyRequest != nil {
-			result = append(result, ps.TopologyRequest.DomainRequests...)
+			psFlavors := sets.New[kueue.ResourceFlavorReference]()
+			for _, psFlavor := range ps.Flavors {
+				psFlavors.Insert(psFlavor)
+			}
+			for psFlavor := range psFlavors {
+				result[psFlavor] = append(result[psFlavor], ps.TopologyRequest.DomainRequests...)
+			}
 		}
 	}
 	return result
