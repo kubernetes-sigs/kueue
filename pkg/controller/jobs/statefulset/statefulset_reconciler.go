@@ -18,15 +18,20 @@ package statefulset
 
 import (
 	"context"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -35,6 +40,10 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+)
+
+const (
+	podBatchPeriod = time.Second
 )
 
 // +kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch
@@ -48,54 +57,57 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	sts := &appsv1.StatefulSet{}
-	err := r.client.Get(ctx, req.NamespacedName, sts)
-	if err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	log := ctrl.LoggerFrom(ctx).WithValues("statefulset", klog.KObj(sts))
+	log := ctrl.LoggerFrom(ctx).WithValues("statefulset", klog.KRef(req.Namespace, req.Name))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling StatefulSet")
 
-	err = r.fetchAndFinalizePods(ctx, sts)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	err := r.fetchAndFinalizePods(ctx, req)
+	return ctrl.Result{}, err
 }
 
-func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, sts *appsv1.StatefulSet) error {
+func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Request) error {
 	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(sts.Namespace), client.MatchingLabels{
-		podcontroller.GroupNameLabel: GetWorkloadName(sts.Name),
+	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
+		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
 	}); err != nil {
 		return err
 	}
+
+	sts := &appsv1.StatefulSet{}
+	err := r.client.Get(ctx, req.NamespacedName, sts)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	if err != nil {
+		sts = nil
+	}
+
 	return r.finalizePods(ctx, sts, podList.Items)
 }
 
 func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx)
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		pod := &pods[i]
-		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
-			if finalizePod(sts, pod) {
-				log.V(3).Info(
-					"Finalizing pod in group",
-					"pod", klog.KObj(pod),
-					"group", pod.Labels[podcontroller.GroupNameLabel],
-				)
-				return true, nil
-			}
-			return false, nil
-		}))
+		return r.finalizePod(ctx, sts, &pods[i])
 	})
 }
 
-func finalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
+func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
+	log := ctrl.LoggerFrom(ctx)
+	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
+		if ungateAndFinalize(sts, pod) {
+			log.V(3).Info(
+				"Finalizing pod in group",
+				"pod", klog.KObj(pod),
+				"group", pod.Labels[podcontroller.GroupNameLabel],
+			)
+			return true, nil
+		}
+		return false, nil
+	}))
+}
+
+func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	var updated bool
 
 	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podcontroller.SchedulingGateName) {
@@ -110,7 +122,7 @@ func finalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 }
 
 func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
+	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
 		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
 }
 
@@ -123,6 +135,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
+		Watches(&corev1.Pod{}, &podHandler{}).
 		Complete(r)
 }
 
@@ -144,15 +157,52 @@ func (r *Reconciler) Update(e event.UpdateEvent) bool {
 	return r.handle(e.ObjectNew)
 }
 
-func (r *Reconciler) Delete(event.DeleteEvent) bool {
-	return false
+func (r *Reconciler) Delete(e event.DeleteEvent) bool {
+	return r.handle(e.Object)
 }
 
 func (r *Reconciler) handle(obj client.Object) bool {
 	sts, isSts := obj.(*appsv1.StatefulSet)
 	if !isSts {
-		return false
+		return true
 	}
 	// Handle only statefulset managed by kueue.
 	return jobframework.IsManagedByKueue(sts)
+}
+
+var _ handler.EventHandler = (*podHandler)(nil)
+
+type podHandler struct{}
+
+func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *podHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// To watch for pod ADDED events.
+	h.handle(e.Object, q)
+}
+
+func (h *podHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	pod, isPod := obj.(*corev1.Pod)
+	if !isPod || pod.Annotations[podcontroller.SuspendedByParentAnnotation] != FrameworkName {
+		return
+	}
+	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
+		if controllerRef.Kind != gvk.Kind || controllerRef.APIVersion != gvk.GroupVersion().String() {
+			// The pod is controlled by an owner that is not an apps/v1 StatefulSet.
+			return
+		}
+		q.AddAfter(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: pod.Namespace,
+				Name:      controllerRef.Name,
+			},
+		}, podBatchPeriod)
+	}
 }

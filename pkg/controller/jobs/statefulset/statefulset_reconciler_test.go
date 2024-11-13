@@ -42,18 +42,52 @@ var (
 
 func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
-		statefulSet     appsv1.StatefulSet
+		stsKey          client.ObjectKey
+		statefulSet     *appsv1.StatefulSet
 		pods            []corev1.Pod
-		wantStatefulSet appsv1.StatefulSet
+		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
 		wantErr         error
 	}{
+		"statefulset not found": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Obj(),
+			},
+		},
 		"statefulset with finished pods": {
-			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
-			wantStatefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
@@ -89,12 +123,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with update revision": {
-			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				Queue("lq").
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
-			wantStatefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				Queue("lq").
 				CurrentRevision("1").
 				UpdateRevision("2").
@@ -141,7 +176,11 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 
-			objs := []client.Object{&tc.statefulSet}
+			objs := make([]client.Object, 0, len(tc.pods)+1)
+			if tc.statefulSet != nil {
+				objs = append(objs, tc.statefulSet)
+			}
+
 			for _, p := range tc.pods {
 				objs = append(objs, p.DeepCopy())
 			}
@@ -150,15 +189,18 @@ func TestReconciler(t *testing.T) {
 
 			reconciler := NewReconciler(kClient, nil)
 
-			statefulSetKey := client.ObjectKeyFromObject(&tc.statefulSet)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: statefulSetKey})
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			gotStatefulSet := appsv1.StatefulSet{}
-			if err := kClient.Get(ctx, statefulSetKey, &gotStatefulSet); err != nil {
+			gotStatefulSet := &appsv1.StatefulSet{}
+			err = kClient.Get(ctx, tc.stsKey, gotStatefulSet)
+			if client.IgnoreNotFound(err) != nil {
 				t.Fatalf("Could not get StatefuleSet after reconcile: %v", err)
+			}
+			if err != nil {
+				gotStatefulSet = nil
 			}
 
 			if diff := cmp.Diff(tc.wantStatefulSet, gotStatefulSet, baseCmpOpts...); diff != "" {
