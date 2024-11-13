@@ -338,13 +338,17 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
+	// cleanup the state in case some remaining values are present from computing
+	// assignments for previous PodSets.
+	for domainID := range s.state {
+		s.state[domainID] = 0
+	}
 	for domainID, capacity := range s.freeCapacityPerLeafDomain {
 		s.state[domainID] = requests.CountIn(capacity)
 	}
 	lastLevelIdx := len(s.domainsPerLevel) - 1
 	for levelIdx := lastLevelIdx - 1; levelIdx >= 0; levelIdx-- {
 		for _, info := range s.domainsPerLevel[levelIdx] {
-			s.state[info.id] = 0
 			for _, childDomainID := range info.childIDs {
 				s.state[info.id] += s.state[childDomainID]
 			}
