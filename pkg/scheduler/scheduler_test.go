@@ -3871,6 +3871,7 @@ func TestResourcesToReserve(t *testing.T) {
 
 func TestScheduleForTAS(t *testing.T) {
 	const (
+		tasRackLabel = "cloud.provider.com/rack"
 		tasHostLabel = "kubernetes.io/hostname"
 	)
 	defaultSingleNode := []corev1.Node{
@@ -3908,6 +3909,21 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
+	defaultTwoLevelTopology := kueuealpha.Topology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tas-two-level",
+		},
+		Spec: kueuealpha.TopologySpec{
+			Levels: []kueuealpha.TopologyLevel{
+				{
+					NodeLabel: tasRackLabel,
+				},
+				{
+					NodeLabel: tasHostLabel,
+				},
+			},
+		},
+	}
 	defaultFlavor := kueue.ResourceFlavor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "default",
@@ -3923,6 +3939,17 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-node": "true",
 			},
 			TopologyName: ptr.To[kueue.TopologyReference]("tas-single-level"),
+		},
+	}
+	defaultTASTwoLevelFlavor := kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tas-default",
+		},
+		Spec: kueue.ResourceFlavorSpec{
+			NodeLabels: map[string]string{
+				"tas-node": "true",
+			},
+			TopologyName: ptr.To[kueue.TopologyReference]("tas-two-level"),
 		},
 	}
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
@@ -4552,6 +4579,86 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					Reason:    "Admitted",
 					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"workload with multiple PodSets requesting the same TAS flavor; multiple levels": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "y1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "y1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "50").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).
+							PreferredTopologyRequest(tasHostLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("worker", 1).
+							PreferredTopologyRequest(tasHostLabel).
+							Request(corev1.ResourceCPU, "7").
+							Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   `couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s)`,
 				},
 			},
 		},
