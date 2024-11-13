@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for replicas is deleted", func() {
@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for replicas is ready", func() {
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Wait for ReadyReplicas < 3", func() {
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Try to scale up replicas to zero", func() {
+			ginkgo.By("Scale up replicas to zero - retry as it may not be possible immediately", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
