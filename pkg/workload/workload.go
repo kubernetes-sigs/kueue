@@ -768,7 +768,7 @@ func IsActive(w *kueue.Workload) bool {
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
 func IsEvictedByDeactivation(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedByDeactivation
+	return cond != nil && cond.Status == metav1.ConditionTrue && strings.HasPrefix(cond.Reason, kueue.WorkloadEvictedByDeactivation)
 }
 
 func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {

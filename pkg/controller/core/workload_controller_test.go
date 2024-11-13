@@ -470,11 +470,24 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -498,24 +511,31 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
-				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
-				Conditions(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionTrue,
-					Reason:  "AdmittedByTest",
-					Message: "Admitted by ClusterQueue q1",
-				},
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
 					metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "ByTest",
 						Message: "Admitted by ClusterQueue q1",
-					}).
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -523,6 +543,71 @@ func TestReconcile(t *testing.T) {
 					EventType: "Warning",
 					Reason:    "AdmissionCheckRejected",
 					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
+				},
+			},
+		},
+		"workload with deactivation target condition should be deactivated and admission checks reset": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Active(false).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:  "check-1",
+						State: kueue.CheckStateRejected,
+					},
+					kueue.AdmissionCheckState{
+						Name:  "check-2",
+						State: kueue.CheckStateRetry,
+					},
+				).
+				Conditions(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Admission check(s): [check-1], were rejected",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Active(false).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "check-1",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					},
+					kueue.AdmissionCheckState{
+						Name:    "check-2",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByDeactivation + kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "The workload is deactivated due to Admission check(s): [check-1], were rejected",
+					},
+					// In a real cluster this condition would be removed but it cant be in the fake cluster
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Admission check(s): [check-1], were rejected",
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "EvictedDueToInactiveWorkloadAdmissionCheck",
+					Message:   "The workload is deactivated due to Admission check(s): [check-1], were rejected",
 				},
 			},
 		},
