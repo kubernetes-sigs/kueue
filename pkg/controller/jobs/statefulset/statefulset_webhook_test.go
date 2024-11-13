@@ -214,7 +214,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in replicas (scase down to zero)": {
+		"change in replicas (scale down to zero)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: ptr.To(int32(3)),
