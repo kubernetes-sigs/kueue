@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -90,6 +91,51 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, tc.statefulset); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateCreate(t *testing.T) {
+	testCases := map[string]struct {
+		sts       *appsv1.StatefulSet
+		wantErr   error
+		wantWarns admission.Warnings
+	}{
+		"without queue": {
+			sts: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+		},
+		"valid queue name": {
+			sts: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"invalid queue name": {
+			sts: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Queue("test/queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			builder := utiltesting.NewClientBuilder()
+			client := builder.Build()
+			w := &Webhook{client: client}
+			ctx, _ := utiltesting.ContextWithLog(t)
+			warns, err := w.ValidateCreate(ctx, tc.sts)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(warns, tc.wantWarns); diff != "" {
+				t.Errorf("Expected different list of warnings (-want,+got):\n%s", diff)
 			}
 		})
 	}
