@@ -24,10 +24,18 @@ Quick start instructions for the setup and configuration of kueue using Helm.
 
 ##### Install chart using Helm v3.0+
 
+Either clone the kueue repository:
+
 ```bash
 $ git clone git@github.com:kubernetes-sigs/kueue.git
 $ cd kueue/charts
 $ helm install kueue kueue/ --create-namespace --namespace kueue-system
+```
+
+Or use the charts pushed to `us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue`:
+
+```bash
+helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue --version="v0.9.0" --create-namespace --namespace=kueue-system
 ```
 
 ##### Verify that controller pods are running properly.
