@@ -134,6 +134,11 @@ func (ss *StatefulSetWrapper) Replicas(r int32) *StatefulSetWrapper {
 	return ss
 }
 
+func (ss *StatefulSetWrapper) ReadyReplicas(r int32) *StatefulSetWrapper {
+	ss.Status.ReadyReplicas = r
+	return ss
+}
+
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
 	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
 ) *StatefulSetWrapper {
