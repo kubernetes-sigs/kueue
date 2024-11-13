@@ -64,8 +64,14 @@ spec:
 
 ### c. Scaling
 
-Currently, scaling operations on StatefulSets are not supported.
-This means you cannot perform scale up or scale down operations directly through Kueue.
+You can perform scale up or scale down operations on a StatefulSet.
+
+```yaml
+spec:
+  replicas: 3
+```
+
+During these operations, all Pods are recreated and remain suspended until their corresponding workload is admitted.
 
 ## Example
 Here is a sample StatefulSet:

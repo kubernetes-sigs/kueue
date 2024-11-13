@@ -23,12 +23,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
@@ -164,11 +161,8 @@ func (ss *StatefulSetWrapper) UpdateRevision(updateRevision string) *StatefulSet
 	return ss
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
-	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
-) *StatefulSetWrapper {
-	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return ss.PodTemplateSpecLabel(podconstants.GroupNameLabel, gvk)
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(group string) *StatefulSetWrapper {
+	return ss.PodTemplateSpecLabel(podconstants.GroupNameLabel, group)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
