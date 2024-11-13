@@ -34,15 +34,12 @@ import (
 )
 
 type Webhook struct {
-	client                     client.Client
-	manageJobsWithoutQueueName bool
+	client client.Client
 }
 
-func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.ProcessOptions(opts...)
+func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
 	wh := &Webhook{
-		client:                     mgr.GetClient(),
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		client: mgr.GetClient(),
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
