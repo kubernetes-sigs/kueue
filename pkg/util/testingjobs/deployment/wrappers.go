@@ -113,6 +113,12 @@ func (d *DeploymentWrapper) Replicas(replicas int32) *DeploymentWrapper {
 	return d
 }
 
+// ReadyReplicas updated the readyReplicas of the Deployment
+func (d *DeploymentWrapper) ReadyReplicas(readyReplicas int32) *DeploymentWrapper {
+	d.Status.ReadyReplicas = readyReplicas
+	return d
+}
+
 // PodTemplateSpecLabel sets the label of the pod template spec of the Deployment
 func (d *DeploymentWrapper) PodTemplateSpecLabel(k, v string) *DeploymentWrapper {
 	if d.Spec.Template.Labels == nil {
