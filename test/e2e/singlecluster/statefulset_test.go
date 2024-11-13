@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			})
 		})
 
-		ginkgo.It("should allow to scale up only after scale down to zero", func() {
+		ginkgo.It("should allow to scale up after scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestSleepImage, []string{"10m"}).
 				Request(corev1.ResourceCPU, "100m").

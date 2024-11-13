@@ -72,19 +72,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, namespace, statefulSetName string) error {
 	podList := &corev1.PodList{}
-	err := r.client.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels{
+	if err := r.client.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels{
 		pod.GroupNameLabel: GetWorkloadName(statefulSetName),
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
-
-	err = r.finalizePods(ctx, podList.Items)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return r.finalizePods(ctx, podList.Items)
 }
 
 func (r *Reconciler) finalizePods(ctx context.Context, pods []corev1.Pod) error {
