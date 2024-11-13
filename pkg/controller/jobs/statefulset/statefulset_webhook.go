@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/queue"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type Webhook struct {
@@ -79,13 +80,17 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
 		ss.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
-		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 2)
-		}
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
+			if ss.Spec.Template.Labels == nil {
+				ss.Spec.Template.Labels = make(map[string]string, 2)
+			}
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
+			groupName, err := GetWorkloadName(obj.(*appsv1.StatefulSet))
+			if err != nil {
+				return err
+			}
+			ss.Spec.Template.Labels[pod.GroupNameLabel] = groupName
 			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
@@ -115,7 +120,6 @@ var (
 	labelsPath                = field.NewPath("metadata", "labels")
 	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
 	replicasPath              = field.NewPath("spec", "replicas")
-	groupNameLabelPath        = labelsPath.Key(pod.GroupNameLabel)
 	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
 	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
 )
@@ -135,11 +139,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
 		oldStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
 		podSpecQueueNameLabelPath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.GetLabels()[pod.GroupNameLabel],
-		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
-		groupNameLabelPath,
 	)...)
 
 	oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
@@ -166,7 +165,12 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string) string {
+func GetWorkloadName(sts *appsv1.StatefulSet) (string, error) {
+	hash, err := utilpod.GenerateRoleHash(sts.Spec.Template.Spec)
+	if err != nil {
+		return "", err
+	}
+	ownerName := fmt.Sprintf("%s-%s", sts.Name, hash)
 	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, "", gvk), nil
 }
