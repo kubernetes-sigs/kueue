@@ -14,5 +14,4 @@
 
 FROM alpine:20240807
 
-RUN apk add --no-cache ca-certificates && update-ca-certificates
 RUN apk add --no-cache bash bind-tools
