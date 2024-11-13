@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -27,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -323,6 +326,50 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow to change queue name if ReadyReplicas=0", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(3).
+				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
+				Obj()
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that replicas is not ready", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Update queue name", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Labels[constants.QueueLabel] = localQueueName
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is created", func() {
+				createdWorkload := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			})
 		})
 	})

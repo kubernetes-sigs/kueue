@@ -249,20 +249,22 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"change in queue label": {
-			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue2",
-					},
-				},
-			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue-new").
+				Obj(),
+		},
+		"change in queue label (ReadyReplicas > 0)": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue-new").
+				ReadyReplicas(1).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -270,55 +272,16 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in pod template queue label": {
-			oldObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								constants.QueueLabel: "queue1",
-							},
-						},
-					},
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								constants.QueueLabel: "queue2",
-							},
-						},
-					},
-				},
-			},
+		"delete queue name": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: podSpecQueueNameLabelPath.String(),
-				},
-			}.ToAggregate(),
-		},
-		"change in group name label": {
-			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						pod.GroupNameLabel: "group1",
-					},
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						pod.GroupNameLabel: "group2",
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: groupNameLabelPath.String(),
+					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},

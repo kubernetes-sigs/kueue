@@ -88,6 +88,53 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"statefulset with update revision": {
+			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+				Queue("lq").
+				CurrentRevision("1").
+				UpdateRevision("2").
+				DeepCopy(),
+			wantStatefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
+				Queue("lq").
+				CurrentRevision("1").
+				UpdateRevision("2").
+				DeepCopy(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(pod.SchedulingGateName).
+					KueueFinalizer().
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					KueueFinalizer().
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(pod.SchedulingGateName).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(pod.SchedulingGateName).
+					KueueFinalizer().
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
