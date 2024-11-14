@@ -603,47 +603,37 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, bool, *Status) {
 	var status Status
 	var borrow bool
-	used := a.cq.ResourceNode.Usage[fr]
+
+	available := a.cq.Available(fr)
+	maxCapacity := a.cq.PotentialAvailable(fr)
+
+	// No Fit
+	if val > maxCapacity {
+		status.append(fmt.Sprintf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
+			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity)))
+		return noFit, false, &status
+	}
+
+	// Fit
+	if val <= available {
+		return fit, a.cq.ResourceNode.Usage[fr]+val > rQuota.Nominal, nil
+	}
+
+	// Check if preemption is possible
 	mode := noFit
 	if val <= rQuota.Nominal {
-		// The request can be satisfied by the nominal quota, assuming quota is
-		// reclaimed from the cohort or assuming all active workloads in the
-		// ClusterQueue are preempted.
 		mode = preempt
-	}
-
-	if a.canPreemptWhileBorrowing() {
-		// when preemption with borrowing is enabled, we can succeed to admit the
-		// workload if preemption is used.
-		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= a.cq.PotentialAvailable(fr) {
-			mode = preempt
-			borrow = val > rQuota.Nominal
+		if a.oracle.IsReclaimPossible(log, a.cq, *a.wl, fr, val) {
+			mode = reclaim
 		}
-	}
-	if rQuota.BorrowingLimit != nil && used+val > rQuota.Nominal+*rQuota.BorrowingLimit {
-		status.append(fmt.Sprintf("borrowing limit for %s in flavor %s exceeded", fr.Resource, fr.Flavor))
-		return mode, borrow, &status
-	}
-
-	if a.oracle.IsReclaimPossible(log, a.cq, *a.wl, fr, val) {
-		mode = reclaim
+	} else if a.canPreemptWhileBorrowing() {
+		mode = preempt
+		borrow = true
 	}
 
-	lack := val - a.cq.Available(fr)
-	if lack <= 0 {
-		return fit, used+val > rQuota.Nominal, nil
-	}
+	status.append(fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed",
+		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available)))
 
-	lackQuantity := resources.ResourceQuantity(fr.Resource, lack)
-	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
-	if !a.cq.HasParent() {
-		if mode == noFit {
-			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", fr.Resource, fr.Flavor)
-		} else {
-			msg = fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
-		}
-	}
-	status.append(msg)
 	return mode, borrow, &status
 }
 
