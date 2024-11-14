@@ -4,6 +4,7 @@ metadata:
   name: nginx-deployment
   labels:
     app: nginx
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   replicas: 3
   selector:
@@ -13,13 +14,12 @@ spec:
     metadata:
       labels:
         app: nginx
-        kueue.x-k8s.io/queue-name: user-queue
     spec:
       containers:
         - name: nginx
-          image: nginx:1.14.2
+          image: registry.k8s.io/nginx-slim:0.27
           ports:
             - containerPort: 80
           resources:
             requests:
-              cpu: "3"
+              cpu: "100m"
