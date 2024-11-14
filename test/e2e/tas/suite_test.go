@@ -59,11 +59,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue and JobSet oprators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	ginkgo.GinkgoLogr.Info("Kueue and JobSet operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 
 	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
-	requiredLabelKeys := client.HasLabels{instanceLabel}
+	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
 	err := k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
 

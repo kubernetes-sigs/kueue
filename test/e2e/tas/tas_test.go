@@ -38,7 +38,7 @@ import (
 
 const (
 	instanceType          = "tas-group"
-	instanceLabel         = "cloud.provider.com/node-group"
+	tasNodeGroupLabel     = "cloud.provider.com/node-group"
 	topologyLevelRack     = "cloud.provider.com/topology-rack"
 	topologyLevelBlock    = "cloud.provider.com/topology-block"
 	topologyLevelHostname = "kubernetes.io/hostname"
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
-				NodeLabel(instanceLabel, instanceType).TopologyName(topology.Name).Obj()
+				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			})
 		})
 
-		ginkgo.It("should admit a Job to TAS Block if Rack preffered", func() {
+		ginkgo.It("should admit a Job to TAS Block if Rack preferred", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(localQueue.Name).
 				Parallelism(3).
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			expectJobWithSuspendedAndNodeSelectors(jobKey, false, map[string]string{
-				instanceLabel: instanceType,
+				tasNodeGroupLabel: instanceType,
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			expectJobWithSuspendedAndNodeSelectors(jobKey, false, map[string]string{
-				instanceLabel: instanceType,
+				tasNodeGroupLabel: instanceType,
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
