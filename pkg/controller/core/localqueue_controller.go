@@ -18,9 +18,6 @@ package core
 
 import (
 	"context"
-	"fmt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/kueue/pkg/metrics"
 
 	"github.com/go-logr/logr"
@@ -64,20 +61,13 @@ type LocalQueueReconcilerOptions struct {
 	metricsOptions config.ControllerMetrics
 }
 
-func WithMetricsOptions(metricsOptions config.ControllerMetrics) LocalQueueReconcilerOption {
-	return func(reconcilerOptions *LocalQueueReconcilerOptions) {
-		reconcilerOptions.metricsOptions = metricsOptions
-	}
-}
-
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client         client.Client
-	log            logr.Logger
-	queues         *queue.Manager
-	cache          *cache.Cache
-	wlUpdateCh     chan event.GenericEvent
-	metricsOptions config.ControllerMetrics
+	client     client.Client
+	log        logr.Logger
+	queues     *queue.Manager
+	cache      *cache.Cache
+	wlUpdateCh chan event.GenericEvent
 }
 
 func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, opts ...LocalQueueReconcilerOption) *LocalQueueReconciler {
@@ -87,12 +77,11 @@ func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache 
 	}
 
 	return &LocalQueueReconciler{
-		log:            ctrl.Log.WithName("localqueue-reconciler"),
-		queues:         queues,
-		cache:          cache,
-		client:         client,
-		wlUpdateCh:     make(chan event.GenericEvent, updateChBuffer),
-		metricsOptions: options.metricsOptions,
+		log:        ctrl.Log.WithName("localqueue-reconciler"),
+		queues:     queues,
+		cache:      cache,
+		client:     client,
+		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 
@@ -156,6 +145,7 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 
 	if ptr.Deref(q.Spec.StopPolicy, kueue.None) == kueue.None {
 		ctx := logr.NewContext(context.Background(), log)
+		// TODO: Evaluate if metrics collection can be moved to manager.go instead of having it here.
 		if err := r.queues.AddLocalQueue(ctx, q); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
@@ -165,13 +155,8 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	ctx := logr.NewContext(context.Background(), log)
-	enableMetrics, err := r.shouldCollectMetrics(ctx, q)
-	if err != nil {
-		log.Error(err, "Unable to collect metrics")
-	}
-
-	if enableMetrics {
+	localQueueFromManager := r.queues.GetLocalQueue(q.Name, q.Namespace)
+	if localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics() {
 		recordLocalQueueMetrics(q)
 	}
 
@@ -185,8 +170,15 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 		return true
 	}
 	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(q))
+
 	r.queues.DeleteLocalQueue(q)
 	r.cache.DeleteLocalQueue(q)
+
+	localQueueFromManager := r.queues.GetLocalQueue(q.Name, q.Namespace)
+	if localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics() {
+		clearLocalQueueMetrics(q)
+	}
+
 	return true
 }
 
@@ -220,18 +212,17 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		if err := r.queues.AddLocalQueue(ctx, newLq); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
+		newQueueFromManager := r.queues.GetLocalQueue(newLq.Name, newLq.Namespace)
+		if newQueueFromManager != nil && newQueueFromManager.ShouldCollectMetrics() {
+			recordLocalQueueMetrics(newLq)
+		}
 		return true
 	}
 
 	r.queues.DeleteLocalQueue(oldLq)
-	ctx := logr.NewContext(context.Background(), log)
-	enableMetrics, err := r.shouldCollectMetrics(ctx, newLq)
-	if err != nil {
-		log.Error(err, "Unable to collect metrics")
-	}
-
-	if enableMetrics {
-		recordLocalQueueMetrics(newLq)
+	oldQueueFromManager := r.queues.GetLocalQueue(oldLq.Name, oldLq.Namespace)
+	if oldQueueFromManager != nil && oldQueueFromManager.ShouldCollectMetrics() {
+		clearLocalQueueMetrics(oldLq)
 	}
 
 	return true
@@ -308,6 +299,7 @@ func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workque
 		return
 	}
 	h.addLocalQueueToWorkQueue(ctx, cq, wq)
+
 }
 
 func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -386,40 +378,11 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	return nil
 }
 
-func (r *LocalQueueReconciler) shouldCollectMetrics(ctx context.Context, q *kueue.LocalQueue) (bool, error) {
-	if r.metricsOptions.LocalQueueMetrics == nil || !r.metricsOptions.LocalQueueMetrics.Enable {
-		return false, nil
-	}
-
-	namespaceMatches := true
-	if r.metricsOptions.LocalQueueMetrics.NamespaceSelector != nil {
-		nsSelector, err := metav1.LabelSelectorAsSelector(r.metricsOptions.LocalQueueMetrics.NamespaceSelector)
-		if err != nil {
-			return false, fmt.Errorf("failed to convert namespace label selector: %w", err)
-		}
-
-		namespace := &corev1.Namespace{}
-		if err := r.client.Get(ctx, client.ObjectKey{Name: q.GetNamespace()}, namespace); err != nil {
-			return false, err
-		}
-
-		nsLabels := labels.Set(namespace.Labels)
-		namespaceMatches = nsSelector.Matches(nsLabels)
-	}
-
-	localQueueMatches := true
-	if r.metricsOptions.LocalQueueMetrics.LocalQueueSelector != nil {
-		lqSelector, err := metav1.LabelSelectorAsSelector(r.metricsOptions.LocalQueueMetrics.LocalQueueSelector)
-		if err != nil {
-			return false, fmt.Errorf("failed to convert local queue label selector: %w", err)
-		}
-
-		lqLabels := labels.Set(q.Labels)
-		localQueueMatches = lqSelector.Matches(lqLabels)
-	}
-	return namespaceMatches && localQueueMatches, nil
+// move these to manager.go to be in sync
+func recordLocalQueueMetrics(lq *kueue.LocalQueue) {
+	metrics.ReportLocalPendingWorkloads(lq.Name, lq.Namespace, int(lq.Status.PendingWorkloads))
 }
 
-func recordLocalQueueMetrics(lq *kueue.LocalQueue) {
-	metrics.ReportLocalQueueMetrics(lq.Name, lq.Namespace, int(lq.Status.PendingWorkloads))
+func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
+	metrics.ClearLocalQueueMetrics(lq.Name, lq.Namespace)
 }

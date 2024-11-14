@@ -256,8 +256,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+
 			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
+
+			localQueueFromManager := r.queues.GetLocalQueue(lq.Name, lq.Namespace)
+			lqMetricsEnabled := localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics()
+			if lqMetricsEnabled {
+				metrics.LocalQueueAdmittedWorkload(lq.Name, lq.Namespace, queuedWaitTime)
+				metrics.LocalQueueAdmissionChecksWaitTime(lq.Name, lq.Namespace, quotaReservedWaitTime)
+			}
 		}
 		return ctrl.Result{}, nil
 	}

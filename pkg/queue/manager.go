@@ -290,6 +290,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if qImpl == nil {
 		return
 	}
+
 	cq := m.hm.ClusterQueues[qImpl.ClusterQueue]
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
@@ -640,6 +641,16 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, bool
 		return lq.ClusterQueue, true
 	}
 	return "", false
+}
+
+func (m *Manager) GetLocalQueue(localQueueName string, localQueueNamespace string) *LocalQueue {
+	m.RLock()
+	defer m.RUnlock()
+	localQueueKey := fmt.Sprintf("%s/%s", localQueueName, localQueueNamespace)
+	if lq, ok := m.localQueues[localQueueKey]; ok {
+		return lq
+	}
+	return nil
 }
 
 func QueueKey(namespace, name string) string {

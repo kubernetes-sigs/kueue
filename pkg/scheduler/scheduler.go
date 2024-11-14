@@ -605,17 +605,31 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
+		localQueueFromManager := s.queues.GetLocalQueue(newWorkload.Spec.QueueName, newWorkload.GetNamespace())
+		lqMetricsEnabled := localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics()
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
+			if lqMetricsEnabled {
+				metrics.LocalQuotaReservedWorkload(newWorkload.Spec.QueueName, newWorkload.GetNamespace(), waitTime)
+			}
+
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
+				if lqMetricsEnabled {
+					metrics.LocalQueueAdmittedWorkload(newWorkload.Spec.QueueName, newWorkload.GetNamespace(), waitTime)
+				}
+
 				if len(newWorkload.Status.AdmissionChecks) > 0 {
 					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
+					if lqMetricsEnabled {
+						metrics.LocalQueueAdmissionChecksWaitTime(newWorkload.Spec.QueueName, newWorkload.GetNamespace(), 0)
+					}
 				}
+
 			}
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
