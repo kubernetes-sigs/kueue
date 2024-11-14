@@ -92,6 +92,11 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	}
 }
 
+func ResourceQuantityString(name corev1.ResourceName, v int64) string {
+	rq := ResourceQuantity(name, v)
+	return rq.String()
+}
+
 func (req Requests) CountIn(capacity Requests) int32 {
 	var result *int32
 	for rName, rValue := range req {
