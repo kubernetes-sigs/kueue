@@ -36,12 +36,17 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, []runti
 		return nil, nil, err
 	}
 
+	objectMeta, err := b.buildObjectMeta(template.Template.ObjectMeta, false)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Pod",
 			APIVersion: "v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta, false),
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 

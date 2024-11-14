@@ -37,12 +37,17 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, []runtime.Objec
 		return nil, nil, err
 	}
 
+	objectMeta, err := b.buildObjectMeta(template.Template.ObjectMeta, false)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Job",
 			APIVersion: "batch/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta, false),
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 

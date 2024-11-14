@@ -37,12 +37,17 @@ func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, []runtim
 		return nil, nil, err
 	}
 
+	objectMeta, err := b.buildObjectMeta(template.Template.ObjectMeta, false)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	rayCluster := &rayv1.RayCluster{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "RayCluster",
 			APIVersion: "ray.io/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta, false),
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 

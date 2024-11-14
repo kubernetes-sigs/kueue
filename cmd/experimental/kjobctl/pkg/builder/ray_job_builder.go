@@ -40,12 +40,17 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, []runtime.Ob
 		return nil, nil, err
 	}
 
+	objectMeta, err := b.buildObjectMeta(template.Template.ObjectMeta, false)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	rayJob := &rayv1.RayJob{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "RayJob",
 			APIVersion: "ray.io/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta, false),
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 
