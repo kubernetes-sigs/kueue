@@ -177,9 +177,9 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
-			gatedPodsToDomains := r.assignGatedPodsToDomains(log, &psa, pods)
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods)
 			if len(gatedPodsToDomains) > 0 {
-				toUngate := r.podsToUngateInfo(&psa, gatedPodsToDomains)
+				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
 				allToUngate = append(allToUngate, toUngate...)
 			}
@@ -251,7 +251,28 @@ func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func (r *topologyUngater) podsToUngateInfo(
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
+	var pods corev1.PodList
+	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
+		kueuealpha.PodSetLabel: psName,
+	}, client.MatchingFields{
+		indexer.WorkloadNameKey: wlName,
+	}); err != nil {
+		return nil, err
+	}
+	result := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		if pods.Items[i].Status.Phase == corev1.PodFailed {
+			// ignore failed pods as they need to be replaced, and so we don't
+			// want to count them as already ungated Pods.
+			continue
+		}
+		result = append(result, &pods.Items[i])
+	}
+	return result, nil
+}
+
+func podsToUngateInfo(
 	psa *kueue.PodSetAssignment,
 	podToUngateWithDomain []podWithDomain) []podWithUngateInfo {
 	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
@@ -271,17 +292,15 @@ func (r *topologyUngater) podsToUngateInfo(
 	return toUngate
 }
 
-func (r *topologyUngater) assignGatedPodsToDomains(
+func assignGatedPodsToDomains(
 	log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod) []podWithDomain {
 	levelKeys := psa.TopologyAssignment.Levels
 	gatedPods := make([]*corev1.Pod, 0)
 	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
-	for i := range pods {
-		pod := pods[i]
-		isGated := utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate)
-		if isGated {
+	for _, pod := range pods {
+		if utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) {
 			gatedPods = append(gatedPods, pod)
 		} else {
 			levelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
@@ -314,27 +333,6 @@ func (r *topologyUngater) assignGatedPodsToDomains(
 		}
 	}
 	return toUngate
-}
-
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
-	var pods corev1.PodList
-	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		kueuealpha.PodSetLabel: psName,
-	}, client.MatchingFields{
-		indexer.WorkloadNameKey: wlName,
-	}); err != nil {
-		return nil, err
-	}
-	result := make([]*corev1.Pod, 0, len(pods.Items))
-	for i := range pods.Items {
-		if pods.Items[i].Status.Phase == corev1.PodFailed {
-			// ignore failed pods as they need to be replaced, and so we don't
-			// want to count them as already ungated Pods.
-			continue
-		}
-		result = append(result, &pods.Items[i])
-	}
-	return result, nil
 }
 
 func isAdmittedByTAS(w *kueue.Workload) bool {
