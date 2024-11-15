@@ -262,9 +262,9 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName 
 	}
 	result := make([]*corev1.Pod, 0, len(pods.Items))
 	for i := range pods.Items {
-		if pods.Items[i].Status.Phase == corev1.PodFailed {
-			// ignore failed pods as they need to be replaced, and so we don't
-			// want to count them as already ungated Pods.
+		if phase := pods.Items[i].Status.Phase; phase == corev1.PodFailed || phase == corev1.PodSucceeded {
+			// ignore failed or succeeded pods as they need to be replaced, and
+			// so we don't want to count them as already ungated Pods.
 			continue
 		}
 		result = append(result, &pods.Items[i])
