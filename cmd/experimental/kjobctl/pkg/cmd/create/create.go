@@ -257,7 +257,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
-				" [--parallelism PARALLELISM]" +
+				" [--completions COMPLETIONS]" +
 				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
@@ -303,7 +303,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
 				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
@@ -333,7 +333,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
 				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong

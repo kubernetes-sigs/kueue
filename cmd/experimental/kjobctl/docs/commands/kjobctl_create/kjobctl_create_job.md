@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a job
 
 ```
-kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--parallelism PARALLELISM] [--time TIME_LIMIT]
+kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS] [--time TIME_LIMIT]
 ```
 
 
