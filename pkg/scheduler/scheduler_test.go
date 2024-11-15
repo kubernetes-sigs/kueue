@@ -819,6 +819,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"multiple CQs need preemption": {
+			// legacy mode considers eng-alpha/pending to
+			// be left in queue, rather than inadmissible,
+			// due to legacy overlapping preemption skip
+			// logic. Since we are deleting legacy code in
+			// 0.10, we will disable this test for it,
+			// rather than duplicate it.
+			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -2603,6 +2610,111 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "6").Obj(),
 				"eng-alpha/a2": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "spot", "5").Obj(),
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
+		"workload requiring reclaimation prioritized over wl in another full cq": {
+			// Also see #3405.
+			//
+			// CQ2 is lending out capacity to its
+			// Cohort. It has a pending workload, WL2,
+			// that fits within nominal capacity, and a
+			// reclaim policy set to any.
+
+			// CQ1 is using half of its capacity, and is
+			// also lending out remaining capacity.
+
+			// CQ3 has no capacity of its own, and is
+			// borrowing 10 nominal capacity.
+
+			// With a pending workloads WL1 and WL2 queued
+			// in CQ1 and CQ2 respectively, we want to
+			// make sure that the WL2 is processed first,
+			// so that its preemption calculations are not
+			// invalidated by CQ1's WL1, which won't fit
+			// into its nominal capacity given the
+			// admitted Admitted-Workload-1.
+
+			// As WL1 has an earlier creation timestamp
+			// than WL2, there was a bug where it would
+			// process first, reserving capacity which
+			// invalidated WL2's preemption calculations,
+			// blocking it indefinitely from reclaiming
+			// its nominal capacity.
+			//
+			// We don't test legacy mode as it classifies
+			// inadmissible/left different, and we will
+			// delete that logic shortly.
+			multiplePreemptions: MultiplePremptions,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("CQ1").
+					Cohort("other").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("CQ2").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("CQ3").
+					Cohort("other").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq", "eng-alpha").ClusterQueue("CQ1").Obj(),
+				*utiltesting.MakeLocalQueue("lq", "eng-beta").ClusterQueue("CQ2").Obj(),
+				*utiltesting.MakeLocalQueue("lq", "eng-gamma").ClusterQueue("CQ3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("Admitted-Workload-1", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ1", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("WL1", "eng-alpha").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "10").
+					Obj(),
+				*utiltesting.MakeWorkload("WL2", "eng-beta").
+					Creation(now.Add(time.Second)).
+					Queue("lq").
+					Request("gpu", "10").
+					Obj(),
+				*utiltesting.MakeWorkload("Admitted-Workload-2", "eng-gamma").
+					Queue("lq").
+					Priority(0).
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ3", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("Admitted-Workload-3", "eng-gamma").
+					Queue("lq").
+					Priority(1).
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ3", "on-demand", now).
+					Obj(),
+			},
+			wantPreempted: sets.Set[string](
+				sets.NewString("eng-gamma/Admitted-Workload-2"),
+			),
+			wantLeft: map[string][]string{
+				"CQ2": {"eng-beta/WL2"},
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"CQ1": {"eng-alpha/WL1"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/Admitted-Workload-1": *utiltesting.MakeAdmission("CQ1").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-gamma/Admitted-Workload-2": *utiltesting.MakeAdmission("CQ3").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-gamma/Admitted-Workload-3": *utiltesting.MakeAdmission("CQ3").Assignment("gpu", "on-demand", "5").Obj(),
 			},
 		},
 	}
