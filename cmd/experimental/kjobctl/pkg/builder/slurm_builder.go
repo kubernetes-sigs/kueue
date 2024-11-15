@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	kjobctlConstants "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -217,6 +218,16 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 	job.Spec.Template.Spec.Subdomain = job.Name
+
+	if b.modeName == v1alpha1.SlurmMode {
+		if job.Spec.Template.ObjectMeta.Annotations == nil && b.script != "" {
+			job.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+		}
+
+		if b.script != "" {
+			job.Spec.Template.ObjectMeta.Annotations[kjobctlConstants.ScriptAnnotation] = b.script
+		}
+	}
 
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
 	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,
