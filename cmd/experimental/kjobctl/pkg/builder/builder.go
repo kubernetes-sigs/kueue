@@ -598,7 +598,7 @@ func (b *Builder) withKueueLabels(objectMeta *metav1.ObjectMeta) error {
 			return fmt.Errorf("cannot parse '%s': %w", b.timeLimit, err)
 		}
 
-		if maxExecutionTimeSeconds != nil {
+		if ptr.Deref(maxExecutionTimeSeconds, 0) > 0 {
 			objectMeta.Labels[kueueconstants.MaxExecTimeSecondsLabel] = fmt.Sprint(*maxExecutionTimeSeconds)
 		}
 	}
