@@ -21,6 +21,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -234,3 +235,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		})
 	})
 })
+
+func expectJobWithSuspendedAndNodeSelectors(key types.NamespacedName, suspended bool, ns map[string]string) {
+	job := &batchv1.Job{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(suspended)))
+		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(ns))
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
