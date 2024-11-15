@@ -20,9 +20,12 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -71,6 +74,11 @@ type podWithUngateInfo struct {
 type podWithDomain struct {
 	pod      *corev1.Pod
 	domainID utiltas.TopologyDomainID
+}
+
+type domainWithCount struct {
+	domainID utiltas.TopologyDomainID
+	count    int
 }
 
 var _ reconcile.Reconciler = (*topologyUngater)(nil)
@@ -296,6 +304,67 @@ func assignGatedPodsToDomains(
 	log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod) []podWithDomain {
+	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods); ok {
+		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	}
+	return assignGatedPodsToDomainsGreedy(log, psa, pods)
+}
+
+func assignGatedPodsToDomainsByRanks(
+	psa *kueue.PodSetAssignment,
+	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
+	toUngate := make([]podWithDomain, 0)
+	sortedDomains := sortDomains(psa)
+	totalCount := 0
+	for i := range sortedDomains {
+		totalCount += sortedDomains[i].count
+	}
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalCount)
+	index := 0
+	for _, domain := range sortedDomains {
+		for s := range domain.count {
+			rankToDomainID[index+s] = domain.domainID
+		}
+		index += domain.count
+	}
+	for rank, pod := range rankToGatedPod {
+		toUngate = append(toUngate, podWithDomain{
+			pod:      pod,
+			domainID: rankToDomainID[rank],
+		})
+	}
+	return toUngate
+}
+
+func sortDomains(psa *kueue.PodSetAssignment) []domainWithCount {
+	type sortableDomainWithCount struct {
+		domainWithCount
+		sortName string
+	}
+	sortableDomains := make([]sortableDomainWithCount, len(psa.TopologyAssignment.Domains))
+	for i, domain := range psa.TopologyAssignment.Domains {
+		sortableDomains[i] = sortableDomainWithCount{
+			sortName: strings.Join(domain.Values, ","),
+			domainWithCount: domainWithCount{
+				domainID: utiltas.DomainID(domain.Values),
+				count:    int(domain.Count),
+			},
+		}
+	}
+	slices.SortFunc(sortableDomains, func(a, b sortableDomainWithCount) int {
+		return strings.Compare(a.sortName, b.sortName)
+	})
+	result := make([]domainWithCount, len(sortableDomains))
+	for i, domain := range sortableDomains {
+		result[i] = domain.domainWithCount
+	}
+	return result
+}
+
+func assignGatedPodsToDomainsGreedy(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod) []podWithDomain {
 	levelKeys := psa.TopologyAssignment.Levels
 	gatedPods := make([]*corev1.Pod, 0)
 	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
@@ -333,6 +402,41 @@ func assignGatedPodsToDomains(
 		}
 	}
 	return toUngate
+}
+
+func readRanksIfAvailable(log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod) (map[int]*corev1.Pod, bool) {
+	result := make(map[int]*corev1.Pod, 0)
+	for _, pod := range pods {
+		rank := readIntFromLabel(log, pod, batchv1.JobCompletionIndexAnnotation, int(*psa.Count))
+		if rank == nil {
+			// the Pod has no rank information - ranks cannot be used
+			return nil, false
+		}
+		if _, found := result[*rank]; found {
+			// there is a conflict in ranks, they cannot be used
+			return nil, false
+		}
+		result[*rank] = pod
+	}
+	return result, true
+}
+
+func readIntFromLabel(log logr.Logger, pod *corev1.Pod, labelKey string, count int) *int {
+	v, found := pod.Labels[labelKey]
+	if !found {
+		return nil
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		log.Error(err, "failed to parse index annotation", "value", v)
+		return nil
+	}
+	if i >= count {
+		return nil
+	}
+	return ptr.To(i)
 }
 
 func isAdmittedByTAS(w *kueue.Workload) bool {
