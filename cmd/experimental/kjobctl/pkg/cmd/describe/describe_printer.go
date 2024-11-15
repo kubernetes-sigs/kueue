@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	describehelper "k8s.io/kubectl/pkg/describe"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
@@ -87,6 +86,7 @@ func describeJob(job *batchv1.Job) (string, error) {
 		w.Write(IndentLevelZero, "Name:\t%s\n", job.Name)
 		w.Write(IndentLevelZero, "Namespace:\t%s\n", job.Namespace)
 		printLabelsMultiline(w, "Labels", job.Labels)
+		printLabelsMultiline(w, "Annotations", job.Annotations)
 		if job.Spec.Parallelism != nil {
 			w.Write(IndentLevelZero, "Parallelism:\t%d\n", *job.Spec.Parallelism)
 		}
@@ -108,10 +108,6 @@ func describeJob(job *batchv1.Job) (string, error) {
 			w.Write(IndentLevelZero, "Pods Statuses:\t%d Active / %d Succeeded / %d Failed\n", job.Status.Active, job.Status.Succeeded, job.Status.Failed)
 		} else {
 			w.Write(IndentLevelZero, "Pods Statuses:\t%d Active (%d Ready) / %d Succeeded / %d Failed\n", job.Status.Active, *job.Status.Ready, job.Status.Succeeded, job.Status.Failed)
-		}
-
-		if path, ok := job.Annotations[constants.ScriptAnnotation]; ok {
-			w.Write(IndentLevelZero, "ScriptPath:\t%s\n", path)
 		}
 
 		describePodTemplate(&job.Spec.Template, w)

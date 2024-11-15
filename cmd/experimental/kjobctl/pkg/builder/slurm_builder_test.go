@@ -332,12 +332,10 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 			opts = append(defaultCmpOpts, tc.cmpopts...)
 
 			if job, ok := tc.wantRootObj.(*batchv1.Job); ok {
-				if job.Spec.Template.Annotations == nil {
-					job.Spec.Template.Annotations = make(map[string]string)
+				if job.Annotations == nil {
+					job.Annotations = make(map[string]string, 1)
 				}
-				if tc.tempFile != "" {
-					job.Spec.Template.Annotations[constants.ScriptAnnotation] = tc.tempFile
-				}
+				job.Annotations[constants.ScriptAnnotation] = tc.tempFile
 			}
 
 			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
