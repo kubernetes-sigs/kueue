@@ -35,8 +35,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 const (
 	resourceGPU corev1.ResourceName = "example.com/gpu"
 

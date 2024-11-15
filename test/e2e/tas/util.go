@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
 func expectJobWithSuspendedAndNodeSelectors(key types.NamespacedName, suspended bool, ns map[string]string) {
 	job := &batchv1.Job{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

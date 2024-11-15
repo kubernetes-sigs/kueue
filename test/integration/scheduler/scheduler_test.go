@@ -40,8 +40,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("Scheduler", func() {
 	const (
 		instanceKey = "cloud.provider.com/instance"

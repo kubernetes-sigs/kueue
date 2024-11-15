@@ -35,8 +35,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
 var ignoreInClusterQueueStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus", "FlavorsUsage", "AdmittedWorkloads")
 

@@ -49,8 +49,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("MultiKueue", func() {
 	var (
 		managerNs *corev1.Namespace
