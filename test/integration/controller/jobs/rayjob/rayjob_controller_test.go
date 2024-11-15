@@ -48,8 +48,6 @@ const (
 	priorityValue     int32 = 10
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 func setInitStatus(name, namespace string) {
 	createdJob := &rayv1.RayJob{}
 	nsName := types.NamespacedName{Name: name, Namespace: namespace}

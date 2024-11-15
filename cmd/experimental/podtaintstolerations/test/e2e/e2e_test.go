@@ -37,8 +37,6 @@ import (
 	testingpod "podtaintstolerations/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("Kueue Pod-Taints-Tolerations Controller", func() {
 	var ns *corev1.Namespace
 	var samplePod *corev1.Pod

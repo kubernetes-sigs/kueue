@@ -48,8 +48,6 @@ const (
 	defaultRequeuingTimestamp = config.EvictionTimestamp
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	var (
 		// Values changed by tests (and reset after each):
