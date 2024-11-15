@@ -1799,9 +1799,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			// pendingWl exceed nominal+borrowing quota and cannot preempt due to low priority.
+			// pendingWl exceed nominal+borrowing quota and cannot preempt as priority based
+			// premption within CQ is disabled.
 			pendingWl := testing.MakeWorkload("pending-wl", matchingNS.Name).Queue(strictFIFOLocalQueue.
-				Name).Request(corev1.ResourceCPU, "3").Priority(9).Obj()
+				Name).Request(corev1.ResourceCPU, "3").Priority(99).Obj()
 			gomega.Expect(k8sClient.Create(ctx, pendingWl)).Should(gomega.Succeed())
 
 			// borrowingWL can borrow shared resources, so it should be scheduled even if workloads
