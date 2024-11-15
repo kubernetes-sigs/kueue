@@ -379,6 +379,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Borrowing: true,
 				Usage: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
@@ -885,6 +886,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Borrowing: true,
 				Usage: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
 				},
@@ -963,6 +965,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Borrowing: true,
 				Usage: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
 				},
@@ -1824,6 +1827,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Borrowing: true,
 				Usage: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
