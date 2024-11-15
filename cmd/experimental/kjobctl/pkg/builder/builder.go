@@ -599,7 +599,7 @@ func (b *Builder) withKueueLabels(objectMeta *metav1.ObjectMeta) error {
 		}
 
 		if maxExecutionTimeSeconds != nil {
-			objectMeta.Labels[kueueconstants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(maxExecutionTimeSeconds, 0))
+			objectMeta.Labels[kueueconstants.MaxExecTimeSecondsLabel] = fmt.Sprint(*maxExecutionTimeSeconds)
 		}
 	}
 
