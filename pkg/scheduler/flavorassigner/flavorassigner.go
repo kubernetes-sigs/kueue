@@ -602,8 +602,8 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // could help), it returns a Status with reasons.
 func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, bool, *Status) {
 	var status Status
-	var borrow bool
 
+	borrow := a.cq.BorrowingWith(fr, val) && a.cq.HasParent()
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
 
@@ -616,7 +616,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// Fit
 	if val <= available {
-		return fit, a.cq.ResourceNode.Usage[fr]+val > rQuota.Nominal, nil
+		return fit, borrow, nil
 	}
 
 	// Check if preemption is possible
@@ -628,7 +628,6 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		}
 	} else if a.canPreemptWhileBorrowing() {
 		mode = preempt
-		borrow = true
 	}
 
 	status.append(fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed",
