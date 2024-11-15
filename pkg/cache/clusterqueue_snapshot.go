@@ -87,6 +87,20 @@ func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
 	return max(0, capacityAvailable)
 }
 
+func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) int64 {
+	if c.Cohort == nil {
+		return c.nominal(fr)
+	}
+	potential := c.RequestableCohortQuota(fr)
+
+	// if the borrowing limit exists, we cap our potential capacity by the borrowing limit.
+	if borrowingLimit := c.borrowingLimit(fr); borrowingLimit != nil {
+		withBorrowingRemaining := c.nominal(fr) + *borrowingLimit
+		potential = min(potential, withBorrowingRemaining)
+	}
+	return max(0, potential)
+}
+
 func (c *ClusterQueueSnapshot) nominal(fr resources.FlavorResource) int64 {
 	if quota := c.QuotaFor(fr); quota != nil {
 		return quota.Nominal

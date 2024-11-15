@@ -67,3 +67,7 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
 }
+func ResourceQuantityString(name corev1.ResourceName, v int64) string {
+	rq := ResourceQuantity(name, v)
+	return rq.String()
+}
