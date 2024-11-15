@@ -68,6 +68,11 @@ type podWithUngateInfo struct {
 	nodeLabels map[string]string
 }
 
+type podWithDomain struct {
+	pod      *corev1.Pod
+	domainID utiltas.TopologyDomainID
+}
+
 var _ reconcile.Reconciler = (*topologyUngater)(nil)
 var _ predicate.Predicate = (*topologyUngater)(nil)
 
@@ -113,6 +118,9 @@ func (h *podHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueu
 	h.queueReconcileForPod(ctx, e.Object, true, q)
 }
 
+func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
 func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Object, deleted bool, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := object.(*corev1.Pod)
 	if !isPod {
@@ -135,9 +143,6 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 		}
 		q.AddAfter(reconcile.Request{NamespacedName: key}, ungateBatchPeriod)
 	}
-}
-
-func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -167,11 +172,14 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	allToUngate := make([]podWithUngateInfo, 0)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			toUngate, err := r.podsetPodsToUngate(ctx, log, wl, &psa)
+			pods, err := r.podsForPodSet(ctx, wl.Namespace, wl.Name, psa.Name)
 			if err != nil {
-				log.Error(err, "failed to identify pods to ungate", "podset", psa.Name, "count", psa.Count)
+				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
-			} else if len(toUngate) > 0 {
+			}
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods)
+			if len(gatedPodsToDomains) > 0 {
+				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
 				allToUngate = append(allToUngate, toUngate...)
 			}
@@ -243,71 +251,7 @@ func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func isAdmittedByTAS(w *kueue.Workload) bool {
-	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
-		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
-			func(psa kueue.PodSetAssignment) bool {
-				return psa.TopologyAssignment != nil
-			})
-}
-
-func (r *topologyUngater) podsetPodsToUngate(ctx context.Context, log logr.Logger, wl *kueue.Workload, psa *kueue.PodSetAssignment) ([]podWithUngateInfo, error) {
-	levelKeys := psa.TopologyAssignment.Levels
-	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
-	domainIDToExpectedCount := make(map[utiltas.TopologyDomainID]int32)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
-		domainID := utiltas.DomainID(psaDomain.Values)
-		domainIDToExpectedCount[domainID] = psaDomain.Count
-		domainIDToLabelValues[domainID] = psaDomain.Values
-	}
-	pods, err := r.podsForDomain(ctx, wl.Namespace, wl.Name, psa.Name)
-	if err != nil {
-		return nil, err
-	}
-	gatedPods := make([]*corev1.Pod, 0)
-	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
-	for i := range pods {
-		pod := pods[i]
-		isGated := utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate)
-		if isGated {
-			gatedPods = append(gatedPods, pod)
-		} else {
-			levelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
-			domainID := utiltas.DomainID(levelValues)
-			domainIDToUngatedCnt[domainID]++
-		}
-	}
-	log.V(3).Info("searching pods to ungate",
-		"podSetName", psa.Name,
-		"podSetCount", psa.Count,
-		"domainIDToUngatedCount", domainIDToUngatedCnt,
-		"domainIDToLabelValues", domainIDToLabelValues,
-		"levelKeys", levelKeys)
-	toUngate := make([]podWithUngateInfo, 0)
-	for domainID, expectedInDomainCnt := range domainIDToExpectedCount {
-		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
-		remainingUngatedInDomain := max(expectedInDomainCnt-ungatedInDomainCnt, 0)
-		if remainingUngatedInDomain > 0 {
-			domainValues := domainIDToLabelValues[domainID]
-
-			nodeLabels := utiltas.NodeLabelsFromKeysAndValues(levelKeys, domainValues)
-			remainingGatedCnt := int32(max(len(gatedPods)-len(toUngate), 0))
-			toUngateCnt := min(remainingUngatedInDomain, remainingGatedCnt)
-			if toUngateCnt > 0 {
-				podsToUngateInDomain := gatedPods[len(toUngate) : int32(len(toUngate))+toUngateCnt]
-				for i := range podsToUngateInDomain {
-					toUngate = append(toUngate, podWithUngateInfo{
-						pod:        podsToUngateInDomain[i],
-						nodeLabels: nodeLabels,
-					})
-				}
-			}
-		}
-	}
-	return toUngate, nil
-}
-
-func (r *topologyUngater) podsForDomain(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
 		kueuealpha.PodSetLabel: psName,
@@ -326,4 +270,75 @@ func (r *topologyUngater) podsForDomain(ctx context.Context, ns, wlName, psName 
 		result = append(result, &pods.Items[i])
 	}
 	return result, nil
+}
+
+func podsToUngateInfo(
+	psa *kueue.PodSetAssignment,
+	podToUngateWithDomain []podWithDomain) []podWithUngateInfo {
+	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
+	for _, psaDomain := range psa.TopologyAssignment.Domains {
+		domainID := utiltas.DomainID(psaDomain.Values)
+		domainIDToLabelValues[domainID] = psaDomain.Values
+	}
+	toUngate := make([]podWithUngateInfo, len(podToUngateWithDomain))
+	for i, pd := range podToUngateWithDomain {
+		domainValues := domainIDToLabelValues[pd.domainID]
+		nodeLabels := utiltas.NodeLabelsFromKeysAndValues(psa.TopologyAssignment.Levels, domainValues)
+		toUngate[i] = podWithUngateInfo{
+			pod:        pd.pod,
+			nodeLabels: nodeLabels,
+		}
+	}
+	return toUngate
+}
+
+func assignGatedPodsToDomains(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod) []podWithDomain {
+	levelKeys := psa.TopologyAssignment.Levels
+	gatedPods := make([]*corev1.Pod, 0)
+	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
+	for _, pod := range pods {
+		if utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) {
+			gatedPods = append(gatedPods, pod)
+		} else {
+			levelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
+			domainID := utiltas.DomainID(levelValues)
+			domainIDToUngatedCnt[domainID]++
+		}
+	}
+	log.V(3).Info("searching pods to ungate",
+		"podSetName", psa.Name,
+		"podSetCount", psa.Count,
+		"domainIDToUngatedCount", domainIDToUngatedCnt,
+		"levelKeys", levelKeys)
+	toUngate := make([]podWithDomain, 0)
+	for _, psaDomain := range psa.TopologyAssignment.Domains {
+		domainID := utiltas.DomainID(psaDomain.Values)
+		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
+		remainingUngatedInDomain := max(psaDomain.Count-ungatedInDomainCnt, 0)
+		if remainingUngatedInDomain > 0 {
+			remainingGatedCnt := int32(max(len(gatedPods)-len(toUngate), 0))
+			toUngateCnt := min(remainingUngatedInDomain, remainingGatedCnt)
+			if toUngateCnt > 0 {
+				podsToUngateInDomain := gatedPods[len(toUngate) : int32(len(toUngate))+toUngateCnt]
+				for i := range podsToUngateInDomain {
+					toUngate = append(toUngate, podWithDomain{
+						pod:      podsToUngateInDomain[i],
+						domainID: domainID,
+					})
+				}
+			}
+		}
+	}
+	return toUngate
+}
+
+func isAdmittedByTAS(w *kueue.Workload) bool {
+	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
+		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+			func(psa kueue.PodSetAssignment) bool {
+				return psa.TopologyAssignment != nil
+			})
 }
