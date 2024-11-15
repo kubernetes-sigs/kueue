@@ -260,6 +260,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
 
+			// CURR TODO: check if local queue metricsare enabled
+			metrics.LocalQueueAdmittedWorkload(wl.Spec.QueueName, wl.GetNamespace(), queuedWaitTime)
+			metrics.LocalQueueAdmissionChecksWaitTime(wl.Spec.QueueName, wl.GetNamespace(), quotaReservedWaitTime)
+
 			localQueueFromManager := r.queues.GetLocalQueue(lq.Name, lq.Namespace)
 			lqMetricsEnabled := localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics()
 			if lqMetricsEnabled {

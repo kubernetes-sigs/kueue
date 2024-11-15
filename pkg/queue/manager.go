@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"sync"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -602,8 +604,9 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 
 	for _, localQueue := range m.localQueues {
-		if localQueue.ShouldCollectMetrics() {
-
+		if localQueue.ShouldCollectMetrics() && localQueue.ClusterQueue == cqName {
+			lqKeySlice := strings.Split(localQueue.Key, "/")
+			metrics.ReportLocalPendingWorkloads(lqKeySlice[1], lqKeySlice[0], active, inadmissible)
 		}
 	}
 }

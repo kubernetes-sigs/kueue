@@ -374,6 +374,7 @@ func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
 	recordResourceMetrics(newCq)
 }
 
+// CURR TODO: do I need to add a function like this?
 func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 	for rgi := range oldCq.Spec.ResourceGroups {
 		oldRG := &oldCq.Spec.ResourceGroups[rgi]

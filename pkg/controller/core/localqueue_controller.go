@@ -18,7 +18,9 @@ package core
 
 import (
 	"context"
+
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -157,7 +159,7 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 
 	localQueueFromManager := r.queues.GetLocalQueue(q.Name, q.Namespace)
 	if localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics() {
-		recordLocalQueueMetrics(q)
+		recordLQResourceMetrics(q)
 	}
 
 	return true
@@ -214,7 +216,7 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		}
 		newQueueFromManager := r.queues.GetLocalQueue(newLq.Name, newLq.Namespace)
 		if newQueueFromManager != nil && newQueueFromManager.ShouldCollectMetrics() {
-			recordLocalQueueMetrics(newLq)
+			// CURR TODO: do metrics need to be collected here?
 		}
 		return true
 	}
@@ -222,10 +224,27 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	r.queues.DeleteLocalQueue(oldLq)
 	oldQueueFromManager := r.queues.GetLocalQueue(oldLq.Name, oldLq.Namespace)
 	if oldQueueFromManager != nil && oldQueueFromManager.ShouldCollectMetrics() {
-		clearLocalQueueMetrics(oldLq)
+		updateLQResourceMetrics(oldLq, newLq)
 	}
 
 	return true
+}
+
+func recordLQResourceMetrics(lq *kueue.LocalQueue) {
+	for fui := range lq.Status.FlavorUsage {
+		fu := &lq.Status.FlavorUsage[fui]
+		for ri := range fu.Resources {
+			r := &fu.Resources[ri]
+			metrics.ReportLocalQueueResourceUsage(lq.Name, lq.Namespace, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+		}
+	}
+}
+
+// CURR TODO: find where similar function called in CQ controller
+func updateLQResourceMetrics(oldLq, newLq *kueue.LocalQueue) {
+	// if the cohort changed, drop all the old metrics
+	metrics.ClearLocalQueueResourceMetrics(oldLq.Name, oldLq.Namespace)
+	recordLQResourceMetrics(newLq)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.GenericEvent) bool {
@@ -376,11 +395,6 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		return r.client.Status().Update(ctx, queue)
 	}
 	return nil
-}
-
-// move these to manager.go to be in sync
-func recordLocalQueueMetrics(lq *kueue.LocalQueue) {
-	metrics.ReportLocalPendingWorkloads(lq.Name, lq.Namespace, int(lq.Status.PendingWorkloads))
 }
 
 func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
