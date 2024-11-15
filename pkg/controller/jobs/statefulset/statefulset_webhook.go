@@ -53,7 +53,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-apps-v1-statefulset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create,versions=v1,name=mstatefulset.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-apps-v1-statefulset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create;update,versions=v1,name=mstatefulset.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &Webhook{}
 
@@ -92,13 +92,12 @@ func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings adm
 }
 
 var (
-	statefulsetLabelsPath         = field.NewPath("metadata", "labels")
-	statefulsetQueueNameLabelPath = statefulsetLabelsPath.Key(constants.QueueLabel)
-	statefulsetReplicasPath       = field.NewPath("spec", "replicas")
-	statefulsetGroupNameLabelPath = statefulsetLabelsPath.Key(pod.GroupNameLabel)
-
-	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
-					Key(constants.QueueLabel)
+	labelsPath                = field.NewPath("metadata", "labels")
+	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
+	replicasPath              = field.NewPath("spec", "replicas")
+	groupNameLabelPath        = labelsPath.Key(pod.GroupNameLabel)
+	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
+	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -107,10 +106,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Validating update")
+
 	allErrs := apivalidation.ValidateImmutableField(
 		newStatefulSet.GetLabels()[constants.QueueLabel],
 		oldStatefulSet.GetLabels()[constants.QueueLabel],
-		statefulsetQueueNameLabelPath,
+		queueNameLabelPath,
 	)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
@@ -120,15 +120,25 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newStatefulSet.GetLabels()[pod.GroupNameLabel],
 		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
-		statefulsetGroupNameLabelPath,
+		groupNameLabelPath,
 	)...)
 
-	// TODO(#3279): support resizes later
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.Spec.Replicas,
-		oldStatefulSet.Spec.Replicas,
-		statefulsetReplicasPath,
-	)...)
+	oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
+	newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
+
+	// Allow only scale down to zero and scale up from zero.
+	// TODO(#3279): Support custom resizes later
+	if newReplicas != 0 && oldReplicas != 0 {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+			newStatefulSet.Spec.Replicas,
+			oldStatefulSet.Spec.Replicas,
+			replicasPath,
+		)...)
+	}
+
+	if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
+		allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+	}
 
 	return warnings, allErrs.ToAggregate()
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -98,6 +99,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 		return err
 	}
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
