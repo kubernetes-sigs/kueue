@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
-						Message: "couldn't assign flavors to pod set main: insufficient unused quota in cohort for cpu in flavor default, 2 more needed",
+						Message: "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor default, request > maximum capacity (10 > 8)",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
