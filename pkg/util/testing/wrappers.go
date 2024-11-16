@@ -1275,3 +1275,17 @@ func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 
 	return c
 }
+
+// ProvisioningRequestConfigWrapper wraps a ProvisioningRequestConfig
+type ProvisioningRequestConfigWrapper struct {
+	kueue.ProvisioningRequestConfig
+}
+
+// MakeProvisioningRequestConfig creates a wrapper for a ProvisioningRequestConfig.
+func MakeProvisioningRequestConfig(name string) *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{kueue.ProvisioningRequestConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
