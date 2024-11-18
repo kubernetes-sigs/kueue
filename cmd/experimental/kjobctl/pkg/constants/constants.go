@@ -19,7 +19,7 @@ package constants
 const (
 	ProfileLabel     = "kjobctl.x-k8s.io/profile"
 	ModeLabel        = "kjobctl.x-k8s.io/mode"
-	ScriptAnnotation = "kjobctl.x-k8s.io/slurm-script"
+	ScriptAnnotation = "kjobctl.x-k8s.io/script"
 )
 
 const (

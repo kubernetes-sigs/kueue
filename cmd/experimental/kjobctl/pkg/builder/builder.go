@@ -34,7 +34,6 @@ import (
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	kjobctlconstants "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -552,13 +551,6 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta, strictNa
 	b.withKjobLabels(&objectMeta)
 	if err := b.withKueueLabels(&objectMeta); err != nil {
 		return metav1.ObjectMeta{}, err
-	}
-
-	if b.script != "" {
-		if objectMeta.Annotations == nil {
-			objectMeta.Annotations = make(map[string]string, 1)
-		}
-		objectMeta.Annotations[kjobctlconstants.ScriptAnnotation] = b.script
 	}
 
 	return objectMeta, nil

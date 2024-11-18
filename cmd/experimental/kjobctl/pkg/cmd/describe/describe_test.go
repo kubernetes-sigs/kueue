@@ -80,7 +80,7 @@ func TestDescribeCmd(t *testing.T) {
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
-Annotations:    kjobctl.x-k8s.io/slurm-script=test.sh
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -210,7 +210,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
-Annotations:    kjobctl.x-k8s.io/slurm-script=test.sh
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -352,7 +352,7 @@ BinaryData
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
-Annotations:    kjobctl.x-k8s.io/slurm-script=test.sh
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -394,7 +394,7 @@ Pod Template:
 			wantOut: `Name:           sample-job-5zd6r
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
-Annotations:    kjobctl.x-k8s.io/slurm-script=test.sh
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -422,7 +422,7 @@ Pod Template:
 Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
-Annotations:    kjobctl.x-k8s.io/slurm-script=test.sh
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
