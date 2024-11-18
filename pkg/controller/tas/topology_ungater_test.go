@@ -1202,6 +1202,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			cmpNS: false,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").

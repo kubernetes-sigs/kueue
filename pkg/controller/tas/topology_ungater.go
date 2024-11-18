@@ -337,28 +337,17 @@ func assignGatedPodsToDomainsByRanks(
 }
 
 func sortDomains(psa *kueue.PodSetAssignment) []domainWithCount {
-	type sortableDomainWithCount struct {
-		domainWithCount
-		sortName string
-	}
-	sortableDomains := make([]sortableDomainWithCount, len(psa.TopologyAssignment.Domains))
+	sortableDomains := make([]domainWithCount, len(psa.TopologyAssignment.Domains))
 	for i, domain := range psa.TopologyAssignment.Domains {
-		sortableDomains[i] = sortableDomainWithCount{
-			sortName: strings.Join(domain.Values, ","),
-			domainWithCount: domainWithCount{
-				domainID: utiltas.DomainID(domain.Values),
-				count:    int(domain.Count),
-			},
+		sortableDomains[i] = domainWithCount{
+			domainID: utiltas.DomainID(domain.Values),
+			count:    int(domain.Count),
 		}
 	}
-	slices.SortFunc(sortableDomains, func(a, b sortableDomainWithCount) int {
-		return strings.Compare(a.sortName, b.sortName)
+	slices.SortFunc(sortableDomains, func(a, b domainWithCount) int {
+		return strings.Compare(string(a.domainID), string(b.domainID))
 	})
-	result := make([]domainWithCount, len(sortableDomains))
-	for i, domain := range sortableDomains {
-		result[i] = domain.domainWithCount
-	}
-	return result
+	return sortableDomains
 }
 
 func assignGatedPodsToDomainsGreedy(
@@ -408,8 +397,9 @@ func readRanksIfAvailable(log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod) (map[int]*corev1.Pod, bool) {
 	result := make(map[int]*corev1.Pod, 0)
+	count := int(*psa.Count)
 	for _, pod := range pods {
-		rank := readIntFromLabel(log, pod, batchv1.JobCompletionIndexAnnotation, int(*psa.Count))
+		rank := readIntFromLabel(log, pod, batchv1.JobCompletionIndexAnnotation)
 		if rank == nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, false
@@ -418,12 +408,17 @@ func readRanksIfAvailable(log logr.Logger,
 			// there is a conflict in ranks, they cannot be used
 			return nil, false
 		}
+		if *rank >= count {
+			// the rank exceeds parallelism, this scenario is not supported by
+			// the rank-based ordering of pods.
+			return nil, false
+		}
 		result[*rank] = pod
 	}
 	return result, true
 }
 
-func readIntFromLabel(log logr.Logger, pod *corev1.Pod, labelKey string, count int) *int {
+func readIntFromLabel(log logr.Logger, pod *corev1.Pod, labelKey string) *int {
 	v, found := pod.Labels[labelKey]
 	if !found {
 		return nil
@@ -431,9 +426,6 @@ func readIntFromLabel(log logr.Logger, pod *corev1.Pod, labelKey string, count i
 	i, err := strconv.Atoi(v)
 	if err != nil {
 		log.Error(err, "failed to parse index annotation", "value", v)
-		return nil
-	}
-	if i >= count {
 		return nil
 	}
 	return ptr.To(i)
