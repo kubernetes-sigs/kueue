@@ -130,7 +130,7 @@ type SupportedMode struct {
 	//
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:MaxItems=13
+	// +kubebuilder:validation:MaxItems=14
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 
