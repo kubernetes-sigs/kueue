@@ -34,7 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
@@ -81,14 +80,13 @@ var (
 type slurmBuilder struct {
 	*Builder
 
-	scriptContent           string
-	template                *template.Template
-	arrayIndexes            parser.ArrayIndexes
-	cpusOnNode              *resource.Quantity
-	cpusPerGpu              *resource.Quantity
-	totalMemPerNode         *resource.Quantity
-	totalGpus               *resource.Quantity
-	maxExecutionTimeSeconds *int32
+	scriptContent   string
+	template        *template.Template
+	arrayIndexes    parser.ArrayIndexes
+	cpusOnNode      *resource.Quantity
+	cpusPerGpu      *resource.Quantity
+	totalMemPerNode *resource.Quantity
+	totalGpus       *resource.Quantity
 }
 
 var _ builder = (*slurmBuilder)(nil)
@@ -146,13 +144,6 @@ func (b *slurmBuilder) complete() error {
 		}
 	}
 
-	if b.timeLimit != "" {
-		b.maxExecutionTimeSeconds, err = parser.TimeLimitToSeconds(b.timeLimit)
-		if err != nil {
-			return fmt.Errorf("cannot parse '%s': %w", b.timeLimit, err)
-		}
-	}
-
 	return nil
 }
 
@@ -186,14 +177,6 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	return nil
 }
 
-func (b *slurmBuilder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
-	objectMeta := b.Builder.buildObjectMeta(templateObjectMeta, true)
-	if b.maxExecutionTimeSeconds != nil {
-		objectMeta.Labels[constants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(b.maxExecutionTimeSeconds, 0))
-	}
-	return objectMeta
-}
-
 func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
 	if err := b.validateGeneral(); err != nil {
 		return nil, nil, err
@@ -209,9 +192,14 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		return nil, nil, err
 	}
 
+	objectMeta, err := b.buildObjectMeta(template.Template.ObjectMeta, true)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	job := &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 

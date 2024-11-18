@@ -14,7 +14,7 @@ Create a raycluster.
  KubeRay operator is required for RayCluster. How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
-kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS] [--time TIME_LIMIT]
 ```
 
 
@@ -164,6 +164,19 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-t, --time string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Set a limit on the total run time of the job. 
+A time limit of zero requests that no time limit be imposed. 
+Acceptable time formats include &#34;minutes&#34;, &#34;minutes:seconds&#34;, 
+&#34;hours:minutes:seconds&#34;, &#34;days-hours&#34;, &#34;days-hours:minutes&#34; 
+and &#34;days-hours:minutes:seconds&#34;.</p>
         </td>
     </tr>
     </tbody>

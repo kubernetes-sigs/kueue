@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
 var (
@@ -534,7 +535,7 @@ func (b *Builder) setClients() error {
 	return nil
 }
 
-func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta, strictNaming bool) metav1.ObjectMeta {
+func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta, strictNaming bool) (metav1.ObjectMeta, error) {
 	objectMeta := metav1.ObjectMeta{
 		Namespace:   b.profile.Namespace,
 		Labels:      templateObjectMeta.Labels,
@@ -548,9 +549,11 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta, strictNa
 	}
 
 	b.withKjobLabels(&objectMeta)
-	b.withKueueLabels(&objectMeta)
+	if err := b.withKueueLabels(&objectMeta); err != nil {
+		return metav1.ObjectMeta{}, err
+	}
 
-	return objectMeta
+	return objectMeta, nil
 }
 
 func (b *Builder) buildChildObjectMeta(name string) metav1.ObjectMeta {
@@ -576,7 +579,7 @@ func (b *Builder) withKjobLabels(objectMeta *metav1.ObjectMeta) {
 	}
 }
 
-func (b *Builder) withKueueLabels(objectMeta *metav1.ObjectMeta) {
+func (b *Builder) withKueueLabels(objectMeta *metav1.ObjectMeta) error {
 	if objectMeta.Labels == nil {
 		objectMeta.Labels = map[string]string{}
 	}
@@ -588,6 +591,19 @@ func (b *Builder) withKueueLabels(objectMeta *metav1.ObjectMeta) {
 	if len(b.priority) != 0 {
 		objectMeta.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
 	}
+
+	if b.timeLimit != "" {
+		maxExecutionTimeSeconds, err := parser.TimeLimitToSeconds(b.timeLimit)
+		if err != nil {
+			return fmt.Errorf("cannot parse '%s': %w", b.timeLimit, err)
+		}
+
+		if ptr.Deref(maxExecutionTimeSeconds, 0) > 0 {
+			objectMeta.Labels[kueueconstants.MaxExecTimeSecondsLabel] = fmt.Sprint(*maxExecutionTimeSeconds)
+		}
+	}
+
+	return nil
 }
 
 func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
