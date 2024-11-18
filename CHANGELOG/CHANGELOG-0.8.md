@@ -1,3 +1,14 @@
+## v0.8.4
+
+Changes since `v0.8.3`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Change, and in some scenarios fix, the status message displayed to user when a workload doesn't fit in available capacity (#3551, @gabesaba)
+- Determine borrowing more accurately, allowing preempting workloads which fit in nominal quota to schedule faster (#3551, @gabesaba)
+
 ## v0.8.3
 
 Changes since `v0.8.2`:
