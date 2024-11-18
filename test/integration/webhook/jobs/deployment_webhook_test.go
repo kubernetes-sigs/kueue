@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("should not allow to change the queue name", func() {
+		ginkgo.It("should not allow to introduce the queue name, as it was not existent", func() {
 			createdDeployment := &appsv1.Deployment{}
 
 			ginkgo.By("Change queue name", func() {
