@@ -53,8 +53,7 @@ func TestDefault(t *testing.T) {
 			cli := builder.Build()
 
 			w := &Webhook{
-				client:                     cli,
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+				client: cli,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
