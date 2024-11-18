@@ -158,7 +158,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetQueueNameLabelPath.String(),
+					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},
@@ -210,11 +210,59 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetGroupNameLabelPath.String(),
+					Field: groupNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},
-		"change in replicas": {
+		"change in replicas (scale down to zero)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+			},
+		},
+		"change in replicas (scale up from zero)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			},
+		},
+		"change in replicas (scale up while the previous scaling operation is still in progress)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas: 3,
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas: 1,
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: replicasPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in replicas (scale up)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: ptr.To(int32(3)),
@@ -228,7 +276,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetReplicasPath.String(),
+					Field: replicasPath.String(),
 				},
 			}.ToAggregate(),
 		},

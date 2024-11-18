@@ -90,6 +90,15 @@ const (
 	timeFlagName        = string(v1alpha1.TimeFlag)
 )
 
+func withTimeFlag(f *pflag.FlagSet, p *string) {
+	f.StringVarP(p, timeFlagName, "t", "",
+		`Set a limit on the total run time of the job. 
+A time limit of zero requests that no time limit be imposed. 
+Acceptable time formats include "minutes", "minutes:seconds", 
+"hours:minutes:seconds", "days-hours", "days-hours:minutes" 
+and "days-hours:minutes:seconds".`)
+}
+
 var (
 	createJobExample = templates.Examples(`
 		# Create job 
@@ -248,7 +257,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
-				" [--completions COMPLETIONS]"
+				" [--completions COMPLETIONS]" +
+				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
 
@@ -260,6 +270,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
+
+			withTimeFlag(subcmd.Flags(), &o.TimeLimit)
 		},
 	},
 	"interactive": {
@@ -268,6 +280,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--pod-running-timeout DURATION]" +
+				" [--time TIME_LIMIT]" +
 				" [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
@@ -280,6 +293,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, removeFlagName, false,
 				"Remove pod when interactive session exits.")
+
+			withTimeFlag(subcmd.Flags(), &o.TimeLimit)
 		},
 	},
 	"rayjob": {
@@ -288,7 +303,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
+				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
@@ -304,6 +320,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Flags().StringVar(&o.RayCluster, rayClusterFlagName, "",
 				"Existing ray cluster on which the job will be created.")
 
+			withTimeFlag(subcmd.Flags(), &o.TimeLimit)
+
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, replicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, maxReplicasFlagName)
@@ -315,7 +333,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
+				" [--time TIME_LIMIT]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong
 			subcmd.Example = createRayClusterExample
@@ -326,6 +345,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+
+			withTimeFlag(subcmd.Flags(), &o.TimeLimit)
 		},
 	},
 	"slurm": {
@@ -400,13 +421,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"Local queue name.")
 			o.SlurmFlagSet.StringVarP(&o.ChangeDir, changeDirFlagName, "D", "",
 				"Change directory before executing the script.")
-			o.SlurmFlagSet.StringVarP(&o.TimeLimit, timeFlagName, "t", "",
-				`Set a limit on the total run time of the job. 
-A time limit of zero requests that no time limit be imposed. 
-Acceptable time formats include "minutes", "minutes:seconds", 
-"hours:minutes:seconds", "days-hours", "days-hours:minutes" 
-and "days-hours:minutes:seconds".`,
-			)
+
+			withTimeFlag(o.SlurmFlagSet, &o.TimeLimit)
 		},
 	},
 }

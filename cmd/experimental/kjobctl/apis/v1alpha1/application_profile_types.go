@@ -94,7 +94,6 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('ntasks' in self.requiredFlags) || self.name == 'Slurm'", message="ntasks flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('output' in self.requiredFlags) || self.name == 'Slurm'", message="output flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('partition' in self.requiredFlags) || self.name == 'Slurm'", message="partition flag can be used only on Slurm mode"
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('time' in self.requiredFlags) || self.name == 'Slurm'", message="time flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('parallelism' in self.requiredFlags)", message="parallelism flag can't be used on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('completions' in self.requiredFlags)", message="completions flag can't be used on Slurm mode"
 type SupportedMode struct {
@@ -122,10 +121,10 @@ type SupportedMode struct {
 	// The raycluster flag used only for the RayJob mode.
 	// The request flag used only for Interactive and Job modes.
 	// The cmd flag used only for Interactive, Job, and RayJob.
-	// The skip-priority-workload and priority flags can be used in all modes.
+	// The time, skip-priority-workload and priority flags can be used in all modes.
 	// If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
 	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem, mem-per-cpu,
-	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue, time.
+	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//

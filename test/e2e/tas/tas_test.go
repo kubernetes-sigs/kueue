@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -108,14 +107,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Request(extraResource, "1").
 				Limit(extraResource, "1").
 				Obj()
-			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevelRack).
 				Image(util.E2eTestSleepImage, []string{"100ms"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
-			expectJobWithSuspendedAndNodeSelectors(jobKey, true, nil)
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			ginkgo.By(fmt.Sprintf("workload %q not getting an admission", wlLookupKey), func() {
 				createdWorkload := &kueue.Workload{}
@@ -134,16 +131,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Request(extraResource, "1").
 				Limit(extraResource, "1").
 				Obj()
-			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, topologyLevelRack).
 				Image(util.E2eTestSleepImage, []string{"100ms"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
-			expectJobWithSuspendedAndNodeSelectors(jobKey, false, map[string]string{
-				tasNodeGroupLabel: instanceType,
-			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By(fmt.Sprintf("await for admission of workload %q and verify TopologyAssignment", wlLookupKey), func() {
@@ -187,16 +180,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Request(extraResource, "1").
 				Limit(extraResource, "1").
 				Obj()
-			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevelBlock).
 				Image(util.E2eTestSleepImage, []string{"100ms"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
-			expectJobWithSuspendedAndNodeSelectors(jobKey, false, map[string]string{
-				tasNodeGroupLabel: instanceType,
-			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By(fmt.Sprintf("await for admission of workload %q and verify TopologyAssignment", wlLookupKey), func() {
@@ -228,6 +217,32 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should allow to run a Job with parallelism < completions", func() {
+			sampleJob := testingjob.MakeJob("test-job", ns.Name).
+				Queue(localQueue.Name).
+				Parallelism(2).
+				Completions(3).
+				Request(extraResource, "1").
+				Limit(extraResource, "1").
+				Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevelBlock).
+				Image(util.E2eTestSleepImage, []string{"10ms"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By(fmt.Sprintf("verify the workload %q gets TopologyAssignment becomes finished", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

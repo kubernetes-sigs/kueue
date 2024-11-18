@@ -89,6 +89,14 @@ rules:
       - list
       - watch
   - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
       - autoscaling.x-k8s.io
     resources:
       - provisioningrequests

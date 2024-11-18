@@ -34,15 +34,12 @@ import (
 )
 
 type Webhook struct {
-	client                     client.Client
-	manageJobsWithoutQueueName bool
+	client client.Client
 }
 
-func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.ProcessOptions(opts...)
+func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
 	wh := &Webhook{
-		client:                     mgr.GetClient(),
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		client: mgr.GetClient(),
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
@@ -57,16 +54,16 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 var _ admission.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	d := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(d))
+	deployment := fromObject(obj)
+
+	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Applying defaults")
 
-	cqLabel, ok := d.Labels[constants.QueueLabel]
-	if ok {
-		if d.Spec.Template.Labels == nil {
-			d.Spec.Template.Labels = make(map[string]string, 1)
+	if queueName := jobframework.QueueNameForObject(deployment.Object()); queueName != "" {
+		if deployment.Spec.Template.Labels == nil {
+			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
-		d.Spec.Template.Labels[constants.QueueLabel] = cqLabel
+		deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
 	}
 
 	return nil
@@ -76,16 +73,22 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 var _ admission.CustomValidator = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
-	return nil, nil
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	deployment := fromObject(obj)
+
+	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(deployment))
+	log.V(5).Info("Validating create")
+
+	allErrs := jobframework.ValidateQueueName(deployment.Object())
+
+	return nil, allErrs.ToAggregate()
 }
 
 var (
-	deploymentLabelsPath         = field.NewPath("metadata", "labels")
-	deploymentQueueNameLabelPath = deploymentLabelsPath.Key(constants.QueueLabel)
-
-	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
-					Key(constants.QueueLabel)
+	labelsPath                = field.NewPath("metadata", "labels")
+	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
+	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
+	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -94,11 +97,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(newDeployment))
 	log.V(5).Info("Validating update")
-	allErrs := apivalidation.ValidateImmutableField(
-		newDeployment.GetLabels()[constants.QueueLabel],
-		oldDeployment.GetLabels()[constants.QueueLabel],
-		deploymentQueueNameLabelPath,
-	)
+
+	oldQueueName := jobframework.QueueNameForObject(oldDeployment.Object())
+	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
+
+	allErrs := apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
 		oldDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
