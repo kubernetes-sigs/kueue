@@ -288,7 +288,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 			))
 		}
 	} else {
-		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p, GroupNameLabel)...)
+		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), GroupNameLabel)...)
 
 		if !gtcExists {
 			return append(allErrs, field.Required(
