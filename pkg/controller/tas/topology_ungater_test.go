@@ -87,7 +87,7 @@ func TestReconcile(t *testing.T) {
 			if utilpod.HasGate(&pod, kueuealpha.TopologySchedulingGate) {
 				continue
 			}
-			if pod.Status.Phase == corev1.PodFailed {
+			if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
 				continue
 			}
 			key := mapToJSON(t, pod.Spec.NodeSelector)
@@ -744,7 +744,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"expect single pod; one ungated pod succeeded - don't ungate second pod": {
+		"expect single pod; one ungated pod succeeded - ungate second pod": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
@@ -794,7 +794,6 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-gated", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					TopologySchedulingGate().
 					Obj(),
 			},
 			wantCounts: []counts{
