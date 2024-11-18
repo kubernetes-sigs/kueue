@@ -86,6 +86,7 @@ func describeJob(job *batchv1.Job) (string, error) {
 		w.Write(IndentLevelZero, "Name:\t%s\n", job.Name)
 		w.Write(IndentLevelZero, "Namespace:\t%s\n", job.Namespace)
 		printLabelsMultiline(w, "Labels", job.Labels)
+		printLabelsMultiline(w, "Annotations", job.Annotations)
 		if job.Spec.Parallelism != nil {
 			w.Write(IndentLevelZero, "Parallelism:\t%d\n", *job.Spec.Parallelism)
 		}

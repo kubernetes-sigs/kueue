@@ -331,6 +331,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 			defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
 			opts = append(defaultCmpOpts, tc.cmpopts...)
 
+			if job, ok := tc.wantRootObj.(*batchv1.Job); ok {
+				if job.Annotations == nil {
+					job.Annotations = make(map[string]string, 1)
+				}
+				job.Annotations[constants.ScriptAnnotation] = tc.tempFile
+			}
+
 			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
 				t.Errorf("Root object after build (-want,+got):\n%s", diff)
 			}

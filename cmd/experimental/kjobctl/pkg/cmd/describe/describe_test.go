@@ -42,6 +42,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
@@ -79,6 +80,7 @@ func TestDescribeCmd(t *testing.T) {
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -208,6 +210,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -349,6 +352,7 @@ BinaryData
 			wantOut: `Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -390,6 +394,7 @@ Pod Template:
 			wantOut: `Name:           sample-job-5zd6r
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -417,6 +422,7 @@ Pod Template:
 Name:           sample-job-8c7zt
 Namespace:      default
 Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Annotations:    kjobctl.x-k8s.io/script=test.sh
 Parallelism:    3
 Completions:    2
 Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
@@ -743,6 +749,9 @@ func getSampleJob(name string) *batchv1.Job {
 			Namespace: "default",
 			Labels: map[string]string{
 				"kjobctl.x-k8s.io/profile": "sample-profile",
+			},
+			Annotations: map[string]string{
+				constants.ScriptAnnotation: "test.sh",
 			},
 		},
 		Spec: batchv1.JobSpec{

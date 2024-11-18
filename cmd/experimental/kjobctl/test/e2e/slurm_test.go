@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/maps"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
+	kjobctlconstants "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/test/util"
 )
@@ -122,7 +123,7 @@ var _ = ginkgo.Describe("Slurm", ginkgo.Ordered, func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: jobName}, job)).To(gomega.Succeed())
 			gomega.Expect(ptr.Deref(job.Spec.Completions, 1)).To(gomega.Equal(expectCompletions))
 			gomega.Expect(ptr.Deref(job.Spec.Parallelism, 1)).To(gomega.Equal(expectParallelism))
-
+			gomega.Expect(job.Annotations).To(gomega.HaveKeyWithValue(kjobctlconstants.ScriptAnnotation, script.Name()))
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: configMapName}, configMap)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: serviceName}, service)).To(gomega.Succeed())
 		})

@@ -2085,6 +2085,15 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 					return
 				}
 
+				if job, ok := tc.wantLists[index].(*batchv1.JobList); ok && len(job.Items) > 0 {
+					if tc.tempFile != "" {
+						if job.Items[0].Annotations == nil {
+							job.Items[0].Annotations = make(map[string]string)
+						}
+						job.Items[0].Annotations[constants.ScriptAnnotation] = tc.tempFile
+					}
+				}
+
 				if diff := cmp.Diff(tc.wantLists[index], gotList, tc.cmpopts...); diff != "" {
 					t.Errorf("Unexpected list for %s (-want/+got)\n%s", gvk.String(), diff)
 				}

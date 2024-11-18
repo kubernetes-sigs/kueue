@@ -17,8 +17,9 @@ limitations under the License.
 package constants
 
 const (
-	ProfileLabel = "kjobctl.x-k8s.io/profile"
-	ModeLabel    = "kjobctl.x-k8s.io/mode"
+	ProfileLabel     = "kjobctl.x-k8s.io/profile"
+	ModeLabel        = "kjobctl.x-k8s.io/mode"
+	ScriptAnnotation = "kjobctl.x-k8s.io/script"
 )
 
 const (
