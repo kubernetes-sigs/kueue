@@ -56,7 +56,7 @@ var _ admission.CustomDefaulter = &Webhook{}
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	deployment := fromObject(obj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(deployment))
+	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Applying defaults")
 
 	if queueName := jobframework.QueueNameForObject(deployment.Object()); queueName != "" {
