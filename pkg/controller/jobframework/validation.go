@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -66,9 +67,8 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 
 func validateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
-	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+	allErrs = append(allErrs, ValidateQueueName(job.Object())...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job.Object(), constants.PrebuiltWorkloadLabel)...)
 
 	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
 	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
@@ -80,9 +80,9 @@ func validateCreateForQueueName(job GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field.ErrorList {
+func ValidateAnnotationAsCRDName(obj client.Object, crdNameAnnotation string) field.ErrorList {
 	var allErrs field.ErrorList
-	if value, exists := job.Object().GetAnnotations()[crdNameAnnotation]; exists {
+	if value, exists := obj.GetAnnotations()[crdNameAnnotation]; exists {
 		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
 			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
 		}
@@ -90,13 +90,20 @@ func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field
 	return allErrs
 }
 
-func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
+func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorList {
 	var allErrs field.ErrorList
-	if value, exists := job.Object().GetLabels()[crdNameLabel]; exists {
+	if value, exists := obj.GetLabels()[crdNameLabel]; exists {
 		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
 			allErrs = append(allErrs, field.Invalid(labelsPath.Key(crdNameLabel), value, strings.Join(errs, ",")))
 		}
 	}
+	return allErrs
+}
+
+func ValidateQueueName(obj client.Object) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, ValidateLabelAsCRDName(obj, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateAnnotationAsCRDName(obj, constants.QueueAnnotation)...)
 	return allErrs
 }
 
