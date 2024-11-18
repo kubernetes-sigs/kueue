@@ -87,8 +87,15 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 var _ webhook.CustomValidator = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
-	return nil, nil
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	sts := fromObject(obj)
+
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+	log.V(5).Info("Validating create")
+
+	allErrs := jobframework.ValidateQueueName(sts.Object())
+
+	return nil, allErrs.ToAggregate()
 }
 
 var (
