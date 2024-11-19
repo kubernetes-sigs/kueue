@@ -36,25 +36,28 @@ var (
 
 // domain holds the static information about placement of a topology
 // domain in the hierarchy of topology domains.
-type domain struct {
-	// sortName indicates name used for sorting when two domains can fit
-	// the same number of pods.
-	// Example for domain corresponding to "rack2" in "block1" the value is
-	// "rack2 <domainID>" (where domainID is "block1,rack2").
-	sortName string
 
+type domain struct {
 	// id is the globally unique id of the domain
 	id utiltas.TopologyDomainID
 
 	// parentID is the global ID of the parent domain
-	parentID utiltas.TopologyDomainID
+	parent *domain
 
 	// childIDs at the global IDs of the child domains
-	childIDs []utiltas.TopologyDomainID
+	children []*domain
+
+	// state
+	state int32
+
+	// levelValues
+	levelValues []string
+
+	// only for leaves
+	freeCapacity resources.Requests
 }
 
 type domainByID map[utiltas.TopologyDomainID]*domain
-type statePerDomain map[utiltas.TopologyDomainID]int32
 
 type TASFlavorSnapshot struct {
 	log logr.Logger
@@ -67,41 +70,44 @@ type TASFlavorSnapshot struct {
 	// on the Topology object
 	levelKeys []string
 
-	// freeCapacityPerLeafDomain stores the free capacity per domain, only for the
-	// lowest level of topology
-	freeCapacityPerLeafDomain map[utiltas.TopologyDomainID]resources.Requests
+	// leaves
+	leaves domainByID
 
-	// levelValuesPerDomain stores the mapping from domain ID back to the
-	// ordered list of values. It stores the information for all levels.
-	levelValuesPerDomain map[utiltas.TopologyDomainID][]string
+	roots domainByID
+
+	nodes domainByID
 
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
-
-	// statePerLevel is a temporary state of the topology domains during the
-	// assignment algorithm.
-	//
-	// In the first phase of the algorithm (traversal to the top the topology to
-	// determine the level to fit the workload) it denotes the number of pods
-	// which can fit in a given domain.
-	//
-	// In the second phase of the algorithm (traversal to the bottom to
-	// determine the actual assignments) it denotes the number of pods actually
-	// assigned to the given domain.
-	state statePerDomain
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference, levels []string) *TASFlavorSnapshot {
+	domainsPerLevel := make([]domainByID, len(levels))
+	for level := range levels {
+		domainsPerLevel[level] = make(domainByID)
+	}
+
 	snapshot := &TASFlavorSnapshot{
-		log:                       log,
-		topologyName:              topologyName,
-		levelKeys:                 slices.Clone(levels),
-		freeCapacityPerLeafDomain: make(map[utiltas.TopologyDomainID]resources.Requests),
-		levelValuesPerDomain:      make(map[utiltas.TopologyDomainID][]string),
-		domainsPerLevel:           make([]domainByID, len(levels)),
-		state:                     make(statePerDomain),
+		log:             log,
+		topologyName:    topologyName,
+		levelKeys:       slices.Clone(levels),
+		leaves:          make(domainByID),
+		nodes:           make(domainByID),
+		roots:           make(domainByID),
+		domainsPerLevel: domainsPerLevel,
 	}
 	return snapshot
+}
+
+func (s *TASFlavorSnapshot) addNode(levelValues []string, capacity resources.Requests, domainID utiltas.TopologyDomainID) {
+	domain := domain{
+		id:          domainID,
+		levelValues: levelValues,
+	}
+	if _, found := s.leaves[domainID]; !found {
+		s.leaves[domainID] = &domain
+	}
+	s.addCapacity(domainID, capacity)
 }
 
 // initialize prepares the domainsPerLevel tree structure. This structure holds
@@ -110,67 +116,46 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 // represents the edges to the parent and child domains. This structure is
 // reused for multiple workloads during a single scheduling cycle.
 func (s *TASFlavorSnapshot) initialize() {
-	levelCount := len(s.levelKeys)
-	lastLevelIdx := levelCount - 1
-	for levelIdx := range s.levelKeys {
-		s.domainsPerLevel[levelIdx] = make(domainByID)
-	}
-	for childID := range s.freeCapacityPerLeafDomain {
-		childDomain := &domain{
-			sortName: s.sortName(lastLevelIdx, childID),
-			id:       childID,
-		}
-		s.domainsPerLevel[lastLevelIdx][childID] = childDomain
-		parentFound := false
-		var parent *domain
-		for levelIdx := lastLevelIdx - 1; levelIdx >= 0 && !parentFound; levelIdx-- {
-			parentValues := s.levelValuesPerDomain[childID][:levelIdx+1]
-			parentID := utiltas.DomainID(parentValues)
-			s.levelValuesPerDomain[parentID] = parentValues
-			parent, parentFound = s.domainsPerLevel[levelIdx][parentID]
-			if !parentFound {
-				parent = &domain{
-					sortName: s.sortName(levelIdx, parentID),
-					id:       parentID,
-				}
-				s.domainsPerLevel[levelIdx][parentID] = parent
-			}
-			childDomain.parentID = parentID
-			parent.childIDs = append(parent.childIDs, childID)
-			childID = parentID
-		}
+	for _, node := range s.leaves {
+		s.nodes[node.id] = node
+		s.domainsPerLevel[len(node.levelValues)-1][node.id] = node
+		s.initializeHelper(node)
 	}
 }
 
-func (s *TASFlavorSnapshot) sortName(levelIdx int, domainID utiltas.TopologyDomainID) string {
-	levelValues := s.levelValuesPerDomain[domainID]
-	if len(levelValues) <= levelIdx {
-		s.log.Error(errCodeAssumptionsViolated, "invalid invocation of sortName",
-			"count", len(levelValues),
-			"levelIdx", levelIdx,
-			"domainID", domainID,
-			"levelValuesPerDomain", s.levelValuesPerDomain,
-			"freeCapacityPerDomain", s.freeCapacityPerLeafDomain)
+// helper
+func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
+	if len(dom.levelValues) == 1 {
+		s.roots[dom.id] = dom
+		return
 	}
-	// we prefix with the node label value to make it ordered naturally, but
-	// append also domain ID as the node label value may not be globally unique.
-	return s.levelValuesPerDomain[domainID][levelIdx] + " " + string(domainID)
+	parentValues := dom.levelValues[:len(dom.levelValues)-1]
+	parentID := utiltas.DomainID(parentValues)
+	parent, parentFound := s.nodes[parentID]
+	if !parentFound {
+		// create parent
+		parent = &domain{
+			id:          parentID,
+			levelValues: parentValues,
+		}
+		s.domainsPerLevel[len(parentValues)-1][parentID] = parent
+		s.nodes[parentID] = parent
+	}
+	// connect parent and child
+	dom.parent = parent
+	parent.children = append(parent.children, dom)
+	s.initializeHelper(parent)
 }
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
-	s.initializeFreeCapacityPerDomain(domainID)
-	s.freeCapacityPerLeafDomain[domainID].Add(capacity)
+	if s.leaves[domainID].freeCapacity == nil {
+		s.leaves[domainID].freeCapacity = resources.Requests{}
+	}
+	s.leaves[domainID].freeCapacity.Add(capacity)
 }
 
 func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
-	s.initializeFreeCapacityPerDomain(domainID)
-	s.freeCapacityPerLeafDomain[domainID].Sub(usage)
-}
-
-func (s *TASFlavorSnapshot) initializeFreeCapacityPerDomain(domainID utiltas.TopologyDomainID) {
-	if _, found := s.freeCapacityPerLeafDomain[domainID]; !found {
-		s.freeCapacityPerLeafDomain[domainID] = resources.Requests{}
-	}
+	s.leaves[domainID].freeCapacity.Sub(usage)
 }
 
 // Algorithm overview:
@@ -253,18 +238,18 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := utilmaps.Values(domains)
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
-	if s.state[topDomain.id] < count {
+	if topDomain.state < count {
 		if required {
-			return 0, nil, s.notFitMessage(s.state[topDomain.id], count)
+			return 0, nil, s.notFitMessage(topDomain.state, count)
 		}
 		if levelIdx > 0 {
 			return s.findLevelWithFitDomains(levelIdx-1, required, count)
 		}
 		lastIdx := 0
-		remainingCount := count - s.state[sortedDomain[lastIdx].id]
-		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && s.state[sortedDomain[lastIdx].id] > 0 {
+		remainingCount := count - sortedDomain[lastIdx].state
+		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
 			lastIdx++
-			remainingCount -= s.state[sortedDomain[lastIdx].id]
+			remainingCount -= sortedDomain[lastIdx].state
 		}
 		if remainingCount > 0 {
 			return 0, nil, s.notFitMessage(count-remainingCount, count)
@@ -278,19 +263,18 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	result := make([]*domain, 0)
 	remainingCount := count
 	for _, domain := range domains {
-		if s.state[domain.id] >= remainingCount {
-			s.state[domain.id] = remainingCount
+		if domain.state >= remainingCount {
+			domain.state = remainingCount
 			result = append(result, domain)
 			return result
 		}
-		remainingCount -= s.state[domain.id]
+		remainingCount -= domain.state
 		result = append(result, domain)
 	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingCount,
 		"count", count,
-		"levelValuesPerDomain", s.levelValuesPerDomain,
-		"freeCapacityPerDomain", s.freeCapacityPerLeafDomain)
+		"leaves", s.leaves)
 	return nil
 }
 
@@ -301,8 +285,8 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 	}
 	for _, domain := range domains {
 		assignment.Domains = append(assignment.Domains, kueue.TopologyDomainAssignment{
-			Values: s.levelValuesPerDomain[domain.id],
-			Count:  s.state[domain.id],
+			Values: domain.levelValues,
+			Count:  domain.state,
 		})
 	}
 	return &assignment
@@ -310,11 +294,8 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(levelIdx int, domains []*domain) []*domain {
 	result := make([]*domain, 0, len(domains))
-	for _, info := range domains {
-		for _, childDomainID := range info.childIDs {
-			childDomain := s.domainsPerLevel[levelIdx+1][childDomainID]
-			result = append(result, childDomain)
-		}
+	for _, domain := range domains {
+		result = append(result, domain.children...)
 	}
 	return result
 }
@@ -323,12 +304,10 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	result := make([]*domain, len(domains))
 	copy(result, domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		aCount := s.state[a.id]
-		bCount := s.state[b.id]
 		switch {
-		case aCount == bCount:
-			return strings.Compare(a.sortName, b.sortName)
-		case aCount > bCount:
+		case a.state == b.state:
+			return strings.Compare(string(a.id), string(b.id))
+		case a.state > b.state:
 			return -1
 		default:
 			return 1
@@ -338,22 +317,31 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
-	// cleanup the state in case some remaining values are present from computing
-	// assignments for previous PodSets.
-	for domainID := range s.state {
-		s.state[domainID] = 0
+	for _, node := range s.nodes {
+		// cleanup the state in case some remaining values are present from computing
+		// assignments for previous PodSets.
+		node.state = 0
 	}
-	for domainID, capacity := range s.freeCapacityPerLeafDomain {
-		s.state[domainID] = requests.CountIn(capacity)
+	for _, leaf := range s.leaves {
+		leaf.state = requests.CountIn(leaf.freeCapacity)
 	}
-	lastLevelIdx := len(s.domainsPerLevel) - 1
-	for levelIdx := lastLevelIdx - 1; levelIdx >= 0; levelIdx-- {
-		for _, info := range s.domainsPerLevel[levelIdx] {
-			for _, childDomainID := range info.childIDs {
-				s.state[info.id] += s.state[childDomainID]
-			}
-		}
+	for _, root := range s.roots {
+		root.state = s.fillInCountsHelper(root)
 	}
+}
+
+func (s *TASFlavorSnapshot) fillInCountsHelper(node *domain) int32 {
+	// logic for a leaf
+	if len(node.children) == 0 {
+		return node.state
+	}
+	// logic for a parent
+	childrenCapacity := int32(0)
+	for _, child := range node.children {
+		childrenCapacity += s.fillInCountsHelper(child)
+	}
+	node.state = childrenCapacity
+	return childrenCapacity
 }
 
 func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
