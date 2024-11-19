@@ -65,11 +65,12 @@ type LocalQueueReconcilerOptions struct {
 
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client     client.Client
-	log        logr.Logger
-	queues     *queue.Manager
-	cache      *cache.Cache
-	wlUpdateCh chan event.GenericEvent
+	client                client.Client
+	log                   logr.Logger
+	queues                *queue.Manager
+	cache                 *cache.Cache
+	wlUpdateCh            chan event.GenericEvent
+	reportResourceMetrics bool
 }
 
 func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, opts ...LocalQueueReconcilerOption) *LocalQueueReconciler {
@@ -157,11 +158,6 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	localQueueFromManager := r.queues.GetLocalQueue(q.Name, q.Namespace)
-	if localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics() {
-		recordLQResourceMetrics(q)
-	}
-
 	return true
 }
 
@@ -175,11 +171,6 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 
 	r.queues.DeleteLocalQueue(q)
 	r.cache.DeleteLocalQueue(q)
-
-	localQueueFromManager := r.queues.GetLocalQueue(q.Name, q.Namespace)
-	if localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics() {
-		clearLocalQueueMetrics(q)
-	}
 
 	return true
 }
@@ -209,8 +200,8 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 
+	ctx := logr.NewContext(context.Background(), log)
 	if newStopPolicy == kueue.None {
-		ctx := logr.NewContext(context.Background(), log)
 		if err := r.queues.AddLocalQueue(ctx, newLq); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
@@ -220,13 +211,12 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		}
 		return true
 	}
-
 	r.queues.DeleteLocalQueue(oldLq)
-	oldQueueFromManager := r.queues.GetLocalQueue(oldLq.Name, oldLq.Namespace)
-	if oldQueueFromManager != nil && oldQueueFromManager.ShouldCollectMetrics() {
-		updateLQResourceMetrics(oldLq, newLq)
+	if r.reportResourceMetrics {
+		if ok, _ := r.queues.ShouldCollectMetrics(ctx, newLq); ok {
+			updateLQResourceMetrics(oldLq, newLq)
+		}
 	}
-
 	return true
 }
 
@@ -240,9 +230,7 @@ func recordLQResourceMetrics(lq *kueue.LocalQueue) {
 	}
 }
 
-// CURR TODO: find where similar function called in CQ controller
 func updateLQResourceMetrics(oldLq, newLq *kueue.LocalQueue) {
-	// if the cohort changed, drop all the old metrics
 	metrics.ClearLocalQueueResourceMetrics(oldLq.Name, oldLq.Namespace)
 	recordLQResourceMetrics(newLq)
 }

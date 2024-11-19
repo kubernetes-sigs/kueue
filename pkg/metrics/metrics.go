@@ -29,6 +29,7 @@ import (
 
 type AdmissionResult string
 type ClusterQueueStatus string
+type LocalQueueStatus string
 
 const (
 	AdmissionResultSuccess      AdmissionResult = "success"
@@ -50,11 +51,16 @@ const (
 	CQStatusActive ClusterQueueStatus = "active"
 	// CQStatusTerminating means the clusterQueue is in pending deletion.
 	CQStatusTerminating ClusterQueueStatus = "terminating"
+
+	LQStatusPending     LocalQueueStatus = "pending"
+	LQStatusActive      LocalQueueStatus = "active"
+	LQStatusTerminating LocalQueueStatus = "terminating"
+	LQStatusOrphan      LocalQueueStatus = "orphan"
 )
 
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
-
+	LQStatuses = []LocalQueueStatus{LQStatusPending, LQStatusActive, LQStatusOrphan}
 	// Metrics tied to the scheduler
 
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
@@ -418,6 +424,7 @@ func ClearLocalQueueMetrics(lqName, namespace string) {
 	localQueueQuotaReservedWaitTime.DeleteLabelValues(lqName, namespace)
 	localQueueAdmissionWaitTime.DeleteLabelValues(lqName, namespace)
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(lqName, namespace)
+	ClusterQueueByStatus.DeletePartialMatch(prometheus.Labels{"local_queue": lqName, "namespace": namespace})
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -430,8 +437,8 @@ func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
 	}
 }
 
-func ReportLocalQueueStatus(lqName, namespace string, lqStatus ClusterQueueStatus) {
-	for _, status := range CQStatuses {
+func ReportLocalQueueStatus(lqName, namespace string, lqStatus LocalQueueStatus) {
+	for _, status := range LQStatuses {
 		var v float64
 		if status == lqStatus {
 			v = 1
@@ -445,12 +452,6 @@ func ClearCacheMetrics(cqName string) {
 	AdmittedActiveWorkloads.DeleteLabelValues(cqName)
 	for _, status := range CQStatuses {
 		ClusterQueueByStatus.DeleteLabelValues(cqName, string(status))
-	}
-}
-
-func ClearLQCacheMetrics(lqName, namespace string) {
-	for _, status := range CQStatuses {
-		LocalQueueByStatus.DeleteLabelValues(lqName, namespace, string(status))
 	}
 }
 
@@ -527,6 +528,19 @@ func ClearClusterQueueResourceUsage(cqName, flavor, resource string) {
 	}
 
 	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
+}
+
+func ClearLocalQueueResourceUsage(cqName, flavor, resource string) {
+	lbls := prometheus.Labels{
+		"cluster_queue": cqName,
+		"flavor":        flavor,
+	}
+
+	if len(resource) != 0 {
+		lbls["resource"] = resource
+	}
+
+	LocalQueueResourceUsage.DeletePartialMatch(lbls)
 }
 
 func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {

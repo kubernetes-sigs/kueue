@@ -177,6 +177,9 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			added := cqImpl.AddFromLocalQueue(qImpl)
 			addedWorkloads = addedWorkloads || added
 		}
+		if qImpl.ShouldCollectMetrics() {
+			qImpl.StatusFromCQ(cqImpl)
+		}
 	}
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
@@ -201,7 +204,11 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		return err
 	}
 	m.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-
+	for _, lq := range m.localQueues {
+		if lq.ClusterQueue == cq.Name && lq.ShouldCollectMetrics() {
+			lq.StatusFromCQ(cqImpl)
+		}
+	}
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
@@ -220,6 +227,12 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	m.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearClusterQueueMetrics(cq.Name)
+	for _, lqImpl := range m.localQueues {
+		lqKeySlice := strings.Split(lqImpl.Key, "/")
+		if lqImpl.ShouldCollectMetrics() && lqImpl.ClusterQueue == cq.Name {
+			metrics.ReportLocalQueueStatus(lqKeySlice[1], lqKeySlice[0], metrics.LQStatusOrphan)
+		}
+	}
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
@@ -231,7 +244,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
 
-	shouldCollectMetrics, err := m.shouldCollectMetrics(ctx, q)
+	shouldCollectMetrics, err := m.ShouldCollectMetrics(ctx, q)
 	if err != nil {
 		return fmt.Errorf("unable to evaluate if local metrics need to be collected: %w", err)
 	}
@@ -257,10 +270,24 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
 	cq := m.hm.ClusterQueues[qImpl.ClusterQueue]
+	if qImpl.ShouldCollectMetrics() {
+		qImpl.StatusFromCQ(cq)
+	}
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
 	return nil
+}
+
+func (qImpl *LocalQueue) StatusFromCQ(cq *ClusterQueue) {
+	lqKeySlice := strings.Split(qImpl.Key, "/")
+	if cq == nil {
+		metrics.ReportLocalQueueStatus(lqKeySlice[1], lqKeySlice[0], metrics.LQStatusOrphan)
+	} else if cq.active {
+		metrics.ReportLocalQueueStatus(lqKeySlice[1], lqKeySlice[0], metrics.LQStatusActive)
+	} else {
+		metrics.ReportLocalQueueStatus(lqKeySlice[1], lqKeySlice[0], metrics.LQStatusPending)
+	}
 }
 
 func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
@@ -276,6 +303,9 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 			oldCQ.DeleteFromLocalQueue(qImpl)
 		}
 		newCQ := m.hm.ClusterQueues[string(q.Spec.ClusterQueue)]
+		if qImpl.ShouldCollectMetrics() {
+			qImpl.StatusFromCQ(newCQ)
+		}
 		if newCQ != nil && newCQ.AddFromLocalQueue(qImpl) {
 			m.Broadcast()
 		}
@@ -298,6 +328,9 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
 	delete(m.localQueues, key)
+	if qImpl.ShouldCollectMetrics() {
+		metrics.ClearLocalQueueMetrics(q.Name, q.Namespace)
+	}
 }
 
 func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
@@ -706,7 +739,7 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	delete(m.snapshots, cq.Name)
 }
 
-func (m *Manager) shouldCollectMetrics(ctx context.Context, q *kueue.LocalQueue) (bool, error) {
+func (m *Manager) ShouldCollectMetrics(ctx context.Context, q *kueue.LocalQueue) (bool, error) {
 	if m.metricsOptions.LocalQueueMetrics == nil || !m.metricsOptions.LocalQueueMetrics.Enable {
 		return false, nil
 	}
