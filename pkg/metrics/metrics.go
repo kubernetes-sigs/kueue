@@ -155,7 +155,7 @@ The label 'reason' can have the following values:
 - "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
 - "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
-- "InactiveWorkload" means that the workload was evicted because spec.active is set to false`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false`,
 		}, []string{"cluster_queue", "reason"},
 	)
 
