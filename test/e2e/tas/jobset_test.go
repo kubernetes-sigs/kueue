@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			sampleJob.Annotations = map[string]string{constants.QueueLabel: localQueue.Name}
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
-			ginkgo.By("JobSet is unsuspended, and has all Pods active and ready", func() {
+			ginkgo.By("JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
 					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
