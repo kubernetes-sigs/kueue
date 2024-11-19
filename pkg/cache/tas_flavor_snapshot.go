@@ -36,24 +36,34 @@ var (
 
 // domain holds the static information about placement of a topology
 // domain in the hierarchy of topology domains.
-
 type domain struct {
 	// id is the globally unique id of the domain
 	id utiltas.TopologyDomainID
 
-	// parentID is the global ID of the parent domain
+	// parent points to domain which is a parent in topology structure
 	parent *domain
 
-	// childIDs at the global IDs of the child domains
+	// children points to domains which are children in topology structure
 	children []*domain
 
-	// state
+	// state is a temporary state of the topology domains during the
+	// assignment algorithm.
+	//
+	// In the first phase of the algorithm (traversal to the top the topology to
+	// determine the level to fit the workload) it denotes the number of pods
+	// which can fit in a given domain.
+	//
+	// In the second phase of the algorithm (traversal to the bottom to
+	// determine the actual assignments) it denotes the number of pods actually
+	// assigned to the given domain.
 	state int32
 
-	// levelValues
+	// levelValues stores the mapping from domain ID back to the
+	// ordered list of values
 	levelValues []string
 
-	// only for leaves
+	// freeCapacity stores the free capacity per domain, only for the
+	// lowest level of topology
 	freeCapacity resources.Requests
 }
 
@@ -70,11 +80,13 @@ type TASFlavorSnapshot struct {
 	// on the Topology object
 	levelKeys []string
 
-	// leaves
+	// leaves maps domainID to domains that are at the lowest level of topology structure
 	leaves domainByID
 
+	// roots maps domainID to domains that are at the highest level of topology structure
 	roots domainByID
 
+	// nodes maps domainID to every domain available in the the topology structure
 	nodes domainByID
 
 	// domainsPerLevel stores the static tree information
@@ -110,7 +122,7 @@ func (s *TASFlavorSnapshot) addNode(levelValues []string, capacity resources.Req
 	s.addCapacity(domainID, capacity)
 }
 
-// initialize prepares the domainsPerLevel tree structure. This structure holds
+// initialize prepares the topology tree structure. This structure holds
 // for a given the list of topology domains with additional static and dynamic
 // information. This function initializes the static information which
 // represents the edges to the parent and child domains. This structure is
@@ -123,7 +135,7 @@ func (s *TASFlavorSnapshot) initialize() {
 	}
 }
 
-// helper
+// initializeHelper is a recursive helper for initialize() method
 func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	if len(dom.levelValues) == 1 {
 		s.roots[dom.id] = dom
