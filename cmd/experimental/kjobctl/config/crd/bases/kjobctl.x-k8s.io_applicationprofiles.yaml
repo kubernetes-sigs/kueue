@@ -62,7 +62,7 @@ spec:
                         The raycluster flag used only for the RayJob mode.
                         The request flag used only for Interactive and Job modes.
                         The cmd flag used only for Interactive, Job, and RayJob.
-                        The time, skip-priority-workload and priority flags can be used in all modes.
+                        The time and priority flags can be used in all modes.
                         If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
                         For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem, mem-per-cpu,
                         mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
