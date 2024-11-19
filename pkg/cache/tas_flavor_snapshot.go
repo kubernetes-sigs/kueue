@@ -86,8 +86,8 @@ type TASFlavorSnapshot struct {
 	// roots maps domainID to domains that are at the highest level of topology structure
 	roots domainByID
 
-	// nodes maps domainID to every domain available in the the topology structure
-	nodes domainByID
+	// domains maps domainID to every domain available in the topology structure
+	domains domainByID
 
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
@@ -104,7 +104,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		topologyName:    topologyName,
 		levelKeys:       slices.Clone(levels),
 		leaves:          make(domainByID),
-		nodes:           make(domainByID),
+		domains:         make(domainByID),
 		roots:           make(domainByID),
 		domainsPerLevel: domainsPerLevel,
 	}
@@ -128,10 +128,10 @@ func (s *TASFlavorSnapshot) addNode(levelValues []string, capacity resources.Req
 // represents the edges to the parent and child domains. This structure is
 // reused for multiple workloads during a single scheduling cycle.
 func (s *TASFlavorSnapshot) initialize() {
-	for _, node := range s.leaves {
-		s.nodes[node.id] = node
-		s.domainsPerLevel[len(node.levelValues)-1][node.id] = node
-		s.initializeHelper(node)
+	for _, domain := range s.leaves {
+		s.domains[domain.id] = domain
+		s.domainsPerLevel[len(domain.levelValues)-1][domain.id] = domain
+		s.initializeHelper(domain)
 	}
 }
 
@@ -143,7 +143,7 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	}
 	parentValues := dom.levelValues[:len(dom.levelValues)-1]
 	parentID := utiltas.DomainID(parentValues)
-	parent, parentFound := s.nodes[parentID]
+	parent, parentFound := s.domains[parentID]
 	if !parentFound {
 		// create parent
 		parent = &domain{
@@ -151,7 +151,7 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 			levelValues: parentValues,
 		}
 		s.domainsPerLevel[len(parentValues)-1][parentID] = parent
-		s.nodes[parentID] = parent
+		s.domains[parentID] = parent
 	}
 	// connect parent and child
 	dom.parent = parent
@@ -160,14 +160,19 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 }
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
-	if s.leaves[domainID].freeCapacity == nil {
-		s.leaves[domainID].freeCapacity = resources.Requests{}
-	}
+	s.initializeFreeCapacityPerDomain(domainID)
 	s.leaves[domainID].freeCapacity.Add(capacity)
 }
 
 func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	s.initializeFreeCapacityPerDomain(domainID)
 	s.leaves[domainID].freeCapacity.Sub(usage)
+}
+
+func (s *TASFlavorSnapshot) initializeFreeCapacityPerDomain(domainID utiltas.TopologyDomainID) {
+	if s.leaves[domainID].freeCapacity == nil {
+		s.leaves[domainID].freeCapacity = resources.Requests{}
+	}
 }
 
 // Algorithm overview:
@@ -329,10 +334,10 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
-	for _, node := range s.nodes {
+	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
-		node.state = 0
+		domain.state = 0
 	}
 	for _, leaf := range s.leaves {
 		leaf.state = requests.CountIn(leaf.freeCapacity)
@@ -342,17 +347,17 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
 	}
 }
 
-func (s *TASFlavorSnapshot) fillInCountsHelper(node *domain) int32 {
+func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain) int32 {
 	// logic for a leaf
-	if len(node.children) == 0 {
-		return node.state
+	if len(domain.children) == 0 {
+		return domain.state
 	}
 	// logic for a parent
 	childrenCapacity := int32(0)
-	for _, child := range node.children {
+	for _, child := range domain.children {
 		childrenCapacity += s.fillInCountsHelper(child)
 	}
-	node.state = childrenCapacity
+	domain.state = childrenCapacity
 	return childrenCapacity
 }
 
