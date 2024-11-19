@@ -161,8 +161,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 
 func readRankAssignmentsFromJobSetPods(pods []corev1.Pod) map[string]string {
 	assignment := make(map[string]string, len(pods))
-	for i := range pods {
-		pod := pods[i]
+	for _, pod := range pods {
 		podIndex := pod.Labels[batchv1.JobCompletionIndexAnnotation]
 		jobIndex := pod.Labels[jobset.JobIndexKey]
 		key := fmt.Sprintf("%v/%v", jobIndex, podIndex)
