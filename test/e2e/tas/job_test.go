@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,12 +47,12 @@ const (
 	extraResource         = "example.com/gpu"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-",
+				GenerateName: "e2e-tas-job-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -60,7 +61,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.When("Creating a Job that can't fit in one Rack", func() {
+	ginkgo.When("Creating a Job", func() {
 		var (
 			topology     *kueuealpha.Topology
 			tasFlavor    *kueue.ResourceFlavor
@@ -282,10 +283,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			})
 
 			pods := &corev1.PodList{}
-			ginkgo.By("ensure all pods are scheduled", func() {
+			ginkgo.By("ensure all pods are created and scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels(sampleJob.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
