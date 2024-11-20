@@ -135,6 +135,19 @@ func (j *JobSetWrapper) Request(replicatedJobName string, r corev1.ResourceName,
 	return j
 }
 
+// Limit adds a resource limit to the first container of the target replicatedJob.
+func (j *JobSetWrapper) Limit(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
+	for i, replicatedJob := range j.Spec.ReplicatedJobs {
+		if replicatedJob.Name == replicatedJobName {
+			if j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Limits == nil {
+				j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Limits = map[corev1.ResourceName]resource.Quantity{}
+			}
+			j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+		}
+	}
+	return j
+}
+
 // PriorityClass updates JobSet priorityclass.
 func (j *JobSetWrapper) PriorityClass(pc string) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
