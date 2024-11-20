@@ -111,7 +111,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	return snapshot
 }
 
-func (s *TASFlavorSnapshot) addNode(levelValues []string, capacity resources.Requests, domainID utiltas.TopologyDomainID) {
+func (s *TASFlavorSnapshot) addLeafDomain(levelValues []string, capacity resources.Requests, domainID utiltas.TopologyDomainID) {
 	domain := domain{
 		id:          domainID,
 		levelValues: levelValues,
@@ -152,13 +152,11 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 		}
 		s.domainsPerLevel[len(parentValues)-1][parentID] = parent
 		s.domains[parentID] = parent
+		s.initializeHelper(parent)
 	}
 	// connect parent and child
 	dom.parent = parent
 	parent.children = append(parent.children, dom)
-	if !parentFound {
-		s.initializeHelper(parent)
-	}
 }
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {

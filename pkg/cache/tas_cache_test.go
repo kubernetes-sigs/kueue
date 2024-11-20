@@ -572,7 +572,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"binaryTrees" : {
+		"block required; 4 pods fit into one host each": {
 			nodes: binaryTreesNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -1329,9 +1329,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		if name != "binaryTrees" {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 

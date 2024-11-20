@@ -117,7 +117,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
 		capacity := resources.NewRequests(node.Status.Allocatable)
 		domainID := utiltas.DomainID(levelValues)
-		snapshot.addNode(levelValues, capacity, domainID)
+		snapshot.addLeafDomain(levelValues, capacity, domainID)
 		nodeToDomain[node.Name] = domainID
 	}
 	snapshot.initialize()
