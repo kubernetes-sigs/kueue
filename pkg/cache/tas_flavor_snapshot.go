@@ -156,7 +156,9 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	// connect parent and child
 	dom.parent = parent
 	parent.children = append(parent.children, dom)
-	s.initializeHelper(parent)
+	if !parentFound {
+		s.initializeHelper(parent)
+	}
 }
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
