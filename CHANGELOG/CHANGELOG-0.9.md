@@ -1,3 +1,26 @@
+## v0.9.1
+
+Changes since `v0.9.0`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Change, and in some scenarios fix, the status message displayed to user when a workload doesn't fit in available capacity. (#3549, @gabesaba)
+- Determine borrowing more accurately, allowing preempting workloads which fit in nominal quota to schedule faster (#3550, @gabesaba)
+- Fix accounting for usage coming from TAS workloads using multiple resources. The usage was multiplied
+  by the number of resources requested by a workload, which could result in under-utilization of the cluster.
+  It also manifested itself in the message in the workload status which could contain negative numbers. (#3513, @mimowo)
+- Fix computing the topology assignment for workloads using multiple PodSets requesting the same
+  topology. In particular, it was possible for the set of topology domains in the assignment to be empty,
+  and as a consequence the pods would remain gated forever as the TopologyUngater would not have
+  topology assignment information. (#3524, @mimowo)
+- Fix running Job when parallelism < completions, before the fix the replacement pods for the successfully
+  completed Pods were not ungated. (#3561, @mimowo)
+- Fix the flow of deactivation for workloads due to rejected AdmissionChecks.
+  Now, all AdmissionChecks are reset back to the Pending state on eviction (and deactivation in particular),
+  and so an admin can easily re-activate such a workload manually without tweaking the checks. (#3518, @KPostOffice)
+
 ## v0.9.0
 
 Changes since `v0.8.0`:
