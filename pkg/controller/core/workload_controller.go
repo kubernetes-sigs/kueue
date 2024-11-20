@@ -730,7 +730,6 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// function.
 			if immediate {
 				if !r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy) {
-					log.V(2).Info("LocalQueue for workload didn't exist or not active; ignored for now")
 				}
 			}
 		})
