@@ -251,7 +251,7 @@ The currently supported features are:
 | `LendingLimit`                        | `false` | Alpha      | 0.6   | 0.8   |
 | `LendingLimit`                        | `true`  | Beta       | 0.9   |       |
 | `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
-| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   |       |
+| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |
 | `TopologyAwareScheduling`             | `false` | Alpha      | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10   |       |
