@@ -41,6 +41,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 		tasHostLabel  = "kubernetes.io/hostname"
 	)
 
+	//      b1                   b2
+	//   /      \             /      \
+	//  r1       r2          r1       r2
+	//  |      /  |  \       |         |
+	//  x1    x2  x3  x4     x5       x6
 	defaultNodes := []corev1.Node{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -186,6 +191,190 @@ func TestFindTopologyAssignment(t *testing.T) {
 		tasBlockLabel,
 		tasRackLabel,
 		tasHostLabel,
+	}
+
+	//           b1                    b2
+	//       /        \             /      \
+	//      r1         r2          r1       r2
+	//     /  \      /   \        /   \    /   \
+	//    x1   x2   x3    x4     x5   x6  x7    x6
+	binaryTreesNodes := []corev1.Node{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b1-r1-x1",
+				Labels: map[string]string{
+					tasBlockLabel: "b1",
+					tasRackLabel:  "r1",
+					tasHostLabel:  "x1",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b1-r1-x2",
+				Labels: map[string]string{
+					tasBlockLabel: "b1",
+					tasRackLabel:  "r1",
+					tasHostLabel:  "x2",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b1-r2-x3",
+				Labels: map[string]string{
+					tasBlockLabel: "b1",
+					tasRackLabel:  "r2",
+					tasHostLabel:  "x3",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b1-r2-x4",
+				Labels: map[string]string{
+					tasBlockLabel: "b1",
+					tasRackLabel:  "r2",
+					tasHostLabel:  "x4",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b2-r1-x5",
+				Labels: map[string]string{
+					tasBlockLabel: "b2",
+					tasRackLabel:  "r1",
+					tasHostLabel:  "x5",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b2-r1-x6",
+				Labels: map[string]string{
+					tasBlockLabel: "b2",
+					tasRackLabel:  "r1",
+					tasHostLabel:  "x6",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b2-r2-x7",
+				Labels: map[string]string{
+					tasBlockLabel: "b2",
+					tasRackLabel:  "r2",
+					tasHostLabel:  "x7",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "b2-r2-x8",
+				Labels: map[string]string{
+					tasBlockLabel: "b2",
+					tasRackLabel:  "r2",
+					tasHostLabel:  "x8",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
 	}
 
 	cases := map[string]struct {
@@ -378,6 +567,54 @@ func TestFindTopologyAssignment(t *testing.T) {
 							"b1",
 							"r3",
 							"x6",
+						},
+					},
+				},
+			},
+		},
+		"block required; 4 pods fit into one host each": {
+			nodes: binaryTreesNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultThreeLevels,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r1",
+							"x1",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r1",
+							"x2",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r2",
+							"x3",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r2",
+							"x4",
 						},
 					},
 				},
