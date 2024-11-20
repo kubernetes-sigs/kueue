@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -51,6 +52,7 @@ var (
 )
 
 func TestWlReconcile(t *testing.T) {
+	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 
@@ -986,7 +988,8 @@ func TestWlReconcile(t *testing.T) {
 
 			managerClient := managerBuilder.Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters()
+			enabledIntegrations := sets.New([]string{"batch/job"}...)
+			adapters, _ := jobframework.GetMultiKueueAdapters(enabledIntegrations)
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			worker1Builder, _ := getClientBuilder()
