@@ -2,6 +2,10 @@
 
 Changes since `v0.9.0`:
 
+> [!NOTE]
+> The previously anticipated feature for Topology Aware Scheduling (TAS) Rank Ordering is not part of this 
+> patch release. This functionality has been deferred and will be included in an upcoming release.
+
 ## Changes by Kind
 
 ### Bug or Regression
