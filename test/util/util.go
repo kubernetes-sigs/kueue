@@ -765,3 +765,15 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
+
+func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readLq := &kueue.LocalQueue{}
+		for _, lq := range lqs {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(readLq.Status.Conditions, kueue.LocalQueueActive)
+			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.LocalQueueActive, lq.Name)
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", lq.Name, cond.Status, cond.Message)
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
