@@ -189,7 +189,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 			if dtCond != nil {
-				reason += dtCond.Reason
+				reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
 			workload.SetEvictedCondition(&wl, reason, message)
