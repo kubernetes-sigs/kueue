@@ -730,6 +730,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// function.
 			if immediate {
 				if !r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy) {
+					log.V(2).Info("Workload could not be added or updated; ignoring for now", "workload", wlCopy.Name)
 				}
 			}
 		})
