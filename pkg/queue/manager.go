@@ -621,8 +621,6 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
-
-	// CURR TODO: find where to put pending workloads metrics for LQs
 }
 
 func (m *Manager) GetClusterQueueNames() []string {

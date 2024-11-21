@@ -140,6 +140,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
+
 	q, match := e.Object.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
@@ -148,16 +149,19 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 	log := r.log.WithValues("localQueue", klog.KObj(q))
 	log.V(2).Info("LocalQueue create event")
 
+	ctx := logr.NewContext(context.Background(), log)
 	if ptr.Deref(q.Spec.StopPolicy, kueue.None) == kueue.None {
 		ctx := logr.NewContext(context.Background(), log)
-		// TODO: Evaluate if metrics collection can be moved to manager.go instead of having it here.
 		if err := r.queues.AddLocalQueue(ctx, q); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
 	}
-	// CURR TODO: record lq resource usage
 	if err := r.cache.AddLocalQueue(q); err != nil {
 		log.Error(err, "Failed to add localQueue to the cache")
+	}
+
+	if ok, _ := r.queues.ShouldCollectMetrics(ctx, q); ok {
+		recordLQResourceMetrics(q)
 	}
 
 	return true
