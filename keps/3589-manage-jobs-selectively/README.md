@@ -14,10 +14,11 @@
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Do nothing](#do-nothing)
+  - [Validating Admission Policies](#validating-admission-policies)
 <!-- /toc -->
 
 ## Summary
@@ -30,16 +31,28 @@ basis for all Kueue integrations.
 
 ## Motivation
 
-Kueue already allows per-namespace control of `manageJobsWithoutQueueName`
-for the Pod integration via `integrations.podOptions.namespaceSelector`.
-The effect of `manageJobsWithoutQueueName` on the `Deployment` and `StatefulSet`
-integrations in Kueue 0.9 are also indirectly controlled by the same `namespaceSelector`
-because these integrations are built on top of the `Pod` integration.  Just like the
-`Pod` integration, Kueue requires some mechanism for modulating `manageJobsWithoutQueueName`
-for these fundamental types for system namespaces to avoid interrupting normal cluster operations.
+When Kueue is deployed on multi-tenant clusters, it is essential that cluster
+admins be able to configure Kueue such that users cannot bypass its quota system.
+In particular, there must be a robust and recommended mechanism for configuring Kueue
+such that all Pod-creating Kinds in user namespaces are subject to management by Kueue.
+
+Currently, the primary mechanism for doing this is setting `manageJobsWithoutQueueName` to
+true.  When `manageJobsWithoutQueueName` is true, then Kueue will manage all instances of
+Kinds with Kueue integrations, even if they do not have a `kueue.x-k8s.io/queue-name` label.
+As a practical matter, Pods running in system namespaces must be exempted from being
+managed by Kueue even if `manageJobsWithoutQueueName` is true.  Therefore Kueue's Pod
+integration limits the scope of `manageJobsWithoutQueueName` by restricting its effect to
+Pods that are in namespaces that match against the `integrations.podOptions.namespaceSelector`.
+
+The recently added `Deployment` and `StatefulSet` integrations are built on top of the
+`Pod` integration and therefore the effect of `manageJobsWithoutQueueName` for these
+two integrations is also filtered by `integrations.podOptions.namespaceSelector`.  A similar
+rationale holds for `Deployment` and less strongly for `StatefulSet` that some mechanism
+to limit `manageJobsWithoutQueueName` is required otherwise it would be impossible in
+practice to ever set `manageJobsWithoutQueueName` to true.
 
 No other integrations beyond these three consider the `namespaceSelector` when deciding whether or not to
-suspend jobs that do not have a queue name.  This results in an irregular API and makes it
+suspend jobs that do not have a `queue-name` label.  This results in an irregular API and makes it
 harder to configure Kueue such that quotas will be enforced (cannot be bypassed by users).
 The irregularity between `batchv1/Job` and `Deployment` is likely to be especially confusing
 to users and cluster admins who would view both of these types as "built-in" to Kubernetes and
@@ -56,12 +69,16 @@ Consider any scope for filtering `manageJobsWithoutQueueName` that is not based 
 
 ## Proposal
 
-We add a `manageAllJobsNamespaceSelector` of type `*metav1.LabelSelector`
+We add a `managedJobsNamespaceSelector` of type `*metav1.LabelSelector`
 to the top level of the Kueue `Configuration` struct (same level as `manageJobsWithoutQueueName`).
-(The name of `manageJobsWithoutQueueNameNamespaceSelector` reads poorly, so I propose something else)
 
 We use this new configuration for all integrations in the same way that the current
-`namespaceSelector` is used by the Pod integration.
+`namespaceSelector` is used by the Pod integration.  Specifically,
+1. If `manageJobsWithoutQueueName` is false, `managedJobsNamespaceSelector` has no effect: Kueue will manage
+exactly those instances of supported Kinds that have a `queue-name` label.
+2. If `manageJobsWithoutQueueName` is true, then Kueue will (a) manage all instances of supported Kinds
+that have a `queue-name` label and (b) will manage all instances of supported Kinds that do not
+have a `queue-name` label if they are in namespaces that match `managedJobsNamespaceSelector`.
 
 We migrate away from using `podOptions.namespaceSelector` over the course of several releases.
 Ideally we remove it from the `Configuration` struct as part of going to the `v1` API level.
@@ -70,8 +87,23 @@ Ideally we remove it from the `Configuration` struct as part of going to the `v1
 
 #### Story 1
 
-Cluster admins will be able to use `manageAllJobsNamespaceSelector` to easily configure Kueue
-to enable quota enforcement on a per namespace basis.
+Cluster admins will be able to use the combination of `managedJobsNamespaceSelector` and
+`manageJobsWithoutQueueName` to configure Kueue to enable quota enforcement on a per namespace basis.
+
+One sapproach would be to exempt selected namespaces from management:
+```yaml
+managedJobsNamespaceSelector:
+  matchExpressions:
+  - key: kubernetes.io/metadata.name
+    operator: NotIn
+    values: [ kube-system, kueue-system ]
+```
+Another approach would be for the cluster admin to label namespaces that are subject to management:
+```yaml
+managedJobsNamespaceSelector:
+  matchLabels:
+    kueue.x-k8s.io/managed-namespace: true
+```
 
 ## Design Details
 
@@ -93,7 +125,7 @@ type Configuration struct {
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
   // ManageAllJobsNamespaceSelector can be used to omit some namespaces from ManageJobsWithoutQueueName
-	ManageAllJobsNamespaceSelector *metav1.LabelSelector `json:"manageAllJobsNamespaceSelector,omitempty"`
+	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
   ...
 }
@@ -101,11 +133,13 @@ type Configuration struct {
 
 ### Implementation
 
-The configuration of all Job webhooks are extended to propagate the label selector and it is
-used to filter manageJobsWithoutQueueNames as is currently done in the Pod integration.
+The configuration of all Job webhooks are extended to propagate the namespace selector and it is
+used to filter `manageJobsWithoutQueueName` as is currently done in the Pod integration. Specifically,
+jobs without queue names are only managed if both `manageJobsWithoutQueueName` is true and
+the jobs namespace matches the `managedJobsNamespaceSelector`.
 
 Configuration parsing during startup is extended to give a deprecation notice if `podOptions.namespaceSelector` is set.
-Setting both `podOptions.namespaceSelector` and `manageAllJobsNamespaceSelector` will be flagged as a configuration error.
+Setting both `podOptions.namespaceSelector` and `managedJobsNamespaceSelector` will be flagged as a configuration error.
 
 ### Test Plan
 
@@ -123,10 +157,6 @@ All unit tests for the current Pod integration namespaceSelector will be extende
 
 All integration tests for the current Pod integration namespaceSelector will be extended across all integrations.
 
-### Graduation Criteria
-
-The feature is implemented as described for all Job integrations.
-
 ## Implementation History
 
 ## Drawbacks
@@ -137,13 +167,67 @@ Why should this KEP _not_ be implemented?
 
 ## Alternatives
 
+### Do nothing
+
 We could do nothing and simply document that despite its historical placement in
 a subfield of the `Configuration` struct, `podOptions.namespaceSelector` also applies
 to the `StatefulSet` and `Deployment` integrations.
 
-We could phase out `manageJobsWithoutQueueNames` and instead recommend the
-use of ValidatingAdmissionPolicies to ensure that Jobs created in "user" namespaces
-all have a queue name label (and thus will be managed by Kueue). However, for this to
-work the VAP must be able to correctly identify child Jobs that are owned directly
-or indirectly by Kueue-managed Jobs and are thus exempt from the policy.  Since there
-can be multiple levels of such parent-child links, the VAP becomes complex.
+### Validating Admission Policies
+
+As previously discussed in [issue 2119](https://github.com/kubernetes-sigs/kueue/issues/2119),
+we could phase out `manageJobsWithoutQueueNames` and instead recommend the
+use of ValidatingAdmissionPolicies to ensure that all Kinds that could be managed by Kueue that
+are created in "user" namespaces have a queue name label (and thus will be managed by Kueue).
+
+However, while exploring this idea further a complication arose. The ValidatingAdmissionPolicy
+must be able to distinguish between top-level resources without queue names (which should be denied)
+and child resources that are owned by Kueue-managed parents (which must be admitted even if they do not have a queue name).
+In other words, the VAP must implement the same functionality as `jobframework.IsOwnerManagedByKueue`
+and cross check controller-references against managed kinds.  This approach may be challenging to scale
+as the number of Kueue managed kinds increases and ancestor trees become deeper.
+For example in the not so distant future we might see: AppWrapper->PyTorchJob->JobSet->Job->Pod.
+
+As a concrete example, here is the simplest possible VAP
+(taken from [MLBatch](https://github.com/project-codeflare/mlbatch/blob/main/setup.k8s-v1.30/admission-policy.yaml))
+that only considers `AppWrapper` as a possible Kueue-managed parent Kind.
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: mlbatch-require-queue-name
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["batch"]
+      apiVersions: ["v1"]
+      resources:   ["jobs"]
+      operations:  ["CREATE", "UPDATE"]
+    - apiGroups:   ["kubeflow.org"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["pytorchjobs"]
+    - apiGroups:   ["ray.io"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["rayjobs","rayclusters"]
+  matchConditions:
+  - name: exclude-appwrapper-owned
+    expression: "!(has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o, o.apiVersion=='workload.codeflare.dev/v1beta2'&&o.kind=='AppWrapper'&&o.controller))"
+  validations:
+    - expression: "has(object.metadata.labels) && 'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
+      message: "All non-AppWrapper workloads must have a 'kueue.x-k8s.io/queue-name' label with non-empty value."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: mlbatch-require-queue-name
+spec:
+  policyName: mlbatch-require-queue-name
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        mlbatch-team-namespace: "true"
+```
