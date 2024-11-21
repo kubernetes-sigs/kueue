@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -330,14 +329,14 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
-		log.Printf("LocalQueue for workload not found; queueKey: %s, workload: %s", qKey, w.Name)
+		fmt.Println("LocalQueue for workload not found")
 		return false
 	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
-		log.Printf("ClusterQueue for workload not found; clusterQueue: %s, workload: %s", q.ClusterQueue, w.Name)
+		fmt.Print("ClusterQueue for workload not found")
 		return false
 	}
 	cq.PushOrUpdate(wInfo)
