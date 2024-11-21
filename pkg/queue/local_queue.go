@@ -20,12 +20,17 @@ import (
 	"fmt"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // Key is the key used to index the queue.
 func Key(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+}
+
+func DefaultQueueKey(namespace string) string {
+	return fmt.Sprintf("%s/%s", namespace, constants.DefaultLocalQueueName)
 }
 
 // LocalQueue is the internal implementation of kueue.LocalQueue.

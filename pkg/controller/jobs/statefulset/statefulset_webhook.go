@@ -34,15 +34,21 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type Webhook struct {
-	client client.Client
+	client                     client.Client
+	queues                     *queue.Manager
+	manageJobsWithoutQueueName bool
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client: mgr.GetClient(),
+		client:                     mgr.GetClient(),
+		queues:                     options.Queues,
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
@@ -61,6 +67,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Propagating queue-name")
 
 	// Because StatefuleSet is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
+	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueueExist)
 	queueName := jobframework.QueueNameForObject(ss.Object())
 	if queueName != "" {
 		if ss.Spec.Template.Labels == nil {

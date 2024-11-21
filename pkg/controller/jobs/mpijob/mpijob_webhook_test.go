@@ -135,14 +135,17 @@ func TestValidateCreate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testCases := []struct {
-		name              string
-		mpiJob            *v2beta1.MPIJob
-		queues            []kueue.LocalQueue
-		clusterQueues     []kueue.ClusterQueue
-		admissionCheck    *kueue.AdmissionCheck
-		multiKueueEnabled bool
-		wantManagedBy     *string
-		wantErr           error
+		name                 string
+		mpiJob               *v2beta1.MPIJob
+		queues               []kueue.LocalQueue
+		clusterQueues        []kueue.ClusterQueue
+		admissionCheck       *kueue.AdmissionCheck
+		multiKueueEnabled    bool
+		localQueueDefaulting bool
+		defaultLqExist       bool
+		want                 *v2beta1.MPIJob
+		wantManagedBy        *string
+		wantErr              error
 	}{
 		{
 			name: "TestDefault_MPIJobManagedBy_mpijobapi.MPIJobControllerName",
@@ -337,11 +340,33 @@ func TestDefault(t *testing.T) {
 			multiKueueEnabled: true,
 			wantManagedBy:     nil,
 		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			mpiJob:               testingutil.MakeMPIJob("job", "default").Obj(),
+			want:                 testingutil.MakeMPIJob("job", "default").Queue("default").Obj(),
+		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq is created, job has queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			mpiJob:               testingutil.MakeMPIJob("job", "default").Queue("queue").Obj(),
+			want:                 testingutil.MakeMPIJob("job", "default").Queue("queue").Obj(),
+		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			mpiJob:               testingutil.MakeMPIJob("job", "default").Obj(),
+			want:                 testingutil.MakeMPIJob("job", "default").Obj(),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -352,6 +377,13 @@ func TestDefault(t *testing.T) {
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
+
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
 
 			for _, q := range tc.queues {
 				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {
@@ -381,6 +413,11 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantManagedBy, tc.mpiJob.Spec.RunPolicy.ManagedBy); diff != "" {
 				t.Errorf("Default() mpijob.Spec.RunPolicy.ManagedBy mismatch (-want +got):\n%s", diff)
+			}
+			if tc.want != nil {
+				if diff := cmp.Diff(tc.want, tc.mpiJob); diff != "" {
+					t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}
