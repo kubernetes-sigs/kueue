@@ -514,7 +514,9 @@ const (
 
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
-	// Deprecated: Please use Deactivated instead.
+	// Deprecated: The reason is not set any longer, it is only kept temporarily to ensure
+	// pre-existing deactivated workloads remain deactivated after upgrade from version
+	// prior to 0.10. The reason declaration can be removed in 0.11.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
 
 	// WorkloadDeactivated indicates that the workload was evicted
