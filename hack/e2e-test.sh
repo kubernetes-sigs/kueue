@@ -30,7 +30,7 @@ function cleanup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
-	cluster_cleanup "$KIND_CLUSTER_NAME"
+        cluster_cleanup "$KIND_CLUSTER_NAME"
     fi
     #do the image restore here for the case when an error happened during deploy
     restore_managers_image
@@ -42,18 +42,26 @@ function startup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
-	cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE" 
+        cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE"
     fi
 }
 
 function kind_load {
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
-    then
-        docker pull "$E2E_TEST_IMAGE"
-	cluster_kind_load "$KIND_CLUSTER_NAME"
+    prepare_docker_images
+
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
+	      cluster_kind_load "$KIND_CLUSTER_NAME"
     fi
-    docker pull "registry.k8s.io/jobset/jobset:$JOBSET_VERSION"
-    install_jobset "$KIND_CLUSTER_NAME"
+
+    if [[ -v JOBSET_VERSION ]]; then
+        install_jobset "$KIND_CLUSTER_NAME"
+    fi
+    if [[ -v KUBEFLOW_VERSION ]]; then
+        install_kubeflow "$KIND_CLUSTER_NAME"
+    fi
+    if [[ -v KUBEFLOW_MPI_VERSION ]]; then
+        install_mpi "$KIND_CLUSTER_NAME"
+    fi
 }
 
 function kueue_deploy {
