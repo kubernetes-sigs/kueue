@@ -1007,9 +1007,7 @@ func TestWlReconcile(t *testing.T) {
 			)
 
 			managerClient := managerBuilder.Build()
-
-			enabledIntegrations := sets.New([]string{"batch/job"}...)
-			adapters, _ := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New[string]("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			worker1Builder, _ := getClientBuilder()

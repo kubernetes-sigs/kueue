@@ -208,16 +208,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration) {
+func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
 	managerSetup(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	adapters, err := jobframework.GetMultiKueueAdapters(sets.New([]string{
-		"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
-		"jobset.x-k8s.io/jobset", "kubeflow.org/mxjob", "kubeflow.org/paddlejob",
-		"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob"}...))
+	adapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
