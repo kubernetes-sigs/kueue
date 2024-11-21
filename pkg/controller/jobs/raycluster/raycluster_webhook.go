@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 var (
@@ -38,6 +39,7 @@ var (
 
 type RayClusterWebhook struct {
 	client                       client.Client
+	queues                       *queue.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 }
@@ -70,6 +72,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
+	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueue(job.Object().GetNamespace()))
 	return jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 }
 

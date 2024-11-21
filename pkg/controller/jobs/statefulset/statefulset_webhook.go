@@ -34,10 +34,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type Webhook struct {
 	client                     client.Client
+	queues                     *queue.Manager
 	manageJobsWithoutQueueName bool
 }
 
@@ -45,6 +47,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
 		client:                     mgr.GetClient(),
+		queues:                     options.Queues,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -62,6 +65,8 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	ss := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Applying defaults")
+
+	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueue(ss.ObjectMeta.Namespace))
 
 	queueName := jobframework.QueueNameForObject(ss.Object())
 	if queueName == "" {

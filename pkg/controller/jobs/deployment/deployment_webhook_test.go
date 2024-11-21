@@ -25,15 +25,20 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 )
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment *appsv1.Deployment
-		want       *appsv1.Deployment
+		deployment           *appsv1.Deployment
+		LocalQueueDefaulting bool
+		defaultLqExist       bool
+		want                 *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -62,19 +67,53 @@ func TestDefault(t *testing.T) {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 			want:       testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 		},
+		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+			LocalQueueDefaulting: true,
+			defaultLqExist:       true,
+			deployment:           testingdeployment.MakeDeployment("test-pod", "default").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "default").
+				Queue("default").
+				PodTemplateSpecQueue("default").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+			LocalQueueDefaulting: true,
+			defaultLqExist:       true,
+			deployment:           testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				PodTemplateSpecQueue("test-queue").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+			LocalQueueDefaulting: true,
+			defaultLqExist:       false,
+			deployment:           testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.LocalQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
-			client := builder.Build()
-
-			w := &Webhook{
-				client: client,
+			cli := builder.Build()
+			cqCache := cache.New(cli)
+			queueManager := queue.NewManager(cli, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").
+					Obj()); err != nil {
+					t.Errorf("failed to create default local queue: %s", err)
+				}
 			}
-
-			ctx, _ := utiltesting.ContextWithLog(t)
+			w := &Webhook{
+				client: cli,
+				queues: queueManager,
+			}
 
 			if err := w.Default(ctx, tc.deployment); err != nil {
 				t.Errorf("failed to set defaults for v1/deployment: %s", err)

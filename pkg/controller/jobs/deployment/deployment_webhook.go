@@ -30,15 +30,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type Webhook struct {
 	client client.Client
+	queues *queue.Manager
 }
 
-func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
 		client: mgr.GetClient(),
+		queues: options.Queues,
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
@@ -57,6 +61,8 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Applying defaults")
+
+	jobframework.ApplyDefaultLocalQueue(deployment.Object(), wh.queues.DefaultLocalQueue(deployment.ObjectMeta.Namespace))
 
 	if queueName := jobframework.QueueNameForObject(deployment.Object()); queueName != "" {
 		if deployment.Spec.Template.Labels == nil {
