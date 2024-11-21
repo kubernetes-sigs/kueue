@@ -209,7 +209,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
-				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message)
+				reportLQMetrics := r.shouldReportWorkloadLQMetrics(ctx, &wl)
+				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message, reportLQMetrics)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -396,7 +397,8 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return false, client.IgnoreNotFound(err)
 	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
+	reportLQMetrics := r.shouldReportWorkloadLQMetrics(ctx, wl)
+	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message, reportLQMetrics)
 	return true, nil
 }
 
@@ -479,7 +481,8 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		if err == nil {
-			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
+			reportLQMetrics := r.shouldReportWorkloadLQMetrics(ctx, wl)
+			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message, reportLQMetrics)
 		}
 		return true, client.IgnoreNotFound(err)
 	}
@@ -558,10 +561,20 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	if err == nil {
+		reportLQMetrics := r.shouldReportWorkloadLQMetrics(ctx, wl)
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
+		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message, reportLQMetrics)
 	}
 	return 0, client.IgnoreNotFound(err)
+}
+
+func (r *WorkloadReconciler) shouldReportWorkloadLQMetrics(ctx context.Context, wl *kueue.Workload) (reportLQMetrics bool) {
+	if r.queues.ManagerLQMetricsEnabled() {
+		lq := &kueue.LocalQueue{}
+		r.client.Get(ctx, client.ObjectKey{Name: wl.Name, Namespace: wl.Namespace}, lq)
+		reportLQMetrics, _ = r.queues.ShouldCollectMetrics(ctx, lq)
+	}
+	return
 }
 
 // triggerDeactivationOrBackoffRequeue trigger deactivation of workload
