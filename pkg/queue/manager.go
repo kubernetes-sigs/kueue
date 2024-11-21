@@ -336,7 +336,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
-		fmt.Print("ClusterQueue for workload not found")
+		fmt.Println("ClusterQueue for workload not found")
 		return false
 	}
 	cq.PushOrUpdate(wInfo)
