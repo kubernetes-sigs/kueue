@@ -48,6 +48,8 @@ func MakePyTorchJob(name, ns string) *PyTorchJobWrapper {
 }
 
 type PyTorchReplicaSpecRequirement struct {
+	Image         string
+	Args          []string
 	ReplicaType   kftraining.ReplicaType
 	Name          string
 	ReplicaCount  int32
@@ -62,6 +64,8 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecs(replicaSpecs ...PyTorchReplicaSp
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "pytorch"
+		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Image = rs.Image
+		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Args = rs.Args
 
 		if rs.Annotations != nil {
 			j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
@@ -79,10 +83,13 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:      "c",
-						Image:     "pause",
-						Command:   []string{},
-						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						Name:    "c",
+						Image:   "pause",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
 					},
 				},
 				NodeSelector: map[string]string{},
@@ -97,10 +104,13 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:      "c",
-						Image:     "pause",
-						Command:   []string{},
-						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						Name:    "c",
+						Image:   "pause",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
 					},
 				},
 				NodeSelector: map[string]string{},
@@ -160,6 +170,12 @@ func (j *PyTorchJobWrapper) Queue(queue string) *PyTorchJobWrapper {
 // Request adds a resource request to the default container.
 func (j *PyTorchJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return j
+}
+
+// Limit adds a resource request to the default container.
+func (j *PyTorchJobWrapper) Limit(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return j
 }
 
