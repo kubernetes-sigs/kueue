@@ -189,9 +189,10 @@ as the number of Kueue managed Kinds increases and especially as the possible pa
 relationships grows. We expect JobSets to be adopted as an implementation mechanism by multiple Kueue
 managed Kinds. AppWrappers can be the parent for any Kueue managed Kind.
 
-As a concrete example, here is the simplest possible VAP
-(taken from [MLBatch](https://github.com/project-codeflare/mlbatch/blob/main/setup.k8s-v1.30/admission-policy.yaml))
-that only considers `AppWrapper` as a possible Kueue-managed parent Kind.
+As a concrete example, here is the VAP to enforce user quotas
+used in [MLBatch](https://github.com/project-codeflare/mlbatch/blob/main/setup.k8s-v1.30/admission-policy.yaml)).
+It only has to cover the subset of Kueue integrations that MLBatch users are permitted to created (gated by other RBAC rules)
+and therefore only has to consider `AppWrapper` as a possible Kueue-managed parent Kind.
 ```yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
