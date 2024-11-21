@@ -18,6 +18,7 @@ package queue
 
 import (
 	"fmt"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -64,8 +65,4 @@ func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
 	q.items[key] = info
-}
-
-func (q *LocalQueue) ShouldCollectMetrics() bool {
-	return q.enableMetrics
 }

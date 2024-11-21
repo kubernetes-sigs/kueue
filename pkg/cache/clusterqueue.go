@@ -117,8 +117,9 @@ type queue struct {
 	reservingWorkloads int
 	admittedWorkloads  int
 	//TODO: rename this to better distinguish between reserved and "in use" quantities
-	usage         resources.FlavorResourceQuantities
-	admittedUsage resources.FlavorResourceQuantities
+	usage                resources.FlavorResourceQuantities
+	admittedUsage        resources.FlavorResourceQuantities
+	shouldCollectMetrics bool
 }
 
 // FitInCohort supports the legacy

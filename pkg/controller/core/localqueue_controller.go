@@ -50,11 +50,14 @@ const (
 	localQueueIsInactiveMsg   = "LocalQueue is stopped"
 	clusterQueueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
 	failedUpdateLqStatusMsg   = "Failed to retrieve localQueue status"
+	localQueueActiveMsg       = "Can submit new workloads to clusterQueue"
 )
 
 const (
 	StoppedReason                = "Stopped"
 	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+	CQDoesNotExistReason         = "ClusterQueueDoesNotExist"
+	LQReadyReason                = "Ready"
 )
 
 type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
@@ -125,12 +128,12 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, CQDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
-		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to clusterQueue")
+		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, LQReadyReason, localQueueActiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
@@ -153,7 +156,7 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
 	}
-
+	// CURR TODO: record lq resource usage
 	if err := r.cache.AddLocalQueue(q); err != nil {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
@@ -171,7 +174,7 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 
 	r.queues.DeleteLocalQueue(q)
 	r.cache.DeleteLocalQueue(q)
-
+	metrics.ClearLocalQueueMetrics(q.Name, q.Namespace)
 	return true
 }
 
@@ -212,10 +215,8 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	r.queues.DeleteLocalQueue(oldLq)
-	if r.reportResourceMetrics {
-		if ok, _ := r.queues.ShouldCollectMetrics(ctx, newLq); ok {
-			updateLQResourceMetrics(oldLq, newLq)
-		}
+	if ok, _ := r.queues.ShouldCollectMetrics(ctx, newLq); ok {
+		updateLQResourceMetrics(oldLq, newLq)
 	}
 	return true
 }
@@ -341,6 +342,19 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
 }
 
+func localQueueStatusMetricForReason(reason string, queue *kueue.LocalQueue) {
+	switch reason {
+	case clusterQueueIsInactiveReason:
+		metrics.ReportLocalQueueStatus(queue.Name, queue.Namespace, metrics.LQStatusPending)
+	case StoppedReason:
+		metrics.ReportLocalQueueStatus(queue.Name, queue.Namespace, metrics.LQStatusPending)
+	case CQDoesNotExistReason:
+		metrics.ReportLocalQueueStatus(queue.Name, queue.Namespace, metrics.LQStatusOrphan)
+	case LQReadyReason:
+		metrics.ReportLocalQueueStatus(queue.Name, queue.Namespace, metrics.LQStatusActive)
+	}
+}
+
 func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	ctx context.Context,
 	queue *kueue.LocalQueue,
@@ -357,6 +371,10 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		if err != nil {
 			r.log.Error(err, failedUpdateLqStatusMsg)
 			return err
+		}
+		pendingInadmissible, err := r.queues.PendingInadmissibleLQ(queue)
+		if err != nil {
+
 		}
 	}
 	stats, err := r.cache.LocalQueueUsage(queue)
@@ -378,13 +396,17 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			Message:            msg,
 			ObservedGeneration: queue.Generation,
 		})
+		if ok, _ := r.queues.ShouldCollectMetrics(ctx, queue); ok {
+			pendingInadmissible, err := r.queues.PendingInadmissibleLQ(queue)
+			if err != nil {
+				r.log.Error(err, failedUpdateLqStatusMsg)
+			}
+			localQueueStatusMetricForReason(reason, queue)
+			metrics.ReportLocalPendingWorkloads(queue.Name, queue.Namespace, int(pendingWls), int(pendingInadmissible))
+		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
 		return r.client.Status().Update(ctx, queue)
 	}
 	return nil
-}
-
-func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
-	metrics.ClearLocalQueueMetrics(lq.Name, lq.Namespace)
 }

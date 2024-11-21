@@ -177,9 +177,6 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			added := cqImpl.AddFromLocalQueue(qImpl)
 			addedWorkloads = addedWorkloads || added
 		}
-		if qImpl.ShouldCollectMetrics() {
-			qImpl.StatusFromCQ(cqImpl)
-		}
 	}
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
@@ -204,11 +201,6 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		return err
 	}
 	m.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	for _, lq := range m.localQueues {
-		if lq.ClusterQueue == cq.Name && lq.ShouldCollectMetrics() {
-			lq.StatusFromCQ(cqImpl)
-		}
-	}
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
@@ -227,12 +219,6 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	m.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearClusterQueueMetrics(cq.Name)
-	for _, lqImpl := range m.localQueues {
-		lqKeySlice := strings.Split(lqImpl.Key, "/")
-		if lqImpl.ShouldCollectMetrics() && lqImpl.ClusterQueue == cq.Name {
-			metrics.ReportLocalQueueStatus(lqKeySlice[1], lqKeySlice[0], metrics.LQStatusOrphan)
-		}
-	}
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
@@ -244,16 +230,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
 
-	shouldCollectMetrics, err := m.ShouldCollectMetrics(ctx, q)
-	if err != nil {
-		return fmt.Errorf("unable to evaluate if local metrics need to be collected: %w", err)
-	}
-
-	var qImpl *LocalQueue
-	if shouldCollectMetrics {
-		qImpl = newLocalQueue(q, withMetricsEnabled())
-	}
-	qImpl = newLocalQueue(q)
+	qImpl := newLocalQueue(q)
 
 	m.localQueues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
@@ -270,9 +247,6 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
 	cq := m.hm.ClusterQueues[qImpl.ClusterQueue]
-	if qImpl.ShouldCollectMetrics() {
-		qImpl.StatusFromCQ(cq)
-	}
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
@@ -303,9 +277,6 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 			oldCQ.DeleteFromLocalQueue(qImpl)
 		}
 		newCQ := m.hm.ClusterQueues[string(q.Spec.ClusterQueue)]
-		if qImpl.ShouldCollectMetrics() {
-			qImpl.StatusFromCQ(newCQ)
-		}
 		if newCQ != nil && newCQ.AddFromLocalQueue(qImpl) {
 			m.Broadcast()
 		}
@@ -328,9 +299,6 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
 	delete(m.localQueues, key)
-	if qImpl.ShouldCollectMetrics() {
-		metrics.ClearLocalQueueMetrics(q.Name, q.Namespace)
-	}
 }
 
 func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
@@ -343,6 +311,24 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 	}
 
 	return int32(len(qImpl.items)), nil
+}
+
+func (m *Manager) PendingInadmissibleLQ(q *kueue.LocalQueue) (int32, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	var toReturn int32
+	qImpl, ok := m.localQueues[Key(q)]
+	if !ok {
+		return 0, ErrQueueDoesNotExist
+	}
+	for name, _ := range qImpl.items {
+		_, ok = m.hm.ClusterQueues[Key(q)].inadmissibleWorkloads[name]
+		if ok {
+			toReturn++
+		}
+	}
+	return toReturn, nil
 }
 
 func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
@@ -636,12 +622,7 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 
-	for _, localQueue := range m.localQueues {
-		if localQueue.ShouldCollectMetrics() && localQueue.ClusterQueue == cqName {
-			lqKeySlice := strings.Split(localQueue.Key, "/")
-			metrics.ReportLocalPendingWorkloads(lqKeySlice[1], lqKeySlice[0], active, inadmissible)
-		}
-	}
+	// CURR TODO: find where to put pending workloads metrics for LQs
 }
 
 func (m *Manager) GetClusterQueueNames() []string {
