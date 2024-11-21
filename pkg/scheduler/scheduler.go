@@ -605,8 +605,12 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		localQueueFromManager := s.queues.GetLocalQueue(newWorkload.Spec.QueueName, newWorkload.GetNamespace())
-		lqMetricsEnabled := localQueueFromManager != nil && localQueueFromManager.ShouldCollectMetrics()
+		var lq *kueue.LocalQueue
+		var lqMetricsEnabled bool
+		if s.queues.ManagerLQMetricsEnabled() {
+			s.client.Get(ctx, client.ObjectKey{Name: newWorkload.Spec.QueueName, Namespace: newWorkload.GetNamespace()}, lq)
+			lqMetricsEnabled, _ = s.queues.ShouldCollectMetrics(ctx, lq)
+		}
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload)

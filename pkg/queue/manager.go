@@ -720,6 +720,10 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	delete(m.snapshots, cq.Name)
 }
 
+func (m *Manager) ManagerLQMetricsEnabled() bool {
+	return m.metricsOptions.LocalQueueMetrics != nil
+}
+
 func (m *Manager) ShouldCollectMetrics(ctx context.Context, q *kueue.LocalQueue) (bool, error) {
 	if m.metricsOptions.LocalQueueMetrics == nil || !m.metricsOptions.LocalQueueMetrics.Enable {
 		return false, nil

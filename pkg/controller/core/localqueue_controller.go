@@ -68,12 +68,11 @@ type LocalQueueReconcilerOptions struct {
 
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client                client.Client
-	log                   logr.Logger
-	queues                *queue.Manager
-	cache                 *cache.Cache
-	wlUpdateCh            chan event.GenericEvent
-	reportResourceMetrics bool
+	client     client.Client
+	log        logr.Logger
+	queues     *queue.Manager
+	cache      *cache.Cache
+	wlUpdateCh chan event.GenericEvent
 }
 
 func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, opts ...LocalQueueReconcilerOption) *LocalQueueReconciler {
@@ -208,9 +207,8 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		if err := r.queues.AddLocalQueue(ctx, newLq); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
-		newQueueFromManager := r.queues.GetLocalQueue(newLq.Name, newLq.Namespace)
-		if newQueueFromManager != nil && newQueueFromManager.ShouldCollectMetrics() {
-			// CURR TODO: do metrics need to be collected here?
+		if ok, _ := r.queues.ShouldCollectMetrics(ctx, newLq); ok {
+			recordLQResourceMetrics(newLq)
 		}
 		return true
 	}
@@ -372,10 +370,6 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			r.log.Error(err, failedUpdateLqStatusMsg)
 			return err
 		}
-		pendingInadmissible, err := r.queues.PendingInadmissibleLQ(queue)
-		if err != nil {
-
-		}
 	}
 	stats, err := r.cache.LocalQueueUsage(queue)
 	if err != nil {
@@ -402,7 +396,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 				r.log.Error(err, failedUpdateLqStatusMsg)
 			}
 			localQueueStatusMetricForReason(reason, queue)
-			metrics.ReportLocalPendingWorkloads(queue.Name, queue.Namespace, int(pendingWls), int(pendingInadmissible))
+			metrics.ReportLocalPendingWorkloads(queue.Name, queue.Namespace, int(pendingWls-pendingInadmissible), int(pendingInadmissible))
 		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {

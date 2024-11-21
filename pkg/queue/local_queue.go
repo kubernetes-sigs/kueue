@@ -25,13 +25,6 @@ import (
 
 type localQueueOption func(*LocalQueue)
 
-// WithMetricsEnabled provides an option to enable metrics for this LocalQueue.
-func withMetricsEnabled() localQueueOption {
-	return func(lq *LocalQueue) {
-		lq.enableMetrics = true
-	}
-}
-
 // Key is the key used to index the queue.
 func Key(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
@@ -39,9 +32,8 @@ func Key(q *kueue.LocalQueue) string {
 
 // LocalQueue is the internal implementation of kueue.LocalQueue.
 type LocalQueue struct {
-	Key           string
-	ClusterQueue  string
-	enableMetrics bool
+	Key          string
+	ClusterQueue string
 
 	items map[string]*workload.Info
 }

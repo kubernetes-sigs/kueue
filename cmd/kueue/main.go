@@ -129,6 +129,9 @@ func main() {
 	}
 
 	metrics.Register()
+	if cfg.Metrics.LocalQueueMetrics != nil {
+		metrics.RegisterLocalQueueMetrics()
+	}
 
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
