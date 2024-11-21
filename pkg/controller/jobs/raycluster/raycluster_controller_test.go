@@ -445,7 +445,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Reason:             kueue.WorkloadDeactivated,
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
@@ -495,7 +495,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Reason:             kueue.WorkloadDeactivated,
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
@@ -517,7 +517,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadRequeued,
 						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Reason:             kueue.WorkloadDeactivated,
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).

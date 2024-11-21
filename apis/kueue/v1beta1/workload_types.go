@@ -448,7 +448,7 @@ const (
 	// - "PodsReadyTimeout": the workload exceeded the PodsReady timeout
 	// - "AdmissionCheck": at least one admission check transitioned to False
 	// - "ClusterQueueStopped": the ClusterQueue is stopped
-	// - "InactiveWorkload": the workload has spec.active set to false
+	// - "Deactivated": the workload has spec.active set to false
 	// When a workload is preempted, this condition is accompanied by the "Preempted"
 	// condition which contains a more detailed reason for the preemption.
 	WorkloadEvicted = "Evicted"
@@ -514,7 +514,14 @@ const (
 
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
+	// Deprecated: The reason is not set any longer, it is only kept temporarily to ensure
+	// pre-existing deactivated workloads remain deactivated after upgrade from version
+	// prior to 0.10. The reason declaration can be removed in 0.11.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
+
+	// WorkloadDeactivated indicates that the workload was evicted
+	// because spec.active is set to false.
+	WorkloadDeactivated = "Deactivated"
 
 	// WorkloadReactivated indicates that the workload was requeued because
 	// spec.active is set to true after deactivation.
