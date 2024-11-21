@@ -31,7 +31,6 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
@@ -97,7 +96,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			parallelism := 2
 			numPods := replicas * parallelism
 			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue("main").
+				Queue(localQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
@@ -114,7 +113,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 				Request("replicated-job-1", extraResource, "1").
 				Limit("replicated-job-1", extraResource, "1").
 				Obj()
-			sampleJob.Annotations = map[string]string{constants.QueueLabel: localQueue.Name}
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			ginkgo.By("JobSet is unsuspended", func() {
@@ -127,7 +125,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			pods := &corev1.PodList{}
 			ginkgo.By("ensure all pods are created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -137,7 +135,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
