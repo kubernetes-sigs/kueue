@@ -187,7 +187,7 @@ In other words, the VAP must implement the same functionality as `jobframework.I
 and cross check controller-references against managed Kinds.  This approach may be challenging to scale
 as the number of Kueue managed Kinds increases and especially as the possible pairs of parent/child
 relationships grows. We expect JobSets to be adopted as an implementation mechanism by multiple Kueue
-managed Kinds. AppWrappers can be the parent for any Kueue managed Kind.
+managed Kinds. AppWrappers can be the parent for any Kueue managed Kind. RayJobs create child Jobs.
 
 As a concrete example, here is the VAP to enforce user quotas
 used in [MLBatch](https://github.com/project-codeflare/mlbatch/blob/main/setup.k8s-v1.30/admission-policy.yaml)).
@@ -202,9 +202,6 @@ spec:
   failurePolicy: Fail
   matchConstraints:
     resourceRules:
-    - apiGroups:   ["batch"]
-      apiVersions: ["v1"]
-      resources:   ["jobs"]
       operations:  ["CREATE", "UPDATE"]
     - apiGroups:   ["kubeflow.org"]
       apiVersions: ["v1"]
