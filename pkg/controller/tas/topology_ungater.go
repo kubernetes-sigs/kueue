@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -432,6 +433,10 @@ func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
 	// Check if this is batch/Job
 	if _, found := pod.Labels[batchv1.JobCompletionIndexAnnotation]; found {
 		return ptr.To(batchv1.JobCompletionIndexAnnotation), nil
+	}
+	// Check if this is kubeflow
+	if _, found := pod.Labels[kftraining.ReplicaIndexLabel]; found {
+		return ptr.To(kftraining.ReplicaIndexLabel), nil
 	}
 	return nil, nil
 }

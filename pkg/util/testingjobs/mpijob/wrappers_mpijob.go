@@ -49,6 +49,8 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 }
 
 type MPIJobReplicaSpecRequirement struct {
+	Image         string
+	Args          []string
 	ReplicaType   kfmpi.MPIReplicaType
 	ReplicaCount  int32
 	Annotations   map[string]string
@@ -58,6 +60,8 @@ type MPIJobReplicaSpecRequirement struct {
 func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequirement) *MPIJobWrapper {
 	j = j.GenericLauncherAndWorker()
 	for _, rs := range replicaSpecs {
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Image = rs.Image
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Args = rs.Args
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
 
@@ -77,10 +81,13 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 				RestartPolicy: corev1.RestartPolicyNever,
 				Containers: []corev1.Container{
 					{
-						Name:      "mpijob",
-						Image:     "pause",
-						Command:   []string{},
-						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						Name:    "mpijob",
+						Image:   "pause",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
 					},
 				},
 				NodeSelector: map[string]string{},
@@ -95,10 +102,13 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 				RestartPolicy: corev1.RestartPolicyNever,
 				Containers: []corev1.Container{
 					{
-						Name:      "mpijob",
-						Image:     "pause",
-						Command:   []string{},
-						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						Name:    "mpijob",
+						Image:   "pause",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
 					},
 				},
 				NodeSelector: map[string]string{},
@@ -158,6 +168,12 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 // Request adds a resource request to the default container.
 func (j *MPIJobWrapper) Request(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return j
+}
+
+// Limit adds a resource request to the default container.
+func (j *MPIJobWrapper) Limit(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return j
 }
 

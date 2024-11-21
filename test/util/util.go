@@ -25,6 +25,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -133,6 +135,22 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 
 func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllMPIJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &kfmpi.MPIJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &kftraining.PyTorchJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
 		return err
 	}
@@ -762,6 +780,18 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 			cond := apimeta.FindStatusCondition(readCq.Status.Conditions, kueue.ClusterQueueActive)
 			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.ClusterQueueActive, cq.Name)
 			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", cq.Name, cond.Status, cond.Message)
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readLq := &kueue.LocalQueue{}
+		for _, lq := range lqs {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(readLq.Status.Conditions, kueue.LocalQueueActive)
+			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.LocalQueueActive, lq.Name)
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", lq.Name, cond.Status, cond.Message)
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
