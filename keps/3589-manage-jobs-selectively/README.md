@@ -184,9 +184,10 @@ However, while exploring this idea further a complication arose. The ValidatingA
 must be able to distinguish between top-level resources without queue names (which should be denied)
 and child resources that are owned by Kueue-managed parents (which must be admitted even if they do not have a queue name).
 In other words, the VAP must implement the same functionality as `jobframework.IsOwnerManagedByKueue`
-and cross check controller-references against managed kinds.  This approach may be challenging to scale
-as the number of Kueue managed kinds increases and ancestor trees become deeper.
-For example in the not so distant future we might see: AppWrapper->PyTorchJob->JobSet->Job->Pod.
+and cross check controller-references against managed Kinds.  This approach may be challenging to scale
+as the number of Kueue managed Kinds increases and especially as the possible pairs of parent/child
+relationships grows. We expect JobSets to be adopted as an implementation mechanism by multiple Kueue
+managed Kinds. AppWrappers can be the parent for any Kueue managed Kind.
 
 As a concrete example, here is the simplest possible VAP
 (taken from [MLBatch](https://github.com/project-codeflare/mlbatch/blob/main/setup.k8s-v1.30/admission-policy.yaml))
