@@ -52,10 +52,9 @@ const (
 	// CQStatusTerminating means the clusterQueue is in pending deletion.
 	CQStatusTerminating ClusterQueueStatus = "terminating"
 
-	LQStatusPending     LocalQueueStatus = "pending"
-	LQStatusActive      LocalQueueStatus = "active"
-	LQStatusTerminating LocalQueueStatus = "terminating"
-	LQStatusOrphan      LocalQueueStatus = "orphan"
+	LQStatusPending LocalQueueStatus = "pending"
+	LQStatusActive  LocalQueueStatus = "active"
+	LQStatusOrphan  LocalQueueStatus = "orphan"
 )
 
 var (
