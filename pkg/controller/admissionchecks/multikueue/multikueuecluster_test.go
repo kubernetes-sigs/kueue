@@ -377,8 +377,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			enabledIntegrations := sets.New([]string{"batch/job"}...)
-			adapters, _ := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New[string]("batch/job"))
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
 			//nolint:fatcontext
 			reconciler.rootContext = ctx
@@ -539,8 +538,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := worker1Builder.Build()
 
-			enabledIntegrations := sets.New([]string{"batch/job"}...)
-			adapters, _ := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New[string]("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)

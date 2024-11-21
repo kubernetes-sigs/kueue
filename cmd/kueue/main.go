@@ -267,7 +267,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	if features.Enabled(features.MultiKueue) {
 		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
 		if err != nil {
-			setupLog.Error(err, "Could not setup MultiKueue controller")
+			setupLog.Error(err, "Could not get the enabled multikueue adapters")
 			os.Exit(1)
 		}
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
