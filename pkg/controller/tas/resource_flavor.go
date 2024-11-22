@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -79,6 +81,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cf
 		Named(TASResourceFlavorController).
 		For(&kueue.ResourceFlavor{}).
 		Watches(&corev1.Node{}, &nodeHandler).
+		Watches(&kueuealpha.Topology{}, &topologyHandler{client: r.client, tasCache: r.tasCache}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WithEventFilter(r).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
@@ -134,6 +137,56 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
+var _ handler.EventHandler = (*topologyHandler)(nil)
+
+// topologyHandler handles node update events.
+type topologyHandler struct {
+	client   client.Client
+	tasCache *cache.TASCache
+}
+
+func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	topology, isTopology := e.Object.(*kueuealpha.Topology)
+	if !isTopology || topology == nil {
+		return
+	}
+
+	flavors := &kueue.ResourceFlavorList{}
+	if err := h.client.List(ctx, flavors, client.MatchingFields{indexer.ResourceFlavorTopologyNameKey: topology.Name}); err != nil {
+		log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
+		log.Error(err, "Could not list resource flavors")
+		return
+	}
+
+	// trigger reconcile for TAS flavors affected by the node being created or updated
+	for _, flavor := range flavors.Items {
+		if flavor.Spec.TopologyName == nil {
+			continue
+		}
+		if *flavor.Spec.TopologyName == kueue.TopologyReference(topology.Name) {
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: flavor.Name}}, nodeBatchPeriod)
+		}
+	}
+}
+
+func (h *topologyHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *topologyHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	topology, isTopology := e.Object.(*kueuealpha.Topology)
+	if !isTopology || topology == nil {
+		return
+	}
+	for name, flavor := range h.tasCache.Clone() {
+		if flavor.TopologyName == kueue.TopologyReference(topology.Name) {
+			h.tasCache.Delete(name)
+		}
+	}
+}
+
+func (h *topologyHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("name", req.NamespacedName.Name)
 	log.V(2).Info("Reconcile TAS Resource Flavor")
@@ -149,7 +202,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		if r.tasCache.Get(kueue.ResourceFlavorReference(flv.Name)) == nil {
 			topology := kueuealpha.Topology{}
 			if err := r.client.Get(ctx, types.NamespacedName{Name: string(*flv.Spec.TopologyName)}, &topology); err != nil {
-				return reconcile.Result{}, err
+				return reconcile.Result{}, client.IgnoreNotFound(err)
 			}
 			levels := utiltas.Levels(&topology)
 			tasInfo := r.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels)
