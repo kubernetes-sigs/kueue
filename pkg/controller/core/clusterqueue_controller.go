@@ -535,7 +535,7 @@ func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEven
 		return
 	}
 
-	if cqs := h.cache.ClusterQueuesUsingFlavor(rf.Name); len(cqs) != 0 {
+	if cqs := h.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(rf.Name)); len(cqs) != 0 {
 		for _, cq := range cqs {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{

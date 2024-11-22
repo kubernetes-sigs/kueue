@@ -811,7 +811,7 @@ func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
 	return nil
 }
 
-func (c *Cache) ClusterQueuesUsingFlavor(flavor string) []string {
+func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) []string {
 	c.RLock()
 	defer c.RUnlock()
 	var cqs []string
