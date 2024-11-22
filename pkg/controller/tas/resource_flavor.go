@@ -81,7 +81,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cf
 		Watches(&corev1.Node{}, &nodeHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WithEventFilter(r).
-		Complete(core.WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
+		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
 }
 
 var _ handler.EventHandler = (*nodeHandler)(nil)
