@@ -3672,6 +3672,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "didn't fit",
 					},
 				},
+				ResourceRequests: []kueue.PodSetRequest{{Name: "main"}},
 			},
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
@@ -3713,6 +3714,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "cohort used in this cycle",
 					},
 				},
+				ResourceRequests: []kueue.PodSetRequest{{Name: "main"}},
 			},
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},

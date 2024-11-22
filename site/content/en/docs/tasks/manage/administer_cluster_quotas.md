@@ -412,19 +412,11 @@ will present to the Kubernetes Scheduler when the Workload is admitted by
 a ClusterQueue. Customizations are defined by specifying resource transformations
 in the Kueue configuration as a cluster-level setting.
 
-{{< feature-state state="alpha" for_version="v0.9" >}}
-{{% alert title="Note" color="primary" %}}
-
-`transformations` is an Alpha feature that is not enabled by default.
-
-You can enable it by setting the `ConfigurableResourceTransformations` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
-
 The supported transformations enable mapping an input resource into one or more
 output resources by multiplying the input resource quantity by a scaling factor.
 The input resource may either be retained (default) or removed from the transformed resources. If no transformation is defined for an input resource, it is retained without change.
 
-After enabling the feature gate, follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
+Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
 and extend the Kueue configuration with fields similar to the following:
 
 ```yaml
