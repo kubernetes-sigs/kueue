@@ -101,8 +101,9 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, jobframework.ValidateQueueName(newDeployment.Object())...)
 
-	// Prevents updating the queue-name if at least one Pod is not suspended.
-	if oldDeployment.Status.ReadyReplicas > 0 {
+	// Prevents updating the queue-name if at least one Pod is not suspended
+	// or if the queue-name has been deleted.
+	if oldDeployment.Status.ReadyReplicas > 0 || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
 

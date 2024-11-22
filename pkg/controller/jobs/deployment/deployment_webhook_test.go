@@ -147,8 +147,16 @@ func TestValidateUpdate(t *testing.T) {
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 		},
 		"without queue": {
-			oldDeployment: testingdeployment.MakeDeployment("test-pod", "test-queue").Obj(),
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
 		},
 		"with queue (no changes)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
