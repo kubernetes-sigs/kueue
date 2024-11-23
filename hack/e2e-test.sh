@@ -53,13 +53,13 @@ function kind_load {
 	      cluster_kind_load "$KIND_CLUSTER_NAME"
     fi
 
-    if [[ -v JOBSET_VERSION ]]; then
+    if [[ -n ${JOBSET_VERSION:-} ]]; then
         install_jobset "$KIND_CLUSTER_NAME"
     fi
-    if [[ -v KUBEFLOW_VERSION ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
         install_kubeflow "$KIND_CLUSTER_NAME"
     fi
-    if [[ -v KUBEFLOW_MPI_VERSION ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$KIND_CLUSTER_NAME"
     fi
 }
