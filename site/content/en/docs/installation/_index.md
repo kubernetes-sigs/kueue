@@ -254,9 +254,9 @@ The currently supported features are:
 | `MultiplePreemptions`                 | `true`  | Beta       | 0.9   |       |
 | `TopologyAwareScheduling`             | `false` | Alpha      | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
-| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.9   |       |
+| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10   |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.9   |
-| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.9   |       |
+| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10   |       |
 | `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
 | `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 
