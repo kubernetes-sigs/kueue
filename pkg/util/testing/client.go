@@ -19,7 +19,6 @@ package testing
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -89,17 +88,17 @@ type EventRecorder struct {
 var _ record.EventRecorder = (*EventRecorder)(nil)
 
 func SortEvents(ei, ej EventRecord) bool {
-	if cmp := strings.Compare(ei.Key.String(), ej.Key.String()); cmp != 0 {
-		return cmp < 0
+	if ei.Key.String() != ej.Key.String() {
+		return ei.Key.String() < ej.Key.String()
 	}
-	if cmp := strings.Compare(ei.EventType, ej.EventType); cmp != 0 {
-		return cmp < 0
+	if ei.EventType != ej.EventType {
+		return ei.EventType < ej.EventType
 	}
-	if cmp := strings.Compare(ei.Reason, ej.Reason); cmp != 0 {
-		return cmp < 0
+	if ei.Reason != ej.Reason {
+		return ei.Reason < ej.Reason
 	}
-	if cmp := strings.Compare(ei.Message, ej.Message); cmp != 0 {
-		return cmp < 0
+	if ei.Message != ej.Message {
+		return ei.Message < ej.Message
 	}
 	return false
 }

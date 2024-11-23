@@ -17,10 +17,10 @@ limitations under the License.
 package cache
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/go-logr/logr"
 
@@ -323,7 +323,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	slices.SortFunc(result, func(a, b *domain) int {
 		switch {
 		case a.state == b.state:
-			return strings.Compare(string(a.id), string(b.id))
+			return cmp.Compare(a.id, b.id)
 		case a.state > b.state:
 			return -1
 		default:

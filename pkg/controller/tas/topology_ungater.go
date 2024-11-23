@@ -17,12 +17,12 @@ limitations under the License.
 package tas
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -353,7 +353,7 @@ func sortDomains(psa *kueue.PodSetAssignment) []domainWithCount {
 		}
 	}
 	slices.SortFunc(sortableDomains, func(a, b domainWithCount) int {
-		return strings.Compare(string(a.domainID), string(b.domainID))
+		return cmp.Compare(a.domainID, b.domainID)
 	})
 	return sortableDomains
 }
