@@ -403,6 +403,14 @@ resources:
 
 ## Transform resources for quota management
 
+{{< feature-state state="beta" for_version="v0.10" >}}
+{{% alert title="Note" color="primary" %}}
+
+`ConfigurableResourceTransformation` is a Beta feature that is enabled by default.
+
+You can disable it by setting the `ConfigurableResourceTransformation` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
+
 An administrator may customize how the resources requested by Pods are
 converted into Workload resource requests. This enables
 the admission and quota calculations done by ClusterQueues to be performed
