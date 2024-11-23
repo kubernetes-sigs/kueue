@@ -113,6 +113,7 @@ const (
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
 	// alpha: v0.9
+	// beta: v0.10
 	//
 	// Enable applying configurable resource transformations when computing
 	// the resource requests of a Workload
@@ -121,6 +122,7 @@ const (
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
 	// alpha: v0.9
+	// beta: v0.10
 	//
 	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
 	// to improve observability
