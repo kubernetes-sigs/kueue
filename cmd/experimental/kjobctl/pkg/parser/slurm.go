@@ -18,7 +18,6 @@ package parser
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"regexp"
@@ -57,7 +56,7 @@ type ParsedSlurmFlags struct {
 func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
 	var flags ParsedSlurmFlags
 
-	scanner := bufio.NewScanner(bytes.NewReader([]byte(script)))
+	scanner := bufio.NewScanner(strings.NewReader(script))
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
