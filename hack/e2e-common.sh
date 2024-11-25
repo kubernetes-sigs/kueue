@@ -21,13 +21,13 @@ export YQ="$ROOT_DIR"/bin/yq
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
-if [[ -v JOBSET_VERSION ]]; then
+if [[ -n ${JOBSET_VERSION:-} ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 fi
 
-if [[ -v KUBEFLOW_VERSION ]]; then
+if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     export KUBEFLOW_MANIFEST_MANAGER=${ROOT_DIR}/test/e2e/config/multikueue/manager
     export KUBEFLOW_MANIFEST_WORKER=${ROOT_DIR}/test/e2e/config/multikueue/worker
     KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST_WORKER" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
@@ -35,7 +35,7 @@ if [[ -v KUBEFLOW_VERSION ]]; then
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
 
-if [[ -v KUBEFLOW_MPI_VERSION ]]; then
+if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
@@ -71,13 +71,13 @@ function prepare_docker_images {
     # Manually create tag for image with digest which is already pulled
     docker tag $E2E_TEST_IMAGE "$E2E_TEST_IMAGE_WITHOUT_SHA"
 
-    if [[ -v JOBSET_VERSION ]]; then
+    if [[ -n ${JOBSET_VERSION:-} ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
-    if [[ -v KUBEFLOW_VERSION ]]; then
+    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_IMAGE}"
     fi
-    if [[ -v KUBEFLOW_MPI_VERSION ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
 }
