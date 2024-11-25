@@ -17,9 +17,9 @@ limitations under the License.
 package describe
 
 import (
-	"bytes"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -716,7 +716,7 @@ Worker Groups:
 					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 					Resp: &http.Response{
 						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.objs[0])))),
+						Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.objs[0]))),
 					},
 				})
 			}

@@ -833,7 +833,7 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
-					Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job)))),
+					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job))),
 				}, nil
 			case fmt.Sprintf("%s/pods", reqPathPrefix):
 				return &http.Response{
@@ -900,5 +900,5 @@ func emptyTableObjBody(codec runtime.Codec) io.ReadCloser {
 	table := &metav1.Table{
 		ColumnDefinitions: podColumns,
 	}
-	return io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, table))))
+	return io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, table)))
 }
