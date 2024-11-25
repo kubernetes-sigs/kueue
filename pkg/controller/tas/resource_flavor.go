@@ -146,14 +146,15 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		r.tasCache.Delete(kueue.ResourceFlavorReference(req.NamespacedName.Name))
 	}
 	if flv.Spec.TopologyName != nil {
-		if r.tasCache.Get(kueue.ResourceFlavorReference(flv.Name)) == nil {
+		flavorReference := kueue.ResourceFlavorReference(flv.Name)
+		if r.tasCache.Get(flavorReference) == nil {
 			topology := kueuealpha.Topology{}
 			if err := r.client.Get(ctx, types.NamespacedName{Name: string(*flv.Spec.TopologyName)}, &topology); err != nil {
 				return reconcile.Result{}, err
 			}
 			levels := utiltas.Levels(&topology)
 			tasInfo := r.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels)
-			r.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
+			r.tasCache.Set(flavorReference, tasInfo)
 		}
 
 		// requeue inadmissible workloads as a change to the resource flavor

@@ -409,10 +409,10 @@ func parseKeyValue(str, sep string) (string, string) {
 func mergeResourcesByFlavor(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.ResourceGroup, error) {
 	var mergedResources []v1beta1.ResourceGroup
 
-	indexByFlavor := make(map[string]int)
+	indexByFlavor := make(map[v1beta1.ResourceFlavorReference]int)
 	var index int
 	for _, rg := range resourceGroups {
-		flavorName := string(rg.Flavors[0].Name)
+		flavorName := rg.Flavors[0].Name
 		idx, found := indexByFlavor[flavorName]
 		if !found {
 			mergedResources = append(mergedResources, rg)

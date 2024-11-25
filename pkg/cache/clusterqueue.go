@@ -602,10 +602,10 @@ func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	delete(c.localQueues, qKey)
 }
 
-func (c *clusterQueue) flavorInUse(flavor string) bool {
+func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	for _, rg := range c.ResourceGroups {
 		for _, fName := range rg.Flavors {
-			if kueue.ResourceFlavorReference(flavor) == fName {
+			if flavor == fName {
 				return true
 			}
 		}
