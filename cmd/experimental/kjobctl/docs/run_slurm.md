@@ -110,7 +110,7 @@ First, you need to create a template for your job using the `JobTemplate` kind. 
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: JobTemplate
 metadata:
-  name: sample-slurm-template
+  name: slurm-template
   namespace: default
 template:
   spec:
@@ -136,8 +136,8 @@ metadata:
 spec:
   supportedModes:
     - name: Slurm
-      template: sample-slurm-template
-      requiredFlags: []
+      template: slurm-template
+  volumeBundles: ["slurm-volume-bundle"]
 ```
 
 Then, save the file as `application_profile.yaml` and create the ApplicationProfile by running:
@@ -228,8 +228,6 @@ Below is an example of a simple batch script which wraps the Python script loade
 
 echo "Now processing task ID: ${SLURM_ARRAY_TASK_ID}"
 python /home/slurm/samples/sample_code.py
-
-exit 0
 ```
 
 To run this batch script, save it as `slurm-sample.sh` and execute:
