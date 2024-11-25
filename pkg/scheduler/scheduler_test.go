@@ -3651,15 +3651,16 @@ func TestRequeueAndUpdate(t *testing.T) {
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
-		name              string
-		e                 entry
-		wantWorkloads     map[string][]string
-		wantInadmissible  map[string][]string
-		wantStatus        kueue.WorkloadStatus
-		wantStatusUpdates int
+		name                        string
+		e                           entry
+		wantWorkloads               map[string][]string
+		wantInadmissible            map[string][]string
+		wantStatus                  kueue.WorkloadStatus
+		wantStatusUpdates           int
+		wantResourceRequestsSummary bool
 	}{
 		{
-			name: "workload didn't fit",
+			name: "workload didn't fit with summary",
 			e: entry{
 				inadmissibleMsg: "didn't fit",
 			},
@@ -3677,7 +3678,29 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates: 1,
+			wantStatusUpdates:           1,
+			wantResourceRequestsSummary: true,
+		},
+		{
+			name: "workload didn't fit without summary",
+			e: entry{
+				inadmissibleMsg: "didn't fit",
+			},
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "didn't fit",
+					},
+				},
+			},
+			wantInadmissible: map[string][]string{
+				"cq": {workload.Key(w1)},
+			},
+			wantStatusUpdates:           1,
+			wantResourceRequestsSummary: false,
 		},
 		{
 			name: "assumed",
@@ -3700,7 +3723,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "skipped",
+			name: "skipped with summary",
 			e: entry{
 				status:          skipped,
 				inadmissibleMsg: "cohort used in this cycle",
@@ -3719,12 +3742,36 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates: 1,
+			wantStatusUpdates:           1,
+			wantResourceRequestsSummary: true,
+		},
+		{
+			name: "skipped without summary",
+			e: entry{
+				status:          skipped,
+				inadmissibleMsg: "cohort used in this cycle",
+			},
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "cohort used in this cycle",
+					},
+				},
+			},
+			wantWorkloads: map[string][]string{
+				"cq": {workload.Key(w1)},
+			},
+			wantStatusUpdates:           1,
+			wantResourceRequestsSummary: false,
 		},
 	}
 
 	for _, tc := range cases {
 		Both.runTest(tc.name, t, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadResourceRequestsSummary, tc.wantResourceRequestsSummary)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
