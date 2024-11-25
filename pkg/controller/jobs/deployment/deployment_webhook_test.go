@@ -48,6 +48,20 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("test-queue").
 				Obj(),
 		},
+		"deployment with queue and pod template spec queue": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("new-test-queue").
+				PodTemplateSpecQueue("test-queue").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("new-test-queue").
+				PodTemplateSpecQueue("new-test-queue").
+				Obj(),
+		},
+		"deployment without queue with pod template spec queue": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
+			want:       testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -128,9 +142,21 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr       error
 		wantWarns     admission.Warnings
 	}{
-		"without queue": {
+		"without queue (no changes)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		},
+		"without queue": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
 		},
 		"with queue (no changes)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
@@ -144,6 +170,30 @@ func TestValidateUpdate(t *testing.T) {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
+				Obj(),
+		},
+		"with queue (invalid)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test/queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test/queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
+		},
+		"with queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue-new").
+				ReadyReplicas(1).
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{

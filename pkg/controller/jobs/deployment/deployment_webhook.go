@@ -48,7 +48,7 @@ func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
 
 var _ admission.CustomDefaulter = &Webhook{}
 
@@ -84,10 +84,8 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	labelsPath                = field.NewPath("metadata", "labels")
-	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
-	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
-	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
+	labelsPath         = field.NewPath("metadata", "labels")
+	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -100,12 +98,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	oldQueueName := jobframework.QueueNameForObject(oldDeployment.Object())
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
-	allErrs := apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
-		oldDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
-		podSpecQueueNameLabelPath,
-	)...)
+	allErrs := field.ErrorList{}
+	allErrs = append(allErrs, jobframework.ValidateQueueName(newDeployment.Object())...)
+
+	// Prevents updating the queue-name if at least one Pod is not suspended
+	// or if the queue-name has been deleted.
+	if oldDeployment.Status.ReadyReplicas > 0 || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
+	}
 
 	return warnings, allErrs.ToAggregate()
 }
