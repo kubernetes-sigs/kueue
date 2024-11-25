@@ -265,7 +265,7 @@ func getDefaultVal(flag *pflag.Flag) string {
 				defaultVal = strings.ReplaceAll(defaultVal, ",", ",<br />")
 			}
 			// clean up kjobctl cache-dir flag value
-			if strings.Compare(flag.Name, "cache-dir") == 0 {
+			if flag.Name == "cache-dir" {
 				myUser, err := user.Current()
 				if err == nil {
 					noprefix := strings.TrimPrefix(defaultVal, myUser.HomeDir)
