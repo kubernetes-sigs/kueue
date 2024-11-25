@@ -245,6 +245,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets TopologyAssignment becomes finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
