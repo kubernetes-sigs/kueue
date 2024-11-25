@@ -77,6 +77,20 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	return pods
 }
 
+// MakeIndexedGroup returns multiple indexed pods that form a pod group, based on the original wrapper.
+func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for i := 0; i < count; i++ {
+		pod := p.Clone().
+			Group(p.Pod.Name).
+			GroupTotalCount(strconv.Itoa(count)).
+			GroupIndex(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod.Obj())
+	}
+	return pods
+}
+
 // Clone returns deep copy of the Pod.
 func (p *PodWrapper) Clone() *PodWrapper {
 	return &PodWrapper{Pod: *p.DeepCopy()}
@@ -107,6 +121,11 @@ func (p *PodWrapper) Group(g string) *PodWrapper {
 // GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
 func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/pod-group-total-count", gtc)
+}
+
+// GroupIndex updates the pod.GroupIndexLabel of the Pod
+func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
+	return p.Label("kueue.x-k8s.io/pod-group-index", index)
 }
 
 // Label sets the label of the Pod

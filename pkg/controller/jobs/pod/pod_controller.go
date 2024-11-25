@@ -556,6 +556,34 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
+// podGroupIndex returns the value of GroupIndexLabel for the pod being reconciled at the moment.
+func (p *Pod) podGroupIndex() (*int, error) {
+	if podGroupName(p.pod) == "" {
+		return nil, fmt.Errorf("pod doesn't have a '%s' label", GroupNameLabel)
+	}
+	podGroupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		return nil, fmt.Errorf("pod group total count is invalid: %v", err)
+	}
+	groupIndex, ok := p.Object().GetAnnotations()[GroupIndexLabel]
+	if !ok {
+		return nil, nil
+	}
+	groupIndexValue, err := strconv.Atoi(groupIndex)
+	if err != nil {
+		return nil, err
+	}
+	if groupIndexValue <= podGroupTotalCount {
+		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be less than group total count",
+			GroupIndexLabel, groupIndex)
+	}
+	if groupIndexValue < 0 {
+		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be greater than zero",
+			GroupIndexLabel, groupIndex)
+	}
+	return &groupIndexValue, nil
+}
+
 // getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256
 // checksum of those fields. This is used to group the pods of the same roles when interacting with the workload.
 func getRoleHash(p corev1.Pod) (string, error) {
@@ -701,6 +729,9 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
+		return err
+	}
+	if _, err = p.podGroupIndex(); err != nil {
 		return err
 	}
 	originalQueue := jobframework.QueueName(p)
@@ -1032,7 +1063,6 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 		return nil, err
 	}
-
 	if len(wl.Spec.PodSets) > 8 {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
