@@ -29,6 +29,7 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/discovery"
@@ -264,10 +265,16 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	if features.Enabled(features.MultiKueue) {
+		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
+		if err != nil {
+			setupLog.Error(err, "Could not get the enabled multikueue adapters")
+			os.Exit(1)
+		}
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
+			multikueue.WithAdapters(adapters),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)

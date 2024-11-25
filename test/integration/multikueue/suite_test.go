@@ -28,6 +28,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -207,16 +208,20 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration) {
+func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
 	managerSetup(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	adapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+		multikueue.WithAdapters(adapters),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

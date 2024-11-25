@@ -36,6 +36,7 @@ type SetupOptions struct {
 	origin            string
 	workerLostTimeout time.Duration
 	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
 }
 
 type SetupOption func(o *SetupOptions)
@@ -72,12 +73,20 @@ func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	}
 }
 
+// WithAdapter - sets or updates the adapter of the MultiKueue adapters.
+func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapters = adapters
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
+		adapters:          make(map[string]jobframework.MultiKueueAdapter),
 	}
 
 	for _, o := range opts {
@@ -95,12 +104,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	adapters, err := jobframework.GetMultiKueueAdapters()
-	if err != nil {
-		return err
-	}
-
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, adapters)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
@@ -112,6 +116,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod, adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
 	return wlRec.setupWithManager(mgr)
 }
