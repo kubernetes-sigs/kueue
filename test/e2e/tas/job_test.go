@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
