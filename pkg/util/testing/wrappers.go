@@ -1289,3 +1289,22 @@ func MakeProvisioningRequestConfig(name string) *ProvisioningRequestConfigWrappe
 		}},
 	}
 }
+
+func (prc *ProvisioningRequestConfigWrapper) ProvisioningClass(pc string) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ProvisioningClassName = pc
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Parameters(in map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	prc.Spec.Parameters = in
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(backoffLimitCount, backoffBaseSeconds, backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{
+		BackoffLimitCount:  ptr.To[int32](backoffLimitCount),
+		BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
+		BackoffMaxSeconds:  ptr.To[int32](backoffMaxSeconds),
+	}
+	return prc
+}

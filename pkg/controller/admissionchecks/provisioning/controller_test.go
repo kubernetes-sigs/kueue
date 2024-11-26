@@ -264,22 +264,24 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	baseConfig := &kueue.ProvisioningRequestConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "config1",
-		},
-		Spec: kueue.ProvisioningRequestConfigSpec{
-			ProvisioningClassName: "class1",
-			Parameters: map[string]kueue.Parameter{
-				"p1": "v1",
-			},
-			RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-				BackoffLimitCount:  ptr.To[int32](3),
-				BackoffBaseSeconds: ptr.To[int32](60),
-				BackoffMaxSeconds:  ptr.To[int32](1800),
-			},
-		},
-	}
+	// baseConfig := &kueue.ProvisioningRequestConfig{
+	// 	ObjectMeta: metav1.ObjectMeta{
+	// 		Name: "config1",
+	// 	},
+	// 	Spec: kueue.ProvisioningRequestConfigSpec{
+	// 		ProvisioningClassName: "class1",
+	// 		Parameters: map[string]kueue.Parameter{
+	// 			"p1": "v1",
+	// 		},
+	// 		RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
+	// 			BackoffLimitCount:  ptr.To[int32](3),
+	// 			BackoffBaseSeconds: ptr.To[int32](60),
+	// 			BackoffMaxSeconds:  ptr.To[int32](1800),
+	// 		},
+	// 	},
+	// }
+
+	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"}).RetryStrategy(3, 60, 1800)
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
@@ -516,7 +518,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig, 2), 0)},
+			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 2), 0)},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
@@ -546,7 +548,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 2)},
+			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 2)},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
@@ -569,7 +571,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 0)},
+			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 0)},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
@@ -1025,7 +1027,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:      []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:     []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:     []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig, 1), 0)},
+			configs:     []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 1), 0)},
 			enableGates: []featuregate.Feature{features.KeepQuotaForProvReqRetry},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
@@ -1111,7 +1113,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 1)},
+			configs: []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 1)},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
 					[]metav1.Condition{
@@ -1154,7 +1156,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 0)},
+			configs: []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig.DeepCopy(), 0)},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
 					[]metav1.Condition{
