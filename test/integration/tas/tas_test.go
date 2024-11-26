@@ -21,6 +21,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -837,5 +838,58 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 		})
+	})
+})
+
+var _ = ginkgo.Describe("Topology validations", func() {
+	ginkgo.When("Creating a Topology", func() {
+		ginkgo.DescribeTable("Validate Topology on creation", func(topology *kueuealpha.Topology, matcher types.GomegaMatcher) {
+			err := k8sClient.Create(ctx, topology)
+			if err == nil {
+				defer func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				}()
+			}
+			gomega.Expect(err).Should(matcher)
+		},
+			ginkgo.Entry("valid Topology",
+				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("invalid levels",
+				testing.MakeTopology("invalid-level").Levels([]string{"@invalid"}).Obj(),
+				testing.BeInvalidError()),
+		)
+	})
+
+	ginkgo.When("Updating a Topology", func() {
+		ginkgo.DescribeTable("Validate Topology on update", func(topology *kueuealpha.Topology, updateTopology func(topology *kueuealpha.Topology), matcher types.GomegaMatcher) {
+			err := k8sClient.Create(ctx, topology)
+			if err == nil {
+				defer func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				}()
+			}
+			gomega.Expect(err).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), topology)).Should(gomega.Succeed())
+			updateTopology(topology)
+			gomega.Expect(k8sClient.Update(ctx, topology)).Should(matcher)
+		},
+			ginkgo.Entry("succeed to update topology",
+				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				func(topology *kueuealpha.Topology) {
+					topology.ObjectMeta.Labels = map[string]string{
+						"alpha": "beta",
+					}
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("updating levels is prohibited",
+				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				func(topology *kueuealpha.Topology) {
+					topology.Spec.Levels = append(topology.Spec.Levels, kueuealpha.TopologyLevel{
+						NodeLabel: "added",
+					})
+				},
+				testing.BeInvalidError()),
+		)
 	})
 })
