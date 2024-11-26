@@ -558,14 +558,11 @@ func (p *Pod) groupTotalCount() (int, error) {
 
 // podGroupIndex returns the value of GroupIndexLabel for the pod being reconciled at the moment.
 func (p *Pod) podGroupIndex() (*int, error) {
-	if podGroupName(p.pod) == "" {
-		return nil, fmt.Errorf("pod doesn't have a '%s' label", GroupNameLabel)
-	}
 	podGroupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		return nil, fmt.Errorf("pod group total count is invalid: %v", err)
 	}
-	groupIndex, ok := p.Object().GetAnnotations()[GroupIndexLabel]
+	groupIndex, ok := p.Object().GetLabels()[GroupIndexLabel]
 	if !ok {
 		return nil, nil
 	}
