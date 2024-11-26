@@ -63,6 +63,9 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: the levels field is immutable
+                  rule: self == oldSelf
             required:
             - levels
             type: object
