@@ -61,7 +61,7 @@ const (
 	TASLabel = "kueue.x-k8s.io/tas"
 
 	// PodGroupPodIndexLabel is a label set on the Pod's metadata belonging
-	// to a Pod group. It indicates the Pod's index withing the group.
+	// to a Pod group. It indicates the Pod's index within the group.
 	PodGroupPodIndexLabel = "kueue.x-k8s.io/pod-group-pod-index"
 )
 
