@@ -128,7 +128,8 @@ func TestPodIndex(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			pod := FromObject(tc.pod)
-			gotIndex, gotErr := pod.podGroupIndex()
+			gtc, _ := pod.groupTotalCount()
+			gotIndex, gotErr := pod.podGroupIndex(gtc)
 			if gotIndex != nil && tc.wantIndex != *gotIndex {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantIndex, *gotIndex)
 			}

@@ -560,11 +560,7 @@ func (p *Pod) groupTotalCount() (int, error) {
 }
 
 // podGroupIndex returns the value of GroupIndexLabel for the pod being reconciled at the moment.
-func (p *Pod) podGroupIndex() (*int, error) {
-	podGroupTotalCount, err := p.groupTotalCount()
-	if err != nil {
-		return nil, fmt.Errorf("pod group total count is invalid: %v", err)
-	}
+func (p *Pod) podGroupIndex(podGroupTotalCount int) (*int, error) {
 	groupIndex, ok := p.Object().GetLabels()[kueuealpha.PodGroupPodIndexLabel]
 	if !ok {
 		return nil, nil
@@ -729,7 +725,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	if err != nil {
 		return err
 	}
-	if _, err = p.podGroupIndex(); err != nil {
+	if _, err = p.podGroupIndex(groupTotalCount); err != nil {
 		return err
 	}
 	originalQueue := jobframework.QueueName(p)
