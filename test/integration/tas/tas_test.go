@@ -113,18 +113,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				).Cohort("cohort").Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 
-			gomega.Eventually(func() []metav1.Condition {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				return updatedCq.Status.Conditions
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-				{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "NotSupportedWithTopologyAwareScheduling",
-					Message: `Can't admit new workloads: TAS is not supported for cohorts.`,
-				},
-			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NotSupportedWithTopologyAwareScheduling",
+						Message: `Can't admit new workloads: TAS is not supported for cohorts.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should mark TAS ClusterQueue as inactive if used with preemption", func() {
@@ -136,18 +136,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 
-			gomega.Eventually(func() []metav1.Condition {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				return updatedCq.Status.Conditions
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-				{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "NotSupportedWithTopologyAwareScheduling",
-					Message: `Can't admit new workloads: TAS is not supported for preemption within cluster queue.`,
-				},
-			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NotSupportedWithTopologyAwareScheduling",
+						Message: `Can't admit new workloads: TAS is not supported for preemption within cluster queue.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should mark TAS ClusterQueue as inactive if used with MultiKueue", func() {
@@ -161,18 +161,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				).AdmissionChecks(admissionCheck.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 
-			gomega.Eventually(func() []metav1.Condition {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				return updatedCq.Status.Conditions
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-				{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "NotSupportedWithTopologyAwareScheduling",
-					Message: `Can't admit new workloads: TAS is not supported with MultiKueue admission check.`,
-				},
-			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NotSupportedWithTopologyAwareScheduling",
+						Message: `Can't admit new workloads: TAS is not supported with MultiKueue admission check.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should mark TAS ClusterQueue as inactive if used with ProvisioningRequest", func() {
@@ -186,18 +186,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				).AdmissionChecks(admissionCheck.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 
-			gomega.Eventually(func() []metav1.Condition {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				return updatedCq.Status.Conditions
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-				{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "NotSupportedWithTopologyAwareScheduling",
-					Message: `Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.`,
-				},
-			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NotSupportedWithTopologyAwareScheduling",
+						Message: `Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
