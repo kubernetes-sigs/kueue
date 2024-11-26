@@ -599,8 +599,9 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
 	if !workload.HasQuotaReservation(wl) {
-		if !r.queues.AddOrUpdateWorkload(wlCopy) {
-			log.V(2).Info("LocalQueue for workload didn't exist or not active; ignored for now")
+		err := r.queues.AddOrUpdateWorkload(wlCopy)
+		if err != nil {
+			log.V(2).Info(err.Error())
 		}
 		return true
 	}
@@ -703,10 +704,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		if !r.queues.UpdateWorkload(oldWl, wlCopy) {
-			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
+		err := r.queues.UpdateWorkload(oldWl, wlCopy)
+		if err != nil {
+			log.V(2).Info(err.Error())
 		}
-
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(oldWl)
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
@@ -729,8 +730,9 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Here we don't take the lock as it is already taken by the wrapping
 			// function.
 			if immediate {
-				if !r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy) {
-					log.V(2).Info("Workload could not be added or updated; ignoring for now", "workload", wlCopy.Name)
+				err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy)
+				if err != nil {
+					log.V(2).Info(err.Error())
 				}
 			}
 		})
@@ -741,8 +743,9 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				updatedWl := kueue.Workload{}
 				err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)
 				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-					if !r.queues.AddOrUpdateWorkload(wlCopy) {
-						log.V(2).Info("LocalQueue for workload didn't exist or not active; ignored for now")
+					err := r.queues.AddOrUpdateWorkload(wlCopy)
+					if err != nil {
+						log.V(2).Info(err.Error())
 					} else {
 						log.V(3).Info("Workload requeued after backoff")
 					}
@@ -886,8 +889,9 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
-			log.V(2).Info("Queue for workload didn't exist")
+		err := h.r.queues.AddOrUpdateWorkload(wlCopy)
+		if err != nil {
+			log.V(2).Info(err.Error())
 		}
 	}
 }

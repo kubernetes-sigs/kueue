@@ -319,30 +319,28 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
-		fmt.Println("LocalQueue for workload not found")
-		return false
+		return ErrQueueDoesNotExist
 	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
-		fmt.Println("ClusterQueue for workload not found")
-		return false
+		return errClusterQueueAlreadyExists
 	}
 	cq.PushOrUpdate(wInfo)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
-	return true
+	return nil
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
@@ -505,7 +503,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
