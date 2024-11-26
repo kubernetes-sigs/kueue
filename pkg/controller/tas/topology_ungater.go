@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -403,7 +402,7 @@ func readRanksIfAvailable(log logr.Logger,
 
 func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
 	// Check if this is JobSet
-	if jobCount, _ := readIntFromLabel(pod, jobset.ReplicatedJobReplicas); jobCount != nil {
+	if jobCount, _ := utilpod.ReadUIntFromLabel(pod, jobset.ReplicatedJobReplicas); jobCount != nil {
 		return ptr.To(batchv1.JobCompletionIndexAnnotation), &replicatedJobsInfo{
 			jobIndexLabel: jobset.JobIndexKey,
 			replicasCount: *jobCount,
@@ -430,17 +429,17 @@ func readRanksForLabels(
 	podIndexLabel string,
 	rjInfo *replicatedJobsInfo,
 ) (map[int]*corev1.Pod, error) {
-	result := make(map[int]*corev1.Pod, 0)
+	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
 	for _, pod := range pods {
-		podIndex, err := readIntFromLabel(pod, podIndexLabel)
+		podIndex, err := utilpod.ReadUIntFromLabel(pod, podIndexLabel)
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
 		}
 		rank := *podIndex
 		if rjInfo != nil {
-			jobIndex, err := readIntFromLabel(pod, rjInfo.jobIndexLabel)
+			jobIndex, err := utilpod.ReadUIntFromLabel(pod, rjInfo.jobIndexLabel)
 			if err != nil {
 				// the Pod has no Job index information - ranks cannot be used
 				return nil, err
@@ -465,18 +464,6 @@ func readRanksForLabels(
 		result[rank] = pod
 	}
 	return result, nil
-}
-
-func readIntFromLabel(pod *corev1.Pod, labelKey string) (*int, error) {
-	v, found := pod.Labels[labelKey]
-	if !found {
-		return nil, fmt.Errorf("no label %q for Pod %q", labelKey, klog.KObj(pod))
-	}
-	i, err := strconv.Atoi(v)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse label value %q for Pod %q", v, klog.KObj(pod))
-	}
-	return ptr.To(i), nil
 }
 
 func isAdmittedByTAS(w *kueue.Workload) bool {

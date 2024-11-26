@@ -17,9 +17,15 @@ limitations under the License.
 package pod
 
 import (
+	"fmt"
+	"math"
 	"slices"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
@@ -55,4 +61,33 @@ func gateIndex(p *corev1.Pod, gateName string) int {
 	return slices.IndexFunc(p.Spec.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
 		return g.Name == gateName
 	})
+}
+
+func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
+	return ReadUIntFromLabelWithMax(obj, labelKey, math.MaxInt)
+}
+
+func ReadUIntFromLabelWithMax(obj client.Object, labelKey string, max int) (*int, error) {
+	value, found := obj.GetLabels()[labelKey]
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	if !found {
+		return nil, fmt.Errorf("no label %q for %s %q", labelKey, kind, klog.KObj(obj))
+	}
+	intValue, err := readUIntFromStringWithMax(value, max)
+	if err != nil {
+		return nil, fmt.Errorf("incorrect label value %q for %s %q: %w", value, kind, klog.KObj(obj), err)
+	}
+	return intValue, nil
+}
+
+func readUIntFromStringWithMax(value string, max int) (*int, error) {
+	uintValue, err := strconv.ParseUint(value, 10, 0)
+	if err != nil {
+		return nil, err
+	}
+	intValue := int(uintValue)
+	if intValue > max {
+		return nil, fmt.Errorf("value should be less than or equal to %d", max)
+	}
+	return ptr.To(intValue), nil
 }

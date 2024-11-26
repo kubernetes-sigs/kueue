@@ -17,11 +17,15 @@ limitations under the License.
 package pod
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestHasGate(t *testing.T) {
@@ -193,6 +197,85 @@ func TestGate(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPod.Spec.SchedulingGates, tc.pod.Spec.SchedulingGates); diff != "" {
 				t.Errorf("Unexpected scheduling gates\ndiff=%s", diff)
+			}
+		})
+	}
+}
+
+func TestReadUIntFromLabel(t *testing.T) {
+	testCases := map[string]struct {
+		obj     client.Object
+		label   string
+		max     int
+		wantVal *int
+		wantErr string
+	}{
+		"valid label value": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "1000"},
+				},
+			},
+			label:   "label",
+			max:     math.MaxInt,
+			wantVal: ptr.To(1000),
+		},
+		"invalid label value": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "value"},
+				},
+			},
+			label:   "label",
+			wantErr: "incorrect label value \"value\" for Pod \"ns/pod\": strconv.ParseUint: parsing \"value\": invalid syntax",
+		},
+		"less than zero": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "-1"},
+				},
+			},
+			label:   "label",
+			wantErr: "incorrect label value \"-1\" for Pod \"ns/pod\": strconv.ParseUint: parsing \"-1\": invalid syntax",
+		},
+		"greater than max": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "1001"},
+				},
+			},
+			label:   "label",
+			max:     1000,
+			wantErr: "incorrect label value \"1001\" for Pod \"ns/pod\": value should be less than or equal to 1000",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotValue, gotErr := ReadUIntFromLabelWithMax(tc.obj, tc.label, tc.max)
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+
+			if diff := cmp.Diff(tc.wantVal, gotValue); diff != "" {
+				t.Errorf("Unexpected value (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
