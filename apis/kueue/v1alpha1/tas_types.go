@@ -69,6 +69,7 @@ type TopologySpec struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="the levels field is immutable"
 	Levels []TopologyLevel `json:"levels,omitempty"`
 }
 
