@@ -1302,9 +1302,28 @@ func (prc *ProvisioningRequestConfigWrapper) Parameters(in map[string]kueue.Para
 
 func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(backoffLimitCount, backoffBaseSeconds, backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
 	prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  ptr.To[int32](backoffLimitCount),
-		BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To[int32](backoffMaxSeconds),
+		BackoffLimitCount:  &backoffLimitCount,
+		BackoffBaseSeconds: &backoffBaseSeconds,
+		BackoffMaxSeconds:  &backoffMaxSeconds,
 	}
 	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy.BackoffBaseSeconds = &backoffBaseSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) MaxBackoff(backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy.BackoffMaxSeconds = &backoffMaxSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy.BackoffLimitCount = &backoffLimitCount
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{ProvisioningRequestConfig: *prc.DeepCopy()}
 }
