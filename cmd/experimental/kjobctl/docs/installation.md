@@ -2,11 +2,27 @@
 
 Installing the `kubectl-kjob` plugin, `kjobctl`.
 
-## Installing From Source
+## Installing 
+
+### From source
 
 ```bash
 make kubectl-kjob
 sudo mv ./bin/kubectl-kjob /usr/local/bin/kubectl-kjob
+```
+
+## Installing CRDs
+
+### Using printcrds command
+
+```bash
+kubectl-kjob printcrds | kubectl apply --server-side -f -
+```
+
+### From source
+
+```bash
+make install
 ```
 
 ## Kjobctl
