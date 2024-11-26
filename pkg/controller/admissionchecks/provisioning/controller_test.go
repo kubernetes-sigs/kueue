@@ -89,18 +89,6 @@ func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType stri
 	return r
 }
 
-func provReqConfigWithRetryLimit(prc *kueue.ProvisioningRequestConfig, limit int32) *kueue.ProvisioningRequestConfig {
-	prc = prc.DeepCopy()
-	prc.Spec.RetryStrategy.BackoffLimitCount = ptr.To(limit)
-	return prc
-}
-
-func provReqConfigWithBaseBackoff(prc *kueue.ProvisioningRequestConfig, baseBackoff int32) *kueue.ProvisioningRequestConfig {
-	prc = prc.DeepCopy()
-	prc.Spec.RetryStrategy.BackoffBaseSeconds = &baseBackoff
-	return prc
-}
-
 func TestReconcile(t *testing.T) {
 	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
 		PodSets(
