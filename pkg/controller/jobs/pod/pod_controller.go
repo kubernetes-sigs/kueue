@@ -561,11 +561,11 @@ func (p *Pod) groupTotalCount() (int, error) {
 
 // podGroupIndex returns the value of GroupIndexLabel for the pod being reconciled at the moment.
 func (p *Pod) podGroupIndex(podGroupTotalCount int) (*int, error) {
-	groupIndex, ok := p.Object().GetLabels()[kueuealpha.PodGroupPodIndexLabel]
+	podIndex, ok := p.Object().GetLabels()[kueuealpha.PodGroupPodIndexLabel]
 	if !ok {
 		return nil, nil
 	}
-	groupIndexValue, err := strconv.Atoi(groupIndex)
+	groupIndexValue, err := strconv.Atoi(podIndex)
 	if err != nil {
 		return nil, err
 	}
