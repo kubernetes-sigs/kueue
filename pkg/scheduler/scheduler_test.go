@@ -3653,17 +3653,18 @@ func TestRequeueAndUpdate(t *testing.T) {
 	cases := []struct {
 		name                    string
 		e                       entry
+		resourceRequestsSummary bool
 		wantWorkloads           map[string][]string
 		wantInadmissible        map[string][]string
 		wantStatus              kueue.WorkloadStatus
 		wantStatusUpdates       int
-		resourceRequestsSummary bool
 	}{
 		{
 			name: "workload didn't fit with summary",
 			e: entry{
 				inadmissibleMsg: "didn't fit",
 			},
+			resourceRequestsSummary: true,
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -3678,14 +3679,14 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:       1,
-			resourceRequestsSummary: true,
+			wantStatusUpdates: 1,
 		},
 		{
 			name: "workload didn't fit without summary",
 			e: entry{
 				inadmissibleMsg: "didn't fit",
 			},
+			resourceRequestsSummary: false,
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -3699,8 +3700,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:       1,
-			resourceRequestsSummary: false,
+			wantStatusUpdates: 1,
 		},
 		{
 			name: "assumed",
@@ -3728,6 +3728,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          skipped,
 				inadmissibleMsg: "cohort used in this cycle",
 			},
+			resourceRequestsSummary: true,
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -3742,8 +3743,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:       1,
-			resourceRequestsSummary: true,
+			wantStatusUpdates: 1,
 		},
 		{
 			name: "skipped without summary",
@@ -3751,6 +3751,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          skipped,
 				inadmissibleMsg: "cohort used in this cycle",
 			},
+			resourceRequestsSummary: false,
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -3764,8 +3765,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:       1,
-			resourceRequestsSummary: false,
+			wantStatusUpdates: 1,
 		},
 	}
 
