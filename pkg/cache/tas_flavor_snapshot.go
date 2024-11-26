@@ -61,7 +61,7 @@ type TASFlavorSnapshot struct {
 
 	// topologyName indicates the name of the topology specified in the
 	// ResourceFlavor spec.topologyName field.
-	topologyName string
+	topologyName kueue.TopologyReference
 
 	// levelKeys denotes the ordered list of topology keys set as label keys
 	// on the Topology object
@@ -91,7 +91,7 @@ type TASFlavorSnapshot struct {
 	state statePerDomain
 }
 
-func newTASFlavorSnapshot(log logr.Logger, topologyName string, levels []string) *TASFlavorSnapshot {
+func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference, levels []string) *TASFlavorSnapshot {
 	snapshot := &TASFlavorSnapshot{
 		log:                       log,
 		topologyName:              topologyName,

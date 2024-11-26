@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
@@ -53,9 +54,9 @@ type TASFlavorCache struct {
 
 	client client.Client
 
-	// topologyName indicates the name of the topology specified in the
+	// TopologyName indicates the name of the topology specified in the
 	// ResourceFlavor spec.topologyName field.
-	topologyName string
+	TopologyName kueue.TopologyReference
 	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
 	NodeLabels map[string]string
 	// levels is a list of levels defined in the Topology object referenced
@@ -66,11 +67,11 @@ type TASFlavorCache struct {
 	usage map[utiltas.TopologyDomainID]resources.Requests
 }
 
-func (t *TASCache) NewTASFlavorCache(topologyName string, labels []string, nodeLabels map[string]string) *TASFlavorCache {
+func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, levels []string, nodeLabels map[string]string) *TASFlavorCache {
 	return &TASFlavorCache{
 		client:       t.client,
-		topologyName: topologyName,
-		Levels:       slices.Clone(labels),
+		TopologyName: topologyName,
+		Levels:       slices.Clone(levels),
 		NodeLabels:   maps.Clone(nodeLabels),
 		usage:        make(map[utiltas.TopologyDomainID]resources.Requests),
 	}
@@ -110,7 +111,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
 		"levels", c.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.topologyName, c.Levels)
+	snapshot := newTASFlavorSnapshot(log, c.TopologyName, c.Levels)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)

@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -509,6 +511,54 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 										"r2",
 									},
 								},
+							},
+						},
+					))
+				})
+			})
+
+			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", func() {
+				ginkgo.By("delete topology", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				})
+
+				// TODO(#3645): replace the sleep with waiting for CQ deactivation.
+				// The sleep is a temporary solution to minimize the chance for the test flaking in case
+				// the workload is created and admitted before the event is handled and the topology
+				// is removed from the cache.
+				time.Sleep(time.Second)
+
+				var wl *kueue.Workload
+				ginkgo.By("creating a workload which requires block and can fit", func() {
+					wl = testing.MakeWorkload("wl", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl.Spec.PodSets[0].Count = 2
+					wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasBlockLabel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				topology = testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasRackLabel}).Obj()
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("verify admission for the workload", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{tasBlockLabel, tasRackLabel},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"b1", "r1"}},
+								{Count: 1, Values: []string{"b1", "r2"}},
 							},
 						},
 					))
