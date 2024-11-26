@@ -90,7 +90,7 @@ Ideally we remove it from the `Configuration` struct as part of going to the `v1
 Cluster admins will be able to use the combination of `managedJobsNamespaceSelector` and
 `manageJobsWithoutQueueName` to configure Kueue to enable quota enforcement on a per namespace basis.
 
-One sapproach would be to exempt selected namespaces from management:
+One approach would be to exempt selected namespaces from management:
 ```yaml
 managedJobsNamespaceSelector:
   matchExpressions:
@@ -109,7 +109,7 @@ managedJobsNamespaceSelector:
 
 ### API
 
-The `Configuration` struct is extended to add ManageAllJobsNamespaceSelector
+The `Configuration` struct is extended to add ManagedJobsNamespaceSelector
 ```go
 type Configuration struct {
 
@@ -124,7 +124,7 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-  // ManageAllJobsNamespaceSelector can be used to omit some namespaces from ManageJobsWithoutQueueName
+  // ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
   ...
