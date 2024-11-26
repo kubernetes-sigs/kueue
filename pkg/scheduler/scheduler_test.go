@@ -3651,13 +3651,13 @@ func TestRequeueAndUpdate(t *testing.T) {
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
-		name                        string
-		e                           entry
-		wantWorkloads               map[string][]string
-		wantInadmissible            map[string][]string
-		wantStatus                  kueue.WorkloadStatus
-		wantStatusUpdates           int
-		wantResourceRequestsSummary bool
+		name                    string
+		e                       entry
+		wantWorkloads           map[string][]string
+		wantInadmissible        map[string][]string
+		wantStatus              kueue.WorkloadStatus
+		wantStatusUpdates       int
+		resourceRequestsSummary bool
 	}{
 		{
 			name: "workload didn't fit with summary",
@@ -3678,8 +3678,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:           1,
-			wantResourceRequestsSummary: true,
+			wantStatusUpdates:       1,
+			resourceRequestsSummary: true,
 		},
 		{
 			name: "workload didn't fit without summary",
@@ -3699,8 +3699,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:           1,
-			wantResourceRequestsSummary: false,
+			wantStatusUpdates:       1,
+			resourceRequestsSummary: false,
 		},
 		{
 			name: "assumed",
@@ -3742,8 +3742,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:           1,
-			wantResourceRequestsSummary: true,
+			wantStatusUpdates:       1,
+			resourceRequestsSummary: true,
 		},
 		{
 			name: "skipped without summary",
@@ -3764,14 +3764,14 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
-			wantStatusUpdates:           1,
-			wantResourceRequestsSummary: false,
+			wantStatusUpdates:       1,
+			resourceRequestsSummary: false,
 		},
 	}
 
 	for _, tc := range cases {
 		Both.runTest(tc.name, t, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.WorkloadResourceRequestsSummary, tc.wantResourceRequestsSummary)
+			features.SetFeatureGateDuringTest(t, features.WorkloadResourceRequestsSummary, tc.resourceRequestsSummary)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
