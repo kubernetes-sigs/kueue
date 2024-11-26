@@ -1326,17 +1326,8 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 			State: kueue.CheckStatePending,
 		}).
 		Obj()
-	baseConfig := &kueue.ProvisioningRequestConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "config1",
-		},
-		Spec: kueue.ProvisioningRequestConfigSpec{
-			ProvisioningClassName: "class1",
-			Parameters: map[string]kueue.Parameter{
-				"p1": "v1",
-			},
-		},
-	}
+
+	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"})
 
 	baseRequest := autoscaling.ProvisioningRequest{
 		ObjectMeta: metav1.ObjectMeta{
