@@ -128,14 +128,13 @@ type Cohort struct {
     metav1.ObjectMeta `json:"metadata,omitempty"`
 
     Spec   CohortSpec   `json:"spec,omitempty"`
-    Status CohortStatus `json:"status,omitempty"`
 }
 
 type CohortSpec struct {
     // Cohort parent name. The parent Cohort object doesn't have to exist.
     // In such case, it is assumed that parent simply doesn't have any
     // quota and limits and doesn't have any other custom settings.
-    Parent *string `json:"parent,omitempty"`
+    Parent string `json:"parent,omitempty"`
 
     // resourceGroups describes groups of resources that the Cohort can
     // share with ClusterQueues within the same group of Cohorts/ClusterQueues.
@@ -156,28 +155,6 @@ type CohortSpec struct {
     // +listType=atomic
     // +kubebuilder:validation:MaxItems=16
     ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
-}
-
-const (
-    // Condition indicating that a Cohort is correctly configured (for example, there is no cycle).
-    CohortActive = "CohortActive"
-)
-
-// Status of the Cohort. May be empty if Cohort support is not enabled in alpha.
-// Status and stats may not cover the entire subtree, as the number of needed updates
-// per workload admission may be to high.
-type CohortStatus struct {
-    // conditions hold the latest available observations of the Conditions
-    // current state.
-    // +optional
-    // +listType=map
-    // +listMapKey=type
-    // +patchStrategy=merge
-    // +patchMergeKey=type
-    Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-
-    // Additional stats may be added in the future, like the number 
-    // of admitted workloads, their usage etc, based on the user feedback.
 }
 ```
 
