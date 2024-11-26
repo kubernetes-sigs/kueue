@@ -86,10 +86,12 @@ const (
 )
 
 var (
-	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
-	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
-	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
+	gvk                           = corev1.SchemeGroupVersion.WithKind("Pod")
+	errIncorrectReconcileRequest  = errors.New("event handler error: got a single pod reconcile request for a pod group")
+	errPendingOps                 = jobframework.UnretryableError("waiting to observe previous operations on pods")
+	errPodGroupLabelsMismatch     = errors.New("constructing workload: pods have different label values")
+	errIndexGreaterThanGroupCount = errors.New("incorrect label value: group pod index should be less than group total count")
+	errGroupIndexLessThanZero     = errors.New("incorrect label value: group pod index should be greater than zero")
 )
 
 func init() {
@@ -571,13 +573,11 @@ func (p *Pod) podGroupIndex() (*int, error) {
 	if err != nil {
 		return nil, err
 	}
-	if groupIndexValue <= podGroupTotalCount {
-		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be less than group total count",
-			kueuealpha.PodGroupPodIndexLabel, groupIndex)
+	if groupIndexValue >= podGroupTotalCount {
+		return nil, errIndexGreaterThanGroupCount
 	}
 	if groupIndexValue < 0 {
-		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be greater than zero",
-			kueuealpha.PodGroupPodIndexLabel, groupIndex)
+		return nil, errGroupIndexLessThanZero
 	}
 	return &groupIndexValue, nil
 }
