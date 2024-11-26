@@ -39,12 +39,11 @@ import (
 )
 
 const (
-	instanceType          = "tas-group"
-	tasNodeGroupLabel     = "cloud.provider.com/node-group"
-	topologyLevelRack     = "cloud.provider.com/topology-rack"
-	topologyLevelBlock    = "cloud.provider.com/topology-block"
-	topologyLevelHostname = "kubernetes.io/hostname"
-	extraResource         = "example.com/gpu"
+	instanceType       = "tas-group"
+	tasNodeGroupLabel  = "cloud.provider.com/node-group"
+	topologyLevelRack  = "cloud.provider.com/topology-rack"
+	topologyLevelBlock = "cloud.provider.com/topology-block"
+	extraResource      = "example.com/gpu"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
@@ -72,7 +71,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			topology = testing.MakeTopology("datacenter").Levels([]string{
 				topologyLevelBlock,
 				topologyLevelRack,
-				topologyLevelHostname,
+				corev1.LabelHostname,
 			}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
@@ -152,7 +151,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					[]string{
 						topologyLevelBlock,
 						topologyLevelRack,
-						topologyLevelHostname,
+						corev1.LabelHostname,
 					},
 				))
 				podCountPerBlock := map[string]int32{}
@@ -201,7 +200,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 					[]string{
 						topologyLevelBlock,
 						topologyLevelRack,
-						topologyLevelHostname,
+						corev1.LabelHostname,
 					},
 				))
 				podCountPerBlock := map[string]int32{}
