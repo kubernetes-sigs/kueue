@@ -264,23 +264,6 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	// baseConfig := &kueue.ProvisioningRequestConfig{
-	// 	ObjectMeta: metav1.ObjectMeta{
-	// 		Name: "config1",
-	// 	},
-	// 	Spec: kueue.ProvisioningRequestConfigSpec{
-	// 		ProvisioningClassName: "class1",
-	// 		Parameters: map[string]kueue.Parameter{
-	// 			"p1": "v1",
-	// 		},
-	// 		RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-	// 			BackoffLimitCount:  ptr.To[int32](3),
-	// 			BackoffBaseSeconds: ptr.To[int32](60),
-	// 			BackoffMaxSeconds:  ptr.To[int32](1800),
-	// 		},
-	// 	},
-	// }
-
 	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"}).RetryStrategy(3, 60, 1800)
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").
