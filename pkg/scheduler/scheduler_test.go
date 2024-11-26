@@ -4056,7 +4056,7 @@ func TestScheduleForTAS(t *testing.T) {
 			NodeLabels: map[string]string{
 				"tas-node": "true",
 			},
-			TopologyName: ptr.To("tas-two-level"),
+			TopologyName: ptr.To[kueue.TopologyReference]("tas-two-level"),
 		},
 	}
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
