@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -562,7 +563,7 @@ func (p *Pod) podGroupIndex() (*int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pod group total count is invalid: %v", err)
 	}
-	groupIndex, ok := p.Object().GetLabels()[GroupIndexLabel]
+	groupIndex, ok := p.Object().GetLabels()[kueuealpha.PodGroupPodIndexLabel]
 	if !ok {
 		return nil, nil
 	}
@@ -572,11 +573,11 @@ func (p *Pod) podGroupIndex() (*int, error) {
 	}
 	if groupIndexValue <= podGroupTotalCount {
 		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be less than group total count",
-			GroupIndexLabel, groupIndex)
+			kueuealpha.PodGroupPodIndexLabel, groupIndex)
 	}
 	if groupIndexValue < 0 {
 		return nil, fmt.Errorf("incorrect annotation value '%s=%s': group index should be greater than zero",
-			GroupIndexLabel, groupIndex)
+			kueuealpha.PodGroupPodIndexLabel, groupIndex)
 	}
 	return &groupIndexValue, nil
 }
@@ -1060,6 +1061,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 		return nil, err
 	}
+
 	if len(wl.Spec.PodSets) > 8 {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}

@@ -125,7 +125,7 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
-	return p.Label("kueue.x-k8s.io/pod-group-index", index)
+	return p.Label(kueuealpha.PodGroupPodIndexLabel, index)
 }
 
 // Label sets the label of the Pod

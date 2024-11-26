@@ -45,7 +45,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	kueuepod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -411,8 +410,8 @@ func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
 		}
 	}
 	// Check if this is Pod group
-	if jobCount, _ := readIntFromLabel(pod, kueuepod.GroupIndexLabel); jobCount != nil {
-		return ptr.To(kueuepod.GroupIndexLabel), nil
+	if jobCount, _ := readIntFromLabel(pod, kueuealpha.PodGroupPodIndexLabel); jobCount != nil {
+		return ptr.To(kueuealpha.PodGroupPodIndexLabel), nil
 	}
 	// Check if this is batch/Job
 	if _, found := pod.Labels[batchv1.JobCompletionIndexAnnotation]; found {
