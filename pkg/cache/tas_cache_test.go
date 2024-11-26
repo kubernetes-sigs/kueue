@@ -38,7 +38,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 	const (
 		tasBlockLabel = "cloud.com/topology-block"
 		tasRackLabel  = "cloud.com/topology-rack"
-		tasHostLabel  = "kubernetes.io/hostname"
 	)
 
 	//      b1                   b2
@@ -51,9 +50,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r1-x1",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x1",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x1",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -73,9 +72,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r2-x2",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x2",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x2",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -95,9 +94,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r2-x3",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x3",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x3",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -117,9 +116,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r2-x4",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x4",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x4",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -139,9 +138,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r1-x5",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x5",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x5",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -161,9 +160,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r2-x6",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x6",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x6",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -181,7 +180,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 	}
 	defaultOneLevel := []string{
-		tasHostLabel,
+		corev1.LabelHostname,
 	}
 	defaultTwoLevels := []string{
 		tasBlockLabel,
@@ -190,7 +189,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 	defaultThreeLevels := []string{
 		tasBlockLabel,
 		tasRackLabel,
-		tasHostLabel,
+		corev1.LabelHostname,
 	}
 
 	//           b1                    b2
@@ -203,9 +202,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r1-x1",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x1",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x1",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -225,9 +224,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r1-x2",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x2",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x2",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -247,9 +246,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r2-x3",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x3",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x3",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -269,9 +268,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b1-r2-x4",
 				Labels: map[string]string{
-					tasBlockLabel: "b1",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x4",
+					tasBlockLabel:        "b1",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x4",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -291,9 +290,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r1-x5",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x5",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x5",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -313,9 +312,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r1-x6",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r1",
-					tasHostLabel:  "x6",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r1",
+					corev1.LabelHostname: "x6",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -335,9 +334,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r2-x7",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x7",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x7",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -357,9 +356,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "b2-r2-x8",
 				Labels: map[string]string{
-					tasBlockLabel: "b2",
-					tasRackLabel:  "r2",
-					tasHostLabel:  "x8",
+					tasBlockLabel:        "b2",
+					tasRackLabel:         "r2",
+					corev1.LabelHostname: "x8",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -403,9 +402,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r1-x1",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r1",
-							tasHostLabel:  "x1",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -424,9 +423,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r2-x2",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r2",
-							tasHostLabel:  "x2",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r2",
+							corev1.LabelHostname: "x2",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -445,9 +444,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r3-x3",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r3",
-							tasHostLabel:  "x3",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r3",
+							corev1.LabelHostname: "x3",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -466,9 +465,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r3-x4",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r3",
-							tasHostLabel:  "x4",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r3",
+							corev1.LabelHostname: "x4",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -487,9 +486,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r3-x5",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r3",
-							tasHostLabel:  "x5",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r3",
+							corev1.LabelHostname: "x5",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -508,9 +507,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r3-x6",
 						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r3",
-							tasHostLabel:  "x6",
+							tasBlockLabel:        "b1",
+							tasRackLabel:         "r3",
+							corev1.LabelHostname: "x6",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -623,7 +622,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"host required; single Pod fits in the host": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -927,8 +926,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r1-x1",
 						Labels: map[string]string{
-							"zone":       "zone-a",
-							tasHostLabel: "x1",
+							"zone":               "zone-a",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -940,7 +939,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
 				"zone": "zone-b",
@@ -958,8 +957,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r1-x1",
 						Labels: map[string]string{
-							"zone":       "zone-a",
-							tasHostLabel: "x1",
+							"zone":               "zone-a",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -977,7 +976,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
 				"zone": "zone-a",
@@ -1007,7 +1006,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Labels: map[string]string{
 							tasBlockLabel: "b1",
 							tasRackLabel:  "r1",
-							// the node doesn't have the tasHostLabel required by topology
+							// the node doesn't have the 'kubernetes.io/hostname' required by topology
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1041,7 +1040,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							tasHostLabel: "x1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1064,7 +1063,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
@@ -1089,7 +1088,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							tasHostLabel: "x1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1117,7 +1116,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
@@ -1143,7 +1142,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							tasHostLabel: "x1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1167,7 +1166,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
@@ -1183,7 +1182,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							tasHostLabel: "x1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1207,7 +1206,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
@@ -1224,7 +1223,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							tasHostLabel: "x1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1244,7 +1243,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x2",
 						Labels: map[string]string{
-							tasHostLabel: "x2",
+							corev1.LabelHostname: "x2",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1267,7 +1266,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
@@ -1292,8 +1291,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "b1-r1-x1",
 						Labels: map[string]string{
-							"zone":       "zone-a",
-							tasHostLabel: "x1",
+							"zone":               "zone-a",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -1315,7 +1314,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
+				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
 				"zone": "zone-a",

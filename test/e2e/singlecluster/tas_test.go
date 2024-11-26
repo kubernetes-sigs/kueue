@@ -40,10 +40,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const (
-	topologyLevel = "kubernetes.io/hostname"
-)
-
 var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 	var ns *corev1.Namespace
 
@@ -68,7 +64,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			topology = testing.MakeTopology("hostname").Levels([]string{
-				topologyLevel,
+				corev1.LabelHostname,
 			}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
@@ -107,7 +103,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevel).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
@@ -129,7 +125,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
 						Levels: []string{
-							topologyLevel,
+							corev1.LabelHostname,
 						},
 						Domains: []kueue.TopologyDomainAssignment{
 							{
@@ -161,7 +157,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("hostname").Levels([]string{topologyLevel}).Obj()
+			topology = testing.MakeTopology("hostname").Levels([]string{corev1.LabelHostname}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
@@ -205,7 +201,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: topologyLevel,
+							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
 						Image: util.E2eTestSleepImage,
 						Args:  []string{"1ms"},
@@ -216,7 +212,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: topologyLevel,
+							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
 						Image: util.E2eTestSleepImage,
 						Args:  []string{"1ms"},
@@ -260,7 +256,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels: []string{topologyLevel},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
@@ -269,7 +265,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels: []string{topologyLevel},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
@@ -296,7 +292,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("hostname").Levels([]string{topologyLevel}).Obj()
+			topology = testing.MakeTopology("hostname").Levels([]string{corev1.LabelHostname}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
@@ -334,7 +330,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
 				Image(util.E2eTestSleepImage, []string{"1ms"}).
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevel).
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
 				Obj()
@@ -353,8 +349,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, p)).To(gomega.Succeed())
 					g.Expect(p.Spec.NodeSelector).To(gomega.Equal(map[string]string{
-						"instance-type": "on-demand",
-						topologyLevel:   "kind-worker",
+						"instance-type":      "on-demand",
+						corev1.LabelHostname: "kind-worker",
 					}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -371,7 +367,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels: []string{topologyLevel},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{{
 							Count:  1,
 							Values: []string{"kind-worker"},
@@ -393,7 +389,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
 				Image(util.E2eTestSleepImage, []string{"1ms"}).
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, topologyLevel).
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
 				MakeGroup(2)
@@ -417,8 +413,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 						g.Expect(p.Spec.NodeSelector).To(gomega.Equal(map[string]string{
-							"instance-type": "on-demand",
-							topologyLevel:   "kind-worker",
+							"instance-type":      "on-demand",
+							corev1.LabelHostname: "kind-worker",
 						}))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -436,7 +432,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels: []string{topologyLevel},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{{
 							Count:  2,
 							Values: []string{"kind-worker"},

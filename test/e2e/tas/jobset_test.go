@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			topology = testing.MakeTopology("datacenter").Levels([]string{
 				topologyLevelBlock,
 				topologyLevelRack,
-				topologyLevelHostname,
+				corev1.LabelHostname,
 			}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 

@@ -3984,15 +3984,14 @@ func TestResourcesToReserve(t *testing.T) {
 func TestScheduleForTAS(t *testing.T) {
 	const (
 		tasRackLabel = "cloud.provider.com/rack"
-		tasHostLabel = "kubernetes.io/hostname"
 	)
 	defaultSingleNode := []corev1.Node{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "x1",
 				Labels: map[string]string{
-					"tas-node":   "true",
-					tasHostLabel: "x1",
+					"tas-node":           "true",
+					corev1.LabelHostname: "x1",
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -4016,7 +4015,7 @@ func TestScheduleForTAS(t *testing.T) {
 		Spec: kueuealpha.TopologySpec{
 			Levels: []kueuealpha.TopologyLevel{
 				{
-					NodeLabel: tasHostLabel,
+					NodeLabel: corev1.LabelHostname,
 				},
 			},
 		},
@@ -4031,7 +4030,7 @@ func TestScheduleForTAS(t *testing.T) {
 					NodeLabel: tasRackLabel,
 				},
 				{
-					NodeLabel: tasHostLabel,
+					NodeLabel: corev1.LabelHostname,
 				},
 			},
 		},
@@ -4117,7 +4116,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4214,7 +4213,7 @@ func TestScheduleForTAS(t *testing.T) {
 							Request(corev1.ResourceCPU, "500m").
 							Obj(),
 						*utiltesting.MakePodSet("worker", 1).
-							RequiredTopologyRequest(tasHostLabel).
+							RequiredTopologyRequest(corev1.LabelHostname).
 							Request(corev1.ResourceCPU, "500m").
 							Obj()).
 					Obj(),
@@ -4279,7 +4278,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4447,7 +4446,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4473,7 +4472,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4497,7 +4496,7 @@ func TestScheduleForTAS(t *testing.T) {
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4529,7 +4528,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -4552,7 +4551,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*testingpod.MakePod("test-running", "test-ns").NodeName("x1").
 					StatusPhase(corev1.PodRunning).
 					Request(corev1.ResourceCPU, "400m").
-					NodeSelector(tasHostLabel, "x1").
+					NodeSelector(corev1.LabelHostname, "x1").
 					Label(kueuealpha.TASLabel, "true").
 					Obj(),
 			},
@@ -4563,7 +4562,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "500m").
 						Obj()).
 					Obj(),
@@ -4587,7 +4586,7 @@ func TestScheduleForTAS(t *testing.T) {
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "400m").
 						Obj()).
 					Obj(),
@@ -4631,7 +4630,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "500m").
 						Request(corev1.ResourceMemory, "500Mi").
 						Obj()).
@@ -4657,7 +4656,7 @@ func TestScheduleForTAS(t *testing.T) {
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(tasHostLabel).
+						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "500m").
 						Request(corev1.ResourceMemory, "500Mi").
 						Obj()).
@@ -4700,9 +4699,9 @@ func TestScheduleForTAS(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "x1",
 						Labels: map[string]string{
-							"tas-node":   "true",
-							tasRackLabel: "r1",
-							tasHostLabel: "x1",
+							"tas-node":           "true",
+							tasRackLabel:         "r1",
+							corev1.LabelHostname: "x1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -4721,9 +4720,9 @@ func TestScheduleForTAS(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "y1",
 						Labels: map[string]string{
-							"tas-node":   "true",
-							tasRackLabel: "r1",
-							tasHostLabel: "y1",
+							"tas-node":           "true",
+							tasRackLabel:         "r1",
+							corev1.LabelHostname: "y1",
 						},
 					},
 					Status: corev1.NodeStatus{
@@ -4753,11 +4752,11 @@ func TestScheduleForTAS(t *testing.T) {
 					Queue("tas-main").
 					PodSets(
 						*utiltesting.MakePodSet("launcher", 1).
-							PreferredTopologyRequest(tasHostLabel).
+							PreferredTopologyRequest(corev1.LabelHostname).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 						*utiltesting.MakePodSet("worker", 1).
-							PreferredTopologyRequest(tasHostLabel).
+							PreferredTopologyRequest(corev1.LabelHostname).
 							Request(corev1.ResourceCPU, "7").
 							Obj()).
 					Obj(),
