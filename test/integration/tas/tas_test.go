@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -519,6 +521,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("delete topology", func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
+
+				// TODO(#3645): replace the sleep with waiting for CQ deactivation.
+				// The sleep is a temporary solution to minimize the chance for the test flaking in case
+				// the workload is created and admitted before the event is handled and the topology
+				// is removed from the cache.
+				time.Sleep(time.Second)
 
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
