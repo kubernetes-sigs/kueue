@@ -51,6 +51,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
+				ManagedByKueue().
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -62,6 +63,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("new-test-queue").
+				ManagedByKueue().
 				PodTemplateSpecQueue("new-test-queue").
 				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -69,6 +71,13 @@ func TestDefault(t *testing.T) {
 		"deployment without queue with pod template spec queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 			want:       testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
+		},
+		"deployment without queue with pod template spec queue and managed by kueue label": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				ManagedByKueue().
+				PodTemplateSpecQueue("test-queue").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
@@ -123,7 +132,7 @@ func TestDefault(t *testing.T) {
 			if err := w.Default(ctx, tc.deployment); err != nil {
 				t.Errorf("failed to set defaults for v1/deployment: %s", err)
 			}
-			if diff := cmp.Diff(tc.want, tc.deployment); len(diff) != 0 {
+			if diff := cmp.Diff(tc.want, tc.deployment, cmpopts.EquateEmpty()); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
 			}
 		})
@@ -190,8 +199,15 @@ func TestValidateUpdate(t *testing.T) {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
 		},
-		"without queue": {
+		"without queue (ReadyReplicas = 0)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		},
+		"without queue (ReadyReplicas > 0)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				ReadyReplicas(1).
 				Queue("test-queue").
 				Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
