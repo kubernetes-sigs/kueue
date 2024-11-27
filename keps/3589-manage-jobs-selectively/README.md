@@ -1,4 +1,4 @@
-# KEP-3589: Uniform namespace-based controls for all integrations
+# KEP-3589: Uniformly filter manageJobsWithoutQueueNames by namespace
 
 <!-- toc -->
 - [Summary](#summary)

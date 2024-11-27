@@ -1,4 +1,4 @@
-title: Uniform namespace-based controls for all integrations
+title: Uniformly filter manageJobsWithoutQueueNames by namespace
 kep-number: 3589
 authors:
   - "@dgrove-oss"
