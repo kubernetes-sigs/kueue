@@ -1311,16 +1311,28 @@ func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.
 }
 
 func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
 	prc.Spec.RetryStrategy.BackoffBaseSeconds = &backoffBaseSeconds
 	return prc
 }
 
 func (prc *ProvisioningRequestConfigWrapper) MaxBackoff(backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
 	prc.Spec.RetryStrategy.BackoffMaxSeconds = &backoffMaxSeconds
 	return prc
 }
 
 func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
 	prc.Spec.RetryStrategy.BackoffLimitCount = &backoffLimitCount
 	return prc
 }
