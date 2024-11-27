@@ -346,7 +346,7 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{{ObjectMeta: metav1.ObjectMeta{Name: "config1"}}},
+			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").DeepCopy()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				ProvisioningRequestName("wl", baseCheck.Name, 1): {
 					ObjectMeta: metav1.ObjectMeta{
