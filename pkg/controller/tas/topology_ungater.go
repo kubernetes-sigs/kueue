@@ -431,20 +431,24 @@ func readRanksForLabels(
 ) (map[int]*corev1.Pod, error) {
 	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
+	singleJobSize := podSetSize
+	if rjInfo != nil {
+		singleJobSize = podSetSize / rjInfo.replicasCount
+	}
+
 	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabel(pod, podIndexLabel)
+		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, podIndexLabel, singleJobSize)
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
 		}
 		rank := *podIndex
 		if rjInfo != nil {
-			jobIndex, err := utilpod.ReadUIntFromLabel(pod, rjInfo.jobIndexLabel)
+			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, rjInfo.jobIndexLabel, rjInfo.replicasCount)
 			if err != nil {
 				// the Pod has no Job index information - ranks cannot be used
 				return nil, err
 			}
-			singleJobSize := podSetSize / rjInfo.replicasCount
 			if *podIndex >= singleJobSize {
 				// the pod index exceeds size, this scenario is not
 				// supported by the rank-based ordering of pods.

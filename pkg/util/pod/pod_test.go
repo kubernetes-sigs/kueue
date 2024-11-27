@@ -208,8 +208,20 @@ func TestReadUIntFromLabel(t *testing.T) {
 		label   string
 		max     int
 		wantVal *int
-		wantErr string
+		wantErr error
 	}{
+		"label not found": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+				},
+			},
+			label:   "label",
+			max:     math.MaxInt,
+			wantErr: errLabelNotFound,
+		},
 		"valid label value": {
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
@@ -233,7 +245,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: "incorrect label value \"value\" for Pod \"ns/pod\": invalid unsigned integer: strconv.ParseUint: parsing \"value\": invalid syntax",
+			wantErr: errInvalidUInt,
 		},
 		"less than zero": {
 			obj: &corev1.Pod{
@@ -245,7 +257,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: "incorrect label value \"-1\" for Pod \"ns/pod\": invalid unsigned integer: strconv.ParseUint: parsing \"-1\": invalid syntax",
+			wantErr: errInvalidUInt,
 		},
 		"greater than max": {
 			obj: &corev1.Pod{
@@ -258,24 +270,20 @@ func TestReadUIntFromLabel(t *testing.T) {
 			},
 			label:   "label",
 			max:     1000,
-			wantErr: "incorrect label value \"1001\" for Pod \"ns/pod\": value should be less than or equal to 1000",
+			wantErr: errValidation,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotValue, gotErr := ReadUIntFromLabelWithMax(tc.obj, tc.label, tc.max)
-			var gotErrStr string
-			if gotErr != nil {
-				gotErrStr = gotErr.Error()
-			}
+			gotValue, gotErr := ReadUIntFromLabelBelowBound(tc.obj, tc.label, tc.max)
 
 			if diff := cmp.Diff(tc.wantVal, gotValue); diff != "" {
 				t.Errorf("Unexpected value (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
-				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}
