@@ -1352,7 +1352,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 			workload := baseWorkload.DeepCopy()
 			checks := []kueue.AdmissionCheck{*baseCheck.DeepCopy()}
 			checkConfig := map[string]*kueue.ProvisioningRequestConfig{
-				baseCheck.Name: baseConfig.Clone().DeepCopy(),
+				baseCheck.Name: baseConfig.DeepCopy(),
 			}
 
 			builder, ctx := getClientBuilder()
