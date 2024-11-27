@@ -18,6 +18,7 @@ package cache
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -30,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -1351,6 +1353,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 				t.Fatalf("failed to build the snapshot: %v", err)
 			}
 			gotAssignment, reason := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
+			if gotAssignment != nil {
+				sort.Slice(tc.wantAssignment.Domains, func(i, j int) bool {
+					return utiltas.DomainID(tc.wantAssignment.Domains[i].Values) < utiltas.DomainID(tc.wantAssignment.Domains[j].Values)
+				})
+			}
 			if diff := cmp.Diff(tc.wantAssignment, gotAssignment); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}

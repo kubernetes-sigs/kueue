@@ -17,7 +17,6 @@ limitations under the License.
 package tas
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -82,11 +81,6 @@ type podWithUngateInfo struct {
 type podWithDomain struct {
 	pod      *corev1.Pod
 	domainID utiltas.TopologyDomainID
-}
-
-type domainWithCount struct {
-	domainID utiltas.TopologyDomainID
-	count    int
 }
 
 var _ reconcile.Reconciler = (*topologyUngater)(nil)
@@ -322,18 +316,17 @@ func assignGatedPodsToDomainsByRanks(
 	psa *kueue.PodSetAssignment,
 	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
 	toUngate := make([]podWithDomain, 0)
-	sortedDomains := sortDomains(psa)
 	totalCount := 0
-	for i := range sortedDomains {
-		totalCount += sortedDomains[i].count
+	for i := range psa.TopologyAssignment.Domains {
+		totalCount += int(psa.TopologyAssignment.Domains[i].Count)
 	}
 	rankToDomainID := make([]utiltas.TopologyDomainID, totalCount)
-	index := 0
-	for _, domain := range sortedDomains {
-		for s := range domain.count {
-			rankToDomainID[index+s] = domain.domainID
+	index := int32(0)
+	for _, domain := range psa.TopologyAssignment.Domains {
+		for s := range domain.Count {
+			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
 		}
-		index += domain.count
+		index += domain.Count
 	}
 	for rank, pod := range rankToGatedPod {
 		toUngate = append(toUngate, podWithDomain{
@@ -342,20 +335,6 @@ func assignGatedPodsToDomainsByRanks(
 		})
 	}
 	return toUngate
-}
-
-func sortDomains(psa *kueue.PodSetAssignment) []domainWithCount {
-	sortableDomains := make([]domainWithCount, len(psa.TopologyAssignment.Domains))
-	for i, domain := range psa.TopologyAssignment.Domains {
-		sortableDomains[i] = domainWithCount{
-			domainID: utiltas.DomainID(domain.Values),
-			count:    int(domain.Count),
-		}
-	}
-	slices.SortFunc(sortableDomains, func(a, b domainWithCount) int {
-		return cmp.Compare(a.domainID, b.domainID)
-	})
-	return sortableDomains
 }
 
 func assignGatedPodsToDomainsGreedy(

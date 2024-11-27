@@ -893,17 +893,17 @@ func TestReconcile(t *testing.T) {
 										},
 									},
 									{
-										Count: 2,
-										Values: []string{
-											"b2",
-											"r1",
-										},
-									},
-									{
 										Count: 1,
 										Values: []string{
 											"b1",
 											"r2",
+										},
+									},
+									{
+										Count: 2,
+										Values: []string{
+											"b2",
+											"r1",
 										},
 									},
 								},
@@ -1028,17 +1028,17 @@ func TestReconcile(t *testing.T) {
 										},
 									},
 									{
-										Count: 2,
-										Values: []string{
-											"b2",
-											"r1",
-										},
-									},
-									{
 										Count: 1,
 										Values: []string{
 											"b1",
 											"r2",
+										},
+									},
+									{
+										Count: 2,
+										Values: []string{
+											"b2",
+											"r1",
 										},
 									},
 								},
