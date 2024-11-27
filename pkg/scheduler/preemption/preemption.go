@@ -196,7 +196,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
-	var successfullyPreempted int64
+	var successfullyPreempted atomic.Int64
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
@@ -214,9 +214,9 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj))
 		}
-		atomic.AddInt64(&successfullyPreempted, 1)
+		successfullyPreempted.Add(1)
 	})
-	return int(successfullyPreempted), errCh.ReceiveError()
+	return int(successfullyPreempted.Load()), errCh.ReceiveError()
 }
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
