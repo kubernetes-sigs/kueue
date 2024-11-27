@@ -1296,7 +1296,14 @@ func (prc *ProvisioningRequestConfigWrapper) ProvisioningClass(pc string) *Provi
 }
 
 func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
-	prc.Spec.Parameters = parameters
+	if prc.Spec.Parameters != nil {
+		for key, value := range parameters {
+			prc.Spec.Parameters[key] = value
+		}
+	} else {
+		prc.Spec.Parameters = parameters
+	}
+
 	return prc
 }
 
