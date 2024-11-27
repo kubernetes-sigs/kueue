@@ -252,13 +252,13 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"}).RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
+	baseConfigWithoutRetryStrategy := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"})
+
+	baseConfig := baseConfigWithoutRetryStrategy.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To[int32](3),
 		BackoffBaseSeconds: ptr.To[int32](60),
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
-
-	baseConfigWithoutRetryStrategy := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"})
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
