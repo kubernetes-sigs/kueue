@@ -1300,7 +1300,7 @@ func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]ku
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) WithParameters(key string, value kueue.Parameter) *ProvisioningRequestConfigWrapper {
+func (prc *ProvisioningRequestConfigWrapper) WithParameter(key string, value kueue.Parameter) *ProvisioningRequestConfigWrapper {
 	if prc.Spec.Parameters == nil {
 		prc.Spec.Parameters = make(map[string]kueue.Parameter, 1)
 	}
