@@ -237,6 +237,9 @@ func (c *clusterQueue) updateQueueStatus() {
 	if status != c.Status {
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
+		for _, lq := range c.localQueues {
+			metrics.ReportLocalQueueStatus(metrics.LQRefFromWorkloadKey(lq.key), c.Status)
+		}
 	}
 }
 
@@ -590,15 +593,13 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	c.localQueues[qKey] = qImpl
 	qImpl.reportActiveWorkloads()
-	// KTODO: report local queue metrics
-	// status = localQueueStatus
-	// admittedWorkloads = qimpl.admittedWorkloads
+	metrics.ReportLocalQueueStatus(metrics.LQRefFromWorkloadKey(qKey), c.Status)
 	return nil
 }
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	// KTODO: delete LQ cache metrics
+	metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromWorkloadKey(qKey))
 	delete(c.localQueues, qKey)
 }
 

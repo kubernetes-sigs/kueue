@@ -275,6 +275,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
+	metrics.ClearLocalQueueMetrics(metrics.LQRefFromWorkloadKey(key))
 	delete(m.localQueues, key)
 }
 

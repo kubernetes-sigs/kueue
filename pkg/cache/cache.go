@@ -431,6 +431,9 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if !ok {
 		return
 	}
+	for _, q := range c.hm.ClusterQueues[cq.Name].localQueues {
+		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromWorkloadKey(q.key))
+	}
 	c.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearCacheMetrics(cq.Name)
 }

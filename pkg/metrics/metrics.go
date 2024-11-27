@@ -439,6 +439,15 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
+func LQRefFromWorkloadKey(wlKey string) LocalQueueReference {
+	// KTODO: make sure split is correct
+	split := strings.Split(wlKey, "/")
+	return LocalQueueReference{
+		Name:      split[1],
+		Namespace: split[0],
+	}
+}
+
 func ClearClusterQueueMetrics(cqName string) {
 	AdmissionCyclePreemptionSkips.DeleteLabelValues(cqName)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)

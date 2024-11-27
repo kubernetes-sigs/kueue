@@ -40,7 +40,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 const (
@@ -142,6 +144,8 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
+	recordLocalQueueUsageMetrics(q)
+
 	return true
 }
 
@@ -151,6 +155,9 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 		// No need to interact with the queue manager for other objects.
 		return true
 	}
+
+	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(q))
+
 	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(q))
 	r.queues.DeleteLocalQueue(q)
 	r.cache.DeleteLocalQueue(q)
@@ -191,8 +198,36 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	r.queues.DeleteLocalQueue(oldLq)
+	updateLocalQueueResourceMetrics(newLq)
 
 	return true
+}
+
+func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
+	return metrics.LocalQueueReference{
+		Name:      lq.Name,
+		Namespace: lq.Namespace,
+	}
+}
+
+func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue) {
+	for _, flavor := range queue.Status.FlavorUsage {
+		for _, r := range flavor.Resources {
+			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+		}
+	}
+
+	for _, flavor := range queue.Status.FlavorsReservation {
+		for _, r := range flavor.Resources {
+			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+		}
+	}
+
+}
+
+func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue) {
+	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(queue))
+	recordLocalQueueUsageMetrics(queue)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.GenericEvent) bool {
