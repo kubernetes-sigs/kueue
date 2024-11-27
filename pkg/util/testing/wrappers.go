@@ -1305,12 +1305,8 @@ func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.Resourc
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(backoffLimitCount, backoffBaseSeconds, backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
-	prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  &backoffLimitCount,
-		BackoffBaseSeconds: &backoffBaseSeconds,
-		BackoffMaxSeconds:  &backoffMaxSeconds,
-	}
+func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.ProvisioningRequestRetryStrategy) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy = retryStrategy
 	return prc
 }
 
