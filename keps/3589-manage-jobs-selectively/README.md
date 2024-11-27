@@ -18,6 +18,7 @@
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Do nothing](#do-nothing)
+  - [Generalize filtering, but don't change the API.](#generalize-filtering-but-dont-change-the-api)
   - [Validating Admission Policies](#validating-admission-policies)
 <!-- /toc -->
 
@@ -62,13 +63,6 @@ harder to configure Kueue such that quotas will be enforced (cannot be bypassed 
 The irregularity between `batchv1/Job` and `Deployment` is likely to be especially confusing
 to users and cluster admins who would view both of these types as "built-in" to Kubernetes and
 would expect them to be configured in the same way.
-
-KEP-2936 proposes replacing `manageJobsWithoutQueueName` with a mechanism (under design)
-for configuring Kueue to inject a default `queue-name` into Jobs that do not have one.
-For exactly the same underlying reasons discussed above, a default local queue system
-would still need to be selectively filtered for at least the `Pod`, `Deployment`,
-`StatefulSet` and `batchv1/Job` integrations.  Therefore, although this KEP uses
-`manageJobsWithoutQueueName` to simplify its discussion, it applies to either approach.
 
 ### Goals
 
@@ -177,9 +171,12 @@ All integration tests for the current Pod integration namespaceSelector will be 
 
 ## Drawbacks
 
-<!--
-Why should this KEP _not_ be implemented?
--->
+KEP-2936 proposes a mechanism (currently under design)
+for configuring Kueue to inject a default `queue-name` into Jobs that do not have one.
+If (a) that mechanism is adopted and (b) it is already implicitly filtered on a per-namespace
+basis (by the presence of a `LocalQueue` in the Job's namespace that is somehow marked as the default),
+and (c) as a result we remove `manageJobsWithoutQueueName`, then `managedJobsNamespaceSelector`
+will be a non-useful configuration parameter.
 
 ## Alternatives
 
@@ -188,6 +185,13 @@ Why should this KEP _not_ be implemented?
 We could do nothing and simply document that despite its historical placement in
 a subfield of the `Configuration` struct, `podOptions.namespaceSelector` also applies
 to the `StatefulSet` and `Deployment` integrations.
+
+### Generalize filtering, but don't change the API.
+
+We could change the webhooks to apply `podOptions.namespaceSelector` to all integrations without
+introducing `managedJobsNamespaceSelector`. This increases the confusion around the API, but
+could be a useful tactical move if we expect to remove `manageJobsWithoutQueueNames` in favor
+of KEP-2936.
 
 ### Validating Admission Policies
 
