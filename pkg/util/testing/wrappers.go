@@ -1321,6 +1321,11 @@ func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.Resourc
 	return prc
 }
 
+func (prc *ProvisioningRequestConfigWrapper) WithManagedResoure(managedResource string) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = append(prc.Spec.ManagedResources, corev1.ResourceName(managedResource))
+	return prc
+}
+
 func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.ProvisioningRequestRetryStrategy) *ProvisioningRequestConfigWrapper {
 	prc.Spec.RetryStrategy = retryStrategy
 	return prc
