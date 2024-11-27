@@ -500,6 +500,13 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
 }
 
+func (q *queue) reportActiveWorkloads() {
+	// KTODO: report local queue metrics
+	qKeySlice := strings.Split(q.key, "/")
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+}
+
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
@@ -537,6 +544,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
+		lq.reportActiveWorkloads()
 	}
 }
 
@@ -581,11 +589,16 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
+	qImpl.reportActiveWorkloads()
+	// KTODO: report local queue metrics
+	// status = localQueueStatus
+	// admittedWorkloads = qimpl.admittedWorkloads
 	return nil
 }
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
+	// KTODO: delete LQ cache metrics
 	delete(c.localQueues, qKey)
 }
 
@@ -604,6 +617,7 @@ func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantit
 	// Clean up removed flavors or resources.
 	q.usage = resetUsage(q.usage, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
+	// KTODO: report local queue flavor usage metrics
 }
 
 func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {

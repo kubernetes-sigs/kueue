@@ -319,6 +319,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		}
 	}
 	stats, err := r.cache.LocalQueueUsage(queue)
+	// KTODO: report LQ usage stats
 	if err != nil {
 		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err

@@ -300,6 +300,44 @@ func (c *ClusterQueue) PendingActive() int {
 	return result
 }
 
+func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
+	c := m.getClusterQueue(lq.ClusterQueue)
+	result := 0
+	if c == nil {
+		return 0
+	}
+	for _, wl := range c.heap.List() {
+		wlLqKey := workload.QueueKey(wl.Obj)
+		if wlLqKey == lq.Key {
+			result++
+		}
+	}
+	if workloadKey(c.inflight) == lq.Key {
+		result++
+	}
+	return result
+}
+
+func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
+	c := m.getClusterQueue(lq.ClusterQueue)
+	if c == nil {
+		return 0
+	}
+	result := 0
+	for _, wl := range c.inadmissibleWorkloads {
+		wlLqKey := workload.QueueKey(wl.Obj)
+		if wlLqKey == lq.Key {
+			result++
+		}
+	}
+	return result
+}
+
+// KTODO: is this function necessary?
+func (m *Manager) PendingInLocalQueue(lq *LocalQueue) int {
+	return m.PendingActiveInLocalQueue(lq) + m.PendingInadmissibleInLocalQueue(lq)
+}
+
 // PendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
