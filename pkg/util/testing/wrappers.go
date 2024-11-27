@@ -1295,8 +1295,8 @@ func (prc *ProvisioningRequestConfigWrapper) ProvisioningClass(pc string) *Provi
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) Parameters(in map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
-	prc.Spec.Parameters = in
+func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	prc.Spec.Parameters = parameters
 	return prc
 }
 
