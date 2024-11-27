@@ -18,6 +18,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -144,23 +145,14 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		})
 	})
 
-	ginkgo.DescribeTable("Validate resourceFlavor on creation", func(rf *kueue.ResourceFlavor, errorType int) {
+	ginkgo.DescribeTable("Validate resourceFlavor on creation", func(rf *kueue.ResourceFlavor, matcher types.GomegaMatcher) {
 		err := k8sClient.Create(ctx, rf)
 		if err == nil {
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 			}()
 		}
-		switch errorType {
-		case isForbidden:
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
-		case isInvalid:
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeInvalidError())
-		default:
-			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-		}
+		gomega.Expect(err).Should(matcher)
 	},
 		ginkgo.Entry("Should fail to create with invalid taints",
 			testing.MakeResourceFlavor("resource-flavor").
@@ -172,10 +164,10 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Value:  "bar",
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj(),
-			isInvalid),
+			testing.BeInvalidError()),
 		ginkgo.Entry("Should fail to create with invalid label name",
 			testing.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
-			isForbidden),
+			testing.BeForbiddenError()),
 		ginkgo.Entry("Should fail to create with invalid tolerations",
 			testing.MakeResourceFlavor("resource-flavor").
 				Toleration(corev1.Toleration{
@@ -194,7 +186,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Key:      "abc",
 					Operator: corev1.TolerationOpEqual,
 					Value:    "v",
-					Effect:   corev1.TaintEffect("not-valid"),
+					Effect:   "not-valid",
 				}).
 				Toleration(corev1.Toleration{
 					Key:      "abc",
@@ -203,6 +195,6 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Effect:   corev1.TaintEffectNoSchedule,
 				}).
 				Obj(),
-			isInvalid),
+			testing.BeInvalidError()),
 	)
 })
