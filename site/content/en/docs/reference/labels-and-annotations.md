@@ -121,7 +121,7 @@ The annotation key is used to indicate how many Pods to expect in the group.
 
 Type: Label
 
-Example: `kueue.x-k8s.io/prebuilt -workload-name: "my-prebuild-workload-name"`
+Example: `kueue.x-k8s.io/prebuilt-workload-name: "my-prebuild-workload-name"`
 
 Used on: Kueue-managed Jobs.
 
