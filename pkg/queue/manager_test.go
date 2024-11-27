@@ -417,8 +417,8 @@ func TestAddWorkload(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		workload  *kueue.Workload
-		wantAdded bool
+		workload *kueue.Workload
+		wantErr  string
 	}{
 		{
 			workload: &kueue.Workload{
@@ -428,7 +428,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
-			wantAdded: true,
+			wantErr: "",
 		},
 		{
 			workload: &kueue.Workload{
@@ -438,6 +438,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "baz"},
 			},
+			wantErr: ErrQueueDoesNotExist.Error(),
 		},
 		{
 			workload: &kueue.Workload{
@@ -447,6 +448,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "bar"},
 			},
+			wantErr: ErrClusterQueueDoesNotExist.Error(),
 		},
 		{
 			workload: &kueue.Workload{
@@ -456,12 +458,14 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
+			wantErr: ErrQueueDoesNotExist.Error(),
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			if added := manager.AddOrUpdateWorkload(tc.workload); added != tc.wantAdded {
-				t.Errorf("AddWorkload returned %t, want %t", added, tc.wantAdded)
+			err := manager.AddOrUpdateWorkload(tc.workload)
+			if err != nil && err.Error() != tc.wantErr {
+				t.Fatalf("AddWorkload = %v, wantErr = %v", err, tc.wantErr)
 			}
 		})
 	}
@@ -671,6 +675,7 @@ func TestUpdateWorkload(t *testing.T) {
 		wantUpdated      bool
 		wantQueueOrder   map[string][]string
 		wantQueueMembers map[string]sets.Set[string]
+		wantErr          error
 	}{
 		"in queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -761,6 +766,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueMembers: map[string]sets.Set[string]{
 				"/foo": nil,
 			},
+			wantErr: ErrQueueDoesNotExist,
 		},
 		"from non existing queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -803,8 +809,9 @@ func TestUpdateWorkload(t *testing.T) {
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
-				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
+			err := manager.UpdateWorkload(tc.workloads[0], wl)
+			if (err != nil) != (tc.wantErr != nil) {
+				t.Errorf("UpdatedWorkload returned %t, want %t", err, tc.wantErr)
 			}
 			q := manager.localQueues[workload.QueueKey(wl)]
 			if q != nil {
