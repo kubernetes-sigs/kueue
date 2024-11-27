@@ -465,7 +465,7 @@ func TestAddWorkload(t *testing.T) {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			err := manager.AddOrUpdateWorkload(tc.workload)
 			if err != nil && err.Error() != tc.wantErr {
-				t.Fatalf("AddWorkload = %v, wantErr = %v", err, tc.wantErr)
+				t.Fatalf("AddWorkload returned %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

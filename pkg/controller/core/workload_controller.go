@@ -601,7 +601,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	if !workload.HasQuotaReservation(wl) {
 		err := r.queues.AddOrUpdateWorkload(wlCopy)
 		if err != nil {
-			log.V(2).Info(err.Error())
+			log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
 		}
 		return true
 	}
@@ -706,7 +706,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		err := r.queues.UpdateWorkload(oldWl, wlCopy)
 		if err != nil {
-			log.V(2).Info(err.Error())
+			log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(oldWl)
@@ -732,7 +732,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			if immediate {
 				err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy)
 				if err != nil {
-					log.V(2).Info(err.Error())
+					log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
 				}
 			}
 		})
@@ -745,7 +745,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
 					err := r.queues.AddOrUpdateWorkload(wlCopy)
 					if err != nil {
-						log.V(2).Info(err.Error())
+						log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
 					} else {
 						log.V(3).Info("Workload requeued after backoff")
 					}
