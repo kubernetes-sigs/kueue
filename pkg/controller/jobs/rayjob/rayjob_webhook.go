@@ -23,7 +23,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -64,7 +63,7 @@ var _ admission.CustomDefaulter = &RayJobWebhook{}
 func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
+	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultForSuspend((*RayJob)(job), w.manageJobsWithoutQueueName)
 	return nil
 }
@@ -77,7 +76,7 @@ var _ admission.CustomValidator = &RayJobWebhook{}
 func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	log.Info("Validating create", "job", klog.KObj(job))
+	log.Info("Validating create")
 	return nil, w.validateCreate(job).ToAggregate()
 }
 
@@ -145,7 +144,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJob := newObj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJob)(newJob)) != "" {
-		log.Info("Validating update", "job", klog.KObj(newJob))
+		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayJob)(oldJob), (*RayJob)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
 		return nil, allErrors.ToAggregate()

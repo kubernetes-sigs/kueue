@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -54,7 +53,7 @@ var _ admission.CustomDefaulter = &BaseWebhook{}
 func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job.Object()))
+	log.V(5).Info("Applying defaults")
 	ApplyDefaultForSuspend(job, w.ManageJobsWithoutQueueName)
 	return nil
 }
@@ -65,7 +64,7 @@ var _ admission.CustomValidator = &BaseWebhook{}
 func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
-	log.V(5).Info("Validating create", "job", klog.KObj(job.Object()))
+	log.V(5).Info("Validating create")
 	allErrs := ValidateJobOnCreate(job)
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnCreate()...)
@@ -78,7 +77,7 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 	oldJob := w.FromObject(oldObj)
 	newJob := w.FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Validating update", "job", klog.KObj(newJob.Object()))
+	log.Info("Validating update")
 	allErrs := ValidateJobOnUpdate(oldJob, newJob)
 	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnUpdate(oldJob)...)

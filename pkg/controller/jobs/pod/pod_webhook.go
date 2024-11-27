@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -140,7 +139,7 @@ func (p *Pod) addRoleHash() error {
 
 func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	pod := FromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
 	if IsPodOwnerManagedByKueue(pod) {
@@ -210,7 +209,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	var warnings admission.Warnings
 
 	pod := FromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateJobOnCreate(pod)
@@ -228,7 +227,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 	oldPod := FromObject(oldObj)
 	newPod := FromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
 	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
