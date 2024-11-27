@@ -1321,8 +1321,8 @@ func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.Resourc
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) WithManagedResoure(managedResource string) *ProvisioningRequestConfigWrapper {
-	prc.Spec.ManagedResources = append(prc.Spec.ManagedResources, corev1.ResourceName(managedResource))
+func (prc *ProvisioningRequestConfigWrapper) WithManagedResource(managedResource corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = append(prc.Spec.ManagedResources, managedResource)
 	return prc
 }
 
