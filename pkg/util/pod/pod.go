@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -80,10 +81,14 @@ func ReadUIntFromLabelWithMax(obj client.Object, labelKey string, max int) (*int
 	return intValue, nil
 }
 
+var (
+	errInvalidUInt = errors.New("invalid unsigned integer")
+)
+
 func readUIntFromStringWithMax(value string, max int) (*int, error) {
 	uintValue, err := strconv.ParseUint(value, 10, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", errInvalidUInt, err.Error())
 	}
 	intValue := int(uintValue)
 	if intValue > max {

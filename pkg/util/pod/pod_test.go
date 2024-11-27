@@ -233,7 +233,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: "incorrect label value \"value\" for Pod \"ns/pod\": strconv.ParseUint: parsing \"value\": invalid syntax",
+			wantErr: "incorrect label value \"value\" for Pod \"ns/pod\": invalid unsigned integer: strconv.ParseUint: parsing \"value\": invalid syntax",
 		},
 		"less than zero": {
 			obj: &corev1.Pod{
@@ -245,7 +245,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: "incorrect label value \"-1\" for Pod \"ns/pod\": strconv.ParseUint: parsing \"-1\": invalid syntax",
+			wantErr: "incorrect label value \"-1\" for Pod \"ns/pod\": invalid unsigned integer: strconv.ParseUint: parsing \"-1\": invalid syntax",
 		},
 		"greater than max": {
 			obj: &corev1.Pod{
