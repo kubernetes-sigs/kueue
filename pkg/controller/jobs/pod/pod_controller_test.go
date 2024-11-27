@@ -93,53 +93,6 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
-func TestPodIndex(t *testing.T) {
-	testCases := map[string]struct {
-		pod       *corev1.Pod
-		wantIndex int
-		wantErr   error
-	}{
-		"pod group pod index is correct": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
-				GroupIndex("0").
-				GroupTotalCount("1").
-				Obj(),
-			wantIndex: 0,
-		},
-		"pod group pod index is bigger or equal pod group total count": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
-				GroupIndex("1").
-				GroupTotalCount("1").
-				Obj(),
-			wantErr: errIndexGreaterThanGroupCount,
-		},
-		"pod group pod index is less than 0": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
-				GroupIndex("-1").
-				GroupTotalCount("1").
-				Obj(),
-			wantErr: errGroupIndexLessThanZero,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			pod := FromObject(tc.pod)
-			gtc, _ := pod.groupTotalCount()
-			gotIndex, gotErr := pod.podGroupIndex(gtc)
-			if gotIndex != nil && tc.wantIndex != *gotIndex {
-				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantIndex, *gotIndex)
-			}
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("error mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestRun(t *testing.T) {
 	testCases := map[string]struct {
 		pods                 []corev1.Pod
@@ -340,6 +293,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+
 		"non-matching admitted workload is deleted and pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -4030,6 +3984,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
+					GroupIndex("0").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -4042,6 +3997,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
+					GroupIndex("1").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4078,6 +4034,32 @@ func TestReconciler(t *testing.T) {
 					Message:   "Created Workload: ns/test-group",
 				},
 			},
+		},
+		"reconciler returns error in case pod group pod index is bigger or equal pod group total count": {
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Group("test-group").
+				GroupIndex("1").
+				GroupTotalCount("1").
+				Obj(),
+			},
+			wantErr: errIndexGreaterThanGroupCount,
+		},
+		"reconciler returns error in case pod group pod index is less than 0": {
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Group("test-group").
+				GroupIndex("-1").
+				GroupTotalCount("1").
+				Obj(),
+			},
+			wantErr: errGroupIndexLessThanZero,
 		},
 		"reconciler returns error in case of label mismatch in pod group": {
 			pods: []corev1.Pod{
