@@ -300,6 +300,10 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 		Levels:  s.levelKeys,
 		Domains: make([]kueue.TopologyDomainAssignment, 0),
 	}
+	// lex sort domains
+	slices.SortFunc(domains, func(a, b *domain) int {
+		return cmp.Compare(a.id, b.id)
+	})
 	for _, domain := range domains {
 		assignment.Domains = append(assignment.Domains, kueue.TopologyDomainAssignment{
 			Values: domain.levelValues,
