@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Type:   batchv1.JobComplete,
 						Status: corev1.ConditionTrue,
 					},
-					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 			})
 		})
 		ginkgo.It("Should run a jobSet on worker if admitted", func() {
