@@ -606,7 +606,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResourses([]corev1.ResourceName{"example.org/gpu"}).DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResources([]corev1.ResourceName{"example.org/gpu"}).DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
@@ -624,7 +624,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResourses([]corev1.ResourceName{corev1.ResourceMemory}).DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResources([]corev1.ResourceName{corev1.ResourceMemory}).DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: baseWorkload.DeepCopy(),
 			},
@@ -667,7 +667,7 @@ func TestReconcile(t *testing.T) {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResourses([]corev1.ResourceName{"example.com/gpu"}).DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithoutRetryStrategy.ManagedResources([]corev1.ResourceName{"example.com/gpu"}).DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			},

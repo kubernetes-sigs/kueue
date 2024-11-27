@@ -1300,7 +1300,7 @@ func (prc *ProvisioningRequestConfigWrapper) Parameters(in map[string]kueue.Para
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) ManagedResourses(r []corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.ResourceName) *ProvisioningRequestConfigWrapper {
 	prc.Spec.ManagedResources = r
 	return prc
 }
