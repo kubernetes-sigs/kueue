@@ -132,6 +132,10 @@ func main() {
 
 	metrics.Register()
 
+	if cfg.Metrics.EnableLocalQueueMetrics {
+		metrics.RegisterLQMetrics()
+	}
+
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()

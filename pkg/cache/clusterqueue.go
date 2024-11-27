@@ -132,7 +132,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort, lqMetrics bool) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
@@ -166,8 +166,8 @@ func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, i
 		c.Preemption = defaultPreemption
 	}
 
-	c.UpdateWithFlavors(resourceFlavors)
-	c.updateWithAdmissionChecks(admissionChecks)
+	c.UpdateWithFlavors(resourceFlavors, lqMetrics)
+	c.updateWithAdmissionChecks(admissionChecks, lqMetrics)
 
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility
@@ -217,7 +217,7 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 		!equality.Semantic.DeepEqual(oldQuotas, c.resourceNode.Quotas)
 }
 
-func (c *clusterQueue) updateQueueStatus() {
+func (c *clusterQueue) updateQueueStatus(lqMetrics bool) {
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
@@ -237,8 +237,10 @@ func (c *clusterQueue) updateQueueStatus() {
 	if status != c.Status {
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
-		for _, lq := range c.localQueues {
-			metrics.ReportLocalQueueStatus(metrics.LQRefFromWorkloadKey(lq.key), c.Status)
+		if lqMetrics {
+			for _, lq := range c.localQueues {
+				metrics.ReportLocalQueueStatus(metrics.LQRefFromLocalQueueKey(lq.key), c.Status)
+			}
 		}
 	}
 }
@@ -330,9 +332,9 @@ func (c *clusterQueue) isTASViolated() bool {
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
-func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, lqMetrics bool) {
 	c.updateLabelKeys(flavors)
-	c.updateQueueStatus()
+	c.updateQueueStatus(lqMetrics)
 }
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
@@ -365,7 +367,7 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
+func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck, lqMetrics bool) {
 	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[string]()
@@ -461,7 +463,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 
 	if update {
-		c.updateQueueStatus()
+		c.updateQueueStatus(lqMetrics)
 	}
 }
 
@@ -595,13 +597,13 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	c.localQueues[qKey] = qImpl
 	qImpl.reportActiveWorkloads()
-	metrics.ReportLocalQueueStatus(metrics.LQRefFromWorkloadKey(qKey), c.Status)
+	metrics.ReportLocalQueueStatus(metrics.LQRefFromLocalQueueKey(qKey), c.Status)
 	return nil
 }
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromWorkloadKey(qKey))
+	metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
 	delete(c.localQueues, qKey)
 }
 

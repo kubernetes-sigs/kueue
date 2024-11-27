@@ -42,7 +42,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
-	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc, WithLocalQueueMetricsEnabled(cfg.Metrics.EnableLocalQueueMetrics))
+	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc, LqControllerWithLocalQueueMetricsEnabled(cfg.Metrics.EnableLocalQueueMetrics))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -80,6 +80,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
+		WlControllerWithLocalQueueMetricsEnabled(cfg.Metrics.EnableLocalQueueMetrics),
 	).SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}

@@ -289,7 +289,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
 	if m.localQueueMetrics {
-		metrics.ClearLocalQueueMetrics(metrics.LQRefFromWorkloadKey(key))
+		metrics.ClearLocalQueueMetrics(metrics.LQRefFromLocalQueueKey(key))
 	}
 	delete(m.localQueues, key)
 }
@@ -607,7 +607,7 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportLocalQueuePendingWorkloads(lq.Key, active, inadmissible)
+	metrics.ReportLocalQueuePendingWorkloads(metrics.LQRefFromLocalQueueKey(lq.Key), active, inadmissible)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {

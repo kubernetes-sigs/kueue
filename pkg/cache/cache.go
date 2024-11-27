@@ -156,7 +156,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil, c.localQueueMetrics); err != nil {
 		return nil, err
 	}
 
@@ -228,8 +228,8 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// We call update on all ClusterQueues irrespective of which CQ actually use this flavor
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
-		cq.UpdateWithFlavors(c.resourceFlavors)
-		cq.updateWithAdmissionChecks(c.admissionChecks)
+		cq.UpdateWithFlavors(c.resourceFlavors, c.localQueueMetrics)
+		cq.updateWithAdmissionChecks(c.admissionChecks, c.localQueueMetrics)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
@@ -421,7 +421,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent, c.localQueueMetrics); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -442,7 +442,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	if c.localQueueMetrics {
 		for _, q := range c.hm.ClusterQueues[cq.Name].localQueues {
-			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromWorkloadKey(q.key))
+			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
 		}
 	}
 	c.hm.DeleteClusterQueue(cq.Name)

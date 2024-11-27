@@ -74,7 +74,7 @@ type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
 
 var defaultLQOptions = LocalQueueReconcilerOptions{}
 
-func WithLocalQueueMetricsEnabled(enabled bool) LocalQueueReconcilerOption {
+func LqControllerWithLocalQueueMetricsEnabled(enabled bool) LocalQueueReconcilerOption {
 	return func(o *LocalQueueReconcilerOptions) {
 		o.LocalQueueMetricsEnabled = enabled
 	}

@@ -412,11 +412,9 @@ func ReportPendingWorkloads(cqName string, active, inadmissible int) {
 	PendingWorkloads.WithLabelValues(cqName, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportLocalQueuePendingWorkloads(lqKey string, active, inadmissible int) {
-	keySlice := strings.Split(lqKey, "/")
-	// KTODO: make sure index is correct for lqname and namespace
-	LocalQueuePendingWorkloads.WithLabelValues(keySlice[0], keySlice[1], PendingStatusActive).Set(float64(active))
-	LocalQueuePendingWorkloads.WithLabelValues(keySlice[0], keySlice[1], PendingStatusInadmissible).Set(float64(inadmissible))
+func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int) {
+	LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, PendingStatusActive).Set(float64(active))
+	LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
 func ReportEvictedWorkloads(cqName, reason string) {
@@ -439,8 +437,7 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func LQRefFromWorkloadKey(wlKey string) LocalQueueReference {
-	// KTODO: make sure split is correct
+func LQRefFromLocalQueueKey(wlKey string) LocalQueueReference {
 	split := strings.Split(wlKey, "/")
 	return LocalQueueReference{
 		Name:      split[1],
@@ -461,7 +458,6 @@ func ClearClusterQueueMetrics(cqName string) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 }
 
-// KTODO: call clear func
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeleteLabelValues(lq.Name, lq.Namespace, PendingStatusActive)
 	LocalQueuePendingWorkloads.DeleteLabelValues(lq.Name, lq.Namespace, PendingStatusInadmissible)
@@ -501,7 +497,6 @@ func ClearCacheMetrics(cqName string) {
 	}
 }
 
-// KTODO: call clear func
 func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	LocalQueueReservingActiveWorkloads.DeleteLabelValues(lq.Name, lq.Namespace)
 	LocalQueueAdmittedActiveWorkloads.DeleteLabelValues(lq.Name, lq.Namespace)
@@ -522,7 +517,6 @@ func ReportClusterQueueResourceReservations(cohort, queue, flavor, resource stri
 	ClusterQueueResourceReservations.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
 }
 
-// KTODO: call func
 func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceReservations.WithLabelValues(lq.Name, lq.Namespace, flavor, resource).Set(usage)
 }
@@ -531,7 +525,6 @@ func ReportClusterQueueResourceUsage(cohort, queue, flavor, resource string, usa
 	ClusterQueueResourceUsage.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
 }
 
-// KTODO: call func
 func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceUsage.WithLabelValues(lq.Name, lq.Namespace, flavor, resource).Set(usage)
 }
@@ -628,8 +621,22 @@ func Register() {
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
+	)
+}
+
+func RegisterLQMetrics() {
+	metrics.Registry.MustRegister(
+		LocalQueuePendingWorkloads,
+		LocalQueueReservingActiveWorkloads,
+		LocalQueueAdmittedActiveWorkloads,
+		LocalQueueQuotaReservedWorkloadsTotal,
+		localQueueQuotaReservedWaitTime,
+		LocalQueueAdmittedWorkloadsTotal,
+		localQueueAdmissionWaitTime,
+		localQueueAdmissionChecksWaitTime,
+		LocalQueueEvictedWorkloadsTotal,
+		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,
-		LocalQueueByStatus,
 	)
 }

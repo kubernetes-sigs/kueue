@@ -333,11 +333,6 @@ func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
 	return result
 }
 
-// KTODO: is this function necessary?
-func (m *Manager) PendingInLocalQueue(lq *LocalQueue) int {
-	return m.PendingActiveInLocalQueue(lq) + m.PendingInadmissibleInLocalQueue(lq)
-}
-
 // PendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
