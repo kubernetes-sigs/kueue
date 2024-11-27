@@ -335,7 +335,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
-		return errClusterQueueAlreadyExists
+		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
