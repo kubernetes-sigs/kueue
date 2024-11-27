@@ -1,44 +1,45 @@
 # KEP-976: Plain Pods
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Story 3](#story-3)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-    - [Skipping Pods belonging to queued objects](#skipping-pods-belonging-to-queued-objects)
-    - [Pods replaced on failure](#pods-replaced-on-failure)
-    - [Controllers creating too many Pods](#controllers-creating-too-many-pods)
-  - [Risks and Mitigations](#risks-and-mitigations)
-    - [Increased memory usage](#increased-memory-usage)
-    - [Limited size for annotation values](#limited-size-for-annotation-values)
-- [Design Details](#design-details)
-  - [Gating Pod Scheduling](#gating-pod-scheduling)
-    - [Pods subject to queueing](#pods-subject-to-queueing)
-  - [Constructing Workload objects](#constructing-workload-objects)
-    - [Single Pods](#single-pods)
-    - [Groups of Pods created beforehand](#groups-of-pods-created-beforehand)
-    - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
-  - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
-  - [Retrying Failed Pods](#retrying-failed-pods)
-  - [Dynamically reclaiming Quota](#dynamically-reclaiming-quota)
-  - [Metrics](#metrics)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-    - [Beta](#beta)
-    - [GA](#ga)
-- [Implementation History](#implementation-history)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-  - [Users create a Workload object beforehand](#users-create-a-workload-object-beforehand)
+- [KEP-976: Plain Pods](#kep-976-plain-pods)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [User Stories (Optional)](#user-stories-optional)
+      - [Story 1](#story-1)
+      - [Story 2](#story-2)
+    - [Story 3](#story-3)
+    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+      - [Skipping Pods belonging to queued objects](#skipping-pods-belonging-to-queued-objects)
+      - [Pods replaced on failure](#pods-replaced-on-failure)
+      - [Controllers creating too many Pods](#controllers-creating-too-many-pods)
+    - [Risks and Mitigations](#risks-and-mitigations)
+      - [Increased memory usage](#increased-memory-usage)
+      - [Limited size for annotation values](#limited-size-for-annotation-values)
+  - [Design Details](#design-details)
+    - [Gating Pod Scheduling](#gating-pod-scheduling)
+      - [Pods subject to queueing](#pods-subject-to-queueing)
+    - [Constructing Workload objects](#constructing-workload-objects)
+      - [Single Pods](#single-pods)
+      - [Groups of Pods created beforehand](#groups-of-pods-created-beforehand)
+      - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
+    - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
+    - [Retrying Failed Pods](#retrying-failed-pods)
+    - [Dynamically reclaiming Quota](#dynamically-reclaiming-quota)
+    - [Metrics](#metrics)
+    - [Test Plan](#test-plan)
+        - [Prerequisite testing updates](#prerequisite-testing-updates)
+      - [Unit Tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+    - [Graduation Criteria](#graduation-criteria)
+      - [Beta](#beta)
+      - [GA](#ga)
+  - [Implementation History](#implementation-history)
+  - [Drawbacks](#drawbacks)
+  - [Alternatives](#alternatives)
+    - [Users create a Workload object beforehand](#users-create-a-workload-object-beforehand)
 <!-- /toc -->
 
 ## Summary
@@ -425,9 +426,10 @@ order to create a Workload object.
 To fully identify the group of pods, the pods need the following:
 - the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group. This should
   be a valid CRD name.
-- The label `kueue.x-k8s.io/pod-group-pod-index`, to indicate an index of a pod within the group
 - The annotation `kueue.x-k8s.io/pod-group-total-count` to indicate how many pods to expect in
   the group.
+
+Additionally, to index the pod group a user can use an optional label `kueue.x-k8s.io/pod-group-pod-index`, to indicate an index of a Pod within the group
 
 The Pod reconciler would group the pods into similar buckets by only looking at the fields that are
 relevant to admission, scheduling and/or autoscaling.
