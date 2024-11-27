@@ -1,4 +1,4 @@
-title: Uniformly filter manageJobsWithoutQueueName by namespace
+title: Uniform namespace-based controls for all integrations
 kep-number: 3589
 authors:
   - "@dgrove-oss"
@@ -16,9 +16,12 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.10"
+latest-milestone: "v0.11"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  beta: "v0.10"
+  beta: "v0.11"
 
+feature-gates:
+  - name: ManagedJobsNamespaceSelector
+disable-supported: true

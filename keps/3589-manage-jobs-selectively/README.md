@@ -1,4 +1,4 @@
-# KEP-3589: Uniformly filter manageJobsWithoutQueueName by namespace
+# KEP-3589: Uniform namespace-based controls for all integrations
 
 <!-- toc -->
 - [Summary](#summary)
@@ -23,10 +23,15 @@
 
 ## Summary
 
-This KEP adds an optional field to the Kueue `Configuration` struct that enables
-the effect of `manageJobsWithoutQueueName` to be controlled on a per-namespace
-basis for all Kueue integrations.
+This KEP adds a field `managedJobsNamespaceSelector` to the Kueue `Configuration` struct
+that enables how Jobs submitted without a `kueue.x-k8s.io/queue-name` label are
+processed by Kueue to be controlled on a per-namespace basis for all Kueue integrations.
 
+This is a generalization of `integrations.podOptions.namespaceSelector`, which
+provides per-namespace processing of Jobs submitted without a `queue-name` for
+only the `Pod`, `Deployment`, and `StatefulSet` integrations.  This KEP will
+deprecate `integrations.podOptions.namespaceSelector`, which will be removed entirely
+in a future release.
 -->
 
 ## Motivation
@@ -58,14 +63,22 @@ The irregularity between `batchv1/Job` and `Deployment` is likely to be especial
 to users and cluster admins who would view both of these types as "built-in" to Kubernetes and
 would expect them to be configured in the same way.
 
+KEP-2936 proposes replacing `manageJobsWithoutQueueName` with a mechanism (under design)
+for configuring Kueue to inject a default `queue-name` into Jobs that do not have one.
+For exactly the same underlying reasons discussed above, a default local queue system
+would still need to be selectively filtered for at least the `Pod`, `Deployment`,
+`StatefulSet` and `batchv1/Job` integrations.  Therefore, although this KEP uses
+`manageJobsWithoutQueueName` to simplify its discussion, it applies to either approach.
+
 ### Goals
 
-Provide a simple and uniform API to enable cluster admins to configure Kueue
-such that quotas will be enforced for specific namespaces.
+Provide a simple and uniform API to enable cluster admins to filter Kueue's
+processing of Jobs submitted without a `kueue.x-k8s.io/queue-name` label.
 
 ### Non-Goals
 
-Consider any scope for filtering `manageJobsWithoutQueueName` that is not based on namespaces.
+Consider any scope for filtering the processing of Jobs submitted without a
+`queue-name` label that is not based on namespaces.
 
 ## Proposal
 
@@ -80,8 +93,7 @@ exactly those instances of supported Kinds that have a `queue-name` label.
 that have a `queue-name` label and (b) will manage all instances of supported Kinds that do not
 have a `queue-name` label if they are in namespaces that match `managedJobsNamespaceSelector`.
 
-We migrate away from using `podOptions.namespaceSelector` over the course of several releases.
-Ideally we remove it from the `Configuration` struct as part of going to the `v1` API level.
+We deprecate `podOptions.namespaceSelector` and remove it in a future release.
 
 ### User Stories (Optional)
 
@@ -139,7 +151,11 @@ jobs without queue names are only managed if both `manageJobsWithoutQueueName` i
 the jobs namespace matches the `managedJobsNamespaceSelector`.
 
 Configuration parsing during startup is extended to give a deprecation notice if `podOptions.namespaceSelector` is set.
-Setting both `podOptions.namespaceSelector` and `managedJobsNamespaceSelector` will be flagged as a configuration error.
+
+In the first release with `managedJobsNamespaceSelector`, we filter the `Pod`, `Deployment`,
+and `StatefulSet` integrations by doing an intersection of both `managedJobsNamespaceSelector`
+and `podOptions.namespaceSelector`.  In the subsequent release, we flag configurations that have `podOptions.namespaceSelector`
+set as erroneous. We drop `podOptions.namespaceSelector` from the Configuration API as part of migrating to `v1beta2`.
 
 ### Test Plan
 
