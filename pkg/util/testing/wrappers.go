@@ -1300,6 +1300,15 @@ func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]ku
 	return prc
 }
 
+func (prc *ProvisioningRequestConfigWrapper) WithParameters(key string, value kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.Parameters == nil {
+		prc.Spec.Parameters = map[string]kueue.Parameter{}
+	}
+
+	prc.Spec.Parameters[key] = value
+	return prc
+}
+
 func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.ResourceName) *ProvisioningRequestConfigWrapper {
 	prc.Spec.ManagedResources = r
 	return prc
