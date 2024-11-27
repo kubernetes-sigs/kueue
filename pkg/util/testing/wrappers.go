@@ -1356,3 +1356,7 @@ func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32)
 func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigWrapper {
 	return &ProvisioningRequestConfigWrapper{ProvisioningRequestConfig: *prc.DeepCopy()}
 }
+
+func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
+	return &prc.ProvisioningRequestConfig
+}
