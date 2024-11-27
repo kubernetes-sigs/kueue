@@ -58,20 +58,45 @@ const (
 
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client     client.Client
-	log        logr.Logger
-	queues     *queue.Manager
-	cache      *cache.Cache
-	wlUpdateCh chan event.GenericEvent
+	client                   client.Client
+	log                      logr.Logger
+	queues                   *queue.Manager
+	cache                    *cache.Cache
+	wlUpdateCh               chan event.GenericEvent
+	localQueueMetricsEnabled bool
 }
 
-func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *LocalQueueReconciler {
+type LocalQueueReconcilerOptions struct {
+	LocalQueueMetricsEnabled bool
+}
+
+type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
+
+var defaultLQOptions = LocalQueueReconcilerOptions{}
+
+func WithLocalQueueMetricsEnabled(enabled bool) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.LocalQueueMetricsEnabled = enabled
+	}
+}
+
+func NewLocalQueueReconciler(
+	client client.Client,
+	queues *queue.Manager,
+	cache *cache.Cache,
+	opts ...LocalQueueReconcilerOption,
+) *LocalQueueReconciler {
+	options := defaultLQOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &LocalQueueReconciler{
-		log:        ctrl.Log.WithName("localqueue-reconciler"),
-		queues:     queues,
-		cache:      cache,
-		client:     client,
-		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		log:                      ctrl.Log.WithName("localqueue-reconciler"),
+		queues:                   queues,
+		cache:                    cache,
+		client:                   client,
+		wlUpdateCh:               make(chan event.GenericEvent, updateChBuffer),
+		localQueueMetricsEnabled: options.LocalQueueMetricsEnabled,
 	}
 }
 
@@ -144,7 +169,9 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	recordLocalQueueUsageMetrics(q)
+	if r.localQueueMetricsEnabled {
+		recordLocalQueueUsageMetrics(q)
+	}
 
 	return true
 }
@@ -156,7 +183,9 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 		return true
 	}
 
-	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(q))
+	if r.localQueueMetricsEnabled {
+		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(q))
+	}
 
 	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(q))
 	r.queues.DeleteLocalQueue(q)
@@ -198,7 +227,9 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	r.queues.DeleteLocalQueue(oldLq)
-	updateLocalQueueResourceMetrics(newLq)
+	if r.localQueueMetricsEnabled {
+		updateLocalQueueResourceMetrics(newLq)
+	}
 
 	return true
 }
@@ -354,7 +385,6 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		}
 	}
 	stats, err := r.cache.LocalQueueUsage(queue)
-	// KTODO: report LQ usage stats
 	if err != nil {
 		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err

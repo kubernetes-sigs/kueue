@@ -191,20 +191,6 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
 }
 
-func (target *Target) LocalQueueReference() metrics.LocalQueueReference {
-	return metrics.LocalQueueReference{
-		Name:      target.WorkloadInfo.Obj.Spec.QueueName,
-		Namespace: target.WorkloadInfo.Obj.Namespace,
-	}
-}
-
-func LQRefFromWlInfo(wl *workload.Info) metrics.LocalQueueReference {
-	return metrics.LocalQueueReference{
-		Name:      wl.Obj.Spec.QueueName,
-		Namespace: wl.Obj.Namespace,
-	}
-}
-
 // IssuePreemptions marks the target workloads as evicted.
 func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target) (int, error) {
 	log := ctrl.LoggerFrom(ctx)

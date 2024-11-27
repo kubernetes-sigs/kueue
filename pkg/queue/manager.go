@@ -46,6 +46,7 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	localQueueMetrics           bool
 }
 
 // Option configures the manager.
@@ -54,6 +55,7 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+	localQueueMetrics:           false,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -78,6 +80,12 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+func WithLocalQueueMetrics(enabled bool) Option {
+	return func(o *options) {
+		o.localQueueMetrics = enabled
+	}
+}
+
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
@@ -92,6 +100,8 @@ type Manager struct {
 	workloadOrdering workload.Ordering
 
 	workloadInfoOptions []workload.InfoOption
+
+	localQueueMetrics bool
 
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 }
@@ -111,6 +121,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
+		localQueueMetrics:   options.localQueueMetrics,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 	}
 	m.cond.L = &m.RWMutex
@@ -161,7 +172,9 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			added := cqImpl.AddFromLocalQueue(qImpl)
 			addedWorkloads = addedWorkloads || added
 		}
-		m.reportLQPendingWorkloads(qImpl)
+		if m.localQueueMetrics {
+			m.reportLQPendingWorkloads(qImpl)
+		}
 	}
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
@@ -192,7 +205,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
 		for _, q := range m.localQueues {
-			if q.ClusterQueue == cq.Name {
+			if m.localQueueMetrics && q.ClusterQueue == cq.Name {
 				m.reportLQPendingWorkloads(q)
 			}
 		}
@@ -275,7 +288,9 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
-	metrics.ClearLocalQueueMetrics(metrics.LQRefFromWorkloadKey(key))
+	if m.localQueueMetrics {
+		metrics.ClearLocalQueueMetrics(metrics.LQRefFromWorkloadKey(key))
+	}
 	delete(m.localQueues, key)
 }
 
@@ -345,7 +360,9 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 		return false
 	}
 	cq.PushOrUpdate(wInfo)
-	m.reportLQPendingWorkloads(q)
+	if m.localQueueMetrics {
+		m.reportLQPendingWorkloads(q)
+	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
 	return true
@@ -379,7 +396,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	added := cq.RequeueIfNotPresent(info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
-	m.reportLQPendingWorkloads(q)
+	if m.localQueueMetrics {
+		m.reportLQPendingWorkloads(q)
+	}
 	if added {
 		m.Broadcast()
 	}
@@ -398,7 +417,9 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		return
 	}
 	delete(q.items, workload.Key(w))
-	m.reportLQPendingWorkloads(q)
+	if m.localQueueMetrics {
+		m.reportLQPendingWorkloads(q)
+	}
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq != nil {
 		cq.Delete(w)
@@ -568,7 +589,9 @@ func (m *Manager) heads() []workload.Info {
 		workloads = append(workloads, wlCopy)
 		q := m.localQueues[workload.QueueKey(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
-		m.reportLQPendingWorkloads(q)
+		if m.localQueueMetrics {
+			m.reportLQPendingWorkloads(q)
+		}
 	}
 	return workloads
 }
