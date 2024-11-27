@@ -21,7 +21,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -70,7 +69,7 @@ var _ admission.CustomDefaulter = &JobSetWebhook{}
 func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
+	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 
@@ -81,12 +80,12 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
 		if !ok {
-			log.V(5).Info("Cluster queue for local queue not found", "jobset", klog.KObj(jobSet), "localQueue", localQueueName)
+			log.V(5).Info("Cluster queue for local queue not found", "localQueue", localQueueName)
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 			if admissionCheck.Controller == kueue.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
+				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
 				jobSet.Spec.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
 				return nil
 			}
@@ -109,7 +108,7 @@ var _ admission.CustomValidator = &JobSetWebhook{}
 func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating create", "jobset", klog.KObj(jobSet))
+	log.Info("Validating create")
 	return nil, w.validateCreate(jobSet).ToAggregate()
 }
 
@@ -118,7 +117,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	oldJobSet := fromObject(oldObj)
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
+	log.Info("Validating update")
 	return nil, w.validateUpdate(oldJobSet, newJobSet).ToAggregate()
 }
 

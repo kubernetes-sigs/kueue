@@ -23,7 +23,6 @@ import (
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -74,7 +73,7 @@ var _ admission.CustomDefaulter = &MpiJobWebhook{}
 func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.V(5).Info("Applying defaults", "mpijob", klog.KObj(mpiJob))
+	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultForSuspend(mpiJob, w.manageJobsWithoutQueueName)
 
@@ -85,12 +84,12 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(mpiJob.ObjectMeta.Namespace, localQueueName))
 		if !ok {
-			log.V(5).Info("Cluster queue for local queue not found", "mpijob", klog.KObj(mpiJob), "localQueue", localQueueName)
+			log.V(5).Info("Cluster queue for local queue not found", "localQueue", localQueueName)
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 			if admissionCheck.Controller == kueue.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "mpijob", klog.KObj(mpiJob), "oldManagedBy", mpiJob.Spec.RunPolicy.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
+				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", mpiJob.Spec.RunPolicy.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
 				mpiJob.Spec.RunPolicy.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
 				return nil
 			}
@@ -113,7 +112,7 @@ var _ admission.CustomValidator = &MpiJobWebhook{}
 func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating create", "mpijob", klog.KObj(mpiJob))
+	log.Info("Validating create")
 	return nil, w.validateCommon(mpiJob).ToAggregate()
 }
 
@@ -122,7 +121,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	oldMpiJob := fromObject(oldObj)
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating update", "mpijob", klog.KObj(newMpiJob))
+	log.Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob)
 	allErrs = append(allErrs, w.validateCommon(newMpiJob)...)
 	return nil, allErrs.ToAggregate()

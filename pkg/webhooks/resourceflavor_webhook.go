@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -53,7 +52,7 @@ var _ webhook.CustomDefaulter = &ResourceFlavorWebhook{}
 func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	rf := obj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
-	log.V(5).Info("Applying defaults", "resourceFlavor", klog.KObj(rf))
+	log.V(5).Info("Applying defaults")
 
 	if !controllerutil.ContainsFinalizer(rf, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(rf, kueue.ResourceInUseFinalizerName)
@@ -69,7 +68,7 @@ var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
 func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	rf := obj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
-	log.V(5).Info("Validating create", "resourceFlavor", klog.KObj(rf))
+	log.V(5).Info("Validating create")
 	return nil, ValidateResourceFlavor(rf).ToAggregate()
 }
 
@@ -77,7 +76,7 @@ func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.
 func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	newRF := newObj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
-	log.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
+	log.V(5).Info("Validating update")
 	return nil, ValidateResourceFlavor(newRF).ToAggregate()
 }
 
