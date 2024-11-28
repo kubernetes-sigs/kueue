@@ -704,6 +704,11 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need to support for "preferred/required" preferences at the
   Workload level (see [Story 3](#story-3))
 - re-evaluate the need for the `kueue.x-k8s.io/tas`
+- re-evaluate handling of topologies without `kubernetes.io/hostname` in the lowest
+  level, the main issues are: (a) no check for fragmentation, and (b) no support
+  for node taints. Some options to consider include virtual level as proposed in
+  the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
+  or explicit level added by webhook.
 
 #### Stable
 
