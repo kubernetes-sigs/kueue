@@ -669,6 +669,127 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 		})
+
+		ginkgo.When("Node is mutated during test cases", func() {
+			var (
+				nodes []corev1.Node
+			)
+
+			ginkgo.BeforeEach(func() {
+				ns = &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						GenerateName: "tas-",
+					},
+				}
+				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+				topology = testing.MakeTopology("default").Levels([]string{
+					tasBlockLabel,
+					tasRackLabel,
+					corev1.LabelHostname,
+				}).Obj()
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+
+				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should admit workload when node gets untainted", func() {
+				var (
+					wl1 *kueue.Workload
+				)
+
+				ginkgo.By("creating a tainted node which will prevent admitting the workload", func() {
+					nodes = []corev1.Node{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "b1-r1-x1",
+								Labels: map[string]string{
+									"node-group":         "tas",
+									tasBlockLabel:        "b1",
+									tasRackLabel:         "r1",
+									corev1.LabelHostname: "b1-r1-x1",
+								},
+							},
+							Spec: corev1.NodeSpec{
+								Taints: []corev1.Taint{
+									{
+										Key:    "maintenance",
+										Value:  "true",
+										Effect: corev1.TaintEffectNoSchedule,
+									},
+								},
+							},
+							Status: corev1.NodeStatus{
+								Allocatable: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Conditions: []corev1.NodeCondition{
+									{
+										Type:   corev1.NodeReady,
+										Status: corev1.ConditionTrue,
+									},
+								},
+							},
+						},
+					}
+					for _, node := range nodes {
+						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
+						gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
+					}
+				})
+
+				ginkgo.By("creating a workload which does not tolerate the taint", func() {
+					wl1 = testing.MakeWorkload("wl1", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("Remove the node taint to allow scheduling", func() {
+					nodes[0].Spec.Taints = nil
+					for _, node := range nodes {
+						gomega.Expect(k8sClient.Update(ctx, &node)).Should(gomega.Succeed())
+					}
+				})
+
+				ginkgo.By("verify the workload gets admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+				})
+			})
+		})
 	})
 
 	ginkgo.When("Multiple TAS Resource Flavors in queue", func() {

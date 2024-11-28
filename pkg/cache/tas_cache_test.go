@@ -386,6 +386,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		pods           []corev1.Pod
 		requests       resources.Requests
 		count          int32
+		tolerations    []corev1.Toleration
 		wantAssignment *kueue.TopologyAssignment
 		wantReason     string
 	}{
@@ -1328,6 +1329,115 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
+		"skip node which has untolerated taint": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							"zone":               "zone-a",
+							corev1.LabelHostname: "x1",
+						},
+					},
+					Spec: corev1.NodeSpec{
+						Taints: []corev1.Taint{
+							{
+								Key:    "example.com/gpu",
+								Value:  "present",
+								Effect: corev1.TaintEffectNoSchedule,
+							},
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+		},
+		"allow to schedule on node with tolerated taint": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "b1-r1-x1",
+						Labels: map[string]string{
+							"zone":               "zone-a",
+							corev1.LabelHostname: "x1",
+						},
+					},
+					Spec: corev1.NodeSpec{
+						Taints: []corev1.Taint{
+							{
+								Key:    "example.com/gpu",
+								Value:  "present",
+								Effect: corev1.TaintEffectNoSchedule,
+							},
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			tolerations: []corev1.Toleration{
+				{
+					Key:      "example.com/gpu",
+					Value:    "present",
+					Operator: corev1.TolerationOpEqual,
+				},
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1352,7 +1462,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to build the snapshot: %v", err)
 			}
-			gotAssignment, reason := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
+			gotAssignment, reason := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count, tc.tolerations)
 			if gotAssignment != nil {
 				sort.Slice(tc.wantAssignment.Domains, func(i, j int) bool {
 					return utiltas.DomainID(tc.wantAssignment.Domains[i].Values) < utiltas.DomainID(tc.wantAssignment.Domains[j].Values)
