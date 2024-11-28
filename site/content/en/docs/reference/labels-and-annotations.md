@@ -106,6 +106,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 The label key indicates the name of the group of Pods that should be admitted together.
 
 
+### kueue.x-k8s.io/pod-group-serving
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/pod-group-serving: "true"`
+
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
+
+The annotation key is used to indicate whether the pod group is being used as serving workload.
+
+
 ### kueue.x-k8s.io/pod-group-total-count
 
 Type: Annotation
