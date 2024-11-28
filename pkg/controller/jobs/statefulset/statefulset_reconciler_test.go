@@ -48,29 +48,7 @@ func TestReconciler(t *testing.T) {
 		wantPods        []corev1.Pod
 		wantErr         error
 	}{
-		"statefulset with replicas != zero": {
-			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
-				Replicas(1).
-				Queue("lq").
-				DeepCopy(),
-			wantStatefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
-				Replicas(1).
-				Queue("lq").
-				DeepCopy(),
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
-					Finalizer(pod.PodFinalizer).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
-					Finalizer(pod.PodFinalizer).
-					Obj(),
-			},
-		},
-		"statefulset with replicas = 0": {
+		"statefulset with finished pods": {
 			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
 				Replicas(0).
 				Queue("lq").
@@ -80,24 +58,35 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
+				*testingjobspod.MakePod("pod1", "ns").
 					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
-					Finalizer(pod.PodFinalizer).
+					KueueFinalizer().
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
+				*testingjobspod.MakePod("pod1", "ns").
 					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Label(pod.GroupNameLabel, GetWorkloadName("sts")).
+					KueueFinalizer().
 					Obj(),
 			},
-		},
-		"statefulset with no pods": {
-			statefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
-				Replicas(0).
-				Queue("lq").DeepCopy(),
-			wantStatefulSet: *statefulsettesting.MakeStatefulSet("sts", "ns").
-				Replicas(0).
-				Queue("lq").DeepCopy(),
 		},
 	}
 	for name, tc := range cases {

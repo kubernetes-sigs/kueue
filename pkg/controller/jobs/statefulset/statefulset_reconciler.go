@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,11 +56,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling StatefulSet")
 
-	// For now, handle only scaling down to zero.
-	if ptr.Deref(sts.Spec.Replicas, 1) != 0 {
-		return ctrl.Result{}, nil
-	}
-
 	err = r.fetchAndFinalizePods(ctx, req.Namespace, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -84,6 +78,9 @@ func (r *Reconciler) finalizePods(ctx context.Context, pods []corev1.Pod) error 
 	log := ctrl.LoggerFrom(ctx)
 	return parallelize.Until(ctx, len(pods), func(i int) error {
 		p := &pods[i]
+		if p.Status.Phase != corev1.PodSucceeded && p.Status.Phase != corev1.PodFailed {
+			return nil
+		}
 		err := clientutil.Patch(ctx, r.client, p, true, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(p, pod.PodFinalizer)
 			if removed {
