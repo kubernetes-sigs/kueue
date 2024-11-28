@@ -114,11 +114,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	snapshot := newTASFlavorSnapshot(log, c.TopologyName, c.Levels)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
-		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
-		capacity := resources.NewRequests(node.Status.Allocatable)
-		domainID := utiltas.DomainID(levelValues)
-		snapshot.addLeafDomain(levelValues, capacity, domainID)
-		nodeToDomain[node.Name] = domainID
+		nodeToDomain[node.Name] = snapshot.addNode(node)
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {

@@ -23,6 +23,7 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -111,15 +112,19 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	return snapshot
 }
 
-func (s *TASFlavorSnapshot) addLeafDomain(levelValues []string, capacity resources.Requests, domainID utiltas.TopologyDomainID) {
-	domain := domain{
-		id:          domainID,
-		levelValues: levelValues,
-	}
+func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
+	levelValues := utiltas.LevelValues(s.levelKeys, node.Labels)
+	domainID := utiltas.DomainID(levelValues)
 	if _, found := s.leaves[domainID]; !found {
+		domain := domain{
+			id:          domainID,
+			levelValues: levelValues,
+		}
 		s.leaves[domainID] = &domain
 	}
+	capacity := resources.NewRequests(node.Status.Allocatable)
 	s.addCapacity(domainID, capacity)
+	return domainID
 }
 
 // initialize prepares the topology tree structure. This structure holds
