@@ -628,7 +628,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.WithManagedResource(corev1.ResourceMemory).DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource(corev1.ResourceMemory).Obj()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: baseWorkload.DeepCopy(),
 			},
@@ -671,7 +671,7 @@ func TestReconcile(t *testing.T) {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.WithManagedResource("example.com/gpu").DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource("example.com/gpu").Obj()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			},
@@ -968,7 +968,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:      []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:     []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:     []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(1).BaseBackoff(0).DeepCopy()},
+			configs:     []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(1).BaseBackoff(0).Obj()},
 			enableGates: []featuregate.Feature{features.KeepQuotaForProvReqRetry},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
@@ -1054,7 +1054,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(1).DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(1).Obj()},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
 					[]metav1.Condition{
@@ -1097,7 +1097,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(0).DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(0).Obj()},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
 					[]metav1.Condition{
