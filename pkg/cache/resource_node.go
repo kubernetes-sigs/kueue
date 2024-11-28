@@ -84,19 +84,15 @@ type hierarchicalResourceNode interface {
 // This function may return a negative number in the case of
 // overadmission - e.g. capacity was removed or the node moved to
 // another Cohort.
-//
-// We add an option to ignore the borrowing limit, to support
-// features.MultiplePreemptions=false path. This will be cleaned up in
-// v0.10, when we delete legacy logic.
-func available(node hierarchicalResourceNode, fr resources.FlavorResource, enforceBorrowLimit bool) int64 {
+func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64 {
 	r := node.getResourceNode()
 	if !node.HasParent() {
 		return r.SubtreeQuota[fr] - r.Usage[fr]
 	}
 	localAvailable := max(0, r.guaranteedQuota(fr)-r.Usage[fr])
-	parentAvailable := available(node.parentHRN(), fr, enforceBorrowLimit)
+	parentAvailable := available(node.parentHRN(), fr)
 
-	if borrowingLimit := r.Quotas[fr].BorrowingLimit; enforceBorrowLimit && borrowingLimit != nil {
+	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
 		storedInParent := r.SubtreeQuota[fr] - r.guaranteedQuota(fr)
 		usedInParent := max(0, r.Usage[fr]-r.guaranteedQuota(fr))
 		withMaxFromParent := storedInParent - usedInParent + *borrowingLimit

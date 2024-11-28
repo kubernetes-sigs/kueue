@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -159,35 +158,6 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]resources.FlavorResourceQuantities
-
-func (cu cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantities) {
-	if cu[cohort] == nil {
-		cu[cohort] = make(resources.FlavorResourceQuantities, len(assignment))
-	}
-
-	for fr, v := range assignment {
-		cu[cohort][fr] += v
-	}
-}
-
-func (cu cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
-	return utilmaps.Intersect(cu[cohort], assignment, func(a, b int64) int64 { return a + b })
-}
-
-func (cu cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) bool {
-	cohortUsage, cohortFound := cu[cohort]
-	if !cohortFound {
-		return false
-	}
-	for fr := range assignment {
-		if _, found := cohortUsage[fr]; found {
-			return true
-		}
-	}
-	return false
-}
-
 func setSkipped(e *entry, inadmissibleMsg string) {
 	e.status = skipped
 	e.inadmissibleMsg = inadmissibleMsg
@@ -241,8 +211,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
-	cycleCohortsUsage := cohortsUsage{}
-	cycleCohortsSkipPreemption := sets.New[string]()
 	preemptedWorkloads := sets.New[string]()
 	skippedPreemptions := make(map[string]int)
 	for i := range entries {
@@ -256,74 +224,47 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
 
-		if features.Enabled(features.MultiplePreemptions) {
-			if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
-				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-				// we use resourcesToReserve to block capacity up to either the nominal capacity,
-				// or the borrowing limit when borrowing, so that a lower priority workload cannot
-				// admit before us.
-				cq.AddUsage(resourcesToReserve(e, cq))
-				continue
-			}
-
-			// We skip multiple-preemptions per cohort if any of the targets are overlapping
-			pendingPreemptions := make([]string, 0, len(e.preemptionTargets))
-			for _, target := range e.preemptionTargets {
-				pendingPreemptions = append(pendingPreemptions, workload.Key(target.WorkloadInfo.Obj))
-			}
-			if preemptedWorkloads.HasAny(pendingPreemptions...) {
-				setSkipped(e, "Workload has overlapping preemption targets with another workload")
-				skippedPreemptions[cq.Name]++
-				continue
-			}
-
-			usage := e.netUsage()
-			if !cq.Fits(usage) {
-				setSkipped(e, "Workload no longer fits after processing another workload")
-				if mode == flavorassigner.Preempt {
-					skippedPreemptions[cq.Name]++
-				}
-				continue
-			}
-			preemptedWorkloads.Insert(pendingPreemptions...)
-			cq.AddUsage(usage)
-		} else if cq.HasParent() {
-			sum := cycleCohortsUsage.totalUsageForCommonFlavorResources(cq.Parent().Name, e.assignment.Usage)
-			// Check whether there was an assignment in this cycle that could render the next assignments invalid:
-			// - If the workload no longer fits in the cohort.
-			// - If there was another assignment in the cohort, then the preemption calculation is no longer valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Parent().Name, e.assignment.Usage) {
-				if mode == flavorassigner.Fit && !cq.FitInCohort(sum) {
-					setSkipped(e, "Workload no longer fits after processing another workload")
-					continue
-				}
-				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Parent().Name) {
-					setSkipped(e, "Workload skipped because its preemption calculations were invalidated by another workload")
-					skippedPreemptions[cq.Name]++
-					continue
-				}
-			}
-			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
-			// we should still account for its usage.
-			cycleCohortsUsage.add(cq.Parent().Name, resourcesToReserve(e, cq))
+		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
+			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
+			// we use resourcesToReserve to block capacity up to either the nominal capacity,
+			// or the borrowing limit when borrowing, so that a lower priority workload cannot
+			// admit before us.
+			cq.AddUsage(resourcesToReserve(e, cq))
+			continue
 		}
-		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			if len(e.preemptionTargets) != 0 {
-				// If preemptions are issued, the next attempt should try all the flavors.
-				e.LastAssignment = nil
-				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
-				if err != nil {
-					log.Error(err, "Failed to preempt workloads")
-				}
-				if preempted != 0 {
-					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-					e.requeueReason = queue.RequeueReasonPendingPreemption
-				}
-				if cq.HasParent() {
-					cycleCohortsSkipPreemption.Insert(cq.Parent().Name)
-				}
-			} else {
-				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
+
+		// We skip multiple-preemptions per cohort if any of the targets are overlapping
+		pendingPreemptions := make([]string, 0, len(e.preemptionTargets))
+		for _, target := range e.preemptionTargets {
+			pendingPreemptions = append(pendingPreemptions, workload.Key(target.WorkloadInfo.Obj))
+		}
+		if preemptedWorkloads.HasAny(pendingPreemptions...) {
+			setSkipped(e, "Workload has overlapping preemption targets with another workload")
+			skippedPreemptions[cq.Name]++
+			continue
+		}
+
+		usage := e.netUsage()
+		if !cq.Fits(usage) {
+			setSkipped(e, "Workload no longer fits after processing another workload")
+			if mode == flavorassigner.Preempt {
+				skippedPreemptions[cq.Name]++
+			}
+			continue
+		}
+		preemptedWorkloads.Insert(pendingPreemptions...)
+		cq.AddUsage(usage)
+
+		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+			// If preemptions are issued, the next attempt should try all the flavors.
+			e.LastAssignment = nil
+			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
+			if err != nil {
+				log.Error(err, "Failed to preempt workloads")
+			}
+			if preempted != 0 {
+				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+				e.requeueReason = queue.RequeueReasonPendingPreemption
 			}
 			continue
 		}
@@ -342,9 +283,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		e.status = nominated
 		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
-		}
-		if cq.HasParent() {
-			cycleCohortsSkipPreemption.Insert(cq.Parent().Name)
 		}
 	}
 

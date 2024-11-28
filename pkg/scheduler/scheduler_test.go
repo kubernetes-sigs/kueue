@@ -68,29 +68,6 @@ var cmpDump = []cmp.Option{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 }
 
-// Indicates under which configuration of the MultiplePreemptions flag the test passes.
-type multiplePreemptionsCompatibility int
-
-func (mode multiplePreemptionsCompatibility) runTest(baseName string, t *testing.T, f func(t *testing.T)) {
-	if mode == Both || mode == Legacy {
-		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)
-		t.Run(baseName+" LegacyMode", f)
-	}
-	if mode == Both || mode == MultiplePremptions {
-		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)
-		t.Run(baseName+" MultiplePreemptionsMode", f)
-	}
-}
-
-const (
-	// Default. Run test with both Legacy and MultiplePreemptions code.
-	Both multiplePreemptionsCompatibility = iota
-	// Run test only with Legacy code.
-	Legacy
-	// Run test only with MultiplePreemptions code.
-	MultiplePremptions
-)
-
 func TestSchedule(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -265,8 +242,6 @@ func TestSchedule(t *testing.T) {
 		disableLendingLimit     bool
 		disablePartialAdmission bool
 		enableFairSharing       bool
-
-		multiplePreemptions multiplePreemptionsCompatibility
 
 		workloads      []kueue.Workload
 		admissionError error
@@ -819,13 +794,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"multiple CQs need preemption": {
-			// legacy mode considers eng-alpha/pending to
-			// be left in queue, rather than inadmissible,
-			// due to legacy overlapping preemption skip
-			// logic. Since we are deleting legacy code in
-			// 0.10, we will disable this test for it,
-			// rather than duplicate it.
-			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -959,137 +927,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"no overadmission while borrowing": {
-			// we disable this test for MultiplePreemption
-			// logic, as the new logic considers this
-			// unschedulable, while the old logic considers
-			// it skipped. Duplicate test for MultiplePreemptions
-			// directly below.
-			multiplePreemptions: Legacy,
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("new", "eng-beta").
-					Queue("main").
-					Creation(now.Add(-2 * time.Second)).
-					PodSets(*utiltesting.MakePodSet("one", 50).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					Obj(),
-				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
-					Queue("main").
-					Creation(now.Add(-time.Second)).
-					PodSets(*utiltesting.MakePodSet("one", 1).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					Obj(),
-				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
-					Queue("main").
-					Creation(now).
-					PodSets(*utiltesting.MakePodSet("one", 50).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					Obj(),
-				*utiltesting.MakeWorkload("existing", "eng-gamma").
-					PodSets(
-						*utiltesting.MakePodSet("borrow-on-demand", 51).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-						*utiltesting.MakePodSet("use-all-spot", 100).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-					).
-					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
-						PodSets(
-							kueue.PodSetAssignment{
-								Name: "borrow-on-demand",
-								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-									corev1.ResourceCPU: "on-demand",
-								},
-								ResourceUsage: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("51"),
-								},
-								Count: ptr.To[int32](51),
-							},
-							kueue.PodSetAssignment{
-								Name: "use-all-spot",
-								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-									corev1.ResourceCPU: "spot",
-								},
-								ResourceUsage: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("100"),
-								},
-								Count: ptr.To[int32](100),
-							},
-						).
-						Obj()).
-					Obj(),
-			},
-			additionalClusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("eng-gamma").
-					Cohort("eng").
-					Preemption(kueue.ClusterQueuePreemption{
-						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-					}).
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("on-demand").
-							Resource(corev1.ResourceCPU, "50", "10").Obj(),
-						*utiltesting.MakeFlavorQuotas("spot").
-							Resource(corev1.ResourceCPU, "0", "100").Obj(),
-					).
-					Obj(),
-			},
-			additionalLocalQueues: []kueue.LocalQueue{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-gamma",
-						Name:      "main",
-					},
-					Spec: kueue.LocalQueueSpec{
-						ClusterQueue: "eng-gamma",
-					},
-				},
-			},
-			wantAssignments: map[string]kueue.Admission{
-				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
-					PodSets(
-						kueue.PodSetAssignment{
-							Name: "borrow-on-demand",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("51"),
-							},
-							Count: ptr.To[int32](51),
-						},
-						kueue.PodSetAssignment{
-							Name: "use-all-spot",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "spot",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("100"),
-							},
-							Count: ptr.To[int32](100),
-						},
-					).Obj(),
-				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
-				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
-			},
-			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
-			wantLeft: map[string][]string{
-				"eng-gamma": {"eng-gamma/new-gamma"},
-			},
-			wantSkippedPreemptions: map[string]int{
-				"eng-alpha": 0,
-				"eng-beta":  0,
-				"eng-gamma": 1,
-			},
-		},
-		"no overadmission while borrowing (duplicated from above)": {
-			// duplicate of test case above, as new logic
-			// considers workload unschedulable, while old
-			// logic considers it skipped.
-			multiplePreemptions: MultiplePremptions,
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -1894,7 +1731,6 @@ func TestSchedule(t *testing.T) {
 			// While requiring the same shared FlavorResource (Default, cpu),
 			// multiple workloads are able to issue preemptions on workloads within
 			// their own CQs in a single scheduling cycle.
-			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -1963,7 +1799,6 @@ func TestSchedule(t *testing.T) {
 			// When one workload is assigned Fit,
 			// and another Preempt, the Fit workload doesn't block
 			// the preempting workload in the same cycle.
-			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -2031,7 +1866,6 @@ func TestSchedule(t *testing.T) {
 			// Evicted workloads: request 4
 			// Preempting workloads: request 6
 			// Cohort has capacity 5
-			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -2112,8 +1946,7 @@ func TestSchedule(t *testing.T) {
 		"multiple preemptions within cq when fair sharing": {
 			// Multiple CQs can preempt within their CQs, with
 			// fair sharing enabled.
-			multiplePreemptions: MultiplePremptions,
-			enableFairSharing:   true,
+			enableFairSharing: true,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -2229,8 +2062,7 @@ func TestSchedule(t *testing.T) {
 			// We ensure only alpha (and not beta) workload is preempted,
 			// as we disallow overlapping preemption targets
 			// in the same cycle
-			multiplePreemptions: MultiplePremptions,
-			enableFairSharing:   true,
+			enableFairSharing: true,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -2359,68 +2191,6 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[string][]string{
 				"sales": {"sales/new"},
-			},
-		},
-		"multiple preemptions blocked when overlapping FlavorResource in cohort": {
-			multiplePreemptions: Legacy,
-			additionalClusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("other-alpha").
-					Cohort("other").
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-					}).
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("default").
-							Resource(corev1.ResourceCPU, "2").Obj(),
-					).
-					Obj(),
-				*utiltesting.MakeClusterQueue("other-beta").
-					Cohort("other").
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-					}).
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("default").
-							Resource(corev1.ResourceCPU, "2").Obj(),
-					).
-					Obj(),
-			},
-			additionalLocalQueues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
-				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a1", "eng-alpha").
-					Priority(0).
-					Queue("other").
-					Request(corev1.ResourceCPU, "2").
-					SimpleReserveQuota("other-alpha", "default", now).
-					Obj(),
-				*utiltesting.MakeWorkload("b1", "eng-beta").
-					Priority(0).
-					Queue("other").
-					Request(corev1.ResourceCPU, "2").
-					SimpleReserveQuota("other-beta", "default", now).
-					Obj(),
-				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
-					Priority(100).
-					Queue("other").
-					Request(corev1.ResourceCPU, "2").
-					Obj(),
-				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
-					Priority(99).
-					Queue("other").
-					Request(corev1.ResourceCPU, "2").
-					Obj(),
-			},
-			wantPreempted: sets.New("eng-alpha/a1"),
-			wantLeft: map[string][]string{
-				"other-alpha": {"eng-alpha/preemptor"},
-				"other-beta":  {"eng-beta/pretending-preemptor"},
-			},
-			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
-				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 			},
 		},
 		"prefer reclamation over cq priority based preemption": {
@@ -2644,7 +2414,6 @@ func TestSchedule(t *testing.T) {
 			// We don't test legacy mode as it classifies
 			// inadmissible/left different, and we will
 			// delete that logic shortly.
-			multiplePreemptions: MultiplePremptions,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("CQ1").
 					Cohort("other").
@@ -2720,7 +2489,7 @@ func TestSchedule(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			metrics.AdmissionCyclePreemptionSkips.Reset()
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
@@ -3529,7 +3298,7 @@ func TestLastSchedulingContext(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		Both.runTest(tc.name, t, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
@@ -3770,7 +3539,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		Both.runTest(tc.name, t, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadResourceRequestsSummary, tc.resourceRequestsSummary)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()

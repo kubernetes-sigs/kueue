@@ -98,6 +98,9 @@ const (
 	// owner: @gabesaba
 	// alpha: v0.8
 	// beta: v0.9
+	// stable: v0.10
+	//
+	// remove in v0.12
 	//
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
@@ -170,7 +173,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueue:                          {Default: true, PreRelease: featuregate.Beta},
 	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
+	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.GA},
 	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
 	ConfigurableResourceTransformations: {Default: true, PreRelease: featuregate.Beta},
 	WorkloadResourceRequestsSummary:     {Default: true, PreRelease: featuregate.Beta},

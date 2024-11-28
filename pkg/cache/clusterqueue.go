@@ -121,19 +121,6 @@ type queue struct {
 	admittedUsage resources.FlavorResourceQuantities
 }
 
-// FitInCohort supports the legacy
-// features.MultiplePreemptions=false path. It doesn't take into
-// account BorrowingLimits. To be cleaned up in v0.10, when we delete
-// the old code.
-func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantities) bool {
-	for fr, value := range q {
-		if available(c, fr, false) < value {
-			return false
-		}
-	}
-	return true
-}
-
 func (c *clusterQueue) Active() bool {
 	return c.Status == active
 }

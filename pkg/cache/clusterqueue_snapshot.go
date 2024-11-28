@@ -102,7 +102,7 @@ func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val in
 // Cohort. When the ClusterQueue/Cohort is in debt, Available
 // will return 0.
 func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	return max(0, available(c, fr, true))
+	return max(0, available(c, fr))
 }
 
 // PotentialAvailable returns the largest workload this ClusterQueue could
