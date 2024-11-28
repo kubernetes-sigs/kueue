@@ -428,6 +428,8 @@ To fully identify the group of pods, the pods need the following:
 - The annotation `kueue.x-k8s.io/pod-group-total-count` to indicate how many pods to expect in
   the group.
 
+Additionally, to index the pod group a user can use an optional label `kueue.x-k8s.io/pod-group-pod-index`, to indicate an index of a Pod within the group
+
 The Pod reconciler would group the pods into similar buckets by only looking at the fields that are
 relevant to admission, scheduling and/or autoscaling.
 This list might need to be updated for Kubernetes versions that add new fields relevant to 

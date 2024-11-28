@@ -409,6 +409,10 @@ func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
 			replicasCount: *jobCount,
 		}
 	}
+	// Check if this is Pod group
+	if jobCount, _ := readIntFromLabel(pod, kueuealpha.PodGroupPodIndexLabel); jobCount != nil {
+		return ptr.To(kueuealpha.PodGroupPodIndexLabel), nil
+	}
 	// Check if this is batch/Job
 	if _, found := pod.Labels[batchv1.JobCompletionIndexAnnotation]; found {
 		return ptr.To(batchv1.JobCompletionIndexAnnotation), nil
