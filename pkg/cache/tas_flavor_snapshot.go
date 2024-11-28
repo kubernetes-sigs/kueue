@@ -214,7 +214,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 	// topology domains at each level
 	currFitDomain = s.updateCountsToMinimum(currFitDomain, count)
 	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
-		lowerFitDomains := s.lowerLevelDomains(levelIdx, currFitDomain)
+		lowerFitDomains := s.lowerLevelDomains(currFitDomain)
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
 	}
@@ -313,7 +313,7 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 	return &assignment
 }
 
-func (s *TASFlavorSnapshot) lowerLevelDomains(levelIdx int, domains []*domain) []*domain {
+func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	result := make([]*domain, 0, len(domains))
 	for _, domain := range domains {
 		result = append(result, domain.children...)
