@@ -130,6 +130,46 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
 		})
 
+		ginkgo.It("should allow to update pod spec", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestSleepImageOld, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(3).
+				Queue(lq.Name).
+				Obj()
+			ginkgo.By("Create a StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			createdStatefulSet := &appsv1.StatefulSet{}
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).
+						To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Update pod spec", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
+					createdStatefulSet.Spec.Template.Spec.Containers[0].Image = util.E2eTestSleepImage
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(createdStatefulSet.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.HaveLen(3))
+				for _, p := range pods.Items {
+					g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
+					g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestSleepImage))
+				}
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("should delete all pods on scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestSleepImage, []string{"10m"}).

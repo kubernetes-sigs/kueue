@@ -41,6 +41,8 @@ if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
 fi
 
 # sleep image to use for testing.
+export E2E_TEST_IMAGE_OLD=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b
+E2E_TEST_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_IMAGE_OLD%%@*}
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea
 E2E_TEST_IMAGE_WITHOUT_SHA=${E2E_TEST_IMAGE%%@*}
 
@@ -64,11 +66,13 @@ function cluster_create {
 }
 
 function prepare_docker_images {
+    docker pull "$E2E_TEST_IMAGE_OLD"
     docker pull "$E2E_TEST_IMAGE"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
+    docker tag $E2E_TEST_IMAGE_OLD "$E2E_TEST_IMAGE_OLD_WITHOUT_SHA"
     docker tag $E2E_TEST_IMAGE "$E2E_TEST_IMAGE_WITHOUT_SHA"
 
     if [[ -n ${JOBSET_VERSION:-} ]]; then
@@ -84,6 +88,7 @@ function prepare_docker_images {
 
 # $1 cluster
 function cluster_kind_load {
+    cluster_kind_load_image "$1" "${E2E_TEST_IMAGE_OLD_WITHOUT_SHA}"
     cluster_kind_load_image "$1" "${E2E_TEST_IMAGE_WITHOUT_SHA}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
 }
