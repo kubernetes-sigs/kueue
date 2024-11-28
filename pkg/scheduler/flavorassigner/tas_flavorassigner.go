@@ -66,7 +66,7 @@ func assignTopology(log logr.Logger,
 		}
 		var reason string
 		psAssignment.TopologyAssignment, reason = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
-			singlePodRequests, podCount)
+			singlePodRequests, podCount, podSet.Template.Spec.Tolerations)
 		if psAssignment.TopologyAssignment == nil {
 			if psAssignment.Status == nil {
 				psAssignment.Status = &Status{}
