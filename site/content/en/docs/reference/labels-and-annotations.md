@@ -120,7 +120,7 @@ The annotation key is used to indicate how many Pods to expect in the group.
 
 Type: Label
 
-Example: ``kueue.x-k8s.io/pod-group-pod-index: "0"`
+Example: `kueue.x-k8s.io/pod-group-pod-index: "0"`
 
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
