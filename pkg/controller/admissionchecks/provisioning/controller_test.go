@@ -252,7 +252,7 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"})
+	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To[int32](3),
@@ -1285,7 +1285,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 		}).
 		Obj()
 
-	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").Parameters(map[string]kueue.Parameter{"p1": "v1"})
+	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseRequest := autoscaling.ProvisioningRequest{
 		ObjectMeta: metav1.ObjectMeta{
