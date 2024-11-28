@@ -79,6 +79,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
+	ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
 
 	return nil
 }

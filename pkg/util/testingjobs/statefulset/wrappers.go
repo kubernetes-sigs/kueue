@@ -139,6 +139,10 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(ena
 	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
 }
 
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation(enabled bool) *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(pod.GroupServingAnnotation, strconv.FormatBool(enabled))
+}
+
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.Containers[0].Image = image
 	ss.Spec.Template.Spec.Containers[0].Args = args

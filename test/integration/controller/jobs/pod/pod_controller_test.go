@@ -1403,6 +1403,108 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
+
+			ginkgo.It("Should ungate pod after Succeeded phase when serving workload is enabled", func() {
+				ginkgo.By("Creating pods with queue name")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					PodGroupServingAnnotation(true).
+					Request(corev1.ResourceCPU, "1").
+					Queue("test-queue").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					PodGroupServingAnnotation(true).
+					Request(corev1.ResourceCPU, "1").
+					Queue("test-queue").
+					Obj()
+
+				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+
+				ginkgo.By("checking that workload is created for the pod group with the queue name")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "4b0469f7",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](2),
+						},
+					).Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
+						[]metav1.Condition{
+							{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue},
+							{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
+						},
+						wlConditionCmpOpts...,
+					))
+				})
+
+				createdPod2 := &corev1.Pod{}
+				ginkgo.By("successfully complete the Pod", func() {
+					gomega.Expect(k8sClient.Delete(ctx, pod2)).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(gomega.Succeed())
+						createdPod2.Status.Phase = corev1.PodSucceeded
+						g.Expect(k8sClient.Status().Update(ctx, createdPod2)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("check the workload doesn't have ReclaimablePods", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Status.ReclaimablePods).Should(gomega.BeEmpty())
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("finalize pod2", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(gomega.Succeed())
+						createdPod2.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, createdPod2)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("check pod2 is finalize", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(testing.BeNotFoundError())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("recreate pod2", func() {
+					pod2 = testingpod.MakePod("test-pod2", ns.Name).
+						Group("test-group").
+						GroupTotalCount("2").
+						Request(corev1.ResourceCPU, "1").
+						Queue("test-queue").
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("check pod2 is ungated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(gomega.Succeed())
+						g.Expect(createdPod2.Spec.SchedulingGates).Should(gomega.BeEmpty())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
 		})
 	})
 })
