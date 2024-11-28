@@ -146,7 +146,9 @@ type PodSetAssignment struct {
 	// domain and specifies the node selectors for each topology domain, in the
 	// following way: the node selector keys are specified by the levels field
 	// (same for all domains), and the corresponding node selector value is
-	// specified by the domains.values subfield.
+	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
+	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
+	// this label, and omit higher levels in the topology
 	//
 	// Example:
 	//
@@ -167,6 +169,17 @@ type PodSetAssignment struct {
 	// - 2 Pods are to be scheduled on nodes matching the node selector:
 	//   cloud.provider.com/topology-block: block-1
 	//   cloud.provider.com/topology-rack: rack-2
+	//
+	// Example:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - kubernetes.io/hostname
+	//   domains:
+	//   - values: [hostname-1]
+	//     count: 4
+	//   - values: [hostname-2]
+	//     count: 2
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`

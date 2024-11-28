@@ -537,37 +537,29 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count: 4,
 			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultThreeLevels,
+				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r3",
 							"x3",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r3",
 							"x4",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r3",
 							"x5",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r3",
 							"x6",
 						},
 					},
@@ -585,37 +577,29 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count: 4,
 			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultThreeLevels,
+				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r1",
 							"x1",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r1",
 							"x2",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r2",
 							"x3",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
-							"r2",
 							"x4",
 						},
 					},
@@ -633,13 +617,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count: 1,
 			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultThreeLevels,
+				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
 					{
 						Count: 1,
 						Values: []string{
-							"b2",
-							"r2",
 							"x6",
 						},
 					},

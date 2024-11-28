@@ -149,21 +149,25 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
 					[]string{
-						topologyLevelBlock,
-						topologyLevelRack,
 						corev1.LabelHostname,
 					},
 				))
-				podCountPerBlock := map[string]int32{}
-				for _, d := range createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains {
-					podCountPerBlock[d.Values[0]] += d.Count
-				}
-				// both pod assignments are in the same block
-				gomega.Expect(podCountPerBlock).Should(gomega.HaveLen(1))
-				// pod assignment count equals job parallelism
-				for _, pd := range podCountPerBlock {
-					gomega.Expect(pd).Should(gomega.Equal(ptr.Deref[int32](sampleJob.Spec.Parallelism, 0)))
-				}
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
+					[]kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"kind-worker"},
+							Count:  1,
+						},
+						{
+							Values: []string{"kind-worker2"},
+							Count:  1,
+						},
+						{
+							Values: []string{"kind-worker3"},
+							Count:  1,
+						},
+					},
+				))
 			})
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -198,21 +202,25 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).Should(gomega.BeComparableTo(
 					[]string{
-						topologyLevelBlock,
-						topologyLevelRack,
 						corev1.LabelHostname,
 					},
 				))
-				podCountPerBlock := map[string]int32{}
-				for _, d := range createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains {
-					podCountPerBlock[d.Values[0]] += d.Count
-				}
-				// both pod assignments are in the same block
-				gomega.Expect(podCountPerBlock).Should(gomega.HaveLen(1))
-				// pod assignment count equals job parallelism
-				for _, pd := range podCountPerBlock {
-					gomega.Expect(pd).Should(gomega.Equal(ptr.Deref[int32](sampleJob.Spec.Parallelism, 0)))
-				}
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).Should(gomega.BeComparableTo(
+					[]kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"kind-worker"},
+							Count:  1,
+						},
+						{
+							Values: []string{"kind-worker2"},
+							Count:  1,
+						},
+						{
+							Values: []string{"kind-worker3"},
+							Count:  1,
+						},
+					},
+				))
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {

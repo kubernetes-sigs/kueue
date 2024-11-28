@@ -1668,7 +1668,9 @@ The assignment specifies the number of Pods to be scheduled per topology
 domain and specifies the node selectors for each topology domain, in the
 following way: the node selector keys are specified by the levels field
 (same for all domains), and the corresponding node selector value is
-specified by the domains.values subfield.</p>
+specified by the domains.values subfield. If the TopologySpec.Levels field contains
+&quot;kubernetes.io/hostname&quot; label, topologyAssignment will contain data only for
+this label, and omit higher levels in the topology</p>
 <p>Example:</p>
 <p>topologyAssignment:
 levels:</p>
@@ -1689,6 +1691,17 @@ cloud.provider.com/topology-rack: rack-1</li>
 <li>2 Pods are to be scheduled on nodes matching the node selector:
 cloud.provider.com/topology-block: block-1
 cloud.provider.com/topology-rack: rack-2</li>
+</ul>
+<p>Example:</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>kubernetes.io/hostname
+domains:</li>
+<li>values: [hostname-1]
+count: 4</li>
+<li>values: [hostname-2]
+count: 2</li>
 </ul>
 </td>
 </tr>
