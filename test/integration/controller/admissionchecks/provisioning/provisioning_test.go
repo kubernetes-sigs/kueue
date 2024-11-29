@@ -52,6 +52,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		flavorOnDemand                     = "on-demand"
 	)
 
+	baseConfig := testing.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
+
+	baseConfigWithParameters := baseConfig.Clone().Parameters(map[string]kueue.Parameter{
+		"p1": "v1",
+		"p2": "v2",
+	})
+
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -84,35 +91,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To[int32](0),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
-			prc2 = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config2",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class2",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1.2",
-						"p2": "v2.2",
-					},
-				},
-			}
+			prc2 = testing.MakeProvisioningRequestConfig("prov-config2").ProvisioningClass("provisioning-class2").Parameters(map[string]kueue.Parameter{
+				"p1": "v1.2",
+				"p2": "v2.2",
+			}).Obj()
+
 			gomega.Expect(k8sClient.Create(ctx, prc2)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -948,21 +934,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To[int32](0),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
+
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -1192,22 +1165,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To[int32](1),
-						BackoffBaseSeconds: ptr.To[int32](1),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(1).BaseBackoff(1).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -1565,18 +1523,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					RetryStrategy: ptr.To(kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To[int32](1),
-						BackoffBaseSeconds: ptr.To[int32](2),
-					}),
-				},
-			}
+			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
