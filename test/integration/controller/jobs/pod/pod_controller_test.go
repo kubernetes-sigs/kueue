@@ -1482,7 +1482,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("check pod2 is finalize", func() {
+				ginkgo.By("await for pod2 to be deleted", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(testing.BeNotFoundError())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
