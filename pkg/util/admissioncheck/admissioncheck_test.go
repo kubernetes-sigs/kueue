@@ -35,8 +35,7 @@ func TestConfigHelper(t *testing.T) {
 	testConfig := utiltesting.MakeProvisioningRequestConfig("config").
 		ProvisioningClass("className").
 		WithParameter("p1", "v1").
-		WithManagedResource("cpu").
-		Obj()
+		WithManagedResource("cpu")
 
 	cases := map[string]struct {
 		admissioncheck       *kueue.AdmissionCheck
