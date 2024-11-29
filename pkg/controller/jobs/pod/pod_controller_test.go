@@ -2640,7 +2640,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"reclaimable pods not updated for serving pod group": {
+		"reclaimablePods field is not updated for a serving pod group": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
