@@ -2016,7 +2016,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 			Queue(localQueue.Name).
 			Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 			Request(corev1.ResourceCPU, "100m").
-			MakeGroup(2)
+			MakeIndexedGroup(2)
 		ginkgo.By("Creating the Pod group", func() {
 			for _, p := range group {
 				gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())

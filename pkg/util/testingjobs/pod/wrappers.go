@@ -84,7 +84,7 @@ func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
 		pod := p.Clone().
 			Group(p.Pod.Name).
 			GroupTotalCount(strconv.Itoa(count)).
-			GroupIndex(strconv.Itoa(count))
+			GroupIndex(strconv.Itoa(i))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod.Obj())
 	}
