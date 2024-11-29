@@ -5,3 +5,20 @@ metadata:
 webhooks:
   - $patch: delete
     name: vpod.kb.io
+  - name: vjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kube-public
+        - openshift
+        - openshift-config
+        - openshift-config-managed
+        - openshift-etcd
+        - openshift-image-registry
+        - openshift-marketplace
+        - openshift-monitoring
+        - openshift-operator-lifecycle-manager
+        - openshift-operators
