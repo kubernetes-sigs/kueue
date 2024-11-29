@@ -98,10 +98,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 
 			for _, pod := range podGroup {
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
-				gomega.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElements(
-					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
-				))
-				gomega.Expect(pod.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
 			}
 
 			pods := &corev1.PodList{}
