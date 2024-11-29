@@ -346,7 +346,6 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		//manager.AddOrUpdateWorkload(w)
 		if err := manager.AddOrUpdateWorkload(w); err != nil {
 			t.Errorf("Failed to add or update workload: %v", err)
 		}
