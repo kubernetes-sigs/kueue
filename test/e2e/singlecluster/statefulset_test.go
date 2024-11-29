@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
 		})
 
-		ginkgo.It("should allow to update pod spec", func() {
+		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestSleepImageOld, []string{"10m"}).
 				Request(corev1.ResourceCPU, "100m").
