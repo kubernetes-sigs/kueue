@@ -346,7 +346,10 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		manager.AddOrUpdateWorkload(w)
+		//manager.AddOrUpdateWorkload(w)
+		if err := manager.AddOrUpdateWorkload(w); err != nil {
+			t.Errorf("Failed to add or update workload: %v", err)
+		}
 	}
 
 	// Update cluster queue of first queue.
@@ -531,7 +534,7 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		manager.AddOrUpdateWorkload(&wl)
+		_ = manager.AddOrUpdateWorkload(&wl)
 	}
 
 	cases := map[string]struct {
@@ -805,7 +808,7 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				manager.AddOrUpdateWorkload(w)
+				_ = manager.AddOrUpdateWorkload(w)
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
@@ -923,7 +926,9 @@ func TestHeads(t *testing.T) {
 
 			go manager.CleanUpOnContext(ctx)
 			for _, wl := range tc.workloads {
-				manager.AddOrUpdateWorkload(wl)
+				if err := manager.AddOrUpdateWorkload(wl); err != nil {
+					t.Errorf("Failed to add or update workload: %v", err)
+				}
 			}
 
 			wlNames := sets.New[string]()
@@ -978,13 +983,15 @@ func TestHeadsAsync(t *testing.T) {
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
 			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				mgr.AddOrUpdateWorkload(&wl)
 				go func() {
-					if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
-						t.Errorf("Failed adding clusterQueue: %v", err)
+					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
 			},
@@ -1023,7 +1030,9 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					mgr.AddOrUpdateWorkload(&wl)
+					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
+					}
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1044,7 +1053,9 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					wlCopy := wl.DeepCopy()
 					wlCopy.ResourceVersion = "old"
-					mgr.UpdateWorkload(wlCopy, &wl)
+					if err := mgr.UpdateWorkload(wlCopy, &wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
+					}
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1224,7 +1235,9 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		manager.AddOrUpdateWorkload(w)
+		if err := manager.AddOrUpdateWorkload(w); err != nil {
+			t.Errorf("Failed to add or update workload: %v", err)
+		}
 	}
 
 	cases := map[string]struct {
