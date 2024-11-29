@@ -409,7 +409,7 @@ func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
 		}
 	}
 	// Check if this is Pod group
-	if jobCount, _ := utilpod.ReadUIntFromLabel(pod, kueuealpha.PodGroupPodIndexLabel); jobCount != nil {
+	if _, found := pod.Labels[kueuealpha.PodGroupPodIndexLabel]; found {
 		return ptr.To(kueuealpha.PodGroupPodIndexLabel), nil
 	}
 	// Check if this is batch/Job
