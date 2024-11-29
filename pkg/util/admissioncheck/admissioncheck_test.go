@@ -22,8 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -34,18 +32,7 @@ import (
 )
 
 func TestConfigHelper(t *testing.T) {
-	testConfig := &kueue.ProvisioningRequestConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "config",
-		},
-		Spec: kueue.ProvisioningRequestConfigSpec{
-			ProvisioningClassName: "className",
-			Parameters: map[string]kueue.Parameter{
-				"p1": "v1",
-			},
-			ManagedResources: []corev1.ResourceName{"cpu"},
-		},
-	}
+	testConfig := utiltesting.MakeProvisioningRequestConfig("config").ProvisioningClass("className").WithParameter("p1", "v1").WithManagedResource("cpu").Obj()
 
 	cases := map[string]struct {
 		admissioncheck       *kueue.AdmissionCheck
