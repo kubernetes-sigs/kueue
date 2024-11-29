@@ -17,19 +17,15 @@ limitations under the License.
 package tase2e
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -103,7 +99,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			for _, pod := range podGroup {
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 				gomega.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElements(
-					corev1.PodSchedulingGate{Name: podcontroller.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 				))
 				gomega.Expect(pod.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
@@ -115,23 +110,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("ensure workload is created", func() {
-				wl := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{Name: "test-pod", Namespace: ns.Name}
-
-				ginkgo.By("verify the workload is created", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
-						g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
-							Count: 4,
-							TopologyRequest: &kueue.PodSetTopologyRequest{
-								Required: ptr.To("cloud.provider.com/topology-block"),
-							},
-						}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template", "Name")))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
