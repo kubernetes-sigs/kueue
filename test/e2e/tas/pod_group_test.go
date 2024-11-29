@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -92,7 +93,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
 				Request(extraResource, "1").
-				Limit(extraResource, "1")
+				Limit(extraResource, "1").
+				Annotation(v1alpha1.PodSetRequiredTopologyAnnotation, "cloud.provider.com/topology-rack")
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {
