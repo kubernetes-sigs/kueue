@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -33,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -48,138 +48,66 @@ func TestFindTopologyAssignment(t *testing.T) {
 	//  |      /  |  \       |         |
 	//  x1    x2  x3  x4     x5       x6
 	defaultNodes := []corev1.Node{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r1-x1",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x1",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r2-x2",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x2",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r2-x3",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x3",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r2-x4",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x4",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r1-x5",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x5",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r2-x6",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x6",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("2"),
-					corev1.ResourceMemory: resource.MustParse("4Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
+		*testingnode.MakeNode("b1-r1-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x2").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x3").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x4").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x5").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x5").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x6").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			}).
+			Ready().
+			Obj(),
 	}
 	defaultOneLevel := []string{
 		corev1.LabelHostname,
@@ -200,182 +128,86 @@ func TestFindTopologyAssignment(t *testing.T) {
 	//     /  \      /   \        /   \    /   \
 	//    x1   x2   x3    x4     x5   x6  x7    x6
 	binaryTreesNodes := []corev1.Node{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r1-x1",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x1",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r1-x2",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x2",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r2-x3",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x3",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b1-r2-x4",
-				Labels: map[string]string{
-					tasBlockLabel:        "b1",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x4",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r1-x5",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x5",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r1-x6",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r1",
-					corev1.LabelHostname: "x6",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r2-x7",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x7",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "b2-r2-x8",
-				Labels: map[string]string{
-					tasBlockLabel:        "b2",
-					tasRackLabel:         "r2",
-					corev1.LabelHostname: "x8",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
+		*testingnode.MakeNode("b1-r1-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r1-x2").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x3").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x4").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x5").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x5").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x6").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x7").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x7").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x8").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x8").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
 	}
 
 	cases := map[string]struct {
@@ -401,132 +233,60 @@ func TestFindTopologyAssignment(t *testing.T) {
 			// x1:2,x2:2,x3:1,x4:1,x5:1,x6:1
 			//
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r1",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r2-x2",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r2",
-							corev1.LabelHostname: "x2",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r3-x3",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r3",
-							corev1.LabelHostname: "x3",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r3-x4",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r3",
-							corev1.LabelHostname: "x4",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r3-x5",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r3",
-							corev1.LabelHostname: "x5",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r3-x6",
-						Labels: map[string]string{
-							tasBlockLabel:        "b1",
-							tasRackLabel:         "r3",
-							corev1.LabelHostname: "x6",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x6").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -925,21 +685,14 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"only nodes with matching labels are considered; no matching node": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							"zone":               "zone-a",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -956,27 +709,15 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"only nodes with matching labels are considered; matching node is found": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							"zone":               "zone-a",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -1003,28 +744,16 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"only nodes with matching levels are considered; no host label on node": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							tasBlockLabel: "b1",
-							tasRackLabel:  "r1",
-							// the node doesn't have the 'kubernetes.io/hostname' required by topology
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					// the node doesn't have the 'kubernetes.io/hostname' required by topology
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -1039,26 +768,14 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"don't consider unscheduled Pods when computing capacity": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-unscheduled", "test-ns").
@@ -1087,26 +804,14 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"don't consider terminal pods when computing the capacity": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-failed", "test-ns").NodeName("x1").
@@ -1141,26 +846,14 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"include usage from pending scheduled non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-pending", "test-ns").NodeName("x1").
@@ -1181,26 +874,14 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"include usage from running non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-running", "test-ns").NodeName("x1").
@@ -1222,46 +903,22 @@ func TestFindTopologyAssignment(t *testing.T) {
 			// there is not enough free capacity on the node x1 as the
 			// assignments lends on the free x2
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x2",
-						Labels: map[string]string{
-							corev1.LabelHostname: "x2",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-pod", "test-ns").NodeName("x1").
@@ -1290,31 +947,19 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"no assignment as node is not ready": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							"zone":               "zone-a",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionFalse,
-							},
-							{
-								Type:   corev1.NodeNetworkUnavailable,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					NotReady().
+					StatusConditions(corev1.NodeCondition{
+						Type:   corev1.NodeNetworkUnavailable,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -1331,36 +976,20 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"skip node which has untolerated taint": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							"zone":               "zone-a",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Spec: corev1.NodeSpec{
-						Taints: []corev1.Taint{
-							{
-								Key:    "example.com/gpu",
-								Value:  "present",
-								Effect: corev1.TaintEffectNoSchedule,
-							},
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Taints(corev1.Taint{
+						Key:    "example.com/gpu",
+						Value:  "present",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					Obj(),
 			},
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -1377,36 +1006,20 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"allow to schedule on node with tolerated taint": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "b1-r1-x1",
-						Labels: map[string]string{
-							"zone":               "zone-a",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Spec: corev1.NodeSpec{
-						Taints: []corev1.Taint{
-							{
-								Key:    "example.com/gpu",
-								Value:  "present",
-								Effect: corev1.TaintEffectNoSchedule,
-							},
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					Taints(corev1.Taint{
+						Key:    "example.com/gpu",
+						Value:  "present",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Obj(),
 			},
 			tolerations: []corev1.Toleration{
 				{
