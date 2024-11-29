@@ -321,22 +321,32 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	return nil
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
-	assignment := kueue.TopologyAssignment{
-		Levels:  s.levelKeys,
-		Domains: make([]kueue.TopologyDomainAssignment, 0),
+// buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
+func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *kueue.TopologyAssignment {
+	assignment := &kueue.TopologyAssignment{
+		Domains: make([]kueue.TopologyDomainAssignment, len(domains)),
 	}
+	assignment.Levels = s.levelKeys[levelIdx:]
+	for i, domain := range domains {
+		assignment.Domains[i] = kueue.TopologyDomainAssignment{
+			Values: domain.levelValues[levelIdx:],
+			Count:  domain.state,
+		}
+	}
+	return assignment
+}
+
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
 	// lex sort domains
 	slices.SortFunc(domains, func(a, b *domain) int {
 		return cmp.Compare(a.id, b.id)
 	})
-	for _, domain := range domains {
-		assignment.Domains = append(assignment.Domains, kueue.TopologyDomainAssignment{
-			Values: domain.levelValues,
-			Count:  domain.state,
-		})
+	levelIdx := 0
+	// assign only hostname values if topology defines it
+	if s.isLowestLevelNode() {
+		levelIdx = len(s.levelKeys) - 1
 	}
-	return &assignment
+	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
