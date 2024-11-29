@@ -341,11 +341,12 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 	slices.SortFunc(domains, func(a, b *domain) int {
 		return cmp.Compare(a.id, b.id)
 	})
+	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode() {
-		return s.buildTopologyAssignmentForLevels(domains, len(s.levelKeys)-1)
+		levelIdx = len(s.levelKeys) - 1
 	}
-	return s.buildTopologyAssignmentForLevels(domains, 0)
+	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {

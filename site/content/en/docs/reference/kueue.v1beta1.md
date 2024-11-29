@@ -1692,7 +1692,11 @@ cloud.provider.com/topology-rack: rack-1</li>
 cloud.provider.com/topology-block: block-1
 cloud.provider.com/topology-rack: rack-2</li>
 </ul>
-<p>Example:</p>
+<p>Example:
+Below there is an equivalent of the above example assuming, Topology
+object defines kubernetes.io/hostname as the lowest level in topology.
+Hence we omit higher level of topologies, since the hostname label
+is sufficient to explicitly identify a proper node.</p>
 <p>topologyAssignment:
 levels:</p>
 <ul>
