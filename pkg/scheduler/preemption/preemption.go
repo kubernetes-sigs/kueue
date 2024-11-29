@@ -513,7 +513,7 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
 		onlyLowerPriority := cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny
-		for _, cohortCQ := range cq.Parent().ChildCQs() {
+		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
 			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
