@@ -190,6 +190,9 @@ func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capac
 }
 
 func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	if s.leaves[domainID] == nil{
+		return
+	}
 	s.initializeFreeCapacityPerDomain(domainID)
 	s.leaves[domainID].freeCapacity.Sub(usage)
 }
