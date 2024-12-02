@@ -23,10 +23,12 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -45,18 +47,22 @@ var (
 )
 
 type JobWebhook struct {
-	manageJobsWithoutQueueName bool
-	queues                     *queue.Manager
-	cache                      *cache.Cache
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector *metav1.LabelSelector
+	queues                       *queue.Manager
+	cache                        *cache.Cache
 }
 
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobWebhook{
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		queues:                     options.Queues,
-		cache:                      options.Cache,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
+		cache:                        options.Cache,
 	}
 	obj := &batchv1.Job{}
 	return webhook.WebhookManagedBy(mgr).
@@ -76,7 +82,9 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
+	if err := jobframework.ApplyDefaultForSuspend(job, w.client, ctx, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 
 	if canDefaultManagedBy(job.Spec.ManagedBy) {
 		localQueueName, found := job.Labels[constants.QueueLabel]

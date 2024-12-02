@@ -305,6 +305,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 	}
+	if features.Enabled(features.ManagedJobsNamespaceSelector) {
+		opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(cfg.ManagedJobsNamespaceSelector))
+	}
+
 	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)

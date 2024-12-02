@@ -19,8 +19,10 @@ package jobframework
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
@@ -28,16 +30,20 @@ import (
 
 // BaseWebhook applies basic defaulting and validation for jobs.
 type BaseWebhook struct {
-	ManageJobsWithoutQueueName bool
-	FromObject                 func(runtime.Object) GenericJob
+	Client                       client.Client
+	ManageJobsWithoutQueueName   bool
+	ManagedJobsNamespaceSelector *metav1.LabelSelector
+	FromObject                   func(runtime.Object) GenericJob
 }
 
 func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
 		wh := &BaseWebhook{
-			ManageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-			FromObject:                 fromObject,
+			Client:                       mgr.GetClient(),
+			ManageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+			FromObject:                   fromObject,
 		}
 		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
@@ -54,8 +60,7 @@ func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
-	ApplyDefaultForSuspend(job, w.ManageJobsWithoutQueueName)
-	return nil
+	return ApplyDefaultForSuspend(job, w.Client, ctx, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector)
 }
 
 var _ admission.CustomValidator = &BaseWebhook{}
