@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -125,6 +124,9 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 	levelValues := utiltas.LevelValues(s.levelKeys, node.Labels)
 	domainID := utiltas.DomainID(levelValues)
+	if s.isLowestLevelNode() {
+		domainID = utiltas.DomainID(levelValues[len(levelValues)-1:])
+	}
 	if _, found := s.leaves[domainID]; !found {
 		leafDomain := leafDomain{
 			domain: domain{
@@ -342,9 +344,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
 	// lex sort domains
-	slices.SortFunc(domains, func(a, b *domain) int {
-		return cmp.Compare(a.id, b.id)
-	})
+	slices.SortFunc(domains, lexSortDomains)
 	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode() {
@@ -367,7 +367,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	slices.SortFunc(result, func(a, b *domain) int {
 		switch {
 		case a.state == b.state:
-			return cmp.Compare(a.id, b.id)
+			return lexSortDomains(a, b)
 		case a.state > b.state:
 			return -1
 		default:
@@ -417,4 +417,30 @@ func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, fitCount, totalCount)
+}
+
+// lexSortDomains return order of two domains ordered by their levelValues
+func lexSortDomains(a, b *domain) int {
+	aLevelValues := a.levelValues
+	bLevelValues := b.levelValues
+	minLen := len(aLevelValues)
+	if len(bLevelValues) < minLen {
+		minLen = len(bLevelValues)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if aLevelValues[i] < bLevelValues[i] {
+			return -1 // a is lexicographically smaller
+		} else if aLevelValues[i] > bLevelValues[i] {
+			return 1 // a is lexicographically greater
+		}
+	}
+
+	// If all compared elements are equal, the shorter array is smaller
+	if len(aLevelValues) < len(bLevelValues) {
+		return -1
+	} else if len(aLevelValues) > len(bLevelValues) {
+		return 1
+	}
+	return 0 // Arrays are lexicographically equal
 }
