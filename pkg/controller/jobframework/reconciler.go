@@ -288,9 +288,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		isStandaloneJob = false
 	}
 
-	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
-	// queue-name or the parent-workload annotation set.
-	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
+	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that either
+	// have a queue-name label or have a kueue-managed parent that has a queue-name label.
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isStandaloneJob {
 			log.V(3).Info("queue-name label is not set, ignoring the job", "queueName", QueueName(job))
@@ -302,7 +301,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if !isParentJobManaged {
-			log.V(3).Info("parent-workload annotation is set, and the parent job doesn't have a queue-name label, ignoring the job",
+			log.V(3).Info("parent job is manageable by kueue but doesn't have a queue-name label, ignoring the job",
 				"parentJob", objectOwner.Name)
 			return ctrl.Result{}, nil
 		}
