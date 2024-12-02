@@ -67,6 +67,8 @@ Please do not remove items from the checklist
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits jobs for the next patch release:
         <!-- example https://github.com/kubernetes/test-infra/pull/33107 -->
+  - [ ] Create the periodic jobs for the next patch release:
+        <!-- example https://github.com/kubernetes/test-infra/pull/33833 -->
 
 
 ## Changelog
