@@ -158,6 +158,12 @@ const (
 	//
 	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
 	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
+
+	// owner: @kpostoffice
+	// alpha: v0.10
+	//
+	// Enabled gathering of LocalQueue metrics
+	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
 )
 
 func init() {
@@ -188,6 +194,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
 	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
 	ManagedJobsNamespaceSelector:        {Default: true, PreRelease: featuregate.Beta},
+	LocalQueueMetrics:                   {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

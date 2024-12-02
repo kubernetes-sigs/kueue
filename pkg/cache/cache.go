@@ -60,7 +60,6 @@ type options struct {
 	workloadInfoOptions []workload.InfoOption
 	podsReadyTracking   bool
 	fairSharingEnabled  bool
-	localQueueMetrics   bool
 }
 
 // Option configures the reconciler.
@@ -94,12 +93,6 @@ func WithFairSharing(enabled bool) Option {
 	}
 }
 
-func WithLocalQueueMetrics(enabled bool) Option {
-	return func(o *options) {
-		o.localQueueMetrics = enabled
-	}
-}
-
 var defaultOptions = options{}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
@@ -114,7 +107,6 @@ type Cache struct {
 	admissionChecks     map[string]AdmissionCheck
 	workloadInfoOptions []workload.InfoOption
 	fairSharingEnabled  bool
-	localQueueMetrics   bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -134,7 +126,6 @@ func New(client client.Client, opts ...Option) *Cache {
 		podsReadyTracking:   options.podsReadyTracking,
 		workloadInfoOptions: options.workloadInfoOptions,
 		fairSharingEnabled:  options.fairSharingEnabled,
-		localQueueMetrics:   options.localQueueMetrics,
 		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
 		tasCache:            NewTASCache(client),
 	}
@@ -156,7 +147,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil, c.localQueueMetrics); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
 
@@ -228,8 +219,8 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// We call update on all ClusterQueues irrespective of which CQ actually use this flavor
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
-		cq.UpdateWithFlavors(c.resourceFlavors, c.localQueueMetrics)
-		cq.updateWithAdmissionChecks(c.admissionChecks, c.localQueueMetrics)
+		cq.UpdateWithFlavors(c.resourceFlavors)
+		cq.updateWithAdmissionChecks(c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
@@ -421,7 +412,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent, c.localQueueMetrics); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -440,7 +431,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if !ok {
 		return
 	}
-	if c.localQueueMetrics {
+	if features.Enabled(features.LocalQueueMetrics) {
 		for _, q := range c.hm.ClusterQueues[cq.Name].localQueues {
 			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
 		}
@@ -528,13 +519,13 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	c.cleanupAssumedState(w)
 
 	if _, exist := clusterQueue.Workloads[workload.Key(w)]; exist {
-		clusterQueue.deleteWorkload(w, c.localQueueMetrics)
+		clusterQueue.deleteWorkload(w)
 	}
 
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return clusterQueue.addWorkload(w, c.localQueueMetrics) == nil
+	return clusterQueue.addWorkload(w) == nil
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
@@ -545,7 +536,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 		if !ok {
 			return errors.New("old ClusterQueue doesn't exist")
 		}
-		cq.deleteWorkload(oldWl, c.localQueueMetrics)
+		cq.deleteWorkload(oldWl)
 	}
 	c.cleanupAssumedState(oldWl)
 
@@ -559,7 +550,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return cq.addWorkload(newWl, c.localQueueMetrics)
+	return cq.addWorkload(newWl)
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
@@ -573,7 +564,7 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 
 	c.cleanupAssumedState(w)
 
-	cq.deleteWorkload(w, c.localQueueMetrics)
+	cq.deleteWorkload(w)
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
@@ -615,7 +606,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 		return ErrCqNotFound
 	}
 
-	if err := cq.addWorkload(w, c.localQueueMetrics); err != nil {
+	if err := cq.addWorkload(w); err != nil {
 		return err
 	}
 	c.assumedWorkloads[k] = string(w.Status.Admission.ClusterQueue)
@@ -639,7 +630,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	if !ok {
 		return ErrCqNotFound
 	}
-	cq.deleteWorkload(w, c.localQueueMetrics)
+	cq.deleteWorkload(w)
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
@@ -805,7 +796,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 		// one, then we should also clean up the assumed one.
 		if workload.HasQuotaReservation(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.hm.ClusterQueues[assumedCQName]; exist {
-				assumedCQ.deleteWorkload(w, c.localQueueMetrics)
+				assumedCQ.deleteWorkload(w)
 			}
 		}
 		delete(c.assumedWorkloads, k)

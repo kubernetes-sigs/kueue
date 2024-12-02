@@ -132,7 +132,7 @@ func main() {
 
 	metrics.Register()
 
-	if cfg.Metrics.EnableLocalQueueMetrics {
+	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.RegisterLQMetrics()
 	}
 
@@ -170,10 +170,6 @@ func main() {
 	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, cache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, queue.WithResourceTransformations(cfg.Resources.Transformations))
-	}
-	if cfg.Metrics.EnableLocalQueueMetrics {
-		cacheOptions = append(cacheOptions, cache.WithLocalQueueMetrics(true))
-		queueOptions = append(queueOptions, queue.WithLocalQueueMetrics(true))
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
@@ -366,7 +362,6 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		mgr.GetEventRecorderFor(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
-		scheduler.WithLocalQueueMetrics(cfg.Metrics.EnableLocalQueueMetrics),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")

@@ -85,7 +85,7 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 			}
 
 			cq.Status = tc.curStatus
-			cq.UpdateWithFlavors(tc.flavors, false)
+			cq.UpdateWithFlavors(tc.flavors)
 
 			if cq.Status != tc.wantStatus {
 				t.Fatalf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
@@ -608,7 +608,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					cq.flavorIndependentAdmissionCheckAppliedPerFlavor = []string{"not-on-flavor"}
 				}
 			}
-			cq.updateWithAdmissionChecks(tc.admissionChecks, false)
+			cq.updateWithAdmissionChecks(tc.admissionChecks)
 
 			if cq.Status != tc.wantStatus {
 				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)

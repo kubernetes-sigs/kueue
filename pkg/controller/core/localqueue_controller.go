@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -58,12 +59,11 @@ const (
 
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client                   client.Client
-	log                      logr.Logger
-	queues                   *queue.Manager
-	cache                    *cache.Cache
-	wlUpdateCh               chan event.GenericEvent
-	localQueueMetricsEnabled bool
+	client     client.Client
+	log        logr.Logger
+	queues     *queue.Manager
+	cache      *cache.Cache
+	wlUpdateCh chan event.GenericEvent
 }
 
 type LocalQueueReconcilerOptions struct {
@@ -73,12 +73,6 @@ type LocalQueueReconcilerOptions struct {
 type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
 
 var defaultLQOptions = LocalQueueReconcilerOptions{}
-
-func LqControllerWithLocalQueueMetricsEnabled(enabled bool) LocalQueueReconcilerOption {
-	return func(o *LocalQueueReconcilerOptions) {
-		o.LocalQueueMetricsEnabled = enabled
-	}
-}
 
 func NewLocalQueueReconciler(
 	client client.Client,
@@ -91,12 +85,11 @@ func NewLocalQueueReconciler(
 		opt(&options)
 	}
 	return &LocalQueueReconciler{
-		log:                      ctrl.Log.WithName("localqueue-reconciler"),
-		queues:                   queues,
-		cache:                    cache,
-		client:                   client,
-		wlUpdateCh:               make(chan event.GenericEvent, updateChBuffer),
-		localQueueMetricsEnabled: options.LocalQueueMetricsEnabled,
+		log:        ctrl.Log.WithName("localqueue-reconciler"),
+		queues:     queues,
+		cache:      cache,
+		client:     client,
+		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 
@@ -169,7 +162,7 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	if r.localQueueMetricsEnabled {
+	if features.Enabled(features.LocalQueueMetrics) {
 		recordLocalQueueUsageMetrics(q)
 	}
 
@@ -183,7 +176,7 @@ func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
 		return true
 	}
 
-	if r.localQueueMetricsEnabled {
+	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(q))
 	}
 
@@ -227,7 +220,7 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	r.queues.DeleteLocalQueue(oldLq)
-	if r.localQueueMetricsEnabled {
+	if features.Enabled(features.LocalQueueMetrics) {
 		updateLocalQueueResourceMetrics(newLq)
 	}
 
