@@ -422,21 +422,24 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeScheduler)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Required:      ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeServer)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Required:      ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasRackLabel),
+							Preferred:     ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

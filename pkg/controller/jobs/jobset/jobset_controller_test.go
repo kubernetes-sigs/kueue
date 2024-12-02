@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
@@ -245,10 +246,14 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
 					{
-						Name:            jobSet.Spec.ReplicatedJobs[0].Name,
-						Template:        *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:           2,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
+						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
+						Count:    2,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
+							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
+							SubGroupCount:      ptr.To[int32](2),
+						},
 					},
 					{
 						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
@@ -281,10 +286,14 @@ func TestPodSets(t *testing.T) {
 						Count:    2,
 					},
 					{
-						Name:            jobSet.Spec.ReplicatedJobs[1].Name,
-						Template:        *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:           6,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
+						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
+						Count:    6,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
+							SubGroupCount:      ptr.To[int32](3),
+						},
 					},
 				}
 			},

@@ -2270,7 +2270,8 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 					Name:  "main",
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required:      ptr.To(tasBlockLabel),
+						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

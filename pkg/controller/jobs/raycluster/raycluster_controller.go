@@ -107,7 +107,7 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 		Name:            headGroupPodSetName,
 		Template:        *j.Spec.HeadGroupSpec.Template.DeepCopy(),
 		Count:           1,
-		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.HeadGroupSpec.Template.ObjectMeta),
+		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.HeadGroupSpec.Template.ObjectMeta, nil, nil, nil),
 	}
 
 	// workers
@@ -124,7 +124,7 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 			Name:            strings.ToLower(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
-			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
 		}
 	}
 	return podSets

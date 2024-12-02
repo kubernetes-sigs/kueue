@@ -122,7 +122,7 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 			Name:            strings.ToLower(string(mpiReplicaType)),
 			Template:        *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
 			Count:           podsCount(&j.Spec, mpiReplicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta, nil, nil, nil),
 		}
 	}
 	return podSets

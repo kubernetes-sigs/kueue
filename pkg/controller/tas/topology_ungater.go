@@ -24,8 +24,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -38,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -57,11 +54,6 @@ import (
 const (
 	ungateBatchPeriod = time.Second
 )
-
-type replicatedJobsInfo struct {
-	replicasCount int
-	jobIndexLabel string
-}
 
 var (
 	errPendingUngateOps = errors.New("pending ungate operations")
@@ -178,6 +170,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, nil
 	}
 
+	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
@@ -186,7 +179,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
-			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods)
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name])
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
@@ -304,8 +297,9 @@ func podsToUngateInfo(
 func assignGatedPodsToDomains(
 	log logr.Logger,
 	psa *kueue.PodSetAssignment,
-	pods []*corev1.Pod) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods); ok {
+	pods []*corev1.Pod,
+	psReq *kueue.PodSetTopologyRequest) []podWithDomain {
+	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq); ok {
 		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
@@ -381,70 +375,39 @@ func assignGatedPodsToDomainsGreedy(
 
 func readRanksIfAvailable(log logr.Logger,
 	psa *kueue.PodSetAssignment,
-	pods []*corev1.Pod) (map[int]*corev1.Pod, bool) {
-	if len(pods) == 0 {
-		// If there are no pods then we are done. We do this special check to
-		// ensure we have at least one pod as the code below determines if
-		// rank-ordering is enabled based on the first Pod.
+	pods []*corev1.Pod,
+	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, bool) {
+	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	if podIndexLabel, rjInfo := determineRanksLookup(pods[0]); podIndexLabel != nil {
-		result, err := readRanksForLabels(psa, pods, *podIndexLabel, rjInfo)
-		if err != nil {
-			log.Error(err, "failed to read rank information from Pods")
-			return nil, false
-		}
-		return result, true
+	result, err := readRanksForLabels(psa, pods, psReq)
+	if err != nil {
+		log.Error(err, "failed to read rank information from Pods")
+		return nil, false
 	}
-	// couldn't determine the labels to lookup the Pod ranks
-	return nil, false
-}
-
-func determineRanksLookup(pod *corev1.Pod) (*string, *replicatedJobsInfo) {
-	// Check if this is JobSet
-	if jobCount, _ := utilpod.ReadUIntFromLabel(pod, jobset.ReplicatedJobReplicas); jobCount != nil {
-		return ptr.To(batchv1.JobCompletionIndexAnnotation), &replicatedJobsInfo{
-			jobIndexLabel: jobset.JobIndexKey,
-			replicasCount: *jobCount,
-		}
-	}
-	// Check if this is Pod group
-	if _, found := pod.Labels[kueuealpha.PodGroupPodIndexLabel]; found {
-		return ptr.To(kueuealpha.PodGroupPodIndexLabel), nil
-	}
-	// Check if this is batch/Job
-	if _, found := pod.Labels[batchv1.JobCompletionIndexAnnotation]; found {
-		return ptr.To(batchv1.JobCompletionIndexAnnotation), nil
-	}
-	// Check if this is kubeflow
-	if _, found := pod.Labels[kftraining.ReplicaIndexLabel]; found {
-		return ptr.To(kftraining.ReplicaIndexLabel), nil
-	}
-	return nil, nil
+	return result, true
 }
 
 func readRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
-	podIndexLabel string,
-	rjInfo *replicatedJobsInfo,
-) (map[int]*corev1.Pod, error) {
+	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, error) {
 	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize
-	if rjInfo != nil {
-		singleJobSize = podSetSize / rjInfo.replicasCount
+	if psReq.SubGroupIndexLabel != nil {
+		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
 	}
 
 	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, podIndexLabel, singleJobSize)
+		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, singleJobSize)
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
 		}
 		rank := *podIndex
-		if rjInfo != nil {
-			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, rjInfo.jobIndexLabel, rjInfo.replicasCount)
+		if psReq.SubGroupIndexLabel != nil {
+			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
 			if err != nil {
 				// the Pod has no Job index information - ranks cannot be used
 				return nil, err

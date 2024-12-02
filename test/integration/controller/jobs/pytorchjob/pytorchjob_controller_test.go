@@ -726,14 +726,16 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasRackLabel),
+							Required:      ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasBlockLabel),
+							Preferred:     ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

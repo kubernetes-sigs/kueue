@@ -8196,6 +8196,14 @@ spec:
                       description: topologyRequest defines the topology request for
                         the PodSet.
                       properties:
+                        podIndexLabel:
+                          description: |-
+                            PodIndexLabel indicates the name of the label indexing the pods.
+                            For example, in the context of
+                            - kubernetes job this is: kubernetes.io/job-completion-index
+                            - JobSet: kubernetes.io/job-completion-index (inherited from Job)
+                            - Kubeflow: training.kubeflow.org/replica-index
+                          type: string
                         preferred:
                           description: |-
                             preferred indicates the topology level preferred by the PodSet, as
@@ -8207,6 +8215,17 @@ spec:
                             required indicates the topology level required by the PodSet, as
                             indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
                             annotation.
+                          type: string
+                        subGroupCount:
+                          description: |-
+                            SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+                            For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+                          format: int32
+                          type: integer
+                        subGroupIndexLabel:
+                          description: |-
+                            SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+                            within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
                           type: string
                       type: object
                   required:

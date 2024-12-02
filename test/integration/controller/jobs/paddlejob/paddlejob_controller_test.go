@@ -423,14 +423,16 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasRackLabel),
+							Required:      ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasBlockLabel),
+							Preferred:     ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

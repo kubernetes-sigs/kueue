@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1256,14 +1257,20 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 						Name:  "rj1",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Required:           ptr.To(tasBlockLabel),
+							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
+							SubGroupCount:      ptr.To[int32](1),
 						},
 					},
 					{
 						Name:  "rj2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasRackLabel),
+							Preferred:          ptr.To(tasRackLabel),
+							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
+							SubGroupCount:      ptr.To[int32](1),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

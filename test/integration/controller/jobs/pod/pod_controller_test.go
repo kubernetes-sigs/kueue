@@ -1987,7 +1987,8 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 					Name:  "main",
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required:      ptr.To(tasBlockLabel),
+						PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2038,7 +2039,8 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 					Name:  "5949e52e",
 					Count: 2,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required:      ptr.To(tasBlockLabel),
+						PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

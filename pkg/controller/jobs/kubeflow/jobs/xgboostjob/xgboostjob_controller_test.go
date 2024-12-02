@@ -284,16 +284,18 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
 					{
-						Name:            strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template:        job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
+						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 					{
-						Name:            strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template:        job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
+						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 				}
 			},

@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -184,7 +185,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 		gate(&pod.pod)
 
-		if features.Enabled(features.TopologyAwareScheduling) && jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta) != nil {
+		if features.Enabled(features.TopologyAwareScheduling) && jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil) != nil {
 			pod.pod.Labels[kueuealpha.TASLabel] = "true"
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
