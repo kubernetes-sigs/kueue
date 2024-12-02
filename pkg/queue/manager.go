@@ -47,7 +47,6 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
-	localQueueMetrics           bool
 }
 
 // Option configures the manager.
@@ -195,9 +194,11 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	// If any workload becomes admissible or the queue becomes active.
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
-		for _, q := range m.localQueues {
-			if features.Enabled(features.LocalQueueMetrics) && q.ClusterQueue == cq.Name {
-				m.reportLQPendingWorkloads(q)
+		if features.Enabled(features.LocalQueueMetrics) {
+			for _, q := range m.localQueues {
+				if q.ClusterQueue == cq.Name {
+					m.reportLQPendingWorkloads(q)
+				}
 			}
 		}
 		m.Broadcast()

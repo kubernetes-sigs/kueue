@@ -149,9 +149,6 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
-
-	// +optional
-	EnableLocalQueueMetrics bool `json:"enableLocalQueueMetrics,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

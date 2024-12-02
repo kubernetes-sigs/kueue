@@ -66,24 +66,11 @@ type LocalQueueReconciler struct {
 	wlUpdateCh chan event.GenericEvent
 }
 
-type LocalQueueReconcilerOptions struct {
-	LocalQueueMetricsEnabled bool
-}
-
-type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
-
-var defaultLQOptions = LocalQueueReconcilerOptions{}
-
 func NewLocalQueueReconciler(
 	client client.Client,
 	queues *queue.Manager,
 	cache *cache.Cache,
-	opts ...LocalQueueReconcilerOption,
 ) *LocalQueueReconciler {
-	options := defaultLQOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
 	return &LocalQueueReconciler{
 		log:        ctrl.Log.WithName("localqueue-reconciler"),
 		queues:     queues,
