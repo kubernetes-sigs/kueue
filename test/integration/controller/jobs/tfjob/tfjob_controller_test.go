@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -342,28 +343,16 @@ var _ = ginkgo.Describe("TFJob controller when TopologyAwareScheduling enabled",
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		nodes = []corev1.Node{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "b1r1",
-					Labels: map[string]string{
-						nodeGroupLabel: "tas",
-						tasBlockLabel:  "b1",
-						tasRackLabel:   "r1",
-					},
-				},
-				Status: corev1.NodeStatus{
-					Allocatable: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("1"),
-						corev1.ResourceMemory: resource.MustParse("1Gi"),
-					},
-					Conditions: []corev1.NodeCondition{
-						{
-							Type:   corev1.NodeReady,
-							Status: corev1.ConditionTrue,
-						},
-					},
-				},
-			},
+			*testingnode.MakeNode("b1r1").
+				Label(nodeGroupLabel, "tas").
+				Label(tasBlockLabel, "b1").
+				Label(tasRackLabel, "r1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				}).
+				Ready().
+				Obj(),
 		}
 		for _, node := range nodes {
 			gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())

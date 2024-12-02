@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -3804,27 +3805,15 @@ func TestScheduleForTAS(t *testing.T) {
 		tasRackLabel = "cloud.provider.com/rack"
 	)
 	defaultSingleNode := []corev1.Node{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "x1",
-				Labels: map[string]string{
-					"tas-node":           "true",
-					corev1.LabelHostname: "x1",
-				},
-			},
-			Status: corev1.NodeStatus{
-				Allocatable: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Conditions: []corev1.NodeCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		},
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}).
+			Ready().
+			Obj(),
 	}
 	defaultSingleLevelTopology := kueuealpha.Topology{
 		ObjectMeta: metav1.ObjectMeta{
@@ -4159,26 +4148,14 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload requests topology level which is only present in second flavor": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							"tas-node":               "true",
-							"cloud.com/custom-level": "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label("cloud.com/custom-level", "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
 			},
 			topologies: []kueuealpha.Topology{defaultSingleLevelTopology,
 				{
@@ -4513,48 +4490,24 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload with multiple PodSets requesting the same TAS flavor; multiple levels": {
 			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							"tas-node":           "true",
-							tasRackLabel:         "r1",
-							corev1.LabelHostname: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "y1",
-						Labels: map[string]string{
-							"tas-node":           "true",
-							tasRackLabel:         "r1",
-							corev1.LabelHostname: "y1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Conditions: []corev1.NodeCondition{
-							{
-								Type:   corev1.NodeReady,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("3"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("y1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "y1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("3"),
+					}).
+					Ready().
+					Obj(),
 			},
 			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
