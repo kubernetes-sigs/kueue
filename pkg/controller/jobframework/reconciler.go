@@ -301,7 +301,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if !isParentJobManaged {
-			log.V(3).Info("parent job is manageable by kueue but doesn't have a queue-name label, ignoring the job",
+			log.V(3).Info("parent job is managed by kueue but doesn't have a queue-name label, ignoring the job",
 				"parentJob", objectOwner.Name)
 			return ctrl.Result{}, nil
 		}
