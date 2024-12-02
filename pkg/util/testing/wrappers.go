@@ -1275,3 +1275,93 @@ func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 
 	return c
 }
+
+// ProvisioningRequestConfigWrapper wraps a ProvisioningRequestConfig
+type ProvisioningRequestConfigWrapper struct {
+	kueue.ProvisioningRequestConfig
+}
+
+// MakeProvisioningRequestConfig creates a wrapper for a ProvisioningRequestConfig.
+func MakeProvisioningRequestConfig(name string) *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{kueue.ProvisioningRequestConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
+
+func (prc *ProvisioningRequestConfigWrapper) ProvisioningClass(pc string) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ProvisioningClassName = pc
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.Parameters == nil {
+		prc.Spec.Parameters = make(map[string]kueue.Parameter, len(parameters))
+	}
+
+	for key, value := range parameters {
+		prc.Spec.Parameters[key] = value
+	}
+
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) WithParameter(key string, value kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.Parameters == nil {
+		prc.Spec.Parameters = make(map[string]kueue.Parameter, 1)
+	}
+
+	prc.Spec.Parameters[key] = value
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = r
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) WithManagedResource(managedResource corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = append(prc.Spec.ManagedResources, managedResource)
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.ProvisioningRequestRetryStrategy) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy = retryStrategy
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffBaseSeconds = &backoffBaseSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) MaxBackoff(backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffMaxSeconds = &backoffMaxSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffLimitCount = &backoffLimitCount
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{ProvisioningRequestConfig: *prc.DeepCopy()}
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
+	return &prc.ProvisioningRequestConfig
+}
