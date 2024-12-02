@@ -36,7 +36,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-jobset-",
+				GenerateName: "e2e-tas-pod-group-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
