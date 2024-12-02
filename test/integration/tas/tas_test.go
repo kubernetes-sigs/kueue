@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -219,94 +220,46 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.BeforeEach(func() {
 				nodes = []corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "b1-r1",
-							Labels: map[string]string{
-								"node-group":  "tas",
-								tasBlockLabel: "b1",
-								tasRackLabel:  "r1",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "b1-r2",
-							Labels: map[string]string{
-								"node-group":  "tas",
-								tasBlockLabel: "b1",
-								tasRackLabel:  "r2",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "b2-r1",
-							Labels: map[string]string{
-								"node-group":  "tas",
-								tasBlockLabel: "b2",
-								tasRackLabel:  "r1",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "b2-r2",
-							Labels: map[string]string{
-								"node-group":  "tas",
-								tasBlockLabel: "b2",
-								tasRackLabel:  "r2",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
+					*testingnode.MakeNode("b1-r1").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b1").
+						Label(tasRackLabel, "r1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("b1-r2").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b1").
+						Label(tasRackLabel, "r2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("b2-r1").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b2").
+						Label(tasRackLabel, "r1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("b2-r2").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b2").
+						Label(tasRackLabel, "r2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
 				}
 				for _, node := range nodes {
 					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
@@ -633,28 +586,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("Create nodes to allow scheduling", func() {
 					nodes = []corev1.Node{
-						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "b1-r1",
-								Labels: map[string]string{
-									"node-group":  "tas",
-									tasBlockLabel: "b1",
-									tasRackLabel:  "r1",
-								},
-							},
-							Status: corev1.NodeStatus{
-								Allocatable: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
-								},
-								Conditions: []corev1.NodeCondition{
-									{
-										Type:   corev1.NodeReady,
-										Status: corev1.ConditionTrue,
-									},
-								},
-							},
-						},
+						*testingnode.MakeNode("b1-r1").
+							Label("node-group", "tas").
+							Label(tasBlockLabel, "b1").
+							Label(tasRackLabel, "r1").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							}).
+							Ready().
+							Obj(),
 					}
 					for _, node := range nodes {
 						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
@@ -724,38 +665,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("creating a tainted node which will prevent admitting the workload", func() {
 					nodes = []corev1.Node{
-						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "b1-r1-x1",
-								Labels: map[string]string{
-									"node-group":         "tas",
-									tasBlockLabel:        "b1",
-									tasRackLabel:         "r1",
-									corev1.LabelHostname: "b1-r1-x1",
-								},
-							},
-							Spec: corev1.NodeSpec{
-								Taints: []corev1.Taint{
-									{
-										Key:    "maintenance",
-										Value:  "true",
-										Effect: corev1.TaintEffectNoSchedule,
-									},
-								},
-							},
-							Status: corev1.NodeStatus{
-								Allocatable: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
-								},
-								Conditions: []corev1.NodeCondition{
-									{
-										Type:   corev1.NodeReady,
-										Status: corev1.ConditionTrue,
-									},
-								},
-							},
-						},
+						*testingnode.MakeNode("b1-r1-x1").
+							Label("node-group", "tas").
+							Label(tasBlockLabel, "b1").
+							Label(tasRackLabel, "r1").
+							Label(corev1.LabelHostname, "b1-r1-x1").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							}).
+							Taints(corev1.Taint{
+								Key:    "maintenance",
+								Value:  "true",
+								Effect: corev1.TaintEffectNoSchedule,
+							}).
+							Ready().
+							Obj(),
 					}
 					for _, node := range nodes {
 						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
@@ -811,46 +736,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.BeforeEach(func() {
 				nodes = []corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "cpu-node",
-							Labels: map[string]string{
-								"node.kubernetes.io/instance-type": "cpu-node",
-								tasRackLabel:                       "cpu-rack",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("5"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "gpu-node",
-							Labels: map[string]string{
-								"node.kubernetes.io/instance-type": "gpu-node",
-								tasRackLabel:                       "gpu-rack",
-							},
-						},
-						Status: corev1.NodeStatus{
-							Allocatable: corev1.ResourceList{
-								gpuResName: resource.MustParse("4"),
-							},
-							Conditions: []corev1.NodeCondition{
-								{
-									Type:   corev1.NodeReady,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					},
+					*testingnode.MakeNode("cpu-node").
+						Label("node.kubernetes.io/instance-type", "cpu-node").
+						Label(tasRackLabel, "cpu-rack").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("5"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("gpu-node").
+						Label("node.kubernetes.io/instance-type", "gpu-node").
+						Label(tasRackLabel, "gpu-rack").
+						StatusAllocatable(corev1.ResourceList{
+							gpuResName: resource.MustParse("4"),
+						}).
+						Ready().
+						Obj(),
 				}
 				for _, node := range nodes {
 					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
