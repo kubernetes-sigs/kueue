@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ApplyDefaultForSuspend(job GenericJob, k8sClient client.Client, ctx context.Context,
+func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector *metav1.LabelSelector) error {
 
 	// Do not default suspend a job whose owner is already managed by Kueue

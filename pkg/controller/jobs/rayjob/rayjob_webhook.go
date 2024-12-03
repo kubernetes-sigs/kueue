@@ -70,7 +70,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
-	return jobframework.ApplyDefaultForSuspend((*RayJob)(job), w.client, ctx, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	return jobframework.ApplyDefaultForSuspend(ctx, (*RayJob)(job), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 }
 
 // +kubebuilder:webhook:path=/validate-ray-io-v1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1,name=vrayjob.kb.io,admissionReviewVersions=v1

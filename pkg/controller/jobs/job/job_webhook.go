@@ -82,7 +82,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := jobframework.ApplyDefaultForSuspend(job, w.client, ctx, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 

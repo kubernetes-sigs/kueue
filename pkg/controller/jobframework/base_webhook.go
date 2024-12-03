@@ -60,7 +60,7 @@ func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
-	return ApplyDefaultForSuspend(job, w.Client, ctx, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector)
+	return ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector)
 }
 
 var _ admission.CustomValidator = &BaseWebhook{}
