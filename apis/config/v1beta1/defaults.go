@@ -179,6 +179,20 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
 	}
 
+	if cfg.ManagedJobsNamespaceSelector == nil {
+		matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
+
+		cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   matchExpressionsValues,
+				},
+			},
+		}
+	}
+
 	if cfg.MultiKueue == nil {
 		cfg.MultiKueue = &MultiKueue{}
 	}
