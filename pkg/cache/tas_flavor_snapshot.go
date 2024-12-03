@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -343,8 +344,10 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 }
 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
-	// lex sort domains
-	slices.SortFunc(domains, lexSortDomains)
+	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
+	slices.SortFunc(domains, func(a, b *domain) int {
+		return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
+	})
 	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode() {
@@ -367,7 +370,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	slices.SortFunc(result, func(a, b *domain) int {
 		switch {
 		case a.state == b.state:
-			return lexSortDomains(a, b)
+			return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
 		case a.state > b.state:
 			return -1
 		default:
@@ -417,30 +420,4 @@ func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, fitCount, totalCount)
-}
-
-// lexSortDomains return order of two domains ordered by their levelValues
-func lexSortDomains(a, b *domain) int {
-	aLevelValues := a.levelValues
-	bLevelValues := b.levelValues
-	minLen := len(aLevelValues)
-	if len(bLevelValues) < minLen {
-		minLen = len(bLevelValues)
-	}
-
-	for i := 0; i < minLen; i++ {
-		if aLevelValues[i] < bLevelValues[i] {
-			return -1 // a is lexicographically smaller
-		} else if aLevelValues[i] > bLevelValues[i] {
-			return 1 // a is lexicographically greater
-		}
-	}
-
-	// If all compared elements are equal, the shorter array is smaller
-	if len(aLevelValues) < len(bLevelValues) {
-		return -1
-	} else if len(aLevelValues) > len(bLevelValues) {
-		return 1
-	}
-	return 0 // Arrays are lexicographically equal
 }
