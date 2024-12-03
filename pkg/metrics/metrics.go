@@ -117,7 +117,7 @@ The label 'result' can have the following values:
 'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
-		}, []string{"local_queue", "namespace", "status"},
+		}, []string{"name", "namespace", "status"},
 	)
 
 	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
@@ -133,7 +133,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_quota_reserved_workloads_total",
 			Help:      "The total number of quota reserved workloads per 'local_queue'",
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	quotaReservedWaitTime = prometheus.NewHistogramVec(
@@ -151,7 +151,7 @@ The label 'result' can have the following values:
 			Name:      "local_queue_quota_reserved_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until it got quota reservation, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -167,7 +167,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'local_queue'",
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	admissionWaitTime = prometheus.NewHistogramVec(
@@ -185,7 +185,7 @@ The label 'result' can have the following values:
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	admissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -203,7 +203,7 @@ The label 'result' can have the following values:
 			Name:      "local_queue_admission_checks_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
@@ -231,7 +231,7 @@ The label 'reason' can have the following values:
 - "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "Deactivated" means that the workload was evicted because spec.active is set to false`,
-		}, []string{"local_queue", "namespace", "reason"},
+		}, []string{"name", "namespace", "reason"},
 	)
 
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
@@ -262,7 +262,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_reserving_active_workloads",
 			Help:      "The number of Workloads that are reserving quota, per 'localQueue'",
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
@@ -278,7 +278,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'localQueue'",
-		}, []string{"local_queue", "namespace"},
+		}, []string{"name", "namespace"},
 	)
 
 	ClusterQueueByStatus = prometheus.NewGaugeVec(
@@ -293,10 +293,10 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 	LocalQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "localQueue_status",
+			Name:      "local_queue_status",
 			Help: `Reports 'localQueue' with its 'status' (with possible values 'active' or 'inactive').
 For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`,
-		}, []string{"local_queue", "namespace", "active"},
+		}, []string{"name", "namespace", "active"},
 	)
 
 	// Optional cluster queue metrics
@@ -320,17 +320,17 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 	LocalQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "localQueue_resource_reservation",
+			Name:      "local_queue_resource_reservation",
 			Help:      `Reports the localQueue's total resource reservation within all the flavors`,
-		}, []string{"local_queue", "namespace", "flavor", "resource"},
+		}, []string{"name", "namespace", "flavor", "resource"},
 	)
 
 	LocalQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "localQueue_resource_usage",
+			Name:      "local_queue_resource_usage",
 			Help:      `Reports the localQueue's total resource usage within all the flavors`,
-		}, []string{"local_queue", "namespace", "flavor", "resource"},
+		}, []string{"name", "namespace", "flavor", "resource"},
 	)
 
 	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
@@ -467,7 +467,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(lq.Name, lq.Namespace)
 	localQueueAdmissionWaitTime.DeleteLabelValues(lq.Name, lq.Namespace)
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(lq.Name, lq.Namespace)
-	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"local_queue": lq.Name, "namespace": lq.Namespace})
+	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": lq.Name, "namespace": lq.Namespace})
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -553,8 +553,8 @@ func ClearClusterQueueResourceMetrics(cqName string) {
 
 func ClearLocalQueueResourceMetrics(lq LocalQueueReference) {
 	lbls := prometheus.Labels{
-		"local_queue": lq.Name,
-		"namespace":   lq.Namespace,
+		"name":      lq.Name,
+		"namespace": lq.Namespace,
 	}
 	LocalQueueResourceReservations.DeletePartialMatch(lbls)
 	LocalQueueResourceUsage.DeletePartialMatch(lbls)
