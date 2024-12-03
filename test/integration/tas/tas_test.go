@@ -80,6 +80,54 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			tasFlavor := testing.MakeResourceFlavor("tas-flavor").TopologyName("default").Obj()
 			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.HaveOccurred())
 		})
+
+		ginkgo.FIt("should not allow to update ResourceFlavorSpec", func() {
+			tasFlavor := testing.MakeResourceFlavor("tas-flavor").
+				TopologyName("default").
+				NodeLabel("node-group", "tas").
+				NodeLabel("foo", "bar").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+
+			ginkgo.By("Updating topologyName", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.TopologyName = ptr.To(kueue.TopologyReference("invalid"))
+				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Updating nodeTaints", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.NodeTaints = []corev1.Taint{{
+					Key:    "foo",
+					Value:  "bar",
+					Effect: "Invalid",
+				}}
+				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Updating tolerations", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.Tolerations = []corev1.Toleration{
+					{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpEqual}}
+				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Updating nodeLabels", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.NodeLabels = map[string]string{
+					"tas-node": "true",
+				}
+				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Deleting one of the nodeLabels", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.NodeLabels = map[string]string{
+					"foo": "bar",
+				}
+				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+		})
 	})
 
 	ginkgo.When("Negative scenarios for ClusterQueue configuration", func() {

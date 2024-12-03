@@ -42,6 +42,8 @@ type TopologyReference string
 
 // ResourceFlavorSpec defines the desired state of the ResourceFlavor
 // +kubebuilder:validation:XValidation:rule="!has(self.topologyName) || self.nodeLabels.size() >= 1", message="at least one nodeLabel is required when topology is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || (self.tolerations.all(x, oldSelf.tolerations.indexOf(x) != -1) && oldSelf.tolerations.all(y, self.tolerations.indexOf(y) != -1))", message="tolerations are immutable when topologyName is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || (self.nodeTaints.all(x, oldSelf.nodeTaints.indexOf(x) != -1) && oldSelf.nodeTaints.all(y, self.nodeTaints.indexOf(y) != -1))", message="nodeTaints are immutable when topologyName is set"
 type ResourceFlavorSpec struct {
 	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
 	// have the same labels.
@@ -56,6 +58,7 @@ type ResourceFlavorSpec struct {
 	// +optional
 	// +mapType=atomic
 	// +kubebuilder:validation:MaxProperties=8
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || self == oldSelf", message="nodeLabels are immutable when topologyName is set"
 	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
 
 	// nodeTaints are taints that the nodes associated with this ResourceFlavor
@@ -97,6 +100,7 @@ type ResourceFlavorSpec struct {
 	// nodes matching to the Resource Flavor node labels.
 	//
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="topologyName is immutable"
 	TopologyName *TopologyReference `json:"topologyName,omitempty"`
 }
 
