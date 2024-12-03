@@ -1,0 +1,6 @@
+frontend/node_modules/
+frontend/package-lock.json
+frontend/build
+frontend/yarn.lock
+backend-go/bin/
+
