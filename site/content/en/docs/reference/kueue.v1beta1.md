@@ -1780,6 +1780,35 @@ indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
 annotation.</p>
 </td>
 </tr>
+<tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>PodIndexLabel indicates the name of the label indexing the pods.
+For example, in the context of</p>
+<ul>
+<li>kubernetes job this is: kubernetes.io/job-completion-index</li>
+<li>JobSet: kubernetes.io/job-completion-index (inherited from Job)</li>
+<li>Kubeflow: training.kubeflow.org/replica-index</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>subGroupIndexLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.</p>
+</td>
+</tr>
+<tr><td><code>subGroupCount</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

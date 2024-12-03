@@ -370,8 +370,9 @@ func TestPodSets(t *testing.T) {
 					Template: jobTemplate.Clone().
 						PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 						Spec.Template,
-					Count:           3,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					Count: 3,
+					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
+						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation)},
 				},
 			},
 		},
@@ -387,8 +388,9 @@ func TestPodSets(t *testing.T) {
 				Template: jobTemplate.Clone().
 					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 					Spec.Template,
-				Count:           3,
-				TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+				Count: 3,
+				TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+					PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation)},
 			}},
 		},
 	}

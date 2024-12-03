@@ -1008,14 +1008,16 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Required:      ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasRackLabel),
+							Preferred:     ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

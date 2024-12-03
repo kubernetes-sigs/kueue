@@ -360,6 +360,12 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
+func PodSetNameToTopologyRequest(wl *kueue.Workload) map[string]*kueue.PodSetTopologyRequest {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, *kueue.PodSetTopologyRequest) {
+		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].TopologyRequest
+	})
+}
+
 func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil

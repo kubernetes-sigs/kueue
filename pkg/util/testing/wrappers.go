@@ -412,6 +412,30 @@ func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) PodIndexLabel(label *string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.PodIndexLabel = label
+	return p
+}
+
+func (p *PodSetWrapper) SubGroupIndexLabel(label *string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.SubGroupIndexLabel = label
+	return p
+}
+
+func (p *PodSetWrapper) SubGroupCount(count *int32) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.SubGroupCount = count
+	return p
+}
+
 func (p *PodSetWrapper) Obj() *kueue.PodSet {
 	return &p.PodSet
 }

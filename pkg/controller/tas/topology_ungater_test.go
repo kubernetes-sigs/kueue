@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -877,7 +878,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: ungate pods according to their ranks for batch/Job - some Pods already scheduled": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
@@ -1012,7 +1016,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: ungate pods according to their ranks for batch/Job - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
@@ -1332,7 +1339,12 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for JobSet - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](2)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1468,7 +1480,12 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for JobSet - some Pods already scheduled": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](2)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1606,7 +1623,12 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for JobSet - only subset of pods is observed so far": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](2)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1701,7 +1723,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for kubeflow - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1827,7 +1852,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for kubeflow - some Pods already scheduled": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -1955,7 +1983,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for pod groups - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
@@ -2075,7 +2106,10 @@ func TestReconcile(t *testing.T) {
 		"ranks: support rank-based ordering for pod groups - some Pods already scheduled": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").

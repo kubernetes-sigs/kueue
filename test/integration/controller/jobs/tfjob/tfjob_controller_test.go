@@ -434,21 +434,24 @@ var _ = ginkgo.Describe("TFJob controller when TopologyAwareScheduling enabled",
 						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasRackLabel),
+							Required:      ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasRackLabel),
+							Required:      ptr.To(tasRackLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasBlockLabel),
+							Preferred:     ptr.To(tasBlockLabel),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

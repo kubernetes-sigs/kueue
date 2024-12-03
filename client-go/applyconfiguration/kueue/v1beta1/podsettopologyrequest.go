@@ -20,8 +20,11 @@ package v1beta1
 // PodSetTopologyRequestApplyConfiguration represents a declarative configuration of the PodSetTopologyRequest type for use
 // with apply.
 type PodSetTopologyRequestApplyConfiguration struct {
-	Required  *string `json:"required,omitempty"`
-	Preferred *string `json:"preferred,omitempty"`
+	Required           *string `json:"required,omitempty"`
+	Preferred          *string `json:"preferred,omitempty"`
+	PodIndexLabel      *string `json:"podIndexLabel,omitempty"`
+	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
+	SubGroupCount      *int32  `json:"subGroupCount,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with
@@ -43,5 +46,29 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithRequired(value string) *Po
 // If called multiple times, the Preferred field is set to the value of the last call.
 func (b *PodSetTopologyRequestApplyConfiguration) WithPreferred(value string) *PodSetTopologyRequestApplyConfiguration {
 	b.Preferred = &value
+	return b
+}
+
+// WithPodIndexLabel sets the PodIndexLabel field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodIndexLabel field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodIndexLabel(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.PodIndexLabel = &value
+	return b
+}
+
+// WithSubGroupIndexLabel sets the SubGroupIndexLabel field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SubGroupIndexLabel field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupIndexLabel(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.SubGroupIndexLabel = &value
+	return b
+}
+
+// WithSubGroupCount sets the SubGroupCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SubGroupCount field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupCount(value int32) *PodSetTopologyRequestApplyConfiguration {
+	b.SubGroupCount = &value
 	return b
 }

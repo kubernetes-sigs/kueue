@@ -18,24 +18,27 @@ package jobframework
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func PodSetTopologyRequest(meta *metav1.ObjectMeta) *kueue.PodSetTopologyRequest {
+func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
-	if requiredFound {
-		return &kueue.PodSetTopologyRequest{
-			Required: ptr.To(requiredValue),
-		}
-	}
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
-	if preferredFound {
-		return &kueue.PodSetTopologyRequest{
-			Preferred: ptr.To(preferredValue),
+
+	if requiredFound || preferredFound {
+		psTopologyReq := &kueue.PodSetTopologyRequest{
+			PodIndexLabel:      podIndexLabel,
+			SubGroupIndexLabel: subGroupIndexLabel,
+			SubGroupCount:      subGroupCount,
 		}
+		if requiredFound {
+			psTopologyReq.Required = &requiredValue
+		} else {
+			psTopologyReq.Preferred = &preferredValue
+		}
+		return psTopologyReq
 	}
 	return nil
 }

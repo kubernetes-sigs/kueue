@@ -245,7 +245,9 @@ func TestPodSets(t *testing.T) {
 							"cloud.com/block",
 						).
 						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Required:      ptr.To("cloud.com/block"),
+						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 				{
 					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
@@ -263,7 +265,9 @@ func TestPodSets(t *testing.T) {
 							"cloud.com/block",
 						).
 						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Required:      ptr.To("cloud.com/block"),
+						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 			},
 		},
@@ -298,7 +302,9 @@ func TestPodSets(t *testing.T) {
 							"cloud.com/block",
 						).
 						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:     ptr.To("cloud.com/block"),
+						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 				{
 					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
@@ -316,7 +322,9 @@ func TestPodSets(t *testing.T) {
 							"cloud.com/block",
 						).
 						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:     ptr.To("cloud.com/block"),
+						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 			},
 		},
