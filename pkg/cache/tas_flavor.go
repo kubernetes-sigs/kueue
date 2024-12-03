@@ -63,16 +63,22 @@ type TASFlavorCache struct {
 	// by the flavor corresponding to the cache.
 	Levels []string
 
+	// tolerations represents the list of tolerations specified for the resource
+	// flavor
+	Tolerations []corev1.Toleration
+
 	// usage maintains the usage per topology domain
 	usage map[utiltas.TopologyDomainID]resources.Requests
 }
 
-func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, levels []string, nodeLabels map[string]string) *TASFlavorCache {
+func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, levels []string, nodeLabels map[string]string,
+	tolerations []corev1.Toleration) *TASFlavorCache {
 	return &TASFlavorCache{
 		client:       t.client,
 		TopologyName: topologyName,
 		Levels:       slices.Clone(levels),
 		NodeLabels:   maps.Clone(nodeLabels),
+		Tolerations:  slices.Clone(tolerations),
 		usage:        make(map[utiltas.TopologyDomainID]resources.Requests),
 	}
 }
@@ -111,7 +117,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
 		"levels", c.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.TopologyName, c.Levels)
+	snapshot := newTASFlavorSnapshot(log, c.TopologyName, c.Levels, c.Tolerations)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)

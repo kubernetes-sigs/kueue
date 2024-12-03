@@ -102,9 +102,13 @@ type TASFlavorSnapshot struct {
 
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
+
+	// Tolerations represents the list of tolerations defined for the resource flavor
+	Tolerations []corev1.Toleration
 }
 
-func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference, levels []string) *TASFlavorSnapshot {
+func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
+	levels []string, tolerations []corev1.Toleration) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -115,6 +119,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		topologyName:    topologyName,
 		levelKeys:       slices.Clone(levels),
 		leaves:          make(leafDomainByID),
+		Tolerations:     slices.Clone(tolerations),
 		domains:         make(domainByID),
 		roots:           make(domainByID),
 		domainsPerLevel: domainsPerLevel,

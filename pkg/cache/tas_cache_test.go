@@ -1051,7 +1051,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
-			tasFlavorCache := tasCache.NewTASFlavorCache("default", tc.levels, tc.nodeLabels)
+			tasFlavorCache := tasCache.NewTASFlavorCache("default", tc.levels, tc.nodeLabels, tc.tolerations)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
