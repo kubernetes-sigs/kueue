@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -576,8 +575,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
 					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&node), &node)).Should(gomega.Succeed())
-
-					ginkgo.By(fmt.Sprintf("node %q, taints : %v", node.Name, node.Spec.Taints))
 				}
 
 				topology = testing.MakeTopology("default").Levels([]string{
@@ -617,7 +614,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.It("should not admit workload which does not fit to the required topology domain", func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := testing.MakeWorkload("wl1-inadmissible", ns.Name).
-						PodSets(*testing.MakePodSet("worker", 1).
+						PodSets(*testing.MakePodSet("worker", 4).
 							PreferredTopologyRequest(tasRackLabel).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
@@ -629,9 +626,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload which fits in a required topology domain", func() {
+			ginkgo.It("should admit workload which fits", func() {
 				var wl1, wl2 *kueue.Workload
-				ginkgo.By("creating a workload which requires block and can fit", func() {
+				ginkgo.By("creating a workload which can fit", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						PodSets(*testing.MakePodSet("worker", 1).
 							PreferredTopologyRequest(tasBlockLabel).
@@ -649,14 +646,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				})
 
-				ginkgo.By("delete the admitted workload", func() {
-					gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
-				})
-
-				ginkgo.By("creating second a workload which requires block and can fit", func() {
-					wl2 = testing.MakeWorkload("wl1", ns.Name).
-						PodSets(*testing.MakePodSet("worker-2", 1).
+				ginkgo.By("creating second a workload which cannot fit", func() {
+					wl2 = testing.MakeWorkload("wl2", ns.Name).
+						PodSets(*testing.MakePodSet("worker-2", 4).
 							PreferredTopologyRequest(tasBlockLabel).
 							Toleration(corev1.Toleration{
 								Key:      "node.kubernetes.io/not-ready",
@@ -667,8 +659,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("verify the workload is admitted", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				ginkgo.By("verify the wl2 has not been admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				})
 			})
