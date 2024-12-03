@@ -93,10 +93,10 @@ const (
 func TestSchedule(t *testing.T) {
 	now := time.Now()
 	resourceFlavors := []*kueue.ResourceFlavor{
-		{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "model-a"}},
+		utiltesting.MakeResourceFlavor("default").Obj(),
+		utiltesting.MakeResourceFlavor("on-demand").Obj(),
+		utiltesting.MakeResourceFlavor("spot").Obj(),
+		utiltesting.MakeResourceFlavor("model-a").Obj(),
 	}
 	clusterQueues := []kueue.ClusterQueue{
 		*utiltesting.MakeClusterQueue("sales").
@@ -3136,8 +3136,8 @@ func TestEntryOrdering(t *testing.T) {
 
 func TestLastSchedulingContext(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
-		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		utiltesting.MakeResourceFlavor("on-demand").Obj(),
+		utiltesting.MakeResourceFlavor("spot").Obj(),
 	}
 	clusterQueue := []kueue.ClusterQueue{
 		*utiltesting.MakeClusterQueue("eng-alpha").
@@ -3782,10 +3782,10 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 func TestResourcesToReserve(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
-		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "model-a"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "model-b"}},
+		utiltesting.MakeResourceFlavor("on-demand").Obj(),
+		utiltesting.MakeResourceFlavor("spot").Obj(),
+		utiltesting.MakeResourceFlavor("model-a").Obj(),
+		utiltesting.MakeResourceFlavor("model-b").Obj(),
 	}
 	cq := utiltesting.MakeClusterQueue("cq").
 		Cohort("eng").
@@ -4004,61 +4004,21 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
-	defaultSingleLevelTopology := kueuealpha.Topology{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tas-single-level",
-		},
-		Spec: kueuealpha.TopologySpec{
-			Levels: []kueuealpha.TopologyLevel{
-				{
-					NodeLabel: tasHostLabel,
-				},
-			},
-		},
-	}
-	defaultTwoLevelTopology := kueuealpha.Topology{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tas-two-level",
-		},
-		Spec: kueuealpha.TopologySpec{
-			Levels: []kueuealpha.TopologyLevel{
-				{
-					NodeLabel: tasRackLabel,
-				},
-				{
-					NodeLabel: tasHostLabel,
-				},
-			},
-		},
-	}
-	defaultFlavor := kueue.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
-		},
-		Spec: kueue.ResourceFlavorSpec{},
-	}
-	defaultTASFlavor := kueue.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tas-default",
-		},
-		Spec: kueue.ResourceFlavorSpec{
-			NodeLabels: map[string]string{
-				"tas-node": "true",
-			},
-			TopologyName: ptr.To[kueue.TopologyReference]("tas-single-level"),
-		},
-	}
-	defaultTASTwoLevelFlavor := kueue.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tas-default",
-		},
-		Spec: kueue.ResourceFlavorSpec{
-			NodeLabels: map[string]string{
-				"tas-node": "true",
-			},
-			TopologyName: ptr.To[kueue.TopologyReference]("tas-two-level"),
-		},
-	}
+	defaultSingleLevelTopology := *utiltesting.MakeTopology("tas-single-level").
+		Levels([]string{corev1.LabelHostname}).
+		Obj()
+	defaultTwoLevelTopology := *utiltesting.MakeTopology("tas-two-level").
+		Levels([]string{tasRackLabel, corev1.LabelHostname}).
+		Obj()
+	defaultFlavor := *utiltesting.MakeResourceFlavor("default").Obj()
+	defaultTASFlavor := *utiltesting.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
+	defaultTASTwoLevelFlavor := *utiltesting.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-two-level").
+		Obj()
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
 		ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
 			Resource(corev1.ResourceCPU, "50").
@@ -4359,31 +4319,15 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 			topologies: []kueuealpha.Topology{defaultSingleLevelTopology,
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "tas-custom-topology",
-					},
-					Spec: kueuealpha.TopologySpec{
-						Levels: []kueuealpha.TopologyLevel{
-							{
-								NodeLabel: "cloud.com/custom-level",
-							},
-						},
-					},
-				},
+				*utiltesting.MakeTopology("tas-custom-topology").
+					Levels([]string{"cloud.com/custom-level"}).
+					Obj(),
 			},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "tas-custom-flavor",
-					},
-					Spec: kueue.ResourceFlavorSpec{
-						NodeLabels: map[string]string{
-							"tas-node": "true",
-						},
-						TopologyName: ptr.To[kueue.TopologyReference]("tas-custom-topology"),
-					},
-				},
+				*utiltesting.MakeResourceFlavor("tas-custom-flavor").
+					NodeLabel("tas-node", "true").
+					TopologyName("tas-custom-topology").
+					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
