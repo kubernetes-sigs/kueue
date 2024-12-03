@@ -56,6 +56,19 @@ func TestAssignFlavors(t *testing.T) {
 				Value:  "spot",
 				Effect: corev1.TaintEffectNoSchedule,
 			}).Obj(),
+		"taint_and_toleration": utiltesting.MakeResourceFlavor("taint_and_toleration").
+			Taint(corev1.Taint{
+				Key:    "instance",
+				Value:  "spot",
+				Effect: corev1.TaintEffectNoSchedule,
+			}).
+			Toleration(corev1.Toleration{
+				Key:      "instance",
+				Operator: corev1.TolerationOpEqual,
+				Value:    "spot",
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+			Obj(),
 	}
 
 	cases := map[string]struct {
@@ -139,6 +152,34 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: resources.FlavorResourceQuantities{
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 1_000,
+				},
+			},
+		},
+		"single flavor, fits tainted flavor with toleration": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("taint_and_toleration").
+						Resource(corev1.ResourceCPU, "4").
+						FlavorQuotas,
+				).ClusterQueue,
+
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "taint_and_toleration", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+				Usage: resources.FlavorResourceQuantities{
+					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: 1_000,
 				},
 			},
 		},
