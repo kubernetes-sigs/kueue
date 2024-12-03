@@ -294,7 +294,7 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_status",
-			Help: `Reports 'localQueue' with its 'status' (with possible values 'active' or 'inactive').
+			Help: `Reports 'localQueue' with its 'active' status (with possible values 'True', 'False', or 'Unknown').
 For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`,
 		}, []string{"name", "namespace", "active"},
 	)
