@@ -24,20 +24,20 @@ import (
 )
 
 func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
-	psTopologyReq := &kueue.PodSetTopologyRequest{
-		PodIndexLabel:      podIndexLabel,
-		SubGroupIndexLabel: subGroupIndexLabel,
-		SubGroupCount:      subGroupCount,
-	}
-
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
-	if requiredFound {
-		psTopologyReq.Required = &requiredValue
-		return psTopologyReq
-	}
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
-	if preferredFound {
-		psTopologyReq.Preferred = &preferredValue
+
+	if requiredFound || preferredFound {
+		psTopologyReq := &kueue.PodSetTopologyRequest{
+			PodIndexLabel:      podIndexLabel,
+			SubGroupIndexLabel: subGroupIndexLabel,
+			SubGroupCount:      subGroupCount,
+		}
+		if requiredFound {
+			psTopologyReq.Required = &requiredValue
+		} else {
+			psTopologyReq.Preferred = &preferredValue
+		}
 		return psTopologyReq
 	}
 	return nil
