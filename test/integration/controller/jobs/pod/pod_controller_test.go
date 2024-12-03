@@ -66,25 +66,28 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
 			).Obj()
-
+		nsSelector := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		}
+		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(
 				false,
 				false,
 				nil,
 				jobframework.WithManageJobsWithoutQueueName(false),
+				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "kubernetes.io/metadata.name",
-								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{"kube-system", "kueue-system"},
-							},
-						},
-					},
+					PodSelector:       &metav1.LabelSelector{},
+					NamespaceSelector: nsSelector,
 				}),
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 			))
@@ -1520,22 +1523,26 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.BeforeAll(func() {
 		configuration := configapi.Configuration{Resources: &configapi.Resources{ExcludeResourcePrefixes: []string{"networking.example.com/"}}}
+		nsSelector := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		}
+		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		fwk.StartManager(ctx, cfg, managerSetup(
 			false,
 			true,
 			&configuration,
 			jobframework.WithManageJobsWithoutQueueName(false),
+			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-				PodSelector: &metav1.LabelSelector{},
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
+				PodSelector:       &metav1.LabelSelector{},
+				NamespaceSelector: nsSelector,
 			}),
 		))
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
@@ -1777,21 +1784,25 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				BackoffBaseSeconds: ptr.To[int32](1),
 			},
 		}
+		nsSelector := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		}
+		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		fwk.StartManager(ctx, cfg, managerSetup(
 			false,
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-				PodSelector: &metav1.LabelSelector{},
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
+				PodSelector:       &metav1.LabelSelector{},
+				NamespaceSelector: nsSelector,
 			}),
 		))
 	})
@@ -1972,20 +1983,23 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
 	)
-
+	nsSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "kubernetes.io/metadata.name",
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"kube-system", "kueue-system"},
+			},
+		},
+	}
+	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
+			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-				PodSelector: &metav1.LabelSelector{},
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
+				PodSelector:       &metav1.LabelSelector{},
+				NamespaceSelector: nsSelector,
 			}),
 		))
 	})
