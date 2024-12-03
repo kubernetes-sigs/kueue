@@ -227,13 +227,11 @@ func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue) {
 			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
 		}
 	}
-
 	for _, flavor := range queue.Status.FlavorsReservation {
 		for _, r := range flavor.Resources {
 			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
 		}
 	}
-
 }
 
 func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue) {
@@ -383,6 +381,12 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			Message:            msg,
 			ObservedGeneration: queue.Generation,
 		})
+		if features.Enabled(features.LocalQueueMetrics) {
+			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
+				Name:      queue.Name,
+				Namespace: queue.Namespace,
+			}, conditionStatus)
+		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
 		return r.client.Status().Update(ctx, queue)
