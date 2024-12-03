@@ -312,7 +312,7 @@ func TestDefault(t *testing.T) {
 	for _, managedJobsFeatureGate := range []bool{false, true} {
 		for name, tc := range testCases {
 			if managedJobsFeatureGate {
-				name = name + " managedJobsNamespaceSelector"
+				name += " managedJobsNamespaceSelector"
 			}
 			t.Run(name, func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
