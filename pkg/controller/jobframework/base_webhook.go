@@ -19,7 +19,7 @@ package jobframework
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,7 +32,7 @@ import (
 type BaseWebhook struct {
 	Client                       client.Client
 	ManageJobsWithoutQueueName   bool
-	ManagedJobsNamespaceSelector *metav1.LabelSelector
+	ManagedJobsNamespaceSelector labels.Selector
 	FromObject                   func(runtime.Object) GenericJob
 }
 

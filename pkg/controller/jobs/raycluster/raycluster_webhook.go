@@ -18,7 +18,7 @@ import (
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -39,7 +39,7 @@ var (
 type RayClusterWebhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector *metav1.LabelSelector
+	managedJobsNamespaceSelector labels.Selector
 }
 
 // SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.

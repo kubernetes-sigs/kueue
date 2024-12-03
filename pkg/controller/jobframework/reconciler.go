@@ -79,7 +79,7 @@ type JobReconciler struct {
 	client                       client.Client
 	record                       record.EventRecorder
 	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector *metav1.LabelSelector
+	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
 	labelKeysToCopy              []string
 	clock                        clock.Clock
@@ -87,7 +87,7 @@ type JobReconciler struct {
 
 type Options struct {
 	ManageJobsWithoutQueueName   bool
-	ManagedJobsNamespaceSelector *metav1.LabelSelector
+	ManagedJobsNamespaceSelector labels.Selector
 	WaitForPodsReady             bool
 	KubeServerVersion            *kubeversion.ServerVersionFetcher
 	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
@@ -120,7 +120,7 @@ func WithManageJobsWithoutQueueName(f bool) Option {
 }
 
 // WithManagedJobsNamespaceSelector is used for namespace-based filtering of ManagedJobsWithoutQueueName
-func WithManagedJobsNamespaceSelector(ls *metav1.LabelSelector) Option {
+func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
 	return func(o *Options) {
 		o.ManagedJobsNamespaceSelector = ls
 	}
@@ -339,20 +339,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
-	// are still not managed if they don't match the provided namespace selector.
-	if r.manageJobsWithoutQueueName && r.managedJobsNamespaceSelector != nil && QueueName(job) == "" {
+	// are still not managed if they don't match the namespace selector.
+	if features.Enabled(features.ManagedJobsNamespaceSelector) && r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		ns := corev1.Namespace{}
 		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
 		if err != nil {
 			log.Error(err, "failed to get job namespace")
 			return ctrl.Result{}, err
 		}
-		nsSelector, err := metav1.LabelSelectorAsSelector(r.managedJobsNamespaceSelector)
-		if err != nil {
-			log.Error(err, "failed to get parse namespace selector")
-			return ctrl.Result{}, err
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			log.V(3).Info("namespace selector does not match, ignoring the job", "namespace", ns.Name)
 			return ctrl.Result{}, nil
 		}

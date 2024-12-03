@@ -309,30 +309,41 @@ func TestDefault(t *testing.T) {
 		},
 	}
 
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
-			builder := utiltesting.NewClientBuilder()
-			builder = builder.WithObjects(tc.initObjects...)
-			cli := builder.Build()
-
-			w := &PodWebhook{
-				client:                     cli,
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				namespaceSelector:          tc.namespaceSelector,
-				podSelector:                tc.podSelector,
+	for _, managedJobsFeatureGate := range []bool{false, true} {
+		for name, tc := range testCases {
+			if managedJobsFeatureGate {
+				name = name + " managedJobsNamespaceSelector"
 			}
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+				features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, managedJobsFeatureGate)
+				t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+				builder := utiltesting.NewClientBuilder()
+				builder = builder.WithObjects(tc.initObjects...)
+				cli := builder.Build()
+				mjls, err := metav1.LabelSelectorAsSelector(tc.namespaceSelector)
+				if err != nil {
+					t.Errorf("failed to parse namespace selector")
+				}
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+				w := &PodWebhook{
+					client:                       cli,
+					manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+					managedJobsNamespaceSelector: mjls,
+					namespaceSelector:            tc.namespaceSelector,
+					podSelector:                  tc.podSelector,
+				}
 
-			if err := w.Default(ctx, tc.pod); err != nil {
-				t.Errorf("failed to set defaults for v1/pod: %s", err)
-			}
-			if diff := cmp.Diff(tc.want, tc.pod); len(diff) != 0 {
-				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
-			}
-		})
+				ctx, _ := utiltesting.ContextWithLog(t)
+
+				if err := w.Default(ctx, tc.pod); err != nil {
+					t.Errorf("failed to set defaults for v1/pod: %s", err)
+				}
+				if diff := cmp.Diff(tc.want, tc.pod); len(diff) != 0 {
+					t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 

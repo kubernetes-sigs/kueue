@@ -21,7 +21,7 @@ import (
 	"sort"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -46,7 +46,7 @@ var (
 type MpiJobWebhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector *metav1.LabelSelector
+	managedJobsNamespaceSelector labels.Selector
 	kubeServerVersion            *kubeversion.ServerVersionFetcher
 	queues                       *queue.Manager
 	cache                        *cache.Cache

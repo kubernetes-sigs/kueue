@@ -24,28 +24,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector *metav1.LabelSelector) error {
-
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
 	// Do not default suspend a job whose owner is already managed by Kueue
 	if owner := metav1.GetControllerOf(job.Object()); owner != nil && IsOwnerManagedByKueue(owner) {
 		return nil
 	}
 
 	// Do not default suspend a job without a queue name unless the namespace selector also matches
-	if QueueName(job) == "" && manageJobsWithoutQueueName && managedJobsNamespaceSelector != nil {
+	if features.Enabled(features.ManagedJobsNamespaceSelector) && manageJobsWithoutQueueName && QueueName(job) == "" {
 		ns := corev1.Namespace{}
 		err := k8sClient.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
 		if err != nil {
 			return fmt.Errorf("failed to get namespace: %w", err)
 		}
-		nsSelector, err := metav1.LabelSelectorAsSelector(managedJobsNamespaceSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse namespace selector: %w", err)
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+		if !managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			return nil
 		}
 	}

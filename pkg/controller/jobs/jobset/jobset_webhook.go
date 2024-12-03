@@ -19,7 +19,7 @@ package jobset
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -44,7 +44,7 @@ var (
 type JobSetWebhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector *metav1.LabelSelector
+	managedJobsNamespaceSelector labels.Selector
 	queues                       *queue.Manager
 	cache                        *cache.Cache
 }
