@@ -38,7 +38,6 @@ if [[ "$#" == 0 ]]; then
       -path ./_\*      -o \
       -path ./.git\*   -o \
       -path ./vendor\* -o \
-      -path ./cmd/experimental/kjobctl\* -o \
       \( -path ./third_party\* -a -not -path ./third_party/forked\* \) \
     \))
 fi
