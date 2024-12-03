@@ -220,7 +220,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 			},
 			label:   "label",
 			max:     math.MaxInt,
-			wantErr: errLabelNotFound,
+			wantErr: ErrLabelNotFound,
 		},
 		"valid label value": {
 			obj: &corev1.Pod{
@@ -245,7 +245,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: errInvalidUInt,
+			wantErr: ErrInvalidUInt,
 		},
 		"less than zero": {
 			obj: &corev1.Pod{
@@ -257,9 +257,9 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			wantErr: errInvalidUInt,
+			wantErr: ErrInvalidUInt,
 		},
-		"greater than max": {
+		"equal to bound": {
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
 				ObjectMeta: metav1.ObjectMeta{
@@ -269,8 +269,8 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			max:     1000,
-			wantErr: errValidation,
+			max:     1001,
+			wantErr: ErrValidation,
 		},
 	}
 
