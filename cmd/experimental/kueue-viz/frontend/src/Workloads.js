@@ -29,7 +29,7 @@ const Workloads = () => {
       {/* Display a table with workload details */}
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>Workloads</Typography>
       {workloads.length === 0 ? (
-        <CircularProgress />
+        <Typography>No Workloads found.</Typography>
       ) : (
         <TableContainer component={Paper}>
           <Table>

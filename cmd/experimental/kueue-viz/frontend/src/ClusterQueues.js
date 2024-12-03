@@ -20,7 +20,7 @@ const ClusterQueues = () => {
     <Paper style={{ padding: '16px', marginTop: '20px' }}>
       <Typography variant="h4" gutterBottom>Cluster Queues</Typography>
       {queues.length === 0 ? (
-        <CircularProgress />
+        <Typography>No Cluster Queues found.</Typography>
       ) : (
         <TableContainer component={Paper}>
           <Table>

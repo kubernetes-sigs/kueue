@@ -20,7 +20,7 @@ const ResourceFlavors = () => {
     <Paper style={{ padding: '16px', marginTop: '20px' }}>
       <Typography variant="h4" gutterBottom>Resource Flavors</Typography>
       {resourceFlavors.length === 0 ? (
-        <CircularProgress />
+        <Typography>No Resource Flavors found.</Typography>
       ) : (
         <TableContainer component={Paper}>
           <Table>

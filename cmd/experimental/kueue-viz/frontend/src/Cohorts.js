@@ -20,7 +20,7 @@ const Cohorts = () => {
     <Paper style={{ padding: '16px', marginTop: '20px' }}>
       <Typography variant="h4" gutterBottom>Cohorts</Typography>
       {cohortList.length === 0 ? (
-        <CircularProgress />
+        <Typography>No Cohorts found.</Typography>
       ) : (
         <TableContainer component={Paper}>
           <Table>

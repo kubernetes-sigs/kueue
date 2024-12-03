@@ -30,7 +30,7 @@ const LocalQueues = () => {
     <Paper style={{ padding: '16px', marginTop: '20px' }}>
       <Typography variant="h4" gutterBottom>Local Queues</Typography>
       {queues.length === 0 ? (
-        <CircularProgress />
+        <Typography>No Local Queues found.</Typography>
       ) : (
         <TableContainer component={Paper}>
           <Table>
