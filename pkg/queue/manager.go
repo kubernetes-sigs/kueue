@@ -162,13 +162,21 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			added := cqImpl.AddFromLocalQueue(qImpl)
 			addedWorkloads = addedWorkloads || added
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
-			m.reportLQPendingWorkloads(qImpl)
-		}
 	}
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
 	m.reportPendingWorkloads(cq.Name, cqImpl)
+
+	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
+	if features.Enabled(features.LocalQueueMetrics) {
+		for _, q := range queues.Items {
+			qImpl := m.localQueues[Key(&q)]
+			if qImpl != nil {
+				m.reportLQPendingWorkloads(qImpl)
+			}
+		}
+	}
+
 	if queued || addedWorkloads {
 		m.Broadcast()
 	}
@@ -409,13 +417,13 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		return
 	}
 	delete(q.items, workload.Key(w))
-	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
-	}
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq != nil {
 		cq.Delete(w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
+	}
+	if features.Enabled(features.LocalQueueMetrics) {
+		m.reportLQPendingWorkloads(q)
 	}
 }
 
@@ -626,6 +634,11 @@ func (m *Manager) getClusterQueue(cqName string) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
 	return m.hm.ClusterQueues[cqName]
+}
+
+func (m *Manager) getClusterQueueLockless(cqName string) (val *ClusterQueue, ok bool) {
+	val, ok = m.hm.ClusterQueues[cqName]
+	return
 }
 
 func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {

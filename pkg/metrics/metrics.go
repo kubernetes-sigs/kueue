@@ -26,6 +26,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type AdmissionResult string
@@ -293,9 +295,9 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "localQueue_status",
-			Help: `Reports 'localQueue' with its 'status' (with possible values 'pending', 'active' or 'terminated').
+			Help: `Reports 'localQueue' with its 'status' (with possible values 'active' or 'inactive').
 For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`,
-		}, []string{"local_queue", "namespace", "status"},
+		}, []string{"local_queue", "namespace", "active"},
 	)
 
 	// Optional cluster queue metrics
@@ -479,13 +481,17 @@ func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
 	}
 }
 
-func ReportLocalQueueStatus(lq LocalQueueReference, status ClusterQueueStatus) {
-	for _, s := range CQStatuses {
+var (
+	ConditionStatusValues = []metav1.ConditionStatus{metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown}
+)
+
+func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.ConditionStatus) {
+	for _, status := range ConditionStatusValues {
 		var v float64
-		if s == status {
+		if status == conditionStatus {
 			v = 1
 		}
-		LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s)).Set(v)
+		LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(status)).Set(v)
 	}
 }
 
@@ -500,7 +506,7 @@ func ClearCacheMetrics(cqName string) {
 func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	LocalQueueReservingActiveWorkloads.DeleteLabelValues(lq.Name, lq.Namespace)
 	LocalQueueAdmittedActiveWorkloads.DeleteLabelValues(lq.Name, lq.Namespace)
-	for _, status := range CQStatuses {
+	for _, status := range ConditionStatusValues {
 		LocalQueueByStatus.DeleteLabelValues(lq.Name, lq.Namespace, string(status))
 	}
 }
@@ -546,7 +552,6 @@ func ClearClusterQueueResourceMetrics(cqName string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
-// KTODO: call func
 func ClearLocalQueueResourceMetrics(lq LocalQueueReference) {
 	lbls := prometheus.Labels{
 		"local_queue": lq.Name,

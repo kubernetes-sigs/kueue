@@ -130,8 +130,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	metrics.Register()
-
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.RegisterLQMetrics()
 	}

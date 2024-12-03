@@ -55,9 +55,9 @@ func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 }
 
 func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
-	c := m.getClusterQueue(lq.ClusterQueue)
+	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
 	result := 0
-	if c == nil {
+	if !ok {
 		return 0
 	}
 	for _, wl := range c.heap.List() {
@@ -66,15 +66,15 @@ func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
 			result++
 		}
 	}
-	if workloadKey(c.inflight) == lq.Key {
+	if c.inflight != nil && workloadKey(c.inflight) == lq.Key {
 		result++
 	}
 	return result
 }
 
 func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
-	c := m.getClusterQueue(lq.ClusterQueue)
-	if c == nil {
+	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
+	if !ok {
 		return 0
 	}
 	result := 0

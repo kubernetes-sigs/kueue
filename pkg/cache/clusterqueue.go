@@ -237,11 +237,6 @@ func (c *clusterQueue) updateQueueStatus() {
 	if status != c.Status {
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
-		if features.Enabled(features.LocalQueueMetrics) {
-			for _, lq := range c.localQueues {
-				metrics.ReportLocalQueueStatus(metrics.LQRefFromLocalQueueKey(lq.key), c.Status)
-			}
-		}
 	}
 }
 
@@ -597,7 +592,6 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	c.localQueues[qKey] = qImpl
 	if features.Enabled(features.LocalQueueMetrics) {
 		qImpl.reportActiveWorkloads()
-		metrics.ReportLocalQueueStatus(metrics.LQRefFromLocalQueueKey(qKey), c.Status)
 	}
 	return nil
 }
