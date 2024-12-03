@@ -259,7 +259,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 			label:   "label",
 			wantErr: ErrInvalidUInt,
 		},
-		"greater than max": {
+		"equal to bound": {
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
 				ObjectMeta: metav1.ObjectMeta{
@@ -269,7 +269,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				},
 			},
 			label:   "label",
-			max:     1000,
+			max:     1001,
 			wantErr: ErrValidation,
 		},
 	}

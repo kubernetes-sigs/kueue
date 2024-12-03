@@ -99,7 +99,7 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidUInt, err.Error())
 	}
-	if uintValue > uint64(bound) {
+	if uintValue >= uint64(bound) {
 		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
 	}
 	return ptr.To(int(uintValue)), nil
