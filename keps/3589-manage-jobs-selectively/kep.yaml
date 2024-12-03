@@ -2,7 +2,7 @@ title: Uniformly filter manageJobsWithoutQueueNames by namespace
 kep-number: 3589
 authors:
   - "@dgrove-oss"
-status: implemented
+status: implementable
 creation-date: 2024-11-19
 reviewers:
   - "@mimowo"
