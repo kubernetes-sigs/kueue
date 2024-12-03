@@ -48,17 +48,18 @@ func TestValidate(t *testing.T) {
 			MaxCount: configapi.DefaultClusterQueuesMaxCount,
 		},
 	}
-	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
-		NamespaceSelector: &metav1.LabelSelector{
-			MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      "kubernetes.io/metadata.name",
-					Operator: metav1.LabelSelectorOpNotIn,
-					Values:   []string{"kube-system", "kueue-system"},
-				},
+	systemNamespacesSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "kubernetes.io/metadata.name",
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"kube-system", "kueue-system"},
 			},
 		},
-		PodSelector: &metav1.LabelSelector{},
+	}
+	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
+		NamespaceSelector: systemNamespacesSelector,
+		PodSelector:       &metav1.LabelSelector{},
 	}
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{"batch/job"},
@@ -205,7 +206,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions": {
+		"nil PodIntegrationOptions without managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -216,11 +217,11 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions",
+					Field: "managedJobsNamespaceSelector",
 				},
 			},
 		},
-		"nil PodIntegrationOptions.NamespaceSelector": {
+		"nil PodIntegrationOptions.NamespaceSelector without managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -233,7 +234,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions.namespaceSelector",
+					Field: "managedJobsNamespaceSelector",
 				},
 			},
 		},
@@ -259,6 +260,17 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid managedJobsNamespaceSelector can replace PodIntegrationOptions.NamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility:              defaultQueueVisibility,
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+				},
+			},
+			wantErr: nil,
+		},
+
 		"prohibited namespace in MatchLabels": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
@@ -277,6 +289,25 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "integrations.podOptions.namespaceSelector",
+				},
+			},
+		},
+		"prohibited namespace in MatchLabels managedJobsNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"kubernetes.io/metadata.name": "kube-system",
+					},
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "managedJobsNamespaceSelector",
 				},
 			},
 		},
@@ -305,6 +336,29 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"prohibited namespace in MatchExpressions with operator In managedJobsNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/metadata.name",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"kube-system"},
+						},
+					},
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "managedJobsNamespaceSelector",
+				},
+			},
+		},
 		"prohibited namespace in MatchExpressions with operator NotIn": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
@@ -321,6 +375,24 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+			wantErr: nil,
+		},
+		"prohibited namespace in MatchExpressions with operator NotIn managedJobsNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/metadata.name",
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
 				},
 			},
 			wantErr: nil,
