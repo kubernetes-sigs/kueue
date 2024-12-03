@@ -1027,6 +1027,18 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			ginkgo.Entry("invalid levels",
 				testing.MakeTopology("invalid-level").Levels([]string{"@invalid"}).Obj(),
 				testing.BeInvalidError()),
+			ginkgo.Entry("non-unique levels",
+				testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasBlockLabel}).Obj(),
+				testing.BeInvalidError()),
+			ginkgo.Entry("kubernetes.io/hostname first",
+				testing.MakeTopology("default").Levels([]string{corev1.LabelHostname, tasBlockLabel, tasRackLabel}).Obj(),
+				testing.BeInvalidError()),
+			ginkgo.Entry("kubernetes.io/hostname middle",
+				testing.MakeTopology("default").Levels([]string{tasBlockLabel, corev1.LabelHostname, tasRackLabel}).Obj(),
+				testing.BeInvalidError()),
+			ginkgo.Entry("kubernetes.io/hostname last",
+				testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}).Obj(),
+				gomega.Succeed()),
 		)
 	})
 
@@ -1057,6 +1069,12 @@ var _ = ginkgo.Describe("Topology validations", func() {
 					topology.Spec.Levels = append(topology.Spec.Levels, kueuealpha.TopologyLevel{
 						NodeLabel: "added",
 					})
+				},
+				testing.BeInvalidError()),
+			ginkgo.Entry("updating levels order is prohibited",
+				testing.MakeTopology("default").Levels([]string{tasRackLabel, tasBlockLabel, corev1.LabelHostname}).Obj(),
+				func(topology *kueuealpha.Topology) {
+					topology.Spec.Levels[0], topology.Spec.Levels[1] = topology.Spec.Levels[1], topology.Spec.Levels[0]
 				},
 				testing.BeInvalidError()),
 		)
