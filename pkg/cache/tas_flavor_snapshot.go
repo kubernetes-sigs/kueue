@@ -185,19 +185,23 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 }
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
-	s.initializeFreeCapacityPerDomain(domainID)
+	if s.leaves[domainID].freeCapacity == nil {
+		s.leaves[domainID].freeCapacity = resources.Requests{}
+	}
 	s.leaves[domainID].freeCapacity.Add(capacity)
 }
 
 func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
-	s.initializeFreeCapacityPerDomain(domainID)
-	s.leaves[domainID].freeCapacity.Sub(usage)
-}
-
-func (s *TASFlavorSnapshot) initializeFreeCapacityPerDomain(domainID utiltas.TopologyDomainID) {
-	if s.leaves[domainID].freeCapacity == nil {
-		s.leaves[domainID].freeCapacity = resources.Requests{}
+	if s.leaves[domainID] == nil {
+		// this can happen if there is an admitted workload for which the
+		// backing node was deleted or is no longer Ready (so the addCapacity
+		// function was not called).
+		s.log.Info("skip accounting for usage in domain", "domain", domainID, "usage", usage)
+		return
 	}
+	// If the leaf domain exists the freeCapacity is already initialized by
+	// the addCapacity function
+	s.leaves[domainID].freeCapacity.Sub(usage)
 }
 
 // Algorithm overview:
