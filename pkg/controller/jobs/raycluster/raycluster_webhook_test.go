@@ -28,6 +28,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
@@ -73,6 +74,7 @@ func TestValidateDefault(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, false)
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}

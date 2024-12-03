@@ -174,14 +174,13 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			return nil
 		}
-	} else {
-		nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse namespace selector: %w", err)
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
-		}
+	}
+	nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
+	if err != nil {
+		return fmt.Errorf("failed to parse namespace selector: %w", err)
+	}
+	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+		return nil
 	}
 
 	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {

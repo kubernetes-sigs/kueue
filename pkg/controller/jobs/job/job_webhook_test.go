@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
@@ -670,9 +671,11 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			w := &JobWebhook{
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				queues:                     queueManager,
-				cache:                      cqCache,
+				client:                       cl,
+				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector: labels.Everything(),
+				queues:                       queueManager,
+				cache:                        cqCache,
 			}
 			gotErr := w.Default(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {

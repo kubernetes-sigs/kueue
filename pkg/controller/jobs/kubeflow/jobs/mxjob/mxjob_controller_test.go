@@ -25,6 +25,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -434,6 +435,14 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				"kubernetes.io/metadata.name": "ns",
+			},
+		},
+	}
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *kftraining.MXJob
@@ -446,6 +455,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job:     testingmxjob.MakeMXJob("mxjob", "ns").Parallelism(2, 2).Obj(),
 			wantJob: testingmxjob.MakeMXJob("mxjob", "ns").Parallelism(2, 2).Obj(),
@@ -462,6 +472,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with a ProvReq annotation": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingmxjob.MakeMXJob("mxjob", "ns").
 				Annotations(map[string]string{
@@ -712,7 +723,7 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			kcBuilder = kcBuilder.
-				WithObjects(tc.job).
+				WithObjects(tc.job, testNamespace).
 				WithLists(&kueue.ResourceFlavorList{Items: tc.flavors})
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
