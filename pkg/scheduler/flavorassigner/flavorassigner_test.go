@@ -25,7 +25,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -43,13 +42,11 @@ func (f *testOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSn
 
 func TestAssignFlavors(t *testing.T) {
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-		"default": {
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		},
-		"one":   utiltesting.MakeResourceFlavor("one").NodeLabel("type", "one").Obj(),
-		"two":   utiltesting.MakeResourceFlavor("two").NodeLabel("type", "two").Obj(),
-		"b_one": utiltesting.MakeResourceFlavor("b_one").NodeLabel("b_type", "one").Obj(),
-		"b_two": utiltesting.MakeResourceFlavor("b_two").NodeLabel("b_type", "two").Obj(),
+		"default": utiltesting.MakeResourceFlavor("default").Obj(),
+		"one":     utiltesting.MakeResourceFlavor("one").NodeLabel("type", "one").Obj(),
+		"two":     utiltesting.MakeResourceFlavor("two").NodeLabel("type", "two").Obj(),
+		"b_one":   utiltesting.MakeResourceFlavor("b_one").NodeLabel("b_type", "one").Obj(),
+		"b_two":   utiltesting.MakeResourceFlavor("b_two").NodeLabel("b_type", "two").Obj(),
 		"tainted": utiltesting.MakeResourceFlavor("tainted").
 			Taint(corev1.Taint{
 				Key:    "instance",
