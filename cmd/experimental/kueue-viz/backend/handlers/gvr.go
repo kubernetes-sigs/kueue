@@ -4,17 +4,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// Define the GroupVersionResource for ResourceFlavors
-func ResourceFlavorGVR() schema.GroupVersionResource {
-	return schema.GroupVersionResource{
-		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
-		Resource: "resourceflavors",
-	}
-}
-
-// Define the GroupVersionResource for ClusterQueues
-func ClusterQueueGVR() schema.GroupVersionResource {
+// ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
+func ClusterQueuesGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
 		Version:  "v1beta1",
@@ -22,6 +13,7 @@ func ClusterQueueGVR() schema.GroupVersionResource {
 	}
 }
 
+// WorkloadsGVR defines the GroupVersionResource for Workloads
 func WorkloadsGVR() schema.GroupVersionResource {
 	workloadsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
@@ -31,6 +23,7 @@ func WorkloadsGVR() schema.GroupVersionResource {
 	return workloadsGVR
 }
 
+// LocalQueuesGVR defines the GroupVersionResource  for LocalQueues
 func LocalQueuesGVR() schema.GroupVersionResource {
 	localQueuesGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
@@ -40,6 +33,7 @@ func LocalQueuesGVR() schema.GroupVersionResource {
 	return localQueuesGVR
 }
 
+// CohortsGVR defines the GroupVersionResource for Cohorts
 func CohortsGVR() schema.GroupVersionResource {
 	cohortsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
@@ -49,6 +43,7 @@ func CohortsGVR() schema.GroupVersionResource {
 	return cohortsGVR
 }
 
+// ResourceFlavorsGVR defines the GroupVersionResource for ResourceFlavors
 func ResourceFlavorsGVR() schema.GroupVersionResource {
 	resourceFlavorsGVR := schema.GroupVersionResource{
 		Group:    "kueue.x-k8s.io",
@@ -58,7 +53,8 @@ func ResourceFlavorsGVR() schema.GroupVersionResource {
 	return resourceFlavorsGVR
 }
 
-func NodeGVR() schema.GroupVersionResource {
+// NodesGVR defines the GroupVersionResource for Nodes
+func NodesGVR() schema.GroupVersionResource {
 	nodeGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
@@ -67,6 +63,7 @@ func NodeGVR() schema.GroupVersionResource {
 	return nodeGVR
 }
 
+// EventsGVR defines the GroupVersionResource for Events
 func EventsGVR() schema.GroupVersionResource {
 	eventsGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -76,6 +73,7 @@ func EventsGVR() schema.GroupVersionResource {
 	return eventsGVR
 }
 
+// PodsGVR defines the GroupVersionResource Pods
 func PodsGVR() schema.GroupVersionResource {
 	podsGVR := schema.GroupVersionResource{
 		Group:    "",

@@ -7,19 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 )
 
 // ClusterQueuesWebSocketHandler streams all cluster queues
 func ClusterQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	clusterQueuesGVR := schema.GroupVersionResource{
-		Group:    "kueue.x-k8s.io",
-		Version:  "v1beta1",
-		Resource: "clusterqueues",
-	}
-
-	return GenericWebSocketHandler(dynamicClient, clusterQueuesGVR, "", func() (interface{}, error) {
+	return GenericWebSocketHandler(dynamicClient, ClusterQueuesGVR(), "", func() (interface{}, error) {
 		return fetchClusterQueues(dynamicClient)
 	})
 }
@@ -28,13 +21,7 @@ func ClusterQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerF
 func ClusterQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
-		clusterQueuesGVR := schema.GroupVersionResource{
-			Group:    "kueue.x-k8s.io",
-			Version:  "v1beta1",
-			Resource: "clusterqueues",
-		}
-
-		GenericWebSocketHandler(dynamicClient, clusterQueuesGVR, "", func() (interface{}, error) {
+		GenericWebSocketHandler(dynamicClient, ClusterQueuesGVR(), "", func() (interface{}, error) {
 			return fetchClusterQueueDetails(dynamicClient, clusterQueueName)
 		})(c)
 	}
@@ -43,7 +30,7 @@ func ClusterQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Ha
 // Fetch all cluster queues
 func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]interface{}, error) {
 	// Fetch the list of ClusterQueue objects
-	clusterQueues, err := dynamicClient.Resource(ClusterQueueGVR()).List(context.TODO(), metav1.ListOptions{})
+	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
 	}
@@ -108,7 +95,7 @@ func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]interface
 func fetchClusterQueueDetails(dynamicClient dynamic.Interface, clusterQueueName string) (map[string]interface{}, error) {
 
 	// Fetch the specific ClusterQueue
-	clusterQueue, err := dynamicClient.Resource(ClusterQueueGVR()).Get(context.TODO(), clusterQueueName, metav1.GetOptions{})
+	clusterQueue, err := dynamicClient.Resource(ClusterQueuesGVR()).Get(context.TODO(), clusterQueueName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cluster queue %s: %v", clusterQueueName, err)
 	}
@@ -158,6 +145,6 @@ func fetchClusterQueueDetails(dynamicClient dynamic.Interface, clusterQueueName 
 }
 
 func fetchClusterQueuesList(dynamicClient dynamic.Interface) (*unstructured.UnstructuredList, error) {
-	clusterQueues, err := dynamicClient.Resource(ClusterQueueGVR()).List(context.TODO(), metav1.ListOptions{})
+	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
 	return clusterQueues, err
 }

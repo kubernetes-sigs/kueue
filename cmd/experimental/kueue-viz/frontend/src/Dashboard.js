@@ -21,8 +21,8 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (kueueData) {
-      setQueues(kueueData.queues.items || []);
-      setWorkloads(kueueData.workloads.items || []);
+      setQueues(kueueData.queues?.items || []);
+      setWorkloads(kueueData.workloads?.items || []);
       setWorkloadsByUid(kueueData.workloads.workloads_by_uid || {});
 
       kueueData.workloads?.items?.forEach(workload => {

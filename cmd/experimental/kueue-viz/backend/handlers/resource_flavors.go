@@ -59,7 +59,7 @@ func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName stri
 	}
 
 	// List all cluster queues
-	clusterQueues, err := dynamicClient.Resource(ClusterQueueGVR()).List(context.TODO(), metav1.ListOptions{})
+	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error listing cluster queues: %v", err)
 	}
@@ -151,7 +151,7 @@ func getNodesForFlavor(dynamicClient dynamic.Interface, flavorName string) ([]ma
 	}
 
 	// List all nodes
-	nodeList, err := dynamicClient.Resource(NodeGVR()).List(context.TODO(), metav1.ListOptions{})
+	nodeList, err := dynamicClient.Resource(NodesGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching nodes: %v", err)
 	}
