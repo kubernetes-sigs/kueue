@@ -86,12 +86,10 @@ const (
 )
 
 var (
-	gvk                           = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest  = errors.New("event handler error: got a single pod reconcile request for a pod group")
-	errPendingOps                 = jobframework.UnretryableError("waiting to observe previous operations on pods")
-	errPodGroupLabelsMismatch     = errors.New("constructing workload: pods have different label values")
-	errIndexGreaterThanGroupCount = errors.New("incorrect label value: group pod index should be less than group total count")
-	errGroupIndexLessThanZero     = errors.New("incorrect label value: group pod index should be greater than zero")
+	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
+	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
+	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
+	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
 func init() {
@@ -559,25 +557,6 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
-// podGroupIndex returns the value of GroupIndexLabel for the pod being reconciled at the moment.
-func (p *Pod) podGroupIndex(podGroupTotalCount int) (*int, error) {
-	podIndex, ok := p.Object().GetLabels()[kueuealpha.PodGroupPodIndexLabel]
-	if !ok {
-		return nil, nil
-	}
-	groupIndexValue, err := strconv.Atoi(podIndex)
-	if err != nil {
-		return nil, err
-	}
-	if groupIndexValue >= podGroupTotalCount {
-		return nil, errIndexGreaterThanGroupCount
-	}
-	if groupIndexValue < 0 {
-		return nil, errGroupIndexLessThanZero
-	}
-	return &groupIndexValue, nil
-}
-
 // getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256
 // checksum of those fields. This is used to group the pods of the same roles when interacting with the workload.
 func getRoleHash(p corev1.Pod) (string, error) {
@@ -725,9 +704,12 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	if err != nil {
 		return err
 	}
-	if _, err = p.podGroupIndex(groupTotalCount); err != nil {
+
+	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueuealpha.PodGroupPodIndexLabel, groupTotalCount-1)
+	if utilpod.IgnoreLabelNotFoundError(err) != nil {
 		return err
 	}
+
 	originalQueue := jobframework.QueueName(p)
 	_, useFastAdmission := p.pod.GetAnnotations()[GroupFastAdmissionAnnotation]
 

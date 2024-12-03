@@ -44,6 +44,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 
@@ -4048,7 +4049,7 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("1").
 				Obj(),
 			},
-			wantErr: errIndexGreaterThanGroupCount,
+			wantErr: utilpod.ErrValidation,
 		},
 		"reconciler returns error in case pod group pod index is less than 0": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -4061,7 +4062,7 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("1").
 				Obj(),
 			},
-			wantErr: errGroupIndexLessThanZero,
+			wantErr: utilpod.ErrInvalidUInt,
 		},
 		"reconciler returns error in case of label mismatch in pod group": {
 			pods: []corev1.Pod{

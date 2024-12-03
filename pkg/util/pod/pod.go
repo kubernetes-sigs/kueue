@@ -65,10 +65,17 @@ func gateIndex(p *corev1.Pod, gateName string) int {
 }
 
 var (
-	errLabelNotFound = errors.New("label not found")
-	errInvalidUInt   = errors.New("invalid unsigned integer")
-	errValidation    = errors.New("validation error")
+	ErrLabelNotFound = errors.New("label not found")
+	ErrInvalidUInt   = errors.New("invalid unsigned integer")
+	ErrValidation    = errors.New("validation error")
 )
+
+func IgnoreLabelNotFoundError(err error) error {
+	if errors.Is(err, ErrLabelNotFound) {
+		return nil
+	}
+	return err
+}
 
 func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
 	return ReadUIntFromLabelBelowBound(obj, labelKey, math.MaxInt)
@@ -78,7 +85,7 @@ func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) 
 	value, found := obj.GetLabels()[labelKey]
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 	if !found {
-		return nil, fmt.Errorf("%w: no label %q for %s %q", errLabelNotFound, labelKey, kind, klog.KObj(obj))
+		return nil, fmt.Errorf("%w: no label %q for %s %q", ErrLabelNotFound, labelKey, kind, klog.KObj(obj))
 	}
 	intValue, err := readUIntFromStringBelowBound(value, bound)
 	if err != nil {
@@ -90,10 +97,10 @@ func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) 
 func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	uintValue, err := strconv.ParseUint(value, 10, 0)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errInvalidUInt, err.Error())
+		return nil, fmt.Errorf("%w: %s", ErrInvalidUInt, err.Error())
 	}
 	if uintValue > uint64(bound) {
-		return nil, fmt.Errorf("%w: value should be less than %d", errValidation, bound)
+		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
 	}
 	return ptr.To(int(uintValue)), nil
 }
