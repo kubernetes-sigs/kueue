@@ -65,9 +65,8 @@ func assignTopology(log logr.Logger,
 			return
 		}
 		var reason string
-		tolerations := append(podSet.Template.Spec.Tolerations, snapshot.Tolerations...)
 		psAssignment.TopologyAssignment, reason = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
-			singlePodRequests, podCount, tolerations)
+			singlePodRequests, podCount, podSet.Template.Spec.Tolerations)
 		if psAssignment.TopologyAssignment == nil {
 			if psAssignment.Status == nil {
 				psAssignment.Status = &Status{}

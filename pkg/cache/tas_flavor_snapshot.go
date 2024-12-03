@@ -103,8 +103,8 @@ type TASFlavorSnapshot struct {
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
 
-	// Tolerations represents the list of tolerations defined for the resource flavor
-	Tolerations []corev1.Toleration
+	// tolerations represents the list of tolerations defined for the resource flavor
+	tolerations []corev1.Toleration
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
@@ -119,7 +119,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		topologyName:    topologyName,
 		levelKeys:       slices.Clone(levels),
 		leaves:          make(leafDomainByID),
-		Tolerations:     slices.Clone(tolerations),
+		tolerations:     slices.Clone(tolerations),
 		domains:         make(domainByID),
 		roots:           make(domainByID),
 		domainsPerLevel: domainsPerLevel,
@@ -225,7 +225,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 	topologyRequest *kueue.PodSetTopologyRequest,
 	requests resources.Requests,
 	count int32,
-	tolerations []corev1.Toleration) (*kueue.TopologyAssignment, string) {
+	podSetTolerations []corev1.Toleration) (*kueue.TopologyAssignment, string) {
 	required := topologyRequest.Required != nil
 	key := levelKey(topologyRequest)
 	if key == nil {
@@ -236,7 +236,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	s.fillInCounts(requests, tolerations)
+	s.fillInCounts(requests, append(podSetTolerations, s.tolerations...))
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
