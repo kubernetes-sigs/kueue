@@ -62,6 +62,29 @@ func Map[From any, To any, S ~[]From](s S, mapFunc func(*From) To) []To {
 	return ret
 }
 
+func OrderStringSlices(a, b []string) int {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if a[i] < b[i] {
+			return -1 // a is lexicographically smaller
+		} else if a[i] > b[i] {
+			return 1 // a is lexicographically greater
+		}
+	}
+
+	// If all compared elements are equal, the shorter array is smaller
+	if len(a) < len(b) {
+		return -1
+	} else if len(a) > len(b) {
+		return 1
+	}
+	return 0 // Arrays are lexicographically equalN
+}
+
 // CmpNoOrder returns true if the two provided slices have the same elements
 // regardless of their order.
 func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {

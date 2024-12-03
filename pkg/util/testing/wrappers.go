@@ -399,16 +399,18 @@ func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
 }
 
 func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
-	p.TopologyRequest = &kueue.PodSetTopologyRequest{
-		Required: ptr.To(level),
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
+	p.TopologyRequest.Required = &level
 	return p
 }
 
 func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
-	p.TopologyRequest = &kueue.PodSetTopologyRequest{
-		Preferred: ptr.To(level),
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
+	p.TopologyRequest.Preferred = &level
 	return p
 }
 

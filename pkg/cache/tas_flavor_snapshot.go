@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -29,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -125,6 +125,9 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 	levelValues := utiltas.LevelValues(s.levelKeys, node.Labels)
 	domainID := utiltas.DomainID(levelValues)
+	if s.isLowestLevelNode() {
+		domainID = utiltas.DomainID(levelValues[len(levelValues)-1:])
+	}
 	if _, found := s.leaves[domainID]; !found {
 		leafDomain := leafDomain{
 			domain: domain{
@@ -341,9 +344,9 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 }
 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
-	// lex sort domains
+	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
 	slices.SortFunc(domains, func(a, b *domain) int {
-		return cmp.Compare(a.id, b.id)
+		return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
 	})
 	levelIdx := 0
 	// assign only hostname values if topology defines it
@@ -367,7 +370,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	slices.SortFunc(result, func(a, b *domain) int {
 		switch {
 		case a.state == b.state:
-			return cmp.Compare(a.id, b.id)
+			return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
 		case a.state > b.state:
 			return -1
 		default:

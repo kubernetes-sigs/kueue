@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 
-		ginkgo.When("Nodes are created before test", func() {
+		ginkgo.When("Nodes are created before test with rack being the lowest level", func() {
 			var (
 				nodes []corev1.Node
 			)
@@ -520,6 +520,152 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 
+		ginkgo.When("Nodes are created before test with the hostname being the lowest level", func() {
+			var (
+				nodes []corev1.Node
+			)
+			ginkgo.BeforeEach(func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b1").
+						Label(tasRackLabel, "r1").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b1").
+						Label(tasRackLabel, "r2").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b2").
+						Label(tasRackLabel, "r1").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x4").
+						Label("node-group", "tas").
+						Label(tasBlockLabel, "b2").
+						Label(tasRackLabel, "r2").
+						Label(corev1.LabelHostname, "x4").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						}).
+						Ready().
+						Obj(),
+				}
+				for _, node := range nodes {
+					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&node), &node)).Should(gomega.Succeed())
+				}
+
+				topology = testing.MakeTopology("default").Levels([]string{
+					tasBlockLabel,
+					tasRackLabel,
+					corev1.LabelHostname,
+				}).Obj()
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
+				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should not admit workload which does not fit to the required topology domain", func() {
+				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
+					wl1 := testing.MakeWorkload("wl1-inadmissible", ns.Name).
+						PodSets(*testing.MakePodSet("worker", 4).
+							PreferredTopologyRequest(tasRackLabel).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+			})
+
+			ginkgo.It("should admit workload which fits", func() {
+				var wl1, wl2 *kueue.Workload
+				ginkgo.By("creating a workload which can fit", func() {
+					wl1 = testing.MakeWorkload("wl1", ns.Name).
+						PodSets(*testing.MakePodSet("worker", 1).
+							PreferredTopologyRequest(tasBlockLabel).
+							Toleration(corev1.Toleration{
+								Key:      "node.kubernetes.io/not-ready",
+								Operator: corev1.TolerationOpExists,
+							}).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("creating second a workload which cannot fit", func() {
+					wl2 = testing.MakeWorkload("wl2", ns.Name).
+						PodSets(*testing.MakePodSet("worker-2", 4).
+							PreferredTopologyRequest(tasBlockLabel).
+							Toleration(corev1.Toleration{
+								Key:      "node.kubernetes.io/not-ready",
+								Operator: corev1.TolerationOpExists,
+							}).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the wl2 has not been admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+			})
+		})
+
 		ginkgo.When("Node structure is mutated during test cases", func() {
 			var (
 				nodes []corev1.Node
@@ -685,6 +831,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					for _, node := range nodes {
 						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
 						gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&node), &node)).Should(gomega.Succeed())
 					}
 				})
 
