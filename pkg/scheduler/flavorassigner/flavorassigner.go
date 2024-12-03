@@ -449,7 +449,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				continue
 			}
 		}
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, podSpec.Tolerations, func(t *corev1.Taint) bool {
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
