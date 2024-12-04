@@ -136,6 +136,16 @@ func (j *JobWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *JobWrap
 	return j
 }
 
+func (j *JobWrapper) WithSubmitterPodTemplate(template corev1.PodTemplateSpec) *JobWrapper {
+	j.Spec.SubmitterPodTemplate = &template
+	return j
+}
+
+func (j *JobWrapper) WithSubmissionMode(submissionMode rayv1.JobSubmissionMode) *JobWrapper {
+	j.Spec.SubmissionMode = submissionMode
+	return j
+}
+
 func (j *JobWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *JobWrapper {
 	j.Spec.RayClusterSpec.HeadGroupSpec = value
 	return j

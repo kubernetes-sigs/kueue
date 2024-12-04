@@ -23,6 +23,8 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,8 +41,9 @@ var (
 )
 
 const (
-	headGroupPodSetName = "head"
-	FrameworkName       = "ray.io/rayjob"
+	headGroupPodSetName    = "head"
+	submitterJobPodSetName = "submitter"
+	FrameworkName          = "ray.io/rayjob"
 )
 
 func init() {
@@ -103,16 +106,15 @@ func (j *RayJob) PodLabelSelector() string {
 }
 
 func (j *RayJob) PodSets() []kueue.PodSet {
-	// len = workerGroups + head
-	podSets := make([]kueue.PodSet, len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1)
+	podSets := make([]kueue.PodSet, 0)
 
 	// head
-	podSets[0] = kueue.PodSet{
+	podSets = append(podSets, kueue.PodSet{
 		Name:            headGroupPodSetName,
 		Template:        *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 		Count:           1,
 		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, nil, nil, nil),
-	}
+	})
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
@@ -124,13 +126,30 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		if wgs.NumOfHosts > 1 {
 			count *= wgs.NumOfHosts
 		}
-		podSets[index+1] = kueue.PodSet{
+		podSets = append(podSets, kueue.PodSet{
 			Name:            strings.ToLower(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
-		}
+		})
 	}
+
+	// submitter Job
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		submitterJobPodSet := kueue.PodSet{
+			Name:  submitterJobPodSetName,
+			Count: 1,
+		}
+
+		if j.Spec.SubmitterPodTemplate != nil {
+			submitterJobPodSet.Template = *j.Spec.SubmitterPodTemplate.DeepCopy()
+		} else {
+			submitterJobPodSet.Template = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
+		}
+
+		podSets = append(podSets, submitterJobPodSet)
+	}
+
 	return podSets
 }
 
@@ -199,4 +218,31 @@ func GetWorkloadNameForRayJob(jobName string, jobUID types.UID) string {
 
 func isRayJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "RayJob" && strings.HasPrefix(owner.APIVersion, "ray.io/v1")
+}
+
+// getDefaultSubmitterTemplate creates a default submitter template for the Ray job.
+// This method is copied from https://github.com/ray-project/kuberay/blob/86506d6b88a6428fc66048c276d7d93b39df7489/ray-operator/controllers/ray/common/job.go#L122-L146
+func getDefaultSubmitterTemplate(rayClusterInstance *rayv1.RayCluster) corev1.PodTemplateSpec {
+	return corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "ray-job-submitter",
+					// Use the image of the Ray head to be defensive against version mismatch issues
+					Image: rayClusterInstance.Spec.HeadGroupSpec.Template.Spec.Containers[0].Image,
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("200Mi"),
+						},
+					},
+				},
+			},
+			RestartPolicy: corev1.RestartPolicyNever,
+		},
+	}
 }
