@@ -261,10 +261,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				for _, node := range nodes {
-					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-				}
+				util.CreateNodes(ctx, k8sClient, nodes)
 
 				topology = testing.MakeTopology("default").Levels([]string{
 					tasBlockLabel,
@@ -571,11 +568,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				for _, node := range nodes {
-					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&node), &node)).Should(gomega.Succeed())
-				}
+				util.CreateNodes(ctx, k8sClient, nodes)
 
 				topology = testing.MakeTopology("default").Levels([]string{
 					tasBlockLabel,
@@ -632,10 +625,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						PodSets(*testing.MakePodSet("worker", 1).
 							PreferredTopologyRequest(tasBlockLabel).
-							Toleration(corev1.Toleration{
-								Key:      "node.kubernetes.io/not-ready",
-								Operator: corev1.TolerationOpExists,
-							}).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -650,10 +639,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = testing.MakeWorkload("wl2", ns.Name).
 						PodSets(*testing.MakePodSet("worker-2", 4).
 							PreferredTopologyRequest(tasBlockLabel).
-							Toleration(corev1.Toleration{
-								Key:      "node.kubernetes.io/not-ready",
-								Operator: corev1.TolerationOpExists,
-							}).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
@@ -743,10 +728,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					for _, node := range nodes {
-						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-						gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-					}
+					util.CreateNodes(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -828,11 +810,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					for _, node := range nodes {
-						gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-						gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&node), &node)).Should(gomega.Succeed())
-					}
+					util.CreateNodes(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("creating a workload which does not tolerate the taint", func() {
@@ -900,10 +878,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				for _, node := range nodes {
-					gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-				}
+				util.CreateNodes(ctx, k8sClient, nodes)
 
 				topology = testing.MakeTopology("default").Levels([]string{
 					tasRackLabel,

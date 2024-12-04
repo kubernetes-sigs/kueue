@@ -54,10 +54,10 @@ func Levels(topology *kueuealpha.Topology) []string {
 	return result
 }
 
-func IsNodeStatusConditionTrue(conditions []corev1.NodeCondition, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus) bool {
+func IsNodeStatusConditionTrue(conditions []corev1.NodeCondition, conditionType corev1.NodeConditionType) bool {
 	for _, cond := range conditions {
 		if cond.Type == conditionType {
-			return cond.Status == conditionStatus
+			return cond.Status == corev1.ConditionTrue
 		}
 	}
 	return false

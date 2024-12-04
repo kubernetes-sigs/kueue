@@ -52,7 +52,7 @@ func indexReadyNode(o client.Object) []string {
 		return nil
 	}
 
-	if !utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady, corev1.ConditionTrue) {
+	if !utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady) {
 		return nil
 	}
 
