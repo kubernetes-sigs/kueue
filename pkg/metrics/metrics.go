@@ -438,8 +438,8 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func LQRefFromLocalQueueKey(wlKey string) LocalQueueReference {
-	split := strings.Split(wlKey, "/")
+func LQRefFromLocalQueueKey(lqKey string) LocalQueueReference {
+	split := strings.Split(lqKey, "/")
 	return LocalQueueReference{
 		Name:      split[1],
 		Namespace: split[0],
