@@ -1267,12 +1267,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Finishing second workload for prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl2)
+			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(pWl2))
 			// The pWl3 workload gets accepted, even though it was created after dWl1.
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl3)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1)
 
 			ginkgo.By("Finishing third workload for prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl3)
+			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(pWl3))
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
 
