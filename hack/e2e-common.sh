@@ -94,6 +94,9 @@ function prepare_docker_images {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        docker pull "${LEADERWORKERSET_IMAGE}"
+    fi
 }
 
 # $1 cluster
@@ -142,7 +145,7 @@ function install_mpi {
 }
 
 #$1 - cluster name
-function install_leaderworkerset {
+function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"

@@ -39,7 +39,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:   SetupIndexes,
-		NewReconciler:  jobframework.NewNoopReconcilerFactory(gvk),
+		NewReconciler:  NewPodReconciler,
 		SetupWebhook:   SetupWebhook,
 		JobType:        &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:    leaderworkersetv1.AddToScheme,
@@ -54,11 +54,11 @@ func fromObject(o runtime.Object) *LeaderWorkerSet {
 	return (*LeaderWorkerSet)(o.(*leaderworkersetv1.LeaderWorkerSet))
 }
 
-func (d *LeaderWorkerSet) Object() client.Object {
-	return (*leaderworkersetv1.LeaderWorkerSet)(d)
+func (lws *LeaderWorkerSet) Object() client.Object {
+	return (*leaderworkersetv1.LeaderWorkerSet)(lws)
 }
 
-func (d *LeaderWorkerSet) GVK() schema.GroupVersionKind {
+func (lws *LeaderWorkerSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
