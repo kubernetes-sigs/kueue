@@ -1,3 +1,18 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package main
 
 import (
@@ -24,13 +39,17 @@ func createK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
 		}
 		fmt.Println("Using in-cluster configuration")
 	} else {
-		// Fall back to using local kubeconfig
-		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		// Fall back to using KUBECONFIG or default kubeconfig path
+		kubeconfig := os.Getenv("KUBECONFIG")
+		if kubeconfig == "" {
+			kubeconfig = filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		}
+
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load local kubeconfig: %v", err)
+			return nil, nil, fmt.Errorf("failed to load kubeconfig from %s: %v", kubeconfig, err)
 		}
-		fmt.Println("Using local kubeconfig")
+		fmt.Printf("Using kubeconfig: %s\n", kubeconfig)
 	}
 
 	// Create the Kubernetes clientset

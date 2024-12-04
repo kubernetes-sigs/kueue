@@ -1,7 +1,7 @@
 # Makefile for kueue-viz-go
 
-APP_NAME := kueue_ws_app
-MODULE_NAME := github.com/akram/kueue-viz-go
+APP_NAME := kueue-viz
+MODULE_NAME := kueue-viz
 
 .PHONY: all build run test tidy clean help
 
@@ -21,7 +21,7 @@ run: build
 ## Run debug
 debug: build
 	@echo "Running in debug mode with hot code replacement enabled..."
-	CompileDaemon --build="make" --command=./bin/kueue_ws_app
+	CompileDaemon --build="make" --command=./bin/$(APP_NAME)
 
 ## Run tests
 test:

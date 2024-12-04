@@ -1,62 +1,83 @@
-# Build and run on OpenShift
+# Build and Run locally
 
-
-```
-git clone https://github.com/akram/kueue-viz.git
-oc new-project kueue-viz
-KUEUE_VIZ_HOME=$PWD/kueue-viz
-```
-
-then:
-
-## Authorize
-Creating a cluster role that just has read only access on
-`kueue` objects and pods, nodes and events.
+## Prerequisites
+You need a kubernetes cluster running kueue.
+If you don't have a running cluster, you can create one using kind and install kueue using helm.
 
 ```
-oc create clusterrole kueue-backend-read-access --verb=get,list,watch \
-          --resource=workloads,clusterqueues,localqueues,resourceflavors,pods,workloadpriorityclass,events,nodes
-oc adm policy add-cluster-role-to-user kueue-backend-read-access -z default
+kind create cluster
+kind get kubeconfig > kubeconfig
+export KUBECONFIG=$PWD/kubeconfig
+helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue \
+            --version="v0.9.1" --create-namespace --namespace=kueue-system
 ```
 
 ## Build
+Clone the kueue repository and build the projects:
 
 ```
-for i in  backend frontend 
-do
-   oc new-build . --name $i --context-dir=$i 
-done
+git clone https://github.com/kubernetes-sigs/kueue
+cd kueue/cmd/experimental/kueue-viz
+KUEUE_VIZ_HOME=$PWD
+kubectl create ns kueue-viz
+cd backend && make && cd ..
+cd frontend && make && cd ..
 ```
 
-## Deploy
+## Authorize
+Create a cluster role that just has read only access on
+`kueue` objects and pods, nodes and events.
+
+Create the cluster role:
+
 ```
-oc new-app backend  --name=backend
-oc new-app frontend --name=frontend
+kubectl create clusterrole kueue-backend-read-access --verb=get,list,watch \
+         --resource=workloads,clusterqueues,localqueues,resourceflavors,pods,workloadpriorityclass,events,nodes
 ```
 
-## Expose
+and bind it to the service account `default` in the `kueue-viz` namespace:
+
 ```
-oc create route edge --service=svc/backend
-oc create route edge --service=svc/frontend
+kubectl create -f - << EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kueue-backend-read-access-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kueue-backend-read-access
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: kueue-viz
+EOF
+```
+## Run
+
+In a first terminal run:
+```
+cd backend && make debug
 ```
 
-## Configure
-```
-BACKEND_URL=$(oc get route backend -o jsonpath='{.spec.host}')
-FRONTEND_URL=$(oc get route frontend -o jsonpath='{.spec.host}')
-oc set env deployment/backend  FRONTEND_URL=https://$FRONTEND_URL
-oc set env deployment/frontend REACT_APP_BACKEND_URL=https://$BACKEND_URL \
-                               REACT_APP_WEBSOCKET_URL=wss://$BACKEND_URL
-```
+In another terminal run:
 
+```
+cd frontend && make debug
+```
 
 ## Test
+Create test data using the resources in `examples/` directory.
 
 ```
-oc create -f https://raw.githubusercontent.com/opendatahub-io/distributed-workloads/2c6a14f792b8d94ad3fc2146316e52ace33b6a1e/examples/kueue-usage/kueue-with-jobs/00-common.yaml
+oc create -f examples/
 ```
-And check that you have some data in the Resource Flavors tab of the application.
+And check that you have some data on the dashboard.
 
 ## Improve
-
 See [contribution guide](CONTRIBUTING.md)
+
+
+
+
+

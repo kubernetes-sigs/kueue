@@ -1,8 +1,6 @@
-module github.com/akram/kueue-viz-go
+module kueue-viz
 
-go 1.22.0
-
-toolchain go1.22.5
+go 1.23.0
 
 require (
 	github.com/gin-gonic/gin v1.10.0
