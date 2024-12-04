@@ -42,13 +42,12 @@ type LeaderWorkerSetWrapper struct {
 func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 	return &LeaderWorkerSetWrapper{leaderworkersetv1.LeaderWorkerSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
+			Name:      name,
+			Namespace: ns,
 		},
 		Spec: leaderworkersetv1.LeaderWorkerSetSpec{
 			Replicas:      ptr.To[int32](1),
-			StartupPolicy: leaderworkersetv1.LeaderReadyStartupPolicy,
+			StartupPolicy: leaderworkersetv1.LeaderCreatedStartupPolicy,
 			LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
 				WorkerTemplate: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
