@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -610,9 +609,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				cache.AddOrUpdateResourceFlavor(&kueue.ResourceFlavor{
-					ObjectMeta: metav1.ObjectMeta{Name: "nonexistent-flavor"},
-				})
+				cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("nonexistent-flavor").Obj())
 				return nil
 			},
 			wantClusterQueues: map[string]*clusterQueue{
@@ -3775,15 +3772,9 @@ func TestSnapshotError(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	topology := kueuealpha.Topology{
-		Spec: kueuealpha.TopologySpec{
-			Levels: []kueuealpha.TopologyLevel{
-				{
-					NodeLabel: corev1.LabelHostname,
-				},
-			},
-		},
-	}
+	topology := *utiltesting.MakeTopology("default").
+		Levels([]string{corev1.LabelHostname}).
+		Obj()
 	flavor := *utiltesting.MakeResourceFlavor("tas-default").
 		TopologyName("default").
 		Obj()
