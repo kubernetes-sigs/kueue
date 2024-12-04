@@ -1222,8 +1222,16 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 	return true
 }
 
+func (p *Pod) isServing() bool {
+	return p.isGroup && p.pod.Annotations[GroupServingAnnotation] == "true"
+}
+
+func (p *Pod) isReclaimable() bool {
+	return p.isGroup && !p.isServing()
+}
+
 func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
-	if !p.isGroup {
+	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}
 

@@ -49,6 +49,7 @@ const (
 	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
 	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
+	GroupServingAnnotation       = "kueue.x-k8s.io/pod-group-serving"
 	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
 	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
 )

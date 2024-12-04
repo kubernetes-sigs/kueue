@@ -142,6 +142,10 @@ func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) PodGroupServingAnnotation(enabled bool) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/pod-group-serving", strconv.FormatBool(enabled))
+}
+
 // RoleHash updates the pod.RoleHashAnnotation of the pod
 func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/role-hash", h)

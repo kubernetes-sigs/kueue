@@ -2643,6 +2643,123 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"reclaimablePods field is not updated for a serving pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					Request(corev1.ResourceMemory, "1Gi").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					Group("test-group").
+					Request(corev1.ResourceMemory, "1Gi").
+					GroupTotalCount("3").
+					PodGroupServingAnnotation(true).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("4ebdd4a6", 1).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+						*utiltesting.MakePodSet(podUID, 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("4ebdd4a6", 1).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+						*utiltesting.MakePodSet(podUID, 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"excess pods before wl creation, youngest pods are deleted": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
