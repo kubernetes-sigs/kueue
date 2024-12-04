@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -32,11 +33,16 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/queue"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type Webhook struct {
-	client client.Client
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *queue.Manager
 }
 
 func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
@@ -50,50 +56,35 @@ func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=true,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create,versions=v1,name=mleaderworkerset.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=true,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=mleaderworkerset.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	fmt.Printf("Defaulting LeaderWorkerSet\n")
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	queueName := jobframework.QueueNameForObject(lws.Object())
-	if queueName == "" {
-		return nil
+	jobframework.ApplyDefaultLocalQueue(lws.Object(), wh.queues.DefaultLocalQueueExist)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil || !suspend {
+		return err
 	}
 
-	groupSize := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1) * ptr.Deref(lws.Spec.Replicas, 1)
-	// LeaderTemplate defaults to the WorkerTemplate if not specified
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels == nil {
-			lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels = make(map[string]string, 2)
-		}
-		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels[constants.QueueLabel] = queueName
-		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels[pod.GroupNameLabel] = GetWorkloadName(lws.Name)
-
-		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations == nil {
-			lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = make(map[string]string, 2)
-		}
-		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(groupSize)
-		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
+		wh.podTemplateSpecDefault(lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
 	}
-
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels = make(map[string]string, 2)
-	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels[constants.QueueLabel] = queueName
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels[pod.GroupNameLabel] = GetWorkloadName(lws.Name)
-
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = make(map[string]string, 2)
-	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(groupSize)
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
+	wh.podTemplateSpecDefault(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 
 	return nil
+}
+
+func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpec) {
+	if podTemplateSpec.Annotations == nil {
+		podTemplateSpec.Annotations = make(map[string]string, 1)
+	}
+	podTemplateSpec.Annotations[podcontroller.SuspendedByParentAnnotation] = FrameworkName
+	podTemplateSpec.Annotations[podcontroller.GroupServingAnnotation] = "true"
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
@@ -112,15 +103,8 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	leaderTemplatePath               = field.NewPath("spec", "leaderWorkerTemplate", "leaderTemplate")
-	leaderTemplateLabelsPath         = leaderTemplatePath.Key("labels")
-	leaderTemplateQueueNameLabelPath = leaderTemplateLabelsPath.Key(constants.QueueLabel)
-	leaderTemplateGroupNameLabelPath = leaderTemplateLabelsPath.Key(pod.GroupNameLabel)
-	workerTemplatePath               = field.NewPath("spec", "leaderWorkerTemplate", "workerTemplate")
-	workerTemplateLabelsPath         = workerTemplatePath.Key("labels")
-	workerTemplateQueueNameLabelPath = workerTemplateLabelsPath.Key(constants.QueueLabel)
-	workerTemplateGroupNameLabelPath = workerTemplateLabelsPath.Key(pod.GroupNameLabel)
-	sizePath                         = field.NewPath("spec", "leaderWorkerTemplate", "size")
+	labelsPath         = field.NewPath("metadata", "labels")
+	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -129,55 +113,35 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
-	// TODO: check for annotation
+
 	allErrs := apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.GetLabels()[constants.QueueLabel],
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.GetLabels()[constants.QueueLabel],
-		leaderTemplateQueueNameLabelPath,
+		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
+		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
+		queueNameLabelPath,
 	)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.GetLabels()[pod.GroupNameLabel],
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.GetLabels()[pod.GroupNameLabel],
-		leaderTemplateGroupNameLabelPath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.GetLabels()[constants.QueueLabel],
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.GetLabels()[constants.QueueLabel],
-		workerTemplateQueueNameLabelPath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.GetLabels()[pod.GroupNameLabel],
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.GetLabels()[pod.GroupNameLabel],
-		workerTemplateGroupNameLabelPath,
-	)...)
 
-	// TODO(#...): support resizes later
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size,
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size,
-		sizePath,
-	)...)
-
-	// TODO(#...): support mutation of leader/worker templates later
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
-		leaderTemplatePath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		workerTemplatePath,
-	)...)
-
-	return warnings, nil
+	return warnings, allErrs.ToAggregate()
 }
 
 func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
-func GetWorkloadName(lwsName string) string {
-	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(lwsName, "", gvk)
+func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) (string, error) {
+	ownerName := lws.Name
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		leaderHash, err := utilpod.GenerateShape(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec)
+		if err != nil {
+			return "", err
+		}
+		ownerName = fmt.Sprintf("%s-%s", ownerName, leaderHash)
+	}
+	workerHash, err := utilpod.GenerateShape(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
+	if err != nil {
+		return "", err
+	}
+	ownerName = fmt.Sprintf("%s-%s", ownerName, workerHash)
+
+	// Workload name should be unique for leader shape, worker shape and group index.
+	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", ownerName, groupIndex), lws.UID, gvk), nil
 }

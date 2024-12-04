@@ -273,6 +273,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - node.k8s.io
   resources:
   - runtimeclasses

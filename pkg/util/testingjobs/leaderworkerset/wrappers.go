@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -42,13 +42,12 @@ type LeaderWorkerSetWrapper struct {
 func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 	return &LeaderWorkerSetWrapper{leaderworkersetv1.LeaderWorkerSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
+			Name:      name,
+			Namespace: ns,
 		},
 		Spec: leaderworkersetv1.LeaderWorkerSetSpec{
 			Replicas:      ptr.To[int32](1),
-			StartupPolicy: leaderworkersetv1.LeaderReadyStartupPolicy,
+			StartupPolicy: leaderworkersetv1.LeaderCreatedStartupPolicy,
 			LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
 				WorkerTemplate: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -69,106 +68,115 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 }
 
 // Obj returns the inner LeaderWorkerSet.
-func (lws *LeaderWorkerSetWrapper) Obj() *leaderworkersetv1.LeaderWorkerSet {
-	return &lws.LeaderWorkerSet
+func (w *LeaderWorkerSetWrapper) Obj() *leaderworkersetv1.LeaderWorkerSet {
+	return &w.LeaderWorkerSet
 }
 
 // Label sets the label of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) Label(k, v string) *LeaderWorkerSetWrapper {
-	if lws.Labels == nil {
-		lws.Labels = make(map[string]string)
+func (w *LeaderWorkerSetWrapper) Label(k, v string) *LeaderWorkerSetWrapper {
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
 	}
-	lws.Labels[k] = v
-	return lws
+	w.Labels[k] = v
+	return w
 }
 
 // Queue updates the queue name of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) Queue(q string) *LeaderWorkerSetWrapper {
-	return lws.Label(constants.QueueLabel, q)
+func (w *LeaderWorkerSetWrapper) Queue(q string) *LeaderWorkerSetWrapper {
+	return w.Label(constants.QueueLabel, q)
 }
 
 // Name updated the name of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) Name(n string) *LeaderWorkerSetWrapper {
-	lws.ObjectMeta.Name = n
-	return lws
+func (w *LeaderWorkerSetWrapper) Name(n string) *LeaderWorkerSetWrapper {
+	w.ObjectMeta.Name = n
+	return w
 }
 
 // WorkerTemplateSpecLabel sets the label of the pod template spec of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecLabel(k, v string) *LeaderWorkerSetWrapper {
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels = make(map[string]string, 1)
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecLabel(k, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels == nil {
+		w.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels = make(map[string]string, 1)
 	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels[k] = v
-	return lws
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels[k] = v
+	return w
 }
 
 // WorkerTemplateSpecAnnotation sets the annotation of the pod template spec of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecAnnotation(k, v string) *LeaderWorkerSetWrapper {
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = make(map[string]string, 1)
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecAnnotation(k, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations == nil {
+		w.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = make(map[string]string, 1)
 	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[k] = v
-	return lws
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[k] = v
+	return w
 }
 
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
-	return lws.WorkerTemplateSpecLabel(constants.QueueLabel, q)
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
+	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
+}
+
+// LeaderTemplateSpecAnnotation sets the annotation of the pod template spec of the LeaderLeaderSet
+func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations == nil {
+		w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = make(map[string]string, 1)
+	}
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[k] = v
+	return w
 }
 
 // Replicas sets the number of replicas of the LeaderWorkerSet.
-func (lws *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
-	lws.Spec.Replicas = ptr.To[int32](n)
-	return lws
+func (w *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
+	w.Spec.Replicas = ptr.To[int32](n)
+	return w
 }
 
 // Size sets the size of the LeaderWorkerSet.
-func (lws *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
-	lws.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](n)
-	return lws
+func (w *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](n)
+	return w
 }
 
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupNameLabel(
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupNameLabel(
 	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
 ) *LeaderWorkerSetWrapper {
 	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return lws.WorkerTemplateSpecLabel(pod.GroupNameLabel, gvk)
+	return w.WorkerTemplateSpecLabel(pod.GroupNameLabel, gvk)
 }
 
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *LeaderWorkerSetWrapper {
-	return lws.WorkerTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *LeaderWorkerSetWrapper {
+	return w.WorkerTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
 }
 
-func (lws *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *LeaderWorkerSetWrapper {
-	return lws.WorkerTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *LeaderWorkerSetWrapper {
+	return w.WorkerTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
 }
 
-func (lws *LeaderWorkerSetWrapper) Image(image string, args []string) *LeaderWorkerSetWrapper {
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = image
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Args = args
-	return lws
+func (w *LeaderWorkerSetWrapper) Image(image string, args []string) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = image
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Args = args
+	return w
 }
 
 // Request adds a resource request to the default container.
-func (lws *LeaderWorkerSetWrapper) Request(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
+func (w *LeaderWorkerSetWrapper) Request(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests == nil {
+		w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
 	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
-	return lws
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return w
 }
 
 // Limit adds a resource limit to the default container.
-func (lws *LeaderWorkerSetWrapper) Limit(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
-	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits == nil {
-		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+func (w *LeaderWorkerSetWrapper) Limit(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits == nil {
+		w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
 	}
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
-	return lws
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	return w
 }
 
 // LeaderTemplate sets the leader template of the LeaderWorkerSet.
-func (lws *LeaderWorkerSetWrapper) LeaderTemplate(leader corev1.PodTemplateSpec) *LeaderWorkerSetWrapper {
-	lws.Spec.LeaderWorkerTemplate.LeaderTemplate = &leader
-	return lws
+func (w *LeaderWorkerSetWrapper) LeaderTemplate(leader corev1.PodTemplateSpec) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate = &leader
+	return w
 }

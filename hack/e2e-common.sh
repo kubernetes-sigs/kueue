@@ -119,7 +119,10 @@ function prepare_docker_images {
             docker pull "${KUBERAY_RAY_IMAGE}"
         elif [[ "$unamestr" == 'Darwin' ]]; then
             docker pull "${KUBERAY_RAY_IMAGE_ARM}"
-        fi 
+        fi
+    fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        docker pull "${LEADERWORKERSET_IMAGE}"
     fi
 }
 
@@ -191,7 +194,7 @@ function install_kuberay {
     kubectl create -k "${KUBERAY_MANIFEST}"
 }
 
-function install_leaderworkerset {
+function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"

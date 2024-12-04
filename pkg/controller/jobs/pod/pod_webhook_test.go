@@ -510,6 +510,13 @@ func TestValidateCreate(t *testing.T) {
 				"pod owner is managed by kueue, label 'kueue.x-k8s.io/managed=true' might lead to unexpected behaviour",
 			},
 		},
+		"pod owner is managed by kueue with suspend by parent annotation": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				Label(constants.ManagedByKueueLabel, "true").
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Annotation(SuspendedByParentAnnotation, "job").
+				Obj(),
+		},
 		"pod with group name and no group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				Label(constants.ManagedByKueueLabel, "true").
@@ -649,6 +656,16 @@ func TestValidateUpdate(t *testing.T) {
 				"pod owner is managed by kueue, label 'kueue.x-k8s.io/managed=true' might lead to unexpected behaviour",
 			},
 		},
+		"pod owner is managed by kueue, managed label is set for new pod with suspend by parent annotation": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Label(constants.ManagedByKueueLabel, "true").
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Annotation(SuspendedByParentAnnotation, "job").
+				Obj(),
+		},
 		"pod with group name and no group total count": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
@@ -705,6 +722,18 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
 				},
 			}.ToAggregate(),
+		},
+		"pod group name is changed with suspend by parent annotation": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Gate(SchedulingGateName).
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group-new").
+				GroupTotalCount("2").
+				Gate(SchedulingGateName).
+				Obj(),
 		},
 		"retriable in group annotation is removed": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").

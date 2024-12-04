@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -139,6 +140,14 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 
 func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &leaderworkersetv1.LeaderWorkerSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
 		return err
 	}
