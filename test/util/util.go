@@ -53,6 +53,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -794,4 +796,30 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", lq.Name, cond.Status, cond.Message)
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func CreateNodes(ctx context.Context, c client.Client, nodes []corev1.Node) {
+	for _, node := range nodes {
+		// 1. Create a node
+		gomega.ExpectWithOffset(1, c.Create(ctx, &node)).Should(gomega.Succeed())
+
+		// 2. Update status based on the object
+		createdNode := &corev1.Node{}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
+			createdNode.Status = node.Status
+			g.Expect(c.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
+		}, Timeout, Interval).Should(gomega.Succeed())
+
+		// 3. Removes the taint if the node is Ready
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
+			if utiltas.IsNodeStatusConditionTrue(createdNode.Status.Conditions, corev1.NodeReady) {
+				createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {
+					return taint.Key == corev1.TaintNodeNotReady
+				})
+				g.Expect(c.Update(ctx, createdNode)).Should(gomega.Succeed())
+			}
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
 }

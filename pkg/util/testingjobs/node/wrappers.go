@@ -68,7 +68,7 @@ func (n *NodeWrapper) StatusAllocatable(resourceList corev1.ResourceList) *NodeW
 	return n
 }
 
-// StatusConditions appends the given taints to the Node.
+// Taints appends the given taints to the Node.
 func (n *NodeWrapper) Taints(taints ...corev1.Taint) *NodeWrapper {
 	n.Spec.Taints = append(n.Spec.Taints, taints...)
 	return n
@@ -83,7 +83,7 @@ func (n *NodeWrapper) Ready() *NodeWrapper {
 	return n
 }
 
-// Ready sets the Node to a not ready status condition
+// NotReady sets the Node to a not ready status condition
 func (n *NodeWrapper) NotReady() *NodeWrapper {
 	n.StatusConditions(corev1.NodeCondition{
 		Type:   corev1.NodeReady,

@@ -1913,10 +1913,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 				Ready().
 				Obj(),
 		}
-		for _, node := range nodes {
-			gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-		}
+		util.CreateNodes(ctx, k8sClient, nodes)
 
 		topology = testing.MakeTopology("default").Levels([]string{
 			tasBlockLabel,

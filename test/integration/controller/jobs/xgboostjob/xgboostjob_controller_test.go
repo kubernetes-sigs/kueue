@@ -337,10 +337,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 				Ready().
 				Obj(),
 		}
-		for _, node := range nodes {
-			gomega.Expect(k8sClient.Create(ctx, &node)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
-		}
+		util.CreateNodes(ctx, k8sClient, nodes)
 
 		topology = testing.MakeTopology("default").Levels([]string{
 			tasBlockLabel, tasRackLabel,
