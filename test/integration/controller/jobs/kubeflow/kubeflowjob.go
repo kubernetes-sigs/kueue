@@ -219,7 +219,6 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, workload)).Should(testing.BeNotFoundError())
-
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
