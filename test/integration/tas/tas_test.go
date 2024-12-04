@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.HaveOccurred())
 		})
 
-		ginkgo.FIt("should not allow to update ResourceFlavorSpec", func() {
+		ginkgo.It("should not allow to update ResourceFlavorSpec", func() {
 			tasFlavor := testing.MakeResourceFlavor("tas-flavor").
 				TopologyName("default").
 				NodeLabel("node-group", "tas").

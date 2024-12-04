@@ -60,9 +60,6 @@ spec:
                 maxProperties: 8
                 type: object
                 x-kubernetes-map-type: atomic
-                x-kubernetes-validations:
-                - message: nodeLabels are immutable when topologyName is set
-                  rule: '!has(oldSelf.topologyName) || self == oldSelf'
               nodeTaints:
                 description: |-
                   nodeTaints are taints that the nodes associated with this ResourceFlavor
@@ -182,21 +179,12 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
-                x-kubernetes-validations:
-                - message: topologyName is immutable
-                  rule: self == oldSelf
             type: object
             x-kubernetes-validations:
             - message: at least one nodeLabel is required when topology is set
               rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-            - message: tolerations are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || (self.tolerations.all(x, oldSelf.tolerations.indexOf(x)
-                != -1) && oldSelf.tolerations.all(y, self.tolerations.indexOf(y) !=
-                -1))'
-            - message: nodeTaints are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || (self.nodeTaints.all(x, oldSelf.nodeTaints.indexOf(x)
-                != -1) && oldSelf.nodeTaints.all(y, self.nodeTaints.indexOf(y) !=
-                -1))'
+            - message: resourceFlavorSpec are immutable when topologyName is set
+              rule: '!has(oldSelf.topologyName) || self == oldSelf'
         type: object
     served: true
     storage: true
