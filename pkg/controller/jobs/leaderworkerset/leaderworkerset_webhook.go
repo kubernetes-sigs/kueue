@@ -78,7 +78,6 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = make(map[string]string, 2)
 		}
 		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(groupSize)
-		lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 	}
 
 	if lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels == nil {
@@ -91,7 +90,6 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = make(map[string]string, 2)
 	}
 	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(groupSize)
-	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 
 	return nil
 }
