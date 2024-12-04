@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	raycommon "github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -39,8 +40,9 @@ var (
 )
 
 const (
-	headGroupPodSetName = "head"
-	FrameworkName       = "ray.io/rayjob"
+	headGroupPodSetName    = "head"
+	submitterJobPodSetName = "ray-job-submitter"
+	FrameworkName          = "ray.io/rayjob"
 )
 
 func init() {
@@ -103,16 +105,15 @@ func (j *RayJob) PodLabelSelector() string {
 }
 
 func (j *RayJob) PodSets() []kueue.PodSet {
-	// len = workerGroups + head
-	podSets := make([]kueue.PodSet, len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1)
+	podSets := make([]kueue.PodSet, 0)
 
 	// head
-	podSets[0] = kueue.PodSet{
+	podSets = append(podSets, kueue.PodSet{
 		Name:            headGroupPodSetName,
 		Template:        *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 		Count:           1,
 		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, nil, nil, nil),
-	}
+	})
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
@@ -124,13 +125,29 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		if wgs.NumOfHosts > 1 {
 			count *= wgs.NumOfHosts
 		}
-		podSets[index+1] = kueue.PodSet{
+		podSets = append(podSets, kueue.PodSet{
 			Name:            strings.ToLower(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
-		}
+		})
 	}
+
+	// submitter Job
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		submitterJobPodSet := kueue.PodSet{
+			Name:     submitterJobPodSetName,
+			Template: raycommon.GetDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec}),
+			Count:    1,
+		}
+
+		if j.Spec.SubmitterPodTemplate != nil {
+			submitterJobPodSet.Template = *j.Spec.SubmitterPodTemplate.DeepCopy()
+		}
+
+		podSets = append(podSets, submitterJobPodSet)
+	}
+
 	return podSets
 }
 
