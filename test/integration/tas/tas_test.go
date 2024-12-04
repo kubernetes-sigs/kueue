@@ -127,6 +127,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
 			})
+
+			ginkgo.By("Cleaning up RF", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			})
 		})
 	})
 
