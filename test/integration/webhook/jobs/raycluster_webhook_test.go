@@ -19,7 +19,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -101,7 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
-			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(labels.Everything())))
+			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{

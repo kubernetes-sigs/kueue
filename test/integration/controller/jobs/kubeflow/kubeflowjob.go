@@ -204,6 +204,25 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
+func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob) {
+	ginkgo.By("checking the job gets suspended when created unsuspended")
+	err := k8sClient.Create(ctx, job.Object())
+	gomega.Expect(err).To(gomega.Succeed())
+
+	lookupKey := client.ObjectKeyFromObject(job.Object())
+	wlLookupKey := types.NamespacedName{
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.Object().GetUID(), job.GVK()),
+		Namespace: job.Object().GetNamespace(),
+	}
+	workload := &kueue.Workload{}
+	gomega.Consistently(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
+		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, workload)).Should(testing.BeNotFoundError())
+
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
 	ginkgo.By("Create a job")
 	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})

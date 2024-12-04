@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,7 +56,14 @@ const (
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(labels.Everything())))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
+		unmanagedNamespace := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "unmanaged-ns",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterAll(func() {
@@ -92,6 +98,13 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ResourceCPU: "spot",
 			},
 		})
+	})
+
+	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
+		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+		kftesting.ShouldNotReconcileUnmanagedJob(ctx, k8sClient, kfJob, createdJob)
 	})
 })
 
