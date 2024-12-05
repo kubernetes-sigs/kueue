@@ -1,0 +1,32 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-flavor"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "gpu"
+spec:
+  nodeLabels:
+    instance-type: gpu
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "spot"
+spec:
+  nodeLabels:
+    instance-type: spot
+  nodeTaints:
+  - effect: NoSchedule
+    key: spot
+    value: "true"
+  tolerations:
+  - key: "spot-taint"
+    operator: "Exists"
+    effect: "NoSchedule"
+

@@ -1,0 +1,80 @@
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+  margin: 0;
+  padding: 0;
+}
+
+h2 {
+  color: #333;
+  margin-top: 20px;
+}
+
+
+/* Apply bold font style to all table headers */
+th.MuiTableCell-head {
+  font-weight: bold;
+}
+
+th {
+  font-weight: bold;
+}
+
+tbody.tr.td {
+  padding: 8px;
+}
+
+.MuiPaper-root {
+  text-align: center;
+  color: #333;
+  padding: 8px;
+}
+
+
+.navbar-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  /* Makes the image circular */
+  margin-right: 16px;
+  /* Space between the icon and the title */
+  background-color: white;
+}
+
+.navbar-link {
+  text-decoration: none;
+  color: white;
+  display: flex;
+  align-items: center;
+}
+
+.icon-column {
+  width: 5%;
+}
+
+.name-column,
+.pods-count-column,
+.queue-name-column,
+.admission-status-column,
+.cluster-queue-column,
+.preempted-column,
+.priority-column,
+.priority-class-column {
+  width: auto; /* Allowing them to expand relative to their content */
+}
+
+.tree-indicator-column {
+  width: 5%;
+}
+
+.pod-name-column {
+  width: 30%;
+}
+
+.pod-status-column {
+  width: 20%;
+}
+
+.pod-reason-column {
+  width: 40%;
+}

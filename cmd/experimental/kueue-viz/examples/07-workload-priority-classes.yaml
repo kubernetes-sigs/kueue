@@ -1,0 +1,30 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: WorkloadPriorityClass
+metadata:
+  name: human-critical
+description: "Use for critical human critical workloads like research on disease or natural disaster avoidance"
+#preemptionPolicy: Never  # set to prevent pods of this priorityClass from being preempted to make space for other pods
+value: 1000000  # 1M out of 1B, higher is better
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: WorkloadPriorityClass
+metadata:
+  name: business-impacting
+description: "Use for business critical impacting workloads"
+#preemptionPolicy: Never  # set to prevent pods of this priorityClass from being preempted to make space for other pods
+value: 1000  # 1M out of 1B, higher is better
+
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: WorkloadPriorityClass
+metadata:
+  name: long-term-research
+description: "Use for long term research processes like extraterrestiral research" 
+#preemptionPolicy: Never  # set to prevent pods of this priorityClass from being preempted to make space for other pods
+value: 1  # 1M out of 1B, higher is better
+
+
+

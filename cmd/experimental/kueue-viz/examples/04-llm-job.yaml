@@ -1,0 +1,26 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: llm-
+  labels:
+    kueue.x-k8s.io/queue-name: llm-model-queue
+    kueue.x-k8s.io/priority-class: business-impacting
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: llm-training
+        image: gcr.io/google-containers/busybox:latest
+        command: ['sh', '-c', 'echo "Training llm..." && sleep 180']
+        resources:
+          requests:
+            cpu: 10m
+            memory: "100Mi"
+      restartPolicy: Never
+
+
+
