@@ -948,7 +948,7 @@ func MakeTopology(name string) *TopologyWrapper {
 }
 
 // Levels sets the levels for a Topology.
-func (t *TopologyWrapper) Levels(levels []string) *TopologyWrapper {
+func (t *TopologyWrapper) Levels(levels ...string) *TopologyWrapper {
 	t.Spec.Levels = make([]kueuealpha.TopologyLevel, len(levels))
 	for i, level := range levels {
 		t.Spec.Levels[i] = kueuealpha.TopologyLevel{

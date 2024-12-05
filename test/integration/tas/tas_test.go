@@ -89,10 +89,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("default").Levels([]string{
+			topology = testing.MakeTopology("default").Levels(
 				tasBlockLabel,
 				tasRackLabel,
-			}).Obj()
+			).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -312,10 +312,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 				}
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				topology = testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasRackLabel}).Obj()
+				topology = testing.MakeTopology("default").Levels(tasBlockLabel, tasRackLabel).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -579,10 +579,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -735,9 +735,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 				}
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasGPUFlavor = testing.MakeResourceFlavor("tas-gpu-flavor").

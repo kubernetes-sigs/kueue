@@ -964,9 +964,9 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 		}
 
-		topology = testing.MakeTopology("default").Levels([]string{
+		topology = testing.MakeTopology("default").Levels(
 			tasBlockLabel, tasRackLabel,
-		}).Obj()
+		).Obj()
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
