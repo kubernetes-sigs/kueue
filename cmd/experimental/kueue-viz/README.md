@@ -55,12 +55,20 @@ EOF
 ```
 ## Run
 
-In a first terminal run:
+`backend` uses `CompilerDaemon` to automatically rebuild go code.
+You may need to install `CompilerDaemon` with the following command:
+
+```
+go get github.com/githubnemo/CompileDaemon
+```
+
+Then, in a first terminal run:
+
 ```
 cd backend && make debug
 ```
 
-In another terminal run:
+And, in another terminal run:
 
 ```
 cd frontend && make debug

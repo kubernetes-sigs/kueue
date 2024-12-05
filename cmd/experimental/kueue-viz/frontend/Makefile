@@ -2,12 +2,17 @@
 
 # Default target: build the app
 .PHONY: all
-all: build
+all: install build
 
 # Build target: runs the production build
 .PHONY: build
 build:
 	npm run build
+
+# Install target: retrieves npm dependencies
+.PHONY: install
+install:
+	npm install
 
 # Run target: serves the built app
 .PHONY: run
