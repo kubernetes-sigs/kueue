@@ -16,7 +16,7 @@ controllerManager:
   #    enabled: true
   kubeRbacProxy:
     image:
-      repository: gcr.io/kubebuilder/kube-rbac-proxy
+      repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
       # tag
       tag: v0.8.0
       # This should be set to 'IfNotPresent' for released version
