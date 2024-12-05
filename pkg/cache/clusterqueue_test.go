@@ -1076,7 +1076,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cqCache := New(utiltesting.NewFakeClient())
 
-			topology := utiltesting.MakeTopology("example-topology").Levels([]string{"tas-level-0"}).Obj()
+			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
 			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
 			cqCache.AddOrUpdateResourceFlavor(rf)

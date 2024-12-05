@@ -659,9 +659,9 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 		}
 		util.CreateNodes(ctx, k8sClient, nodes)
 
-		topology = testing.MakeTopology("default").Levels([]string{
+		topology = testing.MakeTopology("default").Levels(
 			tasBlockLabel, tasRackLabel,
-		}).Obj()
+		).Obj()
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").

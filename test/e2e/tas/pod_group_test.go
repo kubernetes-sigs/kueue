@@ -53,11 +53,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("datacenter").Levels([]string{
+			topology = testing.MakeTopology("datacenter").Levels(
 				topologyLevelBlock,
 				topologyLevelRack,
 				corev1.LabelHostname,
-			}).Obj()
+			).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
