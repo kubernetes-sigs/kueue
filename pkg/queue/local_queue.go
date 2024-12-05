@@ -53,3 +53,36 @@ func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
 	q.items[key] = info
 }
+
+func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
+	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
+	result := 0
+	if !ok {
+		return 0
+	}
+	for _, wl := range c.heap.List() {
+		wlLqKey := workload.QueueKey(wl.Obj)
+		if wlLqKey == lq.Key {
+			result++
+		}
+	}
+	if c.inflight != nil && workloadKey(c.inflight) == lq.Key {
+		result++
+	}
+	return result
+}
+
+func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
+	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
+	if !ok {
+		return 0
+	}
+	result := 0
+	for _, wl := range c.inadmissibleWorkloads {
+		wlLqKey := workload.QueueKey(wl.Obj)
+		if wlLqKey == lq.Key {
+			result++
+		}
+	}
+	return result
+}

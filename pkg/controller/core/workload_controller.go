@@ -48,6 +48,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -258,6 +259,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
+			if features.Enabled(features.LocalQueueMetrics) {
+				metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(&wl), queuedWaitTime)
+				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
+			}
 		}
 		return ctrl.Result{}, nil
 	}
@@ -428,6 +433,9 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			cqName := string(lq.Spec.ClusterQueue)
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
 				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
+				if features.Enabled(features.LocalQueueMetrics) {
+					metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), kueue.WorkloadEvictedByLocalQueueStopped)
+				}
 			}
 		}
 		return true, client.IgnoreNotFound(err)

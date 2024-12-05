@@ -444,6 +444,51 @@ func ExpectAdmissionAttemptsMetric(pending, admitted int) {
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
 
+func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible int) {
+	vals := []int{active, inadmissible}
+	for i, status := range pendingStatuses {
+		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status)
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(int(v)).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
+func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
+	metric := metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).To(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, value int) {
+	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus) {
+	for i, s := range metrics.ConditionStatusValues {
+		var wantV float64
+		if metrics.ConditionStatusValues[i] == status {
+			wantV = 1
+		}
+		metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {

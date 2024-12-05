@@ -500,6 +500,12 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
 }
 
+func (q *queue) reportActiveWorkloads() {
+	qKeySlice := strings.Split(q.key, "/")
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+}
+
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
@@ -536,6 +542,9 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		if admitted {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
+		}
+		if features.Enabled(features.LocalQueueMetrics) {
+			lq.reportActiveWorkloads()
 		}
 	}
 }
@@ -581,11 +590,17 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
+	if features.Enabled(features.LocalQueueMetrics) {
+		qImpl.reportActiveWorkloads()
+	}
 	return nil
 }
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
+	}
 	delete(c.localQueues, qKey)
 }
 

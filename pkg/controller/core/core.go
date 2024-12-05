@@ -57,8 +57,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		qManager,
 		cc,
 		WithQueueVisibilityUpdateInterval(queueVisibilityUpdateInterval(cfg)),
-		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithFairSharing(fairSharingEnabled),
 		WithWatchers(rfRec, acRec),
 	)
