@@ -38,6 +38,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
@@ -822,4 +823,20 @@ func CreateNodes(ctx context.Context, c client.Client, nodes []corev1.Node) {
 			}
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
+}
+
+func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
+	unmanaged = append(unmanaged, "kube-system", "kueue_system")
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "kubernetes.io/metadata.name",
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   unmanaged,
+			},
+		},
+	}
+	sel, err := metav1.LabelSelectorAsSelector(ls)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return sel
 }

@@ -67,10 +67,11 @@ var (
 )
 
 type PodWebhook struct {
-	client                     client.Client
-	manageJobsWithoutQueueName bool
-	namespaceSelector          *metav1.LabelSelector
-	podSelector                *metav1.LabelSelector
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	namespaceSelector            *metav1.LabelSelector
+	podSelector                  *metav1.LabelSelector
 }
 
 // SetupWebhook configures the webhook for pods.
@@ -81,10 +82,11 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		return err
 	}
 	wh := &PodWebhook{
-		client:                     mgr.GetClient(),
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		namespaceSelector:          podOpts.NamespaceSelector,
-		podSelector:                podOpts.PodSelector,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		namespaceSelector:            podOpts.NamespaceSelector,
+		podSelector:                  podOpts.PodSelector,
 	}
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
@@ -168,6 +170,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		)
 	}
 	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
+	if features.Enabled(features.ManagedJobsNamespaceSelector) {
+		if !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			return nil
+		}
+	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse namespace selector: %w", err)

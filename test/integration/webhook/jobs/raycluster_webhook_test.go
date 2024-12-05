@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
-			}, jobframework.WithManageJobsWithoutQueueName(true)))
+			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{

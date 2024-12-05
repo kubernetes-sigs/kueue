@@ -115,6 +115,13 @@ Defaults to false; therefore, those jobs are not managed and if they are created
 unsuspended, they will start immediately.</p>
 </td>
 </tr>
+<tr><td><code>managedJobsNamespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName</p>
+</td>
+</tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
 <a href="#InternalCertManagement"><code>InternalCertManagement</code></a>
 </td>

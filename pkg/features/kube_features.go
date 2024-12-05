@@ -151,6 +151,13 @@ const (
 	//
 	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
 	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
+	// beta: v0.10
+	//
+	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
+	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
 )
 
 func init() {
@@ -180,6 +187,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
 	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
 	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
+	ManagedJobsNamespaceSelector:        {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

@@ -43,22 +43,27 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nsSelector := &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", "kueue-system"},
+					},
+				},
+			}
+			mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
 				pod.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
+				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "kubernetes.io/metadata.name",
-								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{"kube-system", "kueue-system"},
-							},
-						},
-					},
+					PodSelector:       &metav1.LabelSelector{},
+					NamespaceSelector: nsSelector,
 				}),
 			))
 		})
@@ -178,22 +183,26 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nsSelector := &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", "kueue-system"},
+					},
+				},
+			}
+			mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
 				pod.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "kubernetes.io/metadata.name",
-								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{"kube-system", "kueue-system"},
-							},
-						},
-					},
+					PodSelector:       &metav1.LabelSelector{},
+					NamespaceSelector: nsSelector,
 				}),
 			))
 		})

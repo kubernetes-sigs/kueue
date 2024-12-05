@@ -62,8 +62,15 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
 			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
+		unmanagedNamespace := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "unmanaged-ns",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -279,6 +286,38 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
+	})
+
+	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
+		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
+		job := testingjob.MakeJob(jobName, "unmanaged-ns").Suspend(false).Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+		ginkgo.By("The job is not suspended and a workload is not created")
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		childWorkload := &kueue.Workload{}
+		childWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+			g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should manage a job without a queue-name submittted to managed namespace", func() {
+		ginkgo.By("Creating an unsuspended job without a queue-name in a")
+		job := testingjob.MakeJob(jobName, ns.Name).Suspend(false).Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+		ginkgo.By("The job is suspended and a workload is created")
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		childWorkload := &kueue.Workload{}
+		childWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+			g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.When("The parent job is managed by kueue", func() {

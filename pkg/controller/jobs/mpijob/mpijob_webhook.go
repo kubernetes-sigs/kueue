@@ -21,10 +21,12 @@ import (
 	"sort"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -42,20 +44,24 @@ var (
 )
 
 type MpiJobWebhook struct {
-	manageJobsWithoutQueueName bool
-	kubeServerVersion          *kubeversion.ServerVersionFetcher
-	queues                     *queue.Manager
-	cache                      *cache.Cache
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	kubeServerVersion            *kubeversion.ServerVersionFetcher
+	queues                       *queue.Manager
+	cache                        *cache.Cache
 }
 
 // SetupMPIJobWebhook configures the webhook for MPIJob.
 func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &MpiJobWebhook{
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		kubeServerVersion:          options.KubeServerVersion,
-		queues:                     options.Queues,
-		cache:                      options.Cache,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		kubeServerVersion:            options.KubeServerVersion,
+		queues:                       options.Queues,
+		cache:                        options.Cache,
 	}
 	obj := &v2beta1.MPIJob{}
 	return webhook.WebhookManagedBy(mgr).
@@ -75,7 +81,9 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultForSuspend(mpiJob, w.manageJobsWithoutQueueName)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, mpiJob, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 
 	if canDefaultManagedBy(mpiJob.Spec.RunPolicy.ManagedBy) {
 		localQueueName, found := mpiJob.Labels[constants.QueueLabel]

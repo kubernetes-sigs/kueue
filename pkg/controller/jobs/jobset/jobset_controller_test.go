@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -330,6 +331,15 @@ func TestReconciler(t *testing.T) {
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
 
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				"kubernetes.io/metadata.name": "ns",
+			},
+		},
+	}
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *jobset.JobSet
@@ -341,6 +351,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets and a ProvReq annotation": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
@@ -391,6 +402,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets and workloadPriorityClass": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
@@ -425,6 +437,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets and PriorityClass": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
@@ -459,6 +472,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets, workloadPriorityClass and PriorityClass": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
@@ -499,7 +513,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			objs := append(tc.priorityClasses, tc.job)
+			objs := append(tc.priorityClasses, tc.job, testNamespace)
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)

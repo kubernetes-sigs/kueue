@@ -48,6 +48,9 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
+	// ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
+	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
+
 	// InternalCertManagement is configuration for internalCertManagement
 	InternalCertManagement *InternalCertManagement `json:"internalCertManagement,omitempty"`
 

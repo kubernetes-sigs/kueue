@@ -19,10 +19,12 @@ package jobset
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -40,18 +42,22 @@ var (
 )
 
 type JobSetWebhook struct {
-	manageJobsWithoutQueueName bool
-	queues                     *queue.Manager
-	cache                      *cache.Cache
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *queue.Manager
+	cache                        *cache.Cache
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
 func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobSetWebhook{
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		queues:                     options.Queues,
-		cache:                      options.Cache,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
+		cache:                        options.Cache,
 	}
 	obj := &jobsetapi.JobSet{}
 	return webhook.WebhookManagedBy(mgr).
@@ -71,7 +77,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 
 	if canDefaultManagedBy(jobSet.Spec.ManagedBy) {
 		localQueueName, found := jobSet.Labels[constants.QueueLabel]
