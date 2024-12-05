@@ -130,9 +130,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.RegisterLQMetrics()
-	}
+	metrics.Register()
 
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {

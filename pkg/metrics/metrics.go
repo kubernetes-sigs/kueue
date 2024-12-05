@@ -626,6 +626,9 @@ func Register() {
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
 	)
+	if features.Enabled(features.LocalQueueMetrics) {
+		RegisterLQMetrics()
+	}
 }
 
 func RegisterLQMetrics() {
