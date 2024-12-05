@@ -19,6 +19,8 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 
+export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+
 export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
