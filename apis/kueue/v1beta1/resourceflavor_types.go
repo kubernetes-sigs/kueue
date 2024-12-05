@@ -42,6 +42,7 @@ type TopologyReference string
 
 // ResourceFlavorSpec defines the desired state of the ResourceFlavor
 // +kubebuilder:validation:XValidation:rule="!has(self.topologyName) || self.nodeLabels.size() >= 1", message="at least one nodeLabel is required when topology is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || self == oldSelf", message="resourceFlavorSpec are immutable when topologyName is set"
 type ResourceFlavorSpec struct {
 	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
 	// have the same labels.
