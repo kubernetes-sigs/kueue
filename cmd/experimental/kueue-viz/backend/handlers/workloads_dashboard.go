@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -23,15 +24,13 @@ import (
 	"github.com/gin-gonic/gin" // Import v1 for Pod and PodStatus
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 )
 
 // WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
-func WorkloadsDashboardWebSocketHandler(dynamicClient dynamic.Interface, k8sClient *kubernetes.Clientset) gin.HandlerFunc {
+func WorkloadsDashboardWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		GenericWebSocketHandler(dynamicClient, schema.GroupVersionResource{}, "", func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchDashboardData(dynamicClient)
 		})(c)
 	}

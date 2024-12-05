@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -27,7 +28,7 @@ import (
 
 // ClusterQueuesWebSocketHandler streams all cluster queues
 func ClusterQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(dynamicClient, ClusterQueuesGVR(), "", func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (interface{}, error) {
 		return fetchClusterQueues(dynamicClient)
 	})
 }
@@ -36,7 +37,7 @@ func ClusterQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerF
 func ClusterQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
-		GenericWebSocketHandler(dynamicClient, ClusterQueuesGVR(), "", func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchClusterQueueDetails(dynamicClient, clusterQueueName)
 		})(c)
 	}

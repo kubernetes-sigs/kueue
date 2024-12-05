@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -24,7 +25,7 @@ import (
 
 // CohortsWebSocketHandler streams all cohorts
 func CohortsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(dynamicClient, CohortsGVR(), "", func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (interface{}, error) {
 		return fetchCohorts(dynamicClient)
 	})
 }
@@ -34,7 +35,7 @@ func CohortDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerF
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 
-		GenericWebSocketHandler(dynamicClient, CohortsGVR(), "", func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchCohortDetails(dynamicClient, cohortName)
 		})(c)
 	}

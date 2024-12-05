@@ -4,7 +4,6 @@ kind: ClusterQueue
 metadata:
   name: "emergency-cluster-queue"
 spec:
-  description: "Cluster queue for the emergency training jobs (Climate Change, Alzheimer, Cancer)."
   cohort: ai-for-humanity-foundation
   namespaceSelector: {} # match all.
   preemption:
@@ -36,7 +35,6 @@ kind: ClusterQueue
 metadata:
   name: agi-cluster-queue
 spec:
-  description: "Cluster queue for AGI model workloads"
   cohort: ai-for-humanity-foundation
   namespaceSelector: {}
   preemption:
@@ -60,7 +58,6 @@ kind: ClusterQueue
 metadata:
   name: llm-cluster-queue
 spec:
-  description: "Cluster queue for LLM model workloads"
   cohort: ai-for-humanity-foundation
   namespaceSelector: {}
   preemption:
@@ -68,7 +65,6 @@ spec:
   flavorFungibility:
     whenCanBorrow: Borrow  # this is the default but I'm making it explicit here
     whenCanPreempt: Preempt  # ensures that accelerators aren't hit with compute workloads
-  namespaceSelector: {} # match all.
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:

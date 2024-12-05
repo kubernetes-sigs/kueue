@@ -70,7 +70,7 @@ cd frontend && make debug
 Create test data using the resources in `examples/` directory.
 
 ```
-oc create -f examples/
+kubectl create -f examples/
 ```
 And check that you have some data on the dashboard.
 

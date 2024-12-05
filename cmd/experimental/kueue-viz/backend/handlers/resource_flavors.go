@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -31,7 +32,7 @@ import (
 // ResourceFlavorsWebSocketHandler streams all resource flavors
 func ResourceFlavorsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 
-	return GenericWebSocketHandler(dynamicClient, ResourceFlavorsGVR(), "", func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (interface{}, error) {
 		return fetchResourceFlavors(dynamicClient)
 	})
 }
@@ -40,7 +41,7 @@ func ResourceFlavorsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 func ResourceFlavorDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavorName := c.Param("flavor_name")
-		GenericWebSocketHandler(dynamicClient, ResourceFlavorsGVR(), "", func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchResourceFlavorDetails(dynamicClient, flavorName)
 		})(c)
 	}

@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -23,8 +24,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 )
 
 // WebSocket upgrader
@@ -35,7 +34,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with periodic data updates
-func GenericWebSocketHandler(dynamicClient dynamic.Interface, resource schema.GroupVersionResource, namespace string, dataFetcher func() (interface{}, error)) gin.HandlerFunc {
+func GenericWebSocketHandler(dataFetcher func() (interface{}, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
 		log.Debug("WebSocket handler started")

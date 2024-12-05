@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -24,8 +25,8 @@ import (
 func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interface, k8sClient *kubernetes.Clientset) {
 
 	// Workloads
-	router.GET("/ws/workloads", WorkloadsWebSocketHandler(dynamicClient, k8sClient))
-	router.GET("/ws/workloads/dashboard", WorkloadsDashboardWebSocketHandler(dynamicClient, k8sClient))
+	router.GET("/ws/workloads", WorkloadsWebSocketHandler(dynamicClient))
+	router.GET("/ws/workloads/dashboard", WorkloadsDashboardWebSocketHandler(dynamicClient))
 
 	router.GET("/ws/workload/:namespace/:workload_name", WorkloadDetailsWebSocketHandler(dynamicClient))
 	router.GET("/ws/workload/:namespace/:workload_name/events", WorkloadEventsWebSocketHandler(dynamicClient))

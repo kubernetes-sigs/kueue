@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -28,7 +29,7 @@ func LocalQueueWorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.Ha
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(dynamicClient, WorkloadsGVR(), namespace, func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchLocalQueueWorkloads(dynamicClient, namespace, queueName)
 		})(c)
 	}

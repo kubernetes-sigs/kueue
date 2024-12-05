@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package handlers
 
 import (
@@ -22,11 +23,10 @@ import (
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 )
 
-func WorkloadsWebSocketHandler(dynamicClient dynamic.Interface, k8sClient *kubernetes.Clientset) gin.HandlerFunc {
-	return GenericWebSocketHandler(dynamicClient, WorkloadsGVR(), "", func() (interface{}, error) {
+func WorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
+	return GenericWebSocketHandler(func() (interface{}, error) {
 		workloads, err := fetchWorkloads(dynamicClient)
 		result := map[string]interface{}{
 			"workloads": workloads,
@@ -39,7 +39,7 @@ func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
-		GenericWebSocketHandler(dynamicClient, WorkloadsGVR(), namespace, func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchWorkloadDetails(dynamicClient, namespace, workloadName)
 		})(c)
 	}
@@ -105,7 +105,7 @@ func WorkloadEventsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handler
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
 
-		GenericWebSocketHandler(dynamicClient, EventsGVR(), namespace, func() (interface{}, error) {
+		GenericWebSocketHandler(func() (interface{}, error) {
 			return fetchWorkloadEvents(dynamicClient, namespace, workloadName)
 		})(c)
 	}
