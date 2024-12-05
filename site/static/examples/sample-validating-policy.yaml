@@ -14,6 +14,9 @@ spec:
       apiVersions: ["v1alpha2"]
       operations:  ["CREATE", "UPDATE"]
       resources:   ["jobsets"]
+  matchConditions:
+  - name: exclude-jobset-owned
+    expression: "!(has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o, o.apiVersion=='jobset.x-k8s.io'&&o.kind=='JobSet'&&o.controller))"
   validations:
     - expression: "has(object.metadata.labels) && 'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
       message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set."
