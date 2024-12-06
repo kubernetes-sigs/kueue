@@ -170,7 +170,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		)
 	}
 	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
-	if features.Enabled(features.ManagedJobsNamespaceSelector) {
+	if features.Enabled(features.ManagedJobsNamespaceSelector) && w.manageJobsWithoutQueueName && jobframework.QueueName(pod) == "" {
 		if !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			return nil
 		}
@@ -212,7 +212,6 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
 	}
-
 	return nil
 }
 
