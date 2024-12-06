@@ -3,7 +3,7 @@ kind: ClusterRole
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-proxy-role'
+  name: '{{ include "kueue.fullname" . }}-metrics-auth-role'
 rules:
   - apiGroups:
       - authentication.k8s.io

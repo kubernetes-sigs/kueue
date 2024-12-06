@@ -33,7 +33,7 @@ const (
 	DefaultWebhookSecretName                            = "kueue-webhook-server-cert"
 	DefaultWebhookPort                                  = 9443
 	DefaultHealthProbeBindAddress                       = ":8081"
-	DefaultMetricsBindAddress                           = ":8080"
+	DefaultMetricsBindAddress                           = ":8443"
 	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
 	DefaultLeaderElectionLeaseDuration                  = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline                  = 10 * time.Second
