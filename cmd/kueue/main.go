@@ -41,6 +41,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -129,6 +131,16 @@ func main() {
 		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
 	}
+	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// More info:
+	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
+	// - https://book.kubebuilder.io/reference/metrics.html
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:    cfg.Metrics.BindAddress,
+		SecureServing:  true,
+		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	}
+	options.Metrics = metricsServerOptions
 
 	metrics.Register()
 

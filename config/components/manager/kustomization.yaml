@@ -2,7 +2,8 @@
 # for auth proxy (https://github.com/brancz/kube-rbac-proxy)
 resources:
 - manager.yaml
-- auth_proxy_service.yaml
+- manager_metrics_service.yaml
+
 
 generatorOptions:
   disableNameSuffixHash: true
