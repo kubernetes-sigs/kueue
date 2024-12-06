@@ -120,6 +120,7 @@ Long-term aspirational goals:
 - Flavor assignment strategies, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
 - Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)
 - Delayed preemption for two-stage admission [#3758](https://github.com/kubernetes-sigs/kueue/issues/3758)
+- Graduate the API to v1
 
 ## Community, discussion, contribution, and support
 
