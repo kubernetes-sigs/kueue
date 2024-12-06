@@ -67,7 +67,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, namespace, statefulSetName string) error {
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels{
-		pod.GroupNameLabel: GetWorkloadName(statefulSetName),
+		StatefulSetNameLabel: statefulSetName,
 	}); err != nil {
 		return err
 	}

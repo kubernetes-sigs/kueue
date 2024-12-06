@@ -34,6 +34,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+)
+
+const (
+	StatefulSetNameLabel = "kueue.x-k8s.io/statefulset-name"
 )
 
 type Webhook struct {
@@ -69,10 +74,15 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if ss.Spec.Template.Labels == nil {
-		ss.Spec.Template.Labels = make(map[string]string, 2)
+		ss.Spec.Template.Labels = make(map[string]string, 3)
 	}
+	ss.Spec.Template.Labels[StatefulSetNameLabel] = ss.Name
 	ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
+	groupName, err := GetWorkloadName(obj.(*appsv1.StatefulSet))
+	if err != nil {
+		return err
+	}
+	ss.Spec.Template.Labels[pod.GroupNameLabel] = groupName
 
 	if ss.Spec.Template.Annotations == nil {
 		ss.Spec.Template.Annotations = make(map[string]string, 4)
@@ -119,33 +129,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	oldQueueName := jobframework.QueueNameForObject(oldStatefulSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newStatefulSet.Object())
 
-	allErrs := apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
-		oldStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
-		podSpecQueueNameLabelPath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.GetLabels()[pod.GroupNameLabel],
-		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
-		groupNameLabelPath,
-	)...)
+	allErrs := jobframework.ValidateQueueName(newStatefulSet.Object())
 
-	oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
-	newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
-
-	// Allow only scale down to zero and scale up from zero.
-	// TODO(#3279): Support custom resizes later
-	if newReplicas != 0 && oldReplicas != 0 {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-			newStatefulSet.Spec.Replicas,
-			oldStatefulSet.Spec.Replicas,
-			replicasPath,
-		)...)
-	}
-
-	if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-		allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+	// Prevents updating the queue-name if at least one Pod is not suspended
+	// or if the queue-name has been deleted.
+	if oldStatefulSet.Status.ReadyReplicas > 0 || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
 
 	return warnings, allErrs.ToAggregate()
@@ -155,7 +144,12 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string) string {
+func GetWorkloadName(sts *appsv1.StatefulSet) (string, error) {
+	shape, err := utilpod.GenerateShape(sts.Spec.Template.Spec)
+	if err != nil {
+		return "", err
+	}
+	ownerName := fmt.Sprintf("%s-%s", sts.Name, shape)
 	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, "", gvk), nil
 }

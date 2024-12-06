@@ -82,52 +82,64 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 	})
 
 	ginkgo.When("StatefulSet created", func() {
-		ginkgo.It("should admit group that fits", func() {
+		ginkgo.It("should admit groups that fits with potentially conflicting StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestSleepImage, []string{"10m"}).
 				Request(corev1.ResourceCPU, "100m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
-			gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdStatefulSet := &appsv1.StatefulSet{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).
-					To(gomega.Succeed())
-				g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			createdWorkload := &kueue.Workload{}
-			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-
-			ginkgo.By("Creating potentially conflicting stateful-set", func() {
-				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
-					Image(util.E2eTestSleepImage, []string{"10m"}).
-					Request(corev1.ResourceCPU, "100m").
-					Replicas(1).
-					Queue(lq.Name).
-					Obj()
-				conflictingWlLookupKey := types.NamespacedName{
-					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.Name),
-					Namespace: ns.Name,
-				}
-				gomega.Expect(k8sClient.Create(ctx, conflictingStatefulSet)).To(gomega.Succeed())
+			createdStatefulSet := &appsv1.StatefulSet{}
+			ginkgo.By("Waiting for replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).
+						To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
+			})
+
+			conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(1).
+				Queue(lq.Name).
+				Obj()
+			ginkgo.By("Creating a potentially conflicting StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, conflictingStatefulSet)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready in the conflicting StatefulSet", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(conflictingStatefulSet), createdStatefulSet)).
 						To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				conflictingWorkload := &kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, conflictingWlLookupKey, conflictingWorkload)).To(gomega.Succeed())
+			})
+
+			conflictingWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload for the conflicting StatefulSet is created with a different name", func() {
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(conflictingStatefulSet), conflictingWorkload)).To(gomega.Succeed())
 				gomega.Expect(createdWorkload.Name).ToNot(gomega.Equal(conflictingWorkload.Name))
+			})
+
+			ginkgo.By("Check the conflicting Workload is deleted after the StatefulSet is deleted", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingStatefulSet, true)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingWorkload, false, util.LongTimeout)
 			})
 
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+			ginkgo.By("Check the Workload is deleted after the StatefulSet is deleted", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+			})
 		})
 
 		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
@@ -187,15 +199,14 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
 			})
 
+			createdStatefulSet := &appsv1.StatefulSet{}
 			ginkgo.By("Waiting for replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -203,12 +214,11 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Scale down replicas to zero", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
@@ -217,7 +227,6 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Waiting for replicas is deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -235,15 +244,14 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Replicas(0).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
 			})
 
+			createdStatefulSet := &appsv1.StatefulSet{}
 			ginkgo.By("Scale up replicas", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
@@ -252,34 +260,77 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Waiting for replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check workload is created", func() {
-				createdWorkload := &kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
 			})
 		})
 
-		ginkgo.It("should allow to scale up after scale down to zero", func() {
+		ginkgo.It("should allow to scale up", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(1).
+				Queue(lq.Name).
+				Obj()
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			createdStatefulSet := &appsv1.StatefulSet{}
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Scale up replicas", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the previous Workload is deleted", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+			})
+		})
+
+		ginkgo.It("should allow to scale up after partially scaled down", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestSleepImage, []string{"10m"}).
 				Request(corev1.ResourceCPU, "100m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
 				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
 			})
 
+			createdStatefulSet := &appsv1.StatefulSet{}
 			ginkgo.By("Waiting for replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -287,12 +338,11 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Scale down replicas to zero", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
@@ -301,7 +351,6 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Wait for ReadyReplicas < 3", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.BeNumerically("<", 3))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
@@ -310,7 +359,6 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Scale up replicas to zero - retry as it may not be possible immediately", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
@@ -319,11 +367,118 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Waiting for replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("should allow to scale down", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(3).
+				Queue(lq.Name).
+				Obj()
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			createdStatefulSet := &appsv1.StatefulSet{}
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is created", func() {
+				gomega.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Scale down replicas", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](1)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the previous Workload is deleted", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+			})
+		})
+
+		ginkgo.It("should allow to scale down after partially scale up", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Request(corev1.ResourceCPU, "100m").
+				Replicas(3).
+				Queue(lq.Name).
+				Obj()
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, getWorkloadKeyForStatefulSet(statefulSet), createdWorkload)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdStatefulSet := &appsv1.StatefulSet{}
+			ginkgo.By("Wait for ReadyReplicas > 1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.BeNumerically(">", 1))
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Scale down replicas", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](1)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas to be scaled down", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+				client.MatchingLabels(map[string]string{statefulset.StatefulSetNameLabel: statefulSet.Name}),
+			)).To(gomega.Succeed())
+			gomega.Expect(pods.Items).To(gomega.HaveLen(1))
+
+			ginkgo.By("Check the previous Workload is deleted", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+			})
+		})
 	})
 })
+
+func getWorkloadKeyForStatefulSet(sts *appsv1.StatefulSet) types.NamespacedName {
+	workloadName, err := statefulset.GetWorkloadName(sts)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return types.NamespacedName{
+		Name:      workloadName,
+		Namespace: sts.Namespace,
+	}
+}
