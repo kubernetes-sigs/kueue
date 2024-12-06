@@ -30,6 +30,8 @@ const (
 	E2eTestSleepImageOld = "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b"
 	// E2eTestSleepImage is the image used for testing.
 	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+	// E2eTTestCurlImage is the image used for testing with curl execution.
+	E2eTTestCurlImage = "curlimages/curl:8.11.0@sha256:6324a8b41a7f9d80db93c7cf65f025411f55956c6b248037738df3bfca32410c"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {

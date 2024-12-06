@@ -14,13 +14,6 @@ controllerManager:
   #featureGates:
   #  - name: PartialAdmission
   #    enabled: true
-  kubeRbacProxy:
-    image:
-      repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
-      # tag
-      tag: v0.16.0
-      # This should be set to 'IfNotPresent' for released version
-      pullPolicy: IfNotPresent
   manager:
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
@@ -65,7 +58,7 @@ managerConfig:
     health:
       healthProbeBindAddress: :8081
     metrics:
-      bindAddress: :8080
+      bindAddress: :8443
     # enableClusterQueueResources: true
     webhook:
       port: 9443

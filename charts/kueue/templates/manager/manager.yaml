@@ -67,19 +67,6 @@ spec:
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
-      - args:
-        - --secure-listen-address=0.0.0.0:8443
-        - --upstream=http://127.0.0.1:8080/
-        - --logtostderr=true
-        - --v=10
-        image: "{{ .Values.controllerManager.kubeRbacProxy.image.repository }}:{{ .Values.controllerManager.kubeRbacProxy.image.tag }}"
-        imagePullPolicy: {{ .Values.controllerManager.kubeRbacProxy.image.pullPolicy }}
-        name: kube-rbac-proxy
-        ports:
-        - containerPort: 8443
-          name: https
-          protocol: TCP
-        resources: {}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager

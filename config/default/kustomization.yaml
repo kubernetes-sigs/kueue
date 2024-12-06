@@ -30,17 +30,14 @@ resources:
 # - ../components/certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
 #- ../components/prometheus
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
 
 transformers:
 # Sets the namespace for the role binding as kube-system instead of default kueue-system
 - role_binding_visibility_transformer.yaml
 
 patches:
-# Protect the /metrics endpoint by putting it behind auth.
-# If you want your controller-manager to expose the /metrics
-# endpoint w/o any authn/z, please comment the following line.
-- path: manager_auth_proxy_patch.yaml
-
 # Mount the controller config file for loading manager configurations
 # through a ComponentConfig type
 - path: manager_config_patch.yaml
