@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -74,11 +75,12 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
 
 	if ss.Spec.Template.Annotations == nil {
-		ss.Spec.Template.Annotations = make(map[string]string, 2)
+		ss.Spec.Template.Annotations = make(map[string]string, 4)
 	}
 	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 	ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
+	ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 
 	return nil
 }

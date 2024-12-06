@@ -106,6 +106,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 The label key indicates the name of the group of Pods that should be admitted together.
 
 
+### kueue.x-k8s.io/pod-group-pod-index-label
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/pod-group-pod-index-label: "apps.kubernetes.io/pod-index"`
+
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
+
+The annotation key indicates a label name used to retrieve the Pod's index within the group.
+
+
 ### kueue.x-k8s.io/pod-group-serving
 
 Type: Annotation
