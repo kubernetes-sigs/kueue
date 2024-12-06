@@ -3773,7 +3773,7 @@ func TestSnapshotError(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	topology := *utiltesting.MakeTopology("default").
-		Levels([]string{corev1.LabelHostname}).
+		Levels(corev1.LabelHostname).
 		Obj()
 	flavor := *utiltesting.MakeResourceFlavor("tas-default").
 		TopologyName("default").

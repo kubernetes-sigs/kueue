@@ -147,10 +147,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("default").Levels([]string{
+			topology = testing.MakeTopology("default").Levels(
 				tasBlockLabel,
 				tasRackLabel,
-			}).Obj()
+			).Obj()
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -319,10 +319,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodes(ctx, k8sClient, nodes)
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				topology = testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasRackLabel}).Obj()
+				topology = testing.MakeTopology("default").Levels(tasBlockLabel, tasRackLabel).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -626,11 +626,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodes(ctx, k8sClient, nodes)
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
 					corev1.LabelHostname,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -720,10 +720,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -808,11 +808,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasBlockLabel,
 					tasRackLabel,
 					corev1.LabelHostname,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -936,9 +936,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodes(ctx, k8sClient, nodes)
 
-				topology = testing.MakeTopology("default").Levels([]string{
+				topology = testing.MakeTopology("default").Levels(
 					tasRackLabel,
-				}).Obj()
+				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasGPUFlavor = testing.MakeResourceFlavor("tas-gpu-flavor").
@@ -1053,22 +1053,22 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			gomega.Expect(err).Should(matcher)
 		},
 			ginkgo.Entry("valid Topology",
-				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("invalid levels",
-				testing.MakeTopology("invalid-level").Levels([]string{"@invalid"}).Obj(),
+				testing.MakeTopology("invalid-level").Levels("@invalid").Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("non-unique levels",
-				testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasBlockLabel}).Obj(),
+				testing.MakeTopology("default").Levels(tasBlockLabel, tasBlockLabel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname first",
-				testing.MakeTopology("default").Levels([]string{corev1.LabelHostname, tasBlockLabel, tasRackLabel}).Obj(),
+				testing.MakeTopology("default").Levels(corev1.LabelHostname, tasBlockLabel, tasRackLabel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname middle",
-				testing.MakeTopology("default").Levels([]string{tasBlockLabel, corev1.LabelHostname, tasRackLabel}).Obj(),
+				testing.MakeTopology("default").Levels(tasBlockLabel, corev1.LabelHostname, tasRackLabel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname last",
-				testing.MakeTopology("default").Levels([]string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}).Obj(),
+				testing.MakeTopology("default").Levels(tasBlockLabel, tasRackLabel, corev1.LabelHostname).Obj(),
 				gomega.Succeed()),
 		)
 	})
@@ -1087,7 +1087,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			gomega.Expect(k8sClient.Update(ctx, topology)).Should(matcher)
 		},
 			ginkgo.Entry("succeed to update topology",
-				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
 				func(topology *kueuealpha.Topology) {
 					topology.ObjectMeta.Labels = map[string]string{
 						"alpha": "beta",
@@ -1095,7 +1095,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				},
 				gomega.Succeed()),
 			ginkgo.Entry("updating levels is prohibited",
-				testing.MakeTopology("valid").Levels([]string{corev1.LabelHostname}).Obj(),
+				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
 				func(topology *kueuealpha.Topology) {
 					topology.Spec.Levels = append(topology.Spec.Levels, kueuealpha.TopologyLevel{
 						NodeLabel: "added",
@@ -1103,7 +1103,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				},
 				testing.BeInvalidError()),
 			ginkgo.Entry("updating levels order is prohibited",
-				testing.MakeTopology("default").Levels([]string{tasRackLabel, tasBlockLabel, corev1.LabelHostname}).Obj(),
+				testing.MakeTopology("default").Levels(tasRackLabel, tasBlockLabel, corev1.LabelHostname).Obj(),
 				func(topology *kueuealpha.Topology) {
 					topology.Spec.Levels[0], topology.Spec.Levels[1] = topology.Spec.Levels[1], topology.Spec.Levels[0]
 				},
