@@ -106,6 +106,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 The label key indicates the name of the group of Pods that should be admitted together.
 
 
+### kueue.x-k8s.io/pod-group-pod-index
+
+Type: Label
+
+Example: `kueue.x-k8s.io/pod-group-pod-index: "0"`
+
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
+
+The label key indicated the Pod's index within the pod group it belongs to.
+
+
 ### kueue.x-k8s.io/pod-group-pod-index-label
 
 Type: Annotation
@@ -138,15 +149,6 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate how many Pods to expect in the group.
 
-### `kueue.x-k8s.io/pod-group-pod-index
-
-Type: Label
-
-Example: `kueue.x-k8s.io/pod-group-pod-index: "0"`
-
-Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
-
-The label key indicated the Pod's index within the pod group it belongs to.
 
 ### kueue.x-k8s.io/prebuilt-workload-name
 
