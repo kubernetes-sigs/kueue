@@ -20,7 +20,7 @@ is enabled. In Kubernetes 1.30 or newer, the feature gate is enabled by default.
 
 ## Example
 
-The example below shows you how to set up the Job Admission Policy to reject early all Job or JobSets
+The example below shows you how to set up a Job Admission Policy to reject early all Job or JobSets
 without the queue-name if sent to a namespace labeled as a `kueue-managed` namespace.
 
 You should set `manageJobsWithoutQueueName` to `false` in the Kueue Configuration to let an admin
@@ -60,3 +60,9 @@ that is labeled as `kueue-managed`, the error message will be similar to the fol
 ValidatingAdmissionPolicy 'sample-validating-admission-policy' with binding 'sample-validating-admission-policy-binding' denied request: The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
 ```
 
+## Handling of Parent/Child Relationships
+
+One complication of this approach is that when a Workload is admitted, it may create child resources
+of Kinds that are also managed by Kueue. These children are not required to have the queue-name label,
+because their admission is implied by the admission of their parent.  In the example policy, the `exclude-jobset-owned`
+`matchCondition` ensures that a child `Job` that is owned by a parent `JobSet` will not be denied admission.
