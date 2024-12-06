@@ -209,10 +209,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 				return err
 			}
 		}
+		// copy back changes to the object
+		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
 	}
 
-	// copy back to the object
-	pod.pod.DeepCopyInto(obj.(*corev1.Pod))
 	return nil
 }
 
