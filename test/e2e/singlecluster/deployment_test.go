@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 				g.Expect(createdDeployment.Status.Replicas).To(gomega.Equal(int32(3)))
 				g.Expect(createdDeployment.Status.UnavailableReplicas).To(gomega.Equal(int32(3)))
-				g.Expect(createdDeployment.Status.AvailableReplicas).To(gomega.Equal(int32(0)))
+				g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

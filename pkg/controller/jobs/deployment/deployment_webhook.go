@@ -27,7 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
@@ -62,7 +63,11 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
-		deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
+		deployment.Labels[constants.ManagedByKueueLabel] = "true"
+		deployment.Spec.Template.Labels[controllerconsts.QueueLabel] = queueName
+	} else if deployment.Labels[constants.ManagedByKueueLabel] == "true" {
+		delete(deployment.Labels, constants.ManagedByKueueLabel)
+		delete(deployment.Spec.Template.Labels, controllerconsts.QueueLabel)
 	}
 
 	return nil
@@ -85,7 +90,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 
 var (
 	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
+	queueNameLabelPath = labelsPath.Key(controllerconsts.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -101,9 +106,8 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, jobframework.ValidateQueueName(newDeployment.Object())...)
 
-	// Prevents updating the queue-name if at least one Pod is not suspended
-	// or if the queue-name has been deleted.
-	if oldDeployment.Status.ReadyReplicas > 0 || newQueueName == "" {
+	// Prevents updating the queue-name if at least one Pod is not suspended.
+	if oldDeployment.Status.ReadyReplicas > 0 {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
 
