@@ -7,7 +7,7 @@ description: >
 ---
 
 This page describes how to configure Kueue to ensure that all Workloads submitted in namespaces
-intended for use by _batch users_ will be managed by Kueue even if they lack a local-queue label.
+intended for use by _batch users_ will be managed by Kueue even if they lack the queue-name label.
 
 ## Before you begin
 
@@ -51,5 +51,5 @@ You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. C
 ## Expected Behavior
 
 In all namespaces that match the namespace selector, any Workloads submitted without a queue-name
-label will be suspended.  These Workloads will not be considered for admission by Kueue unless
-they are edited to have a queue-name label.
+label will be suspended.  These Workloads will not be considered for admission by Kueue until
+they are edited to have the queue-name label.
