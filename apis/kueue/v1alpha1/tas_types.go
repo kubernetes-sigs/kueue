@@ -67,7 +67,7 @@ const (
 	// PodGroupPodIndexLabelAnnotation is an annotation on the Pod's metadata
 	// belonging to a Pod group. It indicates a label name used to retrieve
 	// the Pod's index within the group.
-	PodGroupPodIndexLabelAnnotation = "kueue.x-k8s.io/pod-group-pod-index-label-name-from"
+	PodGroupPodIndexLabelAnnotation = "kueue.x-k8s.io/pod-group-pod-index-label"
 )
 
 // TopologySpec defines the desired state of Topology
