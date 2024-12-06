@@ -18,10 +18,8 @@ package deployment
 
 import (
 	"context"
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,7 +31,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type Webhook struct {
@@ -67,21 +64,12 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Applying defaults")
 
-	queueName := jobframework.QueueNameForObject(deployment.Object())
-
-	// Do not manage a deployment without a queue name unless the namespace selector also matches
-	if features.Enabled(features.ManagedJobsNamespaceSelector) && wh.manageJobsWithoutQueueName && queueName == "" {
-		ns := corev1.Namespace{}
-		err := wh.client.Get(ctx, client.ObjectKey{Name: deployment.Namespace}, &ns)
-		if err != nil {
-			return fmt.Errorf("failed to get namespace: %w", err)
-		}
-		if !wh.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
-		}
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
-
-	if queueName != "" || wh.manageJobsWithoutQueueName {
+	if suspend {
+		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
