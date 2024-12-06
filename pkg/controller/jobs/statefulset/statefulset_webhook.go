@@ -62,16 +62,15 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	cqLabel, ok := ss.Labels[constants.QueueLabel]
-	if !ok {
+	queueName := jobframework.QueueNameForObject(ss.Object())
+	if queueName == "" {
 		return nil
 	}
 
 	if ss.Spec.Template.Labels == nil {
 		ss.Spec.Template.Labels = make(map[string]string, 2)
 	}
-
-	ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
+	ss.Spec.Template.Labels[constants.QueueLabel] = queueName
 	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
 
 	if ss.Spec.Template.Annotations == nil {
@@ -115,11 +114,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := apivalidation.ValidateImmutableField(
-		newStatefulSet.GetLabels()[constants.QueueLabel],
-		oldStatefulSet.GetLabels()[constants.QueueLabel],
-		queueNameLabelPath,
-	)
+	oldQueueName := jobframework.QueueNameForObject(oldStatefulSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newStatefulSet.Object())
+
+	allErrs := apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
 		oldStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
