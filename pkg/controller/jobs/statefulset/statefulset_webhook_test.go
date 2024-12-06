@@ -57,6 +57,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"statefulset without replicas": {
@@ -71,6 +72,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 	}

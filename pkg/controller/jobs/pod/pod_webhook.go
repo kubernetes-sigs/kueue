@@ -193,9 +193,15 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 		gate(&pod.pod)
 
-		if features.Enabled(features.TopologyAwareScheduling) && jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil) != nil {
-			pod.pod.Labels[kueuealpha.TASLabel] = "true"
-			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
+		if features.Enabled(features.TopologyAwareScheduling) {
+			if val, ok := pod.pod.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation]; ok {
+				pod.pod.Labels[kueuealpha.PodGroupPodIndexLabel] = pod.pod.Labels[val]
+			}
+
+			if jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil) != nil {
+				pod.pod.Labels[kueuealpha.TASLabel] = "true"
+				utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
+			}
 		}
 
 		if podGroupName(pod.pod) != "" {

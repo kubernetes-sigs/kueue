@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -141,6 +142,10 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(ena
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation(enabled bool) *StatefulSetWrapper {
 	return ss.PodTemplateSpecAnnotation(pod.GroupServingAnnotation, strconv.FormatBool(enabled))
+}
+
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
