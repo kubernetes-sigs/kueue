@@ -151,9 +151,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 
-	// Backwards compatability until podOptions.podSelector and podOptions.namespaceSelector are deprecated.
-	// When the shared logic determines the Pod should be suspended, run the legacy checks as well
-	// and if either of them fires then abort the suspension.
+	// Backwards compatibility support until podOptions.podSelector and podOptions.namespaceSelector are deprecated.
+	// When WorkloadShouldBeSuspend determines that suspend is true, also run the podOptions based checks
+	// and if either of them exempts the Pod from suspension, we return early.
 	if suspend {
 		// podOptions.podSelector
 		podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
