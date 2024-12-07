@@ -186,9 +186,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		return nil
 	}
 
-	if w.queues != nil {
-		jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueue(ns.GetName()))
-	}
+	jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueue(ns.GetName()))
 
 	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
 		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)

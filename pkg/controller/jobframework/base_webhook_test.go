@@ -131,7 +131,7 @@ func makeTestGenericJob() *testGenericJob {
 func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
 		manageJobsWithoutQueueName bool
-		LocalQueueDefaulting       bool
+		localQueueDefaulting       bool
 		defaultLqExist             bool
 		job                        *batchv1.Job
 		want                       *batchv1.Job
@@ -172,7 +172,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 			},
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			LocalQueueDefaulting: true,
+			localQueueDefaulting: true,
 			defaultLqExist:       true,
 			job: utiljob.MakeJob("job", "default").
 				Obj(),
@@ -181,7 +181,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			LocalQueueDefaulting: true,
+			localQueueDefaulting: true,
 			defaultLqExist:       true,
 			job: utiljob.MakeJob("job", "default").
 				Queue("queue").
@@ -191,7 +191,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			LocalQueueDefaulting: true,
+			localQueueDefaulting: true,
 			defaultLqExist:       false,
 			job: utiljob.MakeJob("job", "default").
 				Obj(),
@@ -202,7 +202,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.LocalQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
@@ -213,7 +213,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
-					t.Errorf("failed to create default local queue: %s", err)
+					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
 			w := &jobframework.BaseWebhook{

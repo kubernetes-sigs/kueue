@@ -119,6 +119,7 @@ func managerSetup(
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		opts = append(opts, jobframework.WithQueues(queues))
 
 		mgr.GetScheme().Default(configuration)
 

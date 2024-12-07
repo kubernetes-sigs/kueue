@@ -91,6 +91,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
@@ -104,6 +105,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
