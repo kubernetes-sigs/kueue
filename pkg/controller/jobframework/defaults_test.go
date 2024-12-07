@@ -19,6 +19,7 @@ package jobframework
 import (
 	"testing"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,22 +30,20 @@ import (
 )
 
 func TestWorkloadShouldBeSuspended(t *testing.T) {
+	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := &corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "managed-ns",
 			Labels: map[string]string{"kubernetes.io/metadata.name": "managed-ns"},
 		},
 	}
-
 	unmanagedNamespace := &corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "unmanaged-ns",
 			Labels: map[string]string{"kubernetes.io/metadata.name": "unmanaged-ns"},
 		},
 	}
-
+	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).Queue("default").Obj()
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -86,6 +85,14 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			featureGateEnabled:         true,
 			wantSuspend:                true,
 		},
+		"job without queue name but with managed parent with manageJobs": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			featureGateEnabled:         true,
+			wantSuspend:                false,
+		},
 		"job without queue name with manageJobs with feature disabled": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
@@ -109,7 +116,7 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
 			builder := utiltesting.NewClientBuilder()
-			builder.WithObjects(managedNamespace, unmanagedNamespace, tc.obj)
+			builder.WithObjects(managedNamespace, unmanagedNamespace, tc.obj, parent)
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
