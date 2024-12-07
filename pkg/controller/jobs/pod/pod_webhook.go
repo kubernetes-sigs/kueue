@@ -146,44 +146,44 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if IsPodOwnerManagedByKueue(pod) {
-		log.V(5).Info("Pod owner is managed by kueue, skipping")
-		return nil
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, pod.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
 
-	// Check for pod label selector match
-	podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
-	if err != nil {
-		return fmt.Errorf("failed to parse pod selector: %w", err)
-	}
-	if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
-		return nil
-	}
+	// Backwards compatibility support until podOptions.podSelector and podOptions.namespaceSelector are deprecated.
+	// When WorkloadShouldBeSuspend determines that suspend is true, also run the podOptions based checks
+	// and if either of them exempts the Pod from suspension, we return early.
+	if suspend {
+		// podOptions.podSelector
+		podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
+		if err != nil {
+			return fmt.Errorf("failed to parse pod selector: %w", err)
+		}
+		if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
+			return nil
+		}
 
-	// Get pod namespace and check for namespace label selector match
-	ns := corev1.Namespace{}
-	err = w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
-	if err != nil {
-		return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
-			pod.pod.GetName(),
-			err,
-		)
-	}
-	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
-	if features.Enabled(features.ManagedJobsNamespaceSelector) {
-		if !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+		// podOptions.namespaceSelector
+		ns := corev1.Namespace{}
+		err = w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
+		if err != nil {
+			return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
+				pod.pod.GetName(),
+				err,
+			)
+		}
+		log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
+		nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
+		if err != nil {
+			return fmt.Errorf("failed to parse namespace selector: %w", err)
+		}
+		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
 			return nil
 		}
 	}
-	nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
-	if err != nil {
-		return fmt.Errorf("failed to parse namespace selector: %w", err)
-	}
-	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-		return nil
-	}
 
-	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
+	if suspend {
 		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
 
 		if pod.pod.Labels == nil {

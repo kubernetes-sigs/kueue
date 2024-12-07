@@ -30,27 +30,44 @@ import (
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
-	// Do not default suspend a job whose owner is already managed by Kueue
-	if owner := metav1.GetControllerOf(job.Object()); owner != nil && IsOwnerManagedByKueue(owner) {
-		return nil
+	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
-
-	// Do not default suspend a job without a queue name unless the namespace selector also matches
-	if features.Enabled(features.ManagedJobsNamespaceSelector) && manageJobsWithoutQueueName && QueueName(job) == "" {
-		ns := corev1.Namespace{}
-		err := k8sClient.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
-		if err != nil {
-			return fmt.Errorf("failed to get namespace: %w", err)
-		}
-		if !managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
-		}
-	}
-
-	if QueueName(job) != "" || manageJobsWithoutQueueName {
-		if !job.IsSuspended() {
-			job.Suspend()
-		}
+	if suspend && !job.IsSuspended() {
+		job.Suspend()
 	}
 	return nil
+}
+
+// WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
+func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
+	// Do not default suspend a job whose owner is already managed by Kueue
+	if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+		return false, nil
+	}
+
+	// Jobs with queue names whose parents are not managed by Kueue are default suspended
+	if QueueNameForObject(jobObj) != "" {
+		return true, nil
+	}
+
+	// Logic for managing jobs without queue names.
+	if manageJobsWithoutQueueName {
+		if features.Enabled(features.ManagedJobsNamespaceSelector) {
+			// Default suspend the job if the namespace selector matches
+			ns := corev1.Namespace{}
+			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
+			if err != nil {
+				return false, fmt.Errorf("failed to get namespace: %w", err)
+			}
+			return managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())), nil
+		} else {
+			// Namespace filtering is disabled; unconditionally default suspend
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

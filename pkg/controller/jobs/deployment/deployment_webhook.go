@@ -21,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,12 +34,17 @@ import (
 )
 
 type Webhook struct {
-	client client.Client
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
 }
 
-func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client: mgr.GetClient(),
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
@@ -58,7 +64,12 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if queueName := jobframework.QueueNameForObject(deployment.Object()); queueName != "" {
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if suspend {
+		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
