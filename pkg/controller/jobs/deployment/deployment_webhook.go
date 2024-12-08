@@ -21,7 +21,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,17 +33,12 @@ import (
 )
 
 type Webhook struct {
-	client                       client.Client
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
+	client client.Client
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client:                       mgr.GetClient(),
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		client: mgr.GetClient(),
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
@@ -62,14 +56,11 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	deployment := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
-	log.V(5).Info("Applying defaults")
+	log.V(5).Info("Propagating queue-name")
 
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
-	if err != nil {
-		return err
-	}
-	if suspend {
-		queueName := jobframework.QueueNameForObject(deployment.Object())
+	// Because Deployment is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
+	queueName := jobframework.QueueNameForObject(deployment.Object())
+	if queueName != "" {
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
