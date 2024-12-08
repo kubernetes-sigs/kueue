@@ -96,6 +96,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)
+		opts = append(opts, jobframework.WithQueues(queues))
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

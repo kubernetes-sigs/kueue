@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -68,6 +69,7 @@ var (
 
 type PodWebhook struct {
 	client                       client.Client
+	queues                       *queue.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
@@ -83,6 +85,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	}
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
+		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		namespaceSelector:            podOpts.NamespaceSelector,
@@ -182,6 +185,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
 		return nil
 	}
+
+	jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueue(ns.GetName()))
 
 	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
 		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
