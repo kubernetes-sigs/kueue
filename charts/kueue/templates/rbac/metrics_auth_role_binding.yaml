@@ -3,11 +3,11 @@ kind: ClusterRoleBinding
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-proxy-rolebinding'
+  name: '{{ include "kueue.fullname" . }}-metrics-auth-rolebinding'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "kueue.fullname" . }}-proxy-role'
+  name: '{{ include "kueue.fullname" . }}-metrics-auth-role'
 subjects:
   - kind: ServiceAccount
     name: '{{ include "kueue.fullname" . }}-controller-manager'
