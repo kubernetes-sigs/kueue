@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,6 +91,7 @@ var (
 	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
+	realClock                    = clock.RealClock{}
 )
 
 func init() {
@@ -118,7 +120,7 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, &Pod{excessPodExpectations: r.expectationsStore})
+	return r.ReconcileGenericJob(ctx, req, &Pod{excessPodExpectations: r.expectationsStore, clock: realClock})
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -155,6 +157,7 @@ type Pod struct {
 	absentPods            int
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
+	clock                 clock.Clock
 }
 
 var (
@@ -445,7 +448,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 						Type:   ConditionTypeTerminationTarget,
 						Status: corev1.ConditionTrue,
 						LastTransitionTime: metav1.Time{
-							Time: time.Now(),
+							Time: p.clock.Now(),
 						},
 						Reason:  string(stopReason),
 						Message: eventMsg,
