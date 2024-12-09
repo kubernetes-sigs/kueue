@@ -758,7 +758,7 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 		return false
 	}
 
-	startTime := time.Now()
+	startTime := r.clock.Now()
 	defer func() {
 		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", cqName), "elapsed", time.Since(startTime))
 	}()
