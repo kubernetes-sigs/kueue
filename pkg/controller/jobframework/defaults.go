@@ -44,18 +44,17 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
-	// Do not default suspend a job whose owner is already managed by Kueue
-	if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
-		return false, nil
-	}
-
-	// Jobs with queue names whose parents are not managed by Kueue are default suspended
+	// Jobs with queue names are default suspended
 	if QueueNameForObject(jobObj) != "" {
 		return true, nil
 	}
 
-	// Logic for managing jobs without queue names.
 	if manageJobsWithoutQueueName {
+		// Do not default a job whose owner kind is managed by Kueue -- defaulting is done at outermost level
+		if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+			return false, nil
+		}
+
 		if features.Enabled(features.ManagedJobsNamespaceSelector) {
 			// Default suspend the job if the namespace selector matches
 			ns := corev1.Namespace{}
@@ -69,6 +68,7 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 			return true, nil
 		}
 	}
+
 	return false, nil
 }
 
@@ -77,6 +77,10 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		return
 	}
 	if QueueNameForObject(jobObj) == "" {
+		// Do not default a job whose owner kind is managed by Kueue -- defaulting is done at outermost level
+		if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+			return
+		}
 		labels := jobObj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string, 1)

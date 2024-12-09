@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package statefulset
+package replicaset
 
 import (
 	"context"
@@ -30,37 +30,37 @@ import (
 )
 
 var (
-	gvk = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+	gvk = appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
 )
 
 const (
-	FrameworkName = "statefulset"
+	FrameworkName = "replicaset"
 )
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &appsv1.StatefulSet{},
-		AddToScheme:            appsv1.AddToScheme,
-		DependencyList:         []string{"replicaset"},
+		NewReconciler:          jobframework.NewNoopReconcilerFactory(gvk),
 		GVK:                    gvk,
-		IsManagingObjectsOwner: isStatefulSet,
+		SetupWebhook:           SetupWebhook,
+		JobType:                &appsv1.ReplicaSet{},
+		AddToScheme:            appsv1.AddToScheme,
+		DependencyList:         []string{"pod"},
+		IsManagingObjectsOwner: isReplicaSet,
 	}))
 }
 
-type StatefulSet appsv1.StatefulSet
+type ReplicaSet appsv1.ReplicaSet
 
-func fromObject(o runtime.Object) *StatefulSet {
-	return (*StatefulSet)(o.(*appsv1.StatefulSet))
+func fromObject(o runtime.Object) *ReplicaSet {
+	return (*ReplicaSet)(o.(*appsv1.ReplicaSet))
 }
 
-func (d *StatefulSet) Object() client.Object {
-	return (*appsv1.StatefulSet)(d)
+func (rs *ReplicaSet) Object() client.Object {
+	return (*appsv1.ReplicaSet)(rs)
 }
 
-func (d *StatefulSet) GVK() schema.GroupVersionKind {
+func (d *ReplicaSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
@@ -68,6 +68,6 @@ func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
 }
 
-func isStatefulSet(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "StatefulSet" && owner.APIVersion == gvk.GroupVersion().String()
+func isReplicaSet(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "ReplicaSet" && owner.APIVersion == gvk.GroupVersion().String()
 }

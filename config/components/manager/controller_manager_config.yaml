@@ -53,8 +53,9 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
 #  - "pod"
-#  - "deployment" # requires enabling pod integration
-#  - "statefulset" # requires enabling pod integration
+#  - "replicaset" # requires pod integration
+#  - "deployment" # requires replicaset integration
+#  - "statefulset" # requires replicaset integration
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #  podOptions:

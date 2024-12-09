@@ -357,7 +357,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				var pod *corev1.Pod
 				ginkgo.BeforeEach(func() {
 					pod = testingpod.MakePod(podName, ns.Name).
-						Queue("test-queue").
 						OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 						Obj()
 				})

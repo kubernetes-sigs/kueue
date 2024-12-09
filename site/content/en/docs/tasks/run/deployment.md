@@ -23,8 +23,18 @@ For more information, see [Kueue's overview](/docs/overview).
 
 1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
 
-2. Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-to learn how to enable the `v1/pod` integration and how to configure it using the `podOptions` field.
+2. Ensure that you have the v1/deployment integration enabled, for example:
+   ```yaml
+   apiVersion: config.kueue.x-k8s.io/v1beta1
+   kind: Configuration
+   integrations:
+     frameworks:
+      - "pod" # required by replicaset
+      - "replicaset" # required by deployment
+      - "deployment"
+   ```
+   Also, follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
+   to learn how to enable the `v1/pod` integration and how to configure it using the `podOptions` field.
 
 3. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -34,18 +44,13 @@ When running Deployment on Kueue, take into consideration the following aspects:
 
 ### a. Queue selection
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `spec.template.metadata.labels` section of the Deployment configuration. 
-Since Kueue's scheduling and resource management will be applied to the individual Pods of the Deployment,
-the queue name should be specified at the Pod level.
+The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the Depolyment configuration.
 
 ```yaml
-spec:
-   template:
-      metadata:
-         labels:
-            kueue.x-k8s.io/queue-name: user-queue
+metadata:
+   labels:
+      kueue.x-k8s.io/queue-name: user-queue
 ```
-
 ### b. Configure the resource needs
 
 The resource needs of the workload can be configured in the `spec.template.spec.containers`.

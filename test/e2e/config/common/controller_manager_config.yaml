@@ -27,5 +27,6 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
   - "pod"
+  - "replicaset"
   - "deployment"
   - "statefulset"

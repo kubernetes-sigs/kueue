@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package deployment
+package replicaset
 
 import (
 	"context"
@@ -57,46 +57,46 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-apps-v1-replicaset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=replicasets,verbs=create;update,versions=v1,name=mreplicaset.kb.io,admissionReviewVersions=v1
 
 var _ admission.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	deployment := fromObject(obj)
+	rs := fromObject(obj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("replicaset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(deployment.Object(), wh.queues.DefaultLocalQueueExist)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	jobframework.ApplyDefaultLocalQueue(rs.Object(), wh.queues.DefaultLocalQueueExist)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, rs.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}
 	if suspend {
-		queueName := jobframework.QueueNameForObject(deployment.Object())
+		queueName := jobframework.QueueNameForObject(rs.Object())
 		if queueName == "" {
 			queueName = "manage-jobs-without-queue-name"
 		}
-		if deployment.Spec.Template.Labels == nil {
-			deployment.Spec.Template.Labels = make(map[string]string, 1)
+		if rs.Spec.Template.Labels == nil {
+			rs.Spec.Template.Labels = make(map[string]string, 1)
 		}
-		deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
+		rs.Spec.Template.Labels[constants.QueueLabel] = queueName
 	}
 
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-apps-v1-deployment,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=vdeployment.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-apps-v1-replicaset,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=replicasets,verbs=create;update,versions=v1,name=vreplicaset.kb.io,admissionReviewVersions=v1
 
 var _ admission.CustomValidator = &Webhook{}
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	deployment := fromObject(obj)
+	rs := fromObject(obj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("replicaset-webhook")
 	log.V(5).Info("Validating create")
 
-	allErrs := jobframework.ValidateQueueName(deployment.Object())
+	allErrs := jobframework.ValidateQueueName(rs.Object())
 
 	return nil, allErrs.ToAggregate()
 }
@@ -107,21 +107,21 @@ var (
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	oldDeployment := fromObject(oldObj)
-	newDeployment := fromObject(newObj)
+	oldReplicaSet := fromObject(oldObj)
+	newReplicaSet := fromObject(newObj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("replicaset-webhook")
 	log.V(5).Info("Validating update")
 
-	oldQueueName := jobframework.QueueNameForObject(oldDeployment.Object())
-	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
+	oldQueueName := jobframework.QueueNameForObject(oldReplicaSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newReplicaSet.Object())
 
 	allErrs := field.ErrorList{}
-	allErrs = append(allErrs, jobframework.ValidateQueueName(newDeployment.Object())...)
+	allErrs = append(allErrs, jobframework.ValidateQueueName(newReplicaSet.Object())...)
 
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.
-	if oldDeployment.Status.ReadyReplicas > 0 || newQueueName == "" {
+	if oldReplicaSet.Status.ReadyReplicas > 0 || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
 

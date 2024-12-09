@@ -27,7 +27,8 @@ For more information, see [Kueue's overview](/docs/overview).
    kind: Configuration
    integrations:
      frameworks:
-      - "pod" # required by statefulset
+      - "pod" # required by replicaset
+      - "replicaset" # required by statefulset
       - "statefulset"
    ```
    Also, follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)

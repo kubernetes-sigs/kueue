@@ -21,11 +21,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -101,7 +99,7 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"pod without queue matching ns selector manage jobs without queue name": {
+		"manage jobs pod without queue matching ns selector without queue name": {
 			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Obj(),
@@ -114,14 +112,43 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"pod with owner managed by kueue (Job) while not enabled": {
+		"manage jobs pod without queue with owner managed by kueue (Job) while not enabled": {
+			initObjects:                []client.Object{defaultNamespace},
+			podSelector:                &metav1.LabelSelector{},
+			manageJobsWithoutQueueName: true,
+			namespaceSelector:          defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+		},
+		"manage jobs pod without queue with owner managed by kueue (Job) while enabled": {
+			initObjects:                []client.Object{defaultNamespace},
+			podSelector:                &metav1.LabelSelector{},
+			manageJobsWithoutQueueName: true,
+			namespaceSelector:          defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			enableIntegrations: []string{"batch/job"},
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+		},
+		"pod with queue name with owner managed by kueue (Job) while enabled": {
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Queue("test-queue").
 				Obj(),
+			enableIntegrations: []string{"batch/job"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Label(constants.ManagedByKueueLabel, "true").
@@ -130,134 +157,19 @@ func TestDefault(t *testing.T) {
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 		},
-		"pod with owner managed by kueue (Job)": {
+		"pod without queue with owner managed by kueue (Job) while enabled": {
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			enableIntegrations: []string{"batch/job"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 		},
-		"pod with owner managed by kueue (RayCluster)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
-				Obj(),
-			enableIntegrations: []string{"ray.io/raycluster"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
-				Obj(),
-		},
-		"pod with owner managed by kueue (MPIJob)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-mpi-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v2beta1", Kind: "MPIJob"},
-				).
-				Obj(),
-			enableIntegrations: []string{"kubeflow.org/mpijob"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-mpi-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v2beta1", Kind: "MPIJob"},
-				).
-				Obj(),
-		},
-		"pod with owner managed by kueue (PyTorchJob)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-pytorch-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
-				).
-				Obj(),
-			enableIntegrations: []string{"kubeflow.org/pytorchjob"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-pytorch-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
-				).
-				Obj(),
-		},
-		"pod with owner managed by kueue (TFJob)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-tf-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "TFJob"},
-				).
-				Obj(),
-			enableIntegrations: []string{"kubeflow.org/tfjob"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-tf-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "TFJob"},
-				).
-				Obj(),
-		},
-		"pod with owner managed by kueue (XGBoostJob)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-xgboost-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "XGBoostJob"},
-				).
-				Obj(),
-			enableIntegrations: []string{"kubeflow.org/xgboostjob"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-xgboost-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "XGBoostJob"},
-				).
-				Obj(),
-		},
-		"pod with owner managed by kueue (PaddleJob)": {
-			initObjects:       []client.Object{defaultNamespace},
-			podSelector:       &metav1.LabelSelector{},
-			namespaceSelector: defaultNamespaceSelector,
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-paddle-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PaddleJob"},
-				).
-				Obj(),
-			enableIntegrations: []string{"kubeflow.org/paddlejob"},
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Queue("test-queue").
-				OwnerReference(
-					"parent-paddle-job",
-					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PaddleJob"},
-				).
-				Obj(),
-		},
+
 		"pod with a group name label, but without group total count label": {
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
