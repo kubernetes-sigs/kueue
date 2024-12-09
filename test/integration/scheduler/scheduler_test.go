@@ -1250,31 +1250,29 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).To(gomega.Succeed())
 
 			ginkgo.By("Creating two workloads for prod ClusterQueue")
-			pWl1 := testing.MakeWorkload("p-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-			pWl2 := testing.MakeWorkload("p-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			pWl1 := testing.MakeWorkload("p-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, pWl1)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, pWl2)).To(gomega.Succeed())
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl1, pWl2)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl1)
 
 			ginkgo.By("Creating a workload for each ClusterQueue")
 			dWl1 := testing.MakeWorkload("d-wl-1", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-			pWl3 := testing.MakeWorkload("p-wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			pWl2 := testing.MakeWorkload("p-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dWl1)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, pWl3)).To(gomega.Succeed())
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl3)
+			util.WaitForNextSecondAfterCreation(dWl1)
+			gomega.Expect(k8sClient.Create(ctx, pWl2)).To(gomega.Succeed())
+			util.WaitForNextSecondAfterCreation(pWl2)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl2)
 
 			ginkgo.By("Finishing one workload for prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl1)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl3)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl2)
+
+			// The pWl2 workload gets accepted, even though it was created after dWl1.
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl2)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1)
 
 			ginkgo.By("Finishing second workload for prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl2)
-			// The pWl3 workload gets accepted, even though it was created after dWl1.
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl3)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1)
-
-			ginkgo.By("Finishing third workload for prod ClusterQueue")
-			util.FinishWorkloads(ctx, k8sClient, pWl3)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
 
