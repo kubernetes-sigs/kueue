@@ -181,25 +181,6 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-kubeflow-org-v2beta1-mpijob
-    failurePolicy: Fail
-    name: mmpijob.kb.io
-    rules:
-      - apiGroups:
-          - kubeflow.org
-        apiVersions:
-          - v2beta1
-        operations:
-          - CREATE
-        resources:
-          - mpijobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -227,6 +208,44 @@ webhooks:
           - CREATE
         resources:
           - pods
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset
+    failurePolicy: Fail
+    name: mleaderworkerset.kb.io
+    rules:
+      - apiGroups:
+          - leaderworkerset.x-k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - leaderworkersets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v2beta1-mpijob
+    failurePolicy: Fail
+    name: mmpijob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v2beta1
+        operations:
+          - CREATE
+        resources:
+          - mpijobs
     sideEffects: None
   - admissionReviewVersions:
       - v1
@@ -533,26 +552,6 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kubeflow-org-v2beta1-mpijob
-    failurePolicy: Fail
-    name: vmpijob.kb.io
-    rules:
-      - apiGroups:
-          - kubeflow.org
-        apiVersions:
-          - v2beta1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - mpijobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
         path: /validate--v1-pod
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -581,6 +580,46 @@ webhooks:
           - UPDATE
         resources:
           - pods
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-leaderworkerset-x-k8s-io-v1-leaderworkerset
+    failurePolicy: Fail
+    name: vleaderworkerset.kb.io
+    rules:
+      - apiGroups:
+          - leaderworkerset.x-k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - leaderworkersets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v2beta1-mpijob
+    failurePolicy: Fail
+    name: vmpijob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v2beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - mpijobs
     sideEffects: None
   - admissionReviewVersions:
       - v1
