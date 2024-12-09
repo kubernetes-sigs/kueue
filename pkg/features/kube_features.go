@@ -164,6 +164,11 @@ const (
 	//
 	// Enabled gathering of LocalQueue metrics
 	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
+	// owner: @yaroslava-serdiuk
+	// alpha: v0.10
+	//
+	// Enable to set default LocalQueue.
+	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
 )
 
 func init() {
@@ -195,6 +200,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
 	ManagedJobsNamespaceSelector:        {Default: true, PreRelease: featuregate.Beta},
 	LocalQueueMetrics:                   {Default: false, PreRelease: featuregate.Alpha},
+	LocalQueueDefaulting:                {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

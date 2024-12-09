@@ -51,11 +51,13 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 ## Install a released version
 
 To install a released version of Kueue in your cluster, run the following command:
+
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
 To wait for Kueue to be fully available, run:
+
 ```shell
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 ```
@@ -199,6 +201,7 @@ To uninstall Kueue, run the following command:
 ```sh
 make undeploy
 ```
+
 ## Install via Helm
 
 To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
@@ -260,6 +263,7 @@ The currently supported features are:
 | `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
 | `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
+| `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
 
 ## What's next
 

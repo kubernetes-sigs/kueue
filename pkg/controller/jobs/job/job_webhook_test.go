@@ -552,6 +552,8 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName             bool
 		multiKueueEnabled                      bool
 		multiKueueBatchJobWithManagedByEnabled bool
+		localQueueDefaulting                   bool
+		defaultLqExist                         bool
 		want                                   *batchv1.Job
 		wantErr                                error
 	}{
@@ -638,11 +640,35 @@ func TestDefault(t *testing.T) {
 			multiKueueEnabled:                      true,
 			multiKueueBatchJobWithManagedByEnabled: true,
 		},
+		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job:                  testingutil.MakeJob("test-job", "default").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
+				Queue("default").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job:                  testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			job:                  testingutil.MakeJob("test-job", "").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Obj(),
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
 			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -653,6 +679,12 @@ func TestDefault(t *testing.T) {
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
 
 			for _, q := range tc.queues {
 				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {

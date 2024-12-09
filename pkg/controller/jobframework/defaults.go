@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -68,6 +69,19 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 			return true, nil
 		}
 	}
-
 	return false, nil
+}
+
+func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {
+	if !features.Enabled(features.LocalQueueDefaulting) || !defaultQueueExist(jobObj.GetNamespace()) {
+		return
+	}
+	if QueueNameForObject(jobObj) == "" {
+		labels := jobObj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string, 1)
+		}
+		labels[constants.QueueLabel] = constants.DefaultLocalQueueName
+		jobObj.SetLabels(labels)
+	}
 }

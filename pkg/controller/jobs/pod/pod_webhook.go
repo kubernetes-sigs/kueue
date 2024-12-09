@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -68,6 +69,7 @@ var (
 
 type PodWebhook struct {
 	client                       client.Client
+	queues                       *queue.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
@@ -83,6 +85,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	}
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
+		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		namespaceSelector:            podOpts.NamespaceSelector,
@@ -146,6 +149,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
+	ns := corev1.Namespace{}
+	err := w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
+	if err != nil {
+		return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
+			pod.pod.GetName(),
+			err,
+		)
+	}
+	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
+	jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueueExist)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, pod.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
@@ -165,15 +178,6 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// podOptions.namespaceSelector
-		ns := corev1.Namespace{}
-		err = w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
-		if err != nil {
-			return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
-				pod.pod.GetName(),
-				err,
-			)
-		}
-		log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
 		nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
 		if err != nil {
 			return fmt.Errorf("failed to parse namespace selector: %w", err)

@@ -225,6 +225,14 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearClusterQueueMetrics(cq.Name)
 }
 
+func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	_, ok := m.localQueues[DefaultQueueKey(namespace)]
+	return ok
+}
+
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
 	m.Lock()
 	defer m.Unlock()

@@ -31,6 +31,8 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 var (
@@ -41,6 +43,7 @@ var (
 
 type RayJobWebhook struct {
 	client                       client.Client
+	queues                       *queue.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 }
@@ -50,6 +53,7 @@ func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
 		client:                       mgr.GetClient(),
+		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
@@ -70,6 +74,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
+	jobframework.ApplyDefaultLocalQueue((*RayJob)(job).Object(), w.queues.DefaultLocalQueueExist)
 	return jobframework.ApplyDefaultForSuspend(ctx, (*RayJob)(job), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 }
 
@@ -89,7 +94,7 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) field.ErrorList {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" || features.Enabled(features.LocalQueueDefaulting) {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
