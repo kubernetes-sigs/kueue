@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -529,11 +527,20 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
 
-				// TODO(#3645): replace the sleep with waiting for CQ deactivation.
-				// The sleep is a temporary solution to minimize the chance for the test flaking in case
-				// the workload is created and admitted before the event is handled and the topology
-				// is removed from the cache.
-				time.Sleep(time.Second)
+				ginkgo.By("await for the CQ to become inactive", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedCq kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+						g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+							{
+								Type:    kueue.ClusterQueueActive,
+								Status:  metav1.ConditionFalse,
+								Reason:  "TopologyAwareSchedulingNoTopology",
+								Message: "Can't admit new workloads: references missing ResourceFlavor(s): [arch-b].",
+							},
+						}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {

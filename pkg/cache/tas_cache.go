@@ -22,7 +22,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type TASCache struct {
@@ -36,6 +38,12 @@ func NewTASCache(client client.Client) TASCache {
 		client:  client,
 		flavors: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
+}
+
+func (t *TASCache) AddOrUpdateTopology(topology *kueuealpha.Topology, flv *kueue.ResourceFlavor) {
+	levels := utiltas.Levels(topology)
+	tasInfo := t.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels, flv.Spec.Tolerations)
+	t.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
 }
 
 func (t *TASCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
