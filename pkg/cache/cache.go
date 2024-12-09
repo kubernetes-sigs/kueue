@@ -829,6 +829,21 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) [
 	return cqs
 }
 
+func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []string {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []string
+
+	for _, cq := range c.hm.ClusterQueues {
+		for _, cache := range cq.tasCache.Clone() {
+			if cache.TopologyName == tName {
+				cqs = append(cqs, cq.Name)
+			}
+		}
+	}
+	return cqs
+}
+
 func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
 	c.RLock()
 	defer c.RUnlock()
