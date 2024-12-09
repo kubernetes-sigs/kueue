@@ -57,11 +57,11 @@ Where:
 - **retryStrategy.backoffMaxSeconds** - indicates the maximum backoff time (in seconds) before retrying a ProvisioningRequest. Defaults to 1800.
 
 If a ProvisioningRequest fails, it may be retried after a backoff period.
-The backoff time (in seconds) is calculated using the following formula, where n is the retry number (starting at 1):
+The backoff time (in seconds) is calculated using the following formula, where `n` is the retry number (starting at 1):
 
-$$
+```latex
 time = min(backoffBaseSeconds^n, backoffMaxSeconds)
-$$
+```
 
 When a ProvisioningRequest fails, the quota reserved for a Workload is released, and the Workload needs to restart the
 admission cycle. This behavior can be changed by enabling the KeepQuotaForProvReqRetry=true feature gate.
