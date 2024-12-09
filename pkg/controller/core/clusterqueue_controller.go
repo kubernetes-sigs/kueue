@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -73,6 +75,7 @@ type ClusterQueueReconciler struct {
 	fairSharingEnabled                   bool
 	queueVisibilityUpdateInterval        time.Duration
 	queueVisibilityClusterQueuesMaxCount int32
+	clock                                clock.Clock
 }
 
 type ClusterQueueReconcilerOptions struct {
@@ -81,6 +84,7 @@ type ClusterQueueReconcilerOptions struct {
 	FairSharingEnabled                   bool
 	QueueVisibilityUpdateInterval        time.Duration
 	QueueVisibilityClusterQueuesMaxCount int32
+	clock                                clock.Clock
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -120,7 +124,16 @@ func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcile
 	}
 }
 
-var defaultCQOptions = ClusterQueueReconcilerOptions{}
+// func WithClock(_ testing.TB, c clock.Clock) ClusterQueueReconcilerOption {}
+func WithClock(_ testing.TB, c clock.Clock) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.clock = c
+	}
+}
+
+var defaultCQOptions = ClusterQueueReconcilerOptions{
+	clock: realClock,
+}
 
 func NewClusterQueueReconciler(
 	client client.Client,
@@ -147,6 +160,7 @@ func NewClusterQueueReconciler(
 		fairSharingEnabled:                   options.FairSharingEnabled,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
 		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
+		clock:                                options.clock,
 	}
 }
 
@@ -701,7 +715,7 @@ func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kue
 		!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
 			Head:           pendingWorkloads,
-			LastChangeTime: metav1.Time{Time: time.Now()},
+			LastChangeTime: metav1.Time{Time: r.clock.Now()},
 		}
 	}
 	return cq.Status.PendingWorkloadsStatus
@@ -744,7 +758,7 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 		return false
 	}
 
-	startTime := time.Now()
+	startTime := r.clock.Now()
 	defer func() {
 		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", cqName), "elapsed", time.Since(startTime))
 	}()
