@@ -38,10 +38,9 @@ import (
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		statefulset                *appsv1.StatefulSet
-		manageJobsWithoutQueueName bool
-		enableIntegrations         []string
-		want                       *appsv1.StatefulSet
+		statefulset        *appsv1.StatefulSet
+		enableIntegrations []string
+		want               *appsv1.StatefulSet
 	}{
 		"statefulset with queue": {
 			enableIntegrations: []string{"pod"},
@@ -84,8 +83,7 @@ func TestDefault(t *testing.T) {
 			cli := builder.Build()
 
 			w := &Webhook{
-				client:                     cli,
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+				client: cli,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)

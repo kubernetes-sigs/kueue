@@ -37,15 +37,12 @@ import (
 )
 
 type Webhook struct {
-	client                     client.Client
-	manageJobsWithoutQueueName bool
+	client client.Client
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client:                     mgr.GetClient(),
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		client: mgr.GetClient(),
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
@@ -61,26 +58,25 @@ var _ webhook.CustomDefaulter = &Webhook{}
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	ss := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
-	log.V(5).Info("Applying defaults")
+	log.V(5).Info("Propagating queue-name")
 
+	// Because StatefuleSet is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
 	queueName := jobframework.QueueNameForObject(ss.Object())
-	if queueName == "" {
-		return nil
-	}
+	if queueName != "" {
+		if ss.Spec.Template.Labels == nil {
+			ss.Spec.Template.Labels = make(map[string]string, 2)
+		}
+		ss.Spec.Template.Labels[constants.QueueLabel] = queueName
+		ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
 
-	if ss.Spec.Template.Labels == nil {
-		ss.Spec.Template.Labels = make(map[string]string, 2)
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = make(map[string]string, 4)
+		}
+		ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
+		ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
+		ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
+		ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 	}
-	ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
-
-	if ss.Spec.Template.Annotations == nil {
-		ss.Spec.Template.Annotations = make(map[string]string, 4)
-	}
-	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
-	ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
-	ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 
 	return nil
 }

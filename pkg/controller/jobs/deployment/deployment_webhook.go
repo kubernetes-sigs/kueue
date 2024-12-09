@@ -36,7 +36,7 @@ type Webhook struct {
 	client client.Client
 }
 
-func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	wh := &Webhook{
 		client: mgr.GetClient(),
 	}
@@ -56,9 +56,11 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	deployment := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
-	log.V(5).Info("Applying defaults")
+	log.V(5).Info("Propagating queue-name")
 
-	if queueName := jobframework.QueueNameForObject(deployment.Object()); queueName != "" {
+	// Because Deployment is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
+	queueName := jobframework.QueueNameForObject(deployment.Object())
+	if queueName != "" {
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
