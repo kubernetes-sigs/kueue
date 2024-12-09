@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		topology = testing.MakeTopology("datacenter").
-			Levels(topologyLevelBlock, topologyLevelRack, corev1.LabelHostname).
+			Levels(testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel, corev1.LabelHostname).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				Limit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).
-				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.provider.com/topology-block").
+				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 

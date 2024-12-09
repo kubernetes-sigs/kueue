@@ -36,11 +36,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const (
-	tasBlockLabel = "cloud.com/topology-block"
-	tasRackLabel  = "cloud.com/topology-rack"
-)
-
 var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	var (
 		ns *corev1.Namespace
@@ -147,10 +142,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("default").Levels(
-				tasBlockLabel,
-				tasRackLabel,
-			).Obj()
+			topology = testing.MakeDefaultTwoLevelTopology("default")
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -278,8 +270,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("b1-r1").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b1").
-						Label(tasRackLabel, "r1").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -288,8 +280,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b1-r2").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b1").
-						Label(tasRackLabel, "r2").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -298,8 +290,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b2-r1").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b2").
-						Label(tasRackLabel, "r1").
+						Label(testing.DefaultBlockTopologyLevel, "b2").
+						Label(testing.DefaultRackTopologyLevel, "r1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -308,8 +300,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("b2-r2").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b2").
-						Label(tasRackLabel, "r2").
+						Label(testing.DefaultBlockTopologyLevel, "b2").
+						Label(testing.DefaultRackTopologyLevel, "r2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -319,10 +311,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodes(ctx, k8sClient, nodes)
 
-				topology = testing.MakeTopology("default").Levels(
-					tasBlockLabel,
-					tasRackLabel,
-				).Obj()
+				topology = testing.MakeDefaultTwoLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -357,7 +346,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 := testing.MakeWorkload("wl1-inadmissible", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				})
@@ -374,7 +363,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].Count = 2
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required: ptr.To(testing.DefaultBlockTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				})
@@ -389,8 +378,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasBlockLabel,
-								tasRackLabel,
+								testing.DefaultBlockTopologyLevel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -416,7 +405,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl2 = testing.MakeWorkload("wl2", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 				})
@@ -431,8 +420,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasBlockLabel,
-								tasRackLabel,
+								testing.DefaultBlockTopologyLevel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -451,7 +440,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl3 = testing.MakeWorkload("wl3", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 				})
@@ -466,8 +455,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl3.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasBlockLabel,
-								tasRackLabel,
+								testing.DefaultBlockTopologyLevel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -486,7 +475,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl4 = testing.MakeWorkload("wl4", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl4.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl4)).Should(gomega.Succeed())
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
@@ -507,8 +496,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl4.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasBlockLabel,
-								tasRackLabel,
+								testing.DefaultBlockTopologyLevel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -541,7 +530,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl.Spec.PodSets[0].Count = 2
 					wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required: ptr.To(testing.DefaultBlockTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 				})
@@ -550,7 +539,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				topology = testing.MakeTopology("default").Levels(tasBlockLabel, tasRackLabel).Obj()
+				topology = testing.MakeDefaultTwoLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -562,7 +551,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
-							Levels: []string{tasBlockLabel, tasRackLabel},
+							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 							Domains: []kueue.TopologyDomainAssignment{
 								{Count: 1, Values: []string{"b1", "r1"}},
 								{Count: 1, Values: []string{"b1", "r2"}},
@@ -581,8 +570,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b1").
-						Label(tasRackLabel, "r1").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -592,8 +581,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b1").
-						Label(tasRackLabel, "r2").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -603,8 +592,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x3").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b2").
-						Label(tasRackLabel, "r1").
+						Label(testing.DefaultBlockTopologyLevel, "b2").
+						Label(testing.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x3").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -614,8 +603,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
-						Label(tasBlockLabel, "b2").
-						Label(tasRackLabel, "r2").
+						Label(testing.DefaultBlockTopologyLevel, "b2").
+						Label(testing.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x4").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -626,11 +615,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodes(ctx, k8sClient, nodes)
 
-				topology = testing.MakeTopology("default").Levels(
-					tasBlockLabel,
-					tasRackLabel,
-					corev1.LabelHostname,
-				).Obj()
+				topology = testing.MakeDefaultThreeLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -664,7 +649,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := testing.MakeWorkload("wl1-inadmissible", ns.Name).
 						PodSets(*testing.MakePodSet("worker", 4).
-							PreferredTopologyRequest(tasRackLabel).
+							PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -680,7 +665,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload which can fit", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						PodSets(*testing.MakePodSet("worker", 1).
-							PreferredTopologyRequest(tasBlockLabel).
+							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -694,7 +679,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating second a workload which cannot fit", func() {
 					wl2 = testing.MakeWorkload("wl2", ns.Name).
 						PodSets(*testing.MakePodSet("worker-2", 4).
-							PreferredTopologyRequest(tasBlockLabel).
+							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
 							Obj()).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
@@ -720,10 +705,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-				topology = testing.MakeTopology("default").Levels(
-					tasBlockLabel,
-					tasRackLabel,
-				).Obj()
+				topology = testing.MakeDefaultTwoLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -762,7 +744,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				})
@@ -775,8 +757,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("b1-r1").
 							Label("node-group", "tas").
-							Label(tasBlockLabel, "b1").
-							Label(tasRackLabel, "r1").
+							Label(testing.DefaultBlockTopologyLevel, "b1").
+							Label(testing.DefaultRackTopologyLevel, "r1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -808,11 +790,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-				topology = testing.MakeTopology("default").Levels(
-					tasBlockLabel,
-					tasRackLabel,
-					corev1.LabelHostname,
-				).Obj()
+				topology = testing.MakeDefaultThreeLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -851,8 +829,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodes = []corev1.Node{
 						*testingnode.MakeNode("b1-r1-x1").
 							Label("node-group", "tas").
-							Label(tasBlockLabel, "b1").
-							Label(tasRackLabel, "r1").
+							Label(testing.DefaultBlockTopologyLevel, "b1").
+							Label(testing.DefaultRackTopologyLevel, "r1").
 							Label(corev1.LabelHostname, "b1-r1-x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
@@ -873,7 +851,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				})
@@ -919,7 +897,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("cpu-node").
 						Label("node.kubernetes.io/instance-type", "cpu-node").
-						Label(tasRackLabel, "cpu-rack").
+						Label(testing.DefaultRackTopologyLevel, "cpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("5"),
 						}).
@@ -927,7 +905,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("gpu-node").
 						Label("node.kubernetes.io/instance-type", "gpu-node").
-						Label(tasRackLabel, "gpu-rack").
+						Label(testing.DefaultRackTopologyLevel, "gpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							gpuResName: resource.MustParse("4"),
 						}).
@@ -937,7 +915,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.CreateNodes(ctx, k8sClient, nodes)
 
 				topology = testing.MakeTopology("default").Levels(
-					tasRackLabel,
+					testing.DefaultRackTopologyLevel,
 				).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
@@ -986,13 +964,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						map[string]string{"node.kubernetes.io/instance-type": "cpu-node"},
 					).Request(corev1.ResourceCPU, "5").Obj()
 					ps1.TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					ps2 := *testing.MakePodSet("worker", 2).NodeSelector(
 						map[string]string{"node.kubernetes.io/instance-type": "gpu-node"},
 					).Request(gpuResName, "2").Obj()
 					ps2.TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasRackLabel),
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					wl1.Spec.PodSets = []kueue.PodSet{ps1, ps2}
 					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -1008,7 +986,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasRackLabel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -1023,7 +1001,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
-								tasRackLabel,
+								testing.DefaultRackTopologyLevel,
 							},
 							Domains: []kueue.TopologyDomainAssignment{
 								{
@@ -1053,22 +1031,22 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			gomega.Expect(err).Should(matcher)
 		},
 			ginkgo.Entry("valid Topology",
-				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
+				testing.MakeDefaultOneLevelTopology("valid"),
 				gomega.Succeed()),
 			ginkgo.Entry("invalid levels",
 				testing.MakeTopology("invalid-level").Levels("@invalid").Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("non-unique levels",
-				testing.MakeTopology("default").Levels(tasBlockLabel, tasBlockLabel).Obj(),
+				testing.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, testing.DefaultBlockTopologyLevel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname first",
-				testing.MakeTopology("default").Levels(corev1.LabelHostname, tasBlockLabel, tasRackLabel).Obj(),
+				testing.MakeTopology("default").Levels(corev1.LabelHostname, testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname middle",
-				testing.MakeTopology("default").Levels(tasBlockLabel, corev1.LabelHostname, tasRackLabel).Obj(),
+				testing.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, corev1.LabelHostname, testing.DefaultRackTopologyLevel).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("kubernetes.io/hostname last",
-				testing.MakeTopology("default").Levels(tasBlockLabel, tasRackLabel, corev1.LabelHostname).Obj(),
+				testing.MakeTopology("default").Levels(testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel, corev1.LabelHostname).Obj(),
 				gomega.Succeed()),
 		)
 	})
@@ -1087,7 +1065,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			gomega.Expect(k8sClient.Update(ctx, topology)).Should(matcher)
 		},
 			ginkgo.Entry("succeed to update topology",
-				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
+				testing.MakeDefaultOneLevelTopology("valid"),
 				func(topology *kueuealpha.Topology) {
 					topology.ObjectMeta.Labels = map[string]string{
 						"alpha": "beta",
@@ -1095,7 +1073,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				},
 				gomega.Succeed()),
 			ginkgo.Entry("updating levels is prohibited",
-				testing.MakeTopology("valid").Levels(corev1.LabelHostname).Obj(),
+				testing.MakeDefaultOneLevelTopology("valid"),
 				func(topology *kueuealpha.Topology) {
 					topology.Spec.Levels = append(topology.Spec.Levels, kueuealpha.TopologyLevel{
 						NodeLabel: "added",
@@ -1103,7 +1081,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				},
 				testing.BeInvalidError()),
 			ginkgo.Entry("updating levels order is prohibited",
-				testing.MakeTopology("default").Levels(tasRackLabel, tasBlockLabel, corev1.LabelHostname).Obj(),
+				testing.MakeDefaultThreeLevelTopology("default"),
 				func(topology *kueuealpha.Topology) {
 					topology.Spec.Levels[0], topology.Spec.Levels[1] = topology.Spec.Levels[1], topology.Spec.Levels[0]
 				},

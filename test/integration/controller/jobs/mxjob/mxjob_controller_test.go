@@ -322,8 +322,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
-		tasRackLabel   = "cloud.com/topology-rack"
 	)
 
 	var (
@@ -356,8 +354,8 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(tasBlockLabel, "b1").
-				Label(tasRackLabel, "r1").
+				Label(testing.DefaultBlockTopologyLevel, "b1").
+				Label(testing.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -367,9 +365,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 		}
 		util.CreateNodes(ctx, k8sClient, nodes)
 
-		topology = testing.MakeTopology("default").Levels(
-			tasBlockLabel, tasRackLabel,
-		).Obj()
+		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -403,9 +399,9 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 			Request(kftraining.MXJobReplicaTypeScheduler, corev1.ResourceCPU, "100m").
 			Request(kftraining.MXJobReplicaTypeServer, corev1.ResourceCPU, "100m").
 			Request(kftraining.MXJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
-			PodAnnotation(kftraining.MXJobReplicaTypeScheduler, kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
-			PodAnnotation(kftraining.MXJobReplicaTypeServer, kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
-			PodAnnotation(kftraining.MXJobReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, tasRackLabel).
+			PodAnnotation(kftraining.MXJobReplicaTypeScheduler, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kftraining.MXJobReplicaTypeServer, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kftraining.MXJobReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Obj()
 		ginkgo.By("creating a MXJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, mxJob)).Should(gomega.Succeed())
@@ -422,7 +418,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeScheduler)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(tasBlockLabel),
+							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -430,7 +426,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeServer)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(tasBlockLabel),
+							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -438,7 +434,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(tasRackLabel),
+							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -458,19 +454,19 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(3))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
