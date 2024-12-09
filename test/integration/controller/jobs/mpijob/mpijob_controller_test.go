@@ -904,8 +904,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
-		tasRackLabel   = "cloud.com/topology-rack"
 	)
 
 	var (
@@ -940,9 +938,9 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "b1r1",
 					Labels: map[string]string{
-						nodeGroupLabel: "tas",
-						tasBlockLabel:  "b1",
-						tasRackLabel:   "r1",
+						nodeGroupLabel:                    "tas",
+						testing.DefaultBlockTopologyLevel: "b1",
+						testing.DefaultRackTopologyLevel:  "r1",
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -964,9 +962,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 		}
 
-		topology = testing.MakeTopology("default").Levels(
-			tasBlockLabel, tasRackLabel,
-		).Obj()
+		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -998,8 +994,8 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().
-			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
-			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, tasRackLabel).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
@@ -1021,14 +1017,14 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Required: ptr.To(testing.DefaultBlockTopologyLevel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasRackLabel),
+							Preferred: ptr.To(testing.DefaultRackTopologyLevel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
@@ -1047,13 +1043,13 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))

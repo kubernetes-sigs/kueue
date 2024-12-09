@@ -3775,9 +3775,7 @@ func TestSnapshotError(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	topology := *utiltesting.MakeTopology("default").
-		Levels(corev1.LabelHostname).
-		Obj()
+	topology := *utiltesting.MakeDefaultOneLevelTopology("default")
 	flavor := *utiltesting.MakeResourceFlavor("tas-default").
 		TopologyName("default").
 		Obj()

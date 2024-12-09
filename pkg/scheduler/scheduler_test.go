@@ -4004,9 +4004,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
-	defaultSingleLevelTopology := *utiltesting.MakeTopology("tas-single-level").
-		Levels(corev1.LabelHostname).
-		Obj()
+	defaultSingleLevelTopology := *utiltesting.MakeDefaultOneLevelTopology("tas-single-level")
 	defaultTwoLevelTopology := *utiltesting.MakeTopology("tas-two-level").
 		Levels(tasRackLabel, corev1.LabelHostname).
 		Obj()
