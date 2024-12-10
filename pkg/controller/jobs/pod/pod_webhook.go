@@ -47,6 +47,7 @@ const (
 	ManagedLabelKey              = constants.ManagedByKueueLabel
 	ManagedLabelValue            = "true"
 	PodFinalizer                 = ManagedLabelKey
+	SuspendedByParentLabelKey    = "kueue.x-k8s.io/pod-suspending-parent"
 	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
 	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
@@ -158,10 +159,14 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		)
 	}
 	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
-	jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueueExist)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, pod.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
-	if err != nil {
-		return err
+
+	_, suspend := pod.pod.GetLabels()[SuspendedByParentLabelKey]
+	if !suspend {
+		jobframework.ApplyDefaultLocalQueue(pod.Object(), w.queues.DefaultLocalQueueExist)
+		suspend, err = jobframework.WorkloadShouldBeSuspended(ctx, pod.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Backwards compatibility support until podOptions.podSelector and podOptions.namespaceSelector are deprecated.

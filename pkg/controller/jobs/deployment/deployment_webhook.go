@@ -21,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,19 +31,24 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type Webhook struct {
-	client client.Client
-	queues *queue.Manager
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *queue.Manager
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client: mgr.GetClient(),
-		queues: options.Queues,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
 	}
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
@@ -63,14 +69,19 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Propagating queue-name")
 
 	jobframework.ApplyDefaultLocalQueue(deployment.Object(), wh.queues.DefaultLocalQueueExist)
-
-	// Because Deployment is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
-	queueName := jobframework.QueueNameForObject(deployment.Object())
-	if queueName != "" {
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if suspend {
+		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if deployment.Spec.Template.Labels == nil {
-			deployment.Spec.Template.Labels = make(map[string]string, 1)
+			deployment.Spec.Template.Labels = make(map[string]string, 2)
 		}
-		deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
+		if queueName != "" {
+			deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
+		}
+		deployment.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
 	}
 
 	return nil

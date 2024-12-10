@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -38,17 +39,19 @@ import (
 )
 
 type Webhook struct {
-	client                     client.Client
-	queues                     *queue.Manager
-	manageJobsWithoutQueueName bool
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *queue.Manager
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		client:                     mgr.GetClient(),
-		queues:                     options.Queues,
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
@@ -66,23 +69,29 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Propagating queue-name")
 
-	// Because StatefuleSet is built using a NoOpReconciler handling of jobs without queue names is delegating to the Pod webhook.
 	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueueExist)
-	queueName := jobframework.QueueNameForObject(ss.Object())
-	if queueName != "" {
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if suspend {
 		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 2)
+			ss.Spec.Template.Labels = make(map[string]string, 3)
 		}
-		ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-		ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
+		queueName := jobframework.QueueNameForObject(ss.Object())
+		if queueName != "" {
+			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
+			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
 
-		if ss.Spec.Template.Annotations == nil {
-			ss.Spec.Template.Annotations = make(map[string]string, 4)
+			if ss.Spec.Template.Annotations == nil {
+				ss.Spec.Template.Annotations = make(map[string]string, 4)
+			}
+			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
+			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
+			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
+			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
-		ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-		ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
-		ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
-		ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
+		ss.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
 	}
 
 	return nil

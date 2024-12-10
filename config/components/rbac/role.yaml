@@ -96,6 +96,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps/v1
+  resources:
+  - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - autoscaling.x-k8s.io
   resources:
   - provisioningrequests

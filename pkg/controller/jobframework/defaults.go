@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -41,12 +42,25 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
+// +kubebuilder:rbac:groups="apps/v1",resources=replicasets,verbs=get;list;watch
+
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
 	// Do not default suspend a job whose owner is already managed by Kueue
-	if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
-		return false, nil
+	if owner := metav1.GetControllerOf(jobObj); owner != nil {
+		if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
+			// To avoid a full-blown integration for ReplicaSet, we go up one level of ownership here
+			rs := &appsv1.ReplicaSet{}
+			err := k8sClient.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, rs)
+			if err != nil {
+				return false, fmt.Errorf("failed to get replicaset: %w", err)
+			}
+			owner = metav1.GetControllerOf(rs)
+		}
+		if owner != nil && IsOwnerManagedByKueue(owner) {
+			return false, nil
+		}
 	}
 
 	// Jobs with queue names whose parents are not managed by Kueue are default suspended
