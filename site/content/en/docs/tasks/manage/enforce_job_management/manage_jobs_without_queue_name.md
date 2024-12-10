@@ -15,7 +15,7 @@ Learn how to [install Kueue with a custom manager configuration](/docs/installat
 
 ## Setup default LocalQueue
 
-LocalQueueDefaulting is an Alpha feature that allows the use of a LocalQueue with name `default` as the default LocalQueue for workloads in the same namespace that do not have the `kueue.x-k8s.io/queue-name` label. The feature is gated by a feature the `LocalQueueDefaulting` feature gate, and is disabled by default. To use this feature:
+LocalQueueDefaulting is an Alpha feature that allows the use of a LocalQueue with name `default` as the default LocalQueue for workloads in the same namespace that do not have the `kueue.x-k8s.io/queue-name` label. The feature is gated by the `LocalQueueDefaulting` feature gate, and is disabled by default. To use this feature:
 
 - Enable the LocalQueueDefaulting feature gate. Refer to the [feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) guide for details.
 - create a LocalQueue with the name `default`.
