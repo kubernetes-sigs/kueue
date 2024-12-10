@@ -43,11 +43,28 @@ spec:
   provisioningClassName: check-capacity.autoscaling.x-k8s.io
   managedResources:
   - nvidia.com/gpu
+  retryStrategy:
+    backoffLimitCount: 2
+    backoffBaseSeconds: 60
+    backoffMaxSeconds: 1800
 ```
 
 Where:
 - **provisioningClassName** - describes the different modes of provisioning the resources. Supported ProvisioningClasses are listed in [ClusterAutoscaler documentation](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#supported-provisioningclasses), also check your cloud provider's documentation for other ProvisioningRequest classes they support.
 - **managedResources** -  contains the list of resources managed by the autoscaling.
+- **retryStrategy.backoffLimitCount** - indicates how many times ProvisioningRequest should be retried in case of failure. Defaults to 3.
+- **retryStrategy.backoffBaseSeconds** - provides the base for calculating backoff time that ProvisioningRequest waits before being retried. Defaults to 60.
+- **retryStrategy.backoffMaxSeconds** - indicates the maximum backoff time (in seconds) before retrying a ProvisioningRequest. Defaults to 1800.
+
+If a ProvisioningRequest fails, it may be retried after a backoff period.
+The backoff time (in seconds) is calculated using the following formula, where `n` is the retry number (starting at 1):
+
+```latex
+time = min(backoffBaseSeconds^n, backoffMaxSeconds)
+```
+
+When a ProvisioningRequest fails, the quota reserved for a Workload is released, and the Workload needs to restart the
+admission cycle.
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
 
