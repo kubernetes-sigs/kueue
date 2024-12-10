@@ -64,8 +64,7 @@ time = min(backoffBaseSeconds^n, backoffMaxSeconds)
 ```
 
 When a ProvisioningRequest fails, the quota reserved for a Workload is released, and the Workload needs to restart the
-admission cycle. This behavior can be changed by enabling the KeepQuotaForProvReqRetry=true feature gate.
-This feature gate ensures that the allocated quota is retained, but it may lead to underutilization of cluster resources.
+admission cycle.
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
 
