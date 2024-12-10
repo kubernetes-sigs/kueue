@@ -98,17 +98,17 @@ presents the detailed design of the controller.
 ## Roadmap
 
 High-level overview of the main priorities for 2025:
-- Improve user experience for [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/) - multi-cluster Job disatching, in particular:
+- Improve user experience for [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/) - multi-cluster Job dispatching, in particular:
   * sequential attempts to try worker clusters [#3757](https://github.com/kubernetes-sigs/kueue/issues/3757)
   * log retrieval from worker clusters [3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
 - Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
-  * make Topology-Aware Scheduling compatible with cohorts and preemption [#3761](https://github.com/kubernetes-sigs/kueue/issues/3761)
+  * make Topology Aware Scheduling compatible with cohorts and preemption [#3761](https://github.com/kubernetes-sigs/kueue/issues/3761)
   * optimize the algorithm to minimize fragmentation [#3756](https://github.com/kubernetes-sigs/kueue/issues/3756)
   * better accuracy of scheduling by tighter integration with kube-scheduler [#3755](https://github.com/kubernetes-sigs/kueue/issues/3755)
   * reduce friction by defaulting the PodSet annotations [#3754](https://github.com/kubernetes-sigs/kueue/issues/3754)
 - Productization of the Kueue dashboard [#940](https://github.com/kubernetes-sigs/kueue/issues/940)
 - Support Hierarchical Cohorts with FairSharing [#3759](https://github.com/kubernetes-sigs/kueue/issues/3759)
-- Improved support for AI inferance, including:
+- Improved support for AI inference, including:
   * partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
   * LeaderWorkerSet support [#3232](https://github.com/kubernetes-sigs/kueue/issues/3232)
 - Progress towards the stable API (v1beta2) [#768](https://github.com/kubernetes-sigs/kueue/issues/768)
