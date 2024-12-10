@@ -20,7 +20,7 @@
     "react-dom": "^18.0.0",
     "react-router-dom": "^6.0.0",
     "react-scripts": "^5.0.0",
-    "react-toastify": "^9.1.1"
+    "react-toastify": "^10.0.6"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.18.6",
