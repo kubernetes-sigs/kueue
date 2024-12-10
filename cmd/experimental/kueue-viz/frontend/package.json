@@ -17,7 +17,7 @@
     "chart.js": "^3.5.0",
     "react": "^19.0.0",
     "react-chartjs-2": "^5.0.0",
-    "react-dom": "^18.0.0",
+    "react-dom": "^19.0.0",
     "react-router-dom": "^6.0.0",
     "react-scripts": "^5.0.0",
     "react-toastify": "^10.0.6"
