@@ -83,6 +83,10 @@ type Configuration struct {
 
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
+
+	// featureGates is a map of feature names to bools that enable or disable
+	// alpha/experimental feature.
+	FeatureGates map[string]bool `json:"featureGates,omitempty"`
 }
 
 type ControllerManager struct {

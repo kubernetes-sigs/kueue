@@ -114,21 +114,36 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
-		setupLog.Error(err, "Unable to set flag gates for known features")
+	options, cfg, err := apply(configFile)
+	if err != nil {
+		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
+	}
+
+	if featureGates != "" && cfg.FeatureGates != nil {
+		err := errors.New("conflicting feature gates detected")
+		setupLog.Error(err, "Unable to decide which features gate to use due to --feature-gates specified at CLI and featureGates specified in the configuration file")
+		// To avoid future bugs, we should fail to start Kueue if feature gates
+		// are specified for both the CLI and the configuration.
+		os.Exit(1)
+	}
+
+	if featureGates != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+			setupLog.Error(err, "Unable to set flag gates for known features")
+			os.Exit(1)
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(cfg.FeatureGates); err != nil {
+			setupLog.Error(err, "Unable to set flag gates for known features")
+			os.Exit(1)
+		}
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
 	features.LogFeatureGates(setupLog)
-
-	options, cfg, err := apply(configFile)
-	if err != nil {
-		setupLog.Error(err, "Unable to load the configuration")
-		os.Exit(1)
-	}
 
 	metrics.Register()
 
