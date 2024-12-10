@@ -114,21 +114,33 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
-		setupLog.Error(err, "Unable to set flag gates for known features")
+	options, cfg, err := apply(configFile)
+	if err != nil {
+		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
+	}
+
+	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates); err != nil {
+		setupLog.Error(err, "conflicting feature gates detected")
+		os.Exit(1)
+	}
+
+	if featureGates != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+			setupLog.Error(err, "Unable to set flag gates for known features")
+			os.Exit(1)
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(cfg.FeatureGates); err != nil {
+			setupLog.Error(err, "Unable to set flag gates for known features")
+			os.Exit(1)
+		}
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
 	features.LogFeatureGates(setupLog)
-
-	options, cfg, err := apply(configFile)
-	if err != nil {
-		setupLog.Error(err, "Unable to load the configuration")
-		os.Exit(1)
-	}
 
 	metrics.Register()
 
