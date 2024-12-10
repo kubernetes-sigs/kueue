@@ -1,5 +1,5 @@
 #Build the React app
-FROM node:16 AS build
+FROM node:22 AS build
 
 ENV NPM_CONFIG_CACHE=/tmp/.npm-cache
 WORKDIR /app
