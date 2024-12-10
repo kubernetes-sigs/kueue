@@ -91,15 +91,8 @@ rules:
   - apiGroups:
       - apps
     resources:
-      - statefulsets
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - apps/v1
-    resources:
       - replicasets
+      - statefulsets
     verbs:
       - get
       - list

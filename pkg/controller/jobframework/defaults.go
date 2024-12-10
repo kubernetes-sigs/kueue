@@ -42,7 +42,7 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
-// +kubebuilder:rbac:groups="apps/v1",resources=replicasets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get;list;watch
 
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
