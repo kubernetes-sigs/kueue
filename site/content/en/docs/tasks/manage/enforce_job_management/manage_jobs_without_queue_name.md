@@ -19,7 +19,7 @@ LocalQueueDefaulting is an Alpha feature that allows the use of a LocalQueue wit
 
 - Enable the LocalQueueDefaulting feature gate. Refer to the [feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) guide for details.
 - create a LocalQueue with the name `default`.
-- create workload in the same namespace and observe that workload is updated with `kueue.x-k8s.io/queue-name:default` label.
+- create a workload in the same namespace. Observe that workload is updated with the `kueue.x-k8s.io/queue-name:default` label.
 - workloads that created in different namespace or workloads that has `kueue.x-k8s.io/queue-name` label won't be modified.
 
 ## Manage Jobs without queue name and without default LocalQueue
