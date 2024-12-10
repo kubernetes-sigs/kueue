@@ -1,9 +1,9 @@
 ---
-title: "Setup manageJobsWithoutQueueName"
+title: "Manage Jobs without queue name"
 date: 2024-06-28
 weight: 10
 description: >
-  Using manageJobsWithoutQueueName and mangedJobsNamespaceSelector to prevent admission of Workloads without assigned LocalQueues.
+  Describe how to use LocalQueueDefaulting, manageJobsWithoutQueueName and mangedJobsNamespaceSelector to prevent admission of Workloads without assigned LocalQueues.
 ---
 
 This page describes how to configure Kueue to ensure that all Workloads submitted in namespaces
@@ -13,7 +13,16 @@ intended for use by _batch users_ will be managed by Kueue even if they lack a `
 
 Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
 
-## Configuration
+## Setup default LocalQueue
+
+LocalQueueDefaulting is an Alpha feature gate (disabled by default) that allows to use LocalQueue with `default` name as a default LocalQueue for the workloads in the same namespace without queue `kueue.x-k8s.io/queue-name` label. To use a feature:
+
+- Enable LocalQueueDefaulting feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+- create LocalQueue with the `default` name.
+- create workload in the same namespace and observe that workload is updated with `kueue.x-k8s.io/queue-name:default` label.
+- workloads that created in different namespace or workloads that has `kueue.x-k8s.io/queue-name` label won't be modified.
+
+## Manage Jobs without queue name and without default LocalQueue
 
 You will need to modify the manage configuration to set `manageJobsWithoutQueueName` to true.
 
@@ -23,17 +32,20 @@ or `managedJobsNamespaceSelector` (Kueue 0.10 or later) to limit the scope of `m
 to only apply to _batch user_ namespaces.
 
 The default value for both `integrations.podOptions.namespaceSelector` and `managedJobsNamespaceSelector` is
+
 ```yaml
 matchExpressions:
 - key: kubernetes.io/metadata.name
   operator: NotIn
   values: [ kube-system, kueue-system ]
 ```
+
 This dafault value exempts the `kube-system` and `kueue-system` namespaces from management; all other
 namespaces will be managed by Kueue when `manageJobsWithoutQueueName` is true.
 
 Alternatively, the _batch administrator_ can label namespaces that are intended for _batch users_
 and define a selector that matches only those namespaces.  For example,
+
 ```yaml
 managedJobsNamespaceSelector:
   matchLabels:
