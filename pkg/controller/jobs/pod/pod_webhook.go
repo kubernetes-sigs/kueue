@@ -319,7 +319,7 @@ func validateManagedLabel(pod *Pod) field.ErrorList {
 	return allErrs
 }
 
-// warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by Kueue
+// warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
 func warningForPodManagedLabel(p *Pod) string {
 	if managedLabel := p.pod.GetLabels()[ManagedLabelKey]; managedLabel == ManagedLabelValue && IsPodOwnerManagedByKueue(p) {
 		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
