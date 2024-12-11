@@ -187,8 +187,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			if jobframework.IsOwnerManagedByKueue(owner) {
 				return nil
 			}
-			// Special case for Deployment integration which intentionally does not register a IsManagingObjectsOwner
-			// so that it can use the standaloneJob path in the GenericReconciler for its Pods
+			// Special case for Deployment integration which intentionally does not register an IsManagingObjectsOwner
+			// function so that it can use the standaloneJob path in the GenericReconciler for its Pods.
 			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
 				rs := &appsv1.ReplicaSet{}
 				err := w.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: pod.pod.GetNamespace()}, rs)
@@ -202,8 +202,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 					}
 				}
 			}
-			// Special case for StatefulSet integration which intentionally does not register a IsManagingObjectsOwner
-			// so that it can use the standaloneJob path in the GenericReconciler for its Pods
+			// Special case for StatefulSet integration which intentionally does not register an IsManagingObjectsOwner
+			// function so that it can use the standaloneJob path in the GenericReconciler for its Pods.
 			if owner.Kind == "StatefulSet" && owner.APIVersion == "apps/v1" && jobframework.IsIntegrationEnabled("statefulset") {
 				return nil
 			}
