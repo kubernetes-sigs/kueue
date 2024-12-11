@@ -187,6 +187,14 @@ instead.</p>
    <p>Resources provides additional configuration options for handling the resources.</p>
 </td>
 </tr>
+<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<code>map[string]bool</code>
+</td>
+<td>
+   <p>featureGates is a map of feature names to bools that enable or disable
+alpha/experimental feature.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
