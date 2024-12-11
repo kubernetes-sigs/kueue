@@ -308,8 +308,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
-		tasRackLabel   = "cloud.com/topology-rack"
 	)
 
 	var (
@@ -342,8 +340,8 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(tasBlockLabel, "b1").
-				Label(tasRackLabel, "r1").
+				Label(testing.DefaultBlockTopologyLevel, "b1").
+				Label(testing.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -353,9 +351,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 		}
 		util.CreateNodes(ctx, k8sClient, nodes)
 
-		topology = testing.MakeTopology("default").Levels(
-			tasBlockLabel, tasRackLabel,
-		).Obj()
+		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -390,14 +386,14 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 					ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: tasRackLabel,
+						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
 				},
 				testingxgboostjob.XGBReplicaSpecRequirement{
 					ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation: tasBlockLabel,
+						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
 				},
 			).
@@ -420,7 +416,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(tasRackLabel),
+							Required:      ptr.To(testing.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -428,7 +424,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(tasBlockLabel),
+							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -448,13 +444,13 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))

@@ -63,9 +63,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("hostname").Levels(
-				corev1.LabelHostname,
-			).Obj()
+			topology = testing.MakeDefaultOneLevelTopology("hostname")
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
@@ -157,7 +155,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("hostname").Levels(corev1.LabelHostname).Obj()
+			topology = testing.MakeDefaultOneLevelTopology("hostname")
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
@@ -292,7 +290,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			localQueue   *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("hostname").Levels(corev1.LabelHostname).Obj()
+			topology = testing.MakeDefaultOneLevelTopology("hostname")
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			onDemandRF = testing.MakeResourceFlavor("on-demand").

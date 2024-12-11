@@ -58,11 +58,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeTopology("datacenter").Levels(
-				topologyLevelBlock,
-				topologyLevelRack,
-				corev1.LabelHostname,
-			).Obj()
+			topology = testing.MakeDefaultThreeLevelTopology("datacenter")
 			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -106,7 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Image:       util.E2eTestSleepImage,
 						Args:        []string{"60s"},
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: topologyLevelBlock,
+							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				).
