@@ -143,8 +143,14 @@ cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
+LEADERWORKERSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/lws)
+.PHONY: leaderworkerset-operator-crd
+leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
+	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
+
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs
