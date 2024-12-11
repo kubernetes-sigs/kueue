@@ -49,11 +49,11 @@ const (
 	ManagedLabelKey              = constants.ManagedByKueueLabel
 	ManagedLabelValue            = "true"
 	PodFinalizer                 = ManagedLabelKey
-	SuspendedByParentLabelKey    = "kueue.x-k8s.io/pod-suspending-parent"
 	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
 	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
 	GroupServingAnnotation       = "kueue.x-k8s.io/pod-group-serving"
+	SuspendedByParentAnnotation  = "kueue.x-k8s.io/pod-suspending-parent"
 	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
 	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
 )
@@ -152,7 +152,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	_, suspend := pod.pod.GetLabels()[SuspendedByParentLabelKey]
+	_, suspend := pod.pod.GetAnnotations()[SuspendedByParentAnnotation]
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
