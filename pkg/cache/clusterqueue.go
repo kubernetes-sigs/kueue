@@ -81,7 +81,7 @@ type clusterQueue struct {
 	multiKueueAdmissionChecks                       []string
 	provisioningAdmissionChecks                     []string
 	perFlavorMultiKueueAdmissionChecks              []string
-	tasFlavors                                      []kueue.ResourceFlavorReference
+	tasFlavors                                      map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount                          int
 	isStopped                                       bool
 	workloadInfoOptions                             []workload.InfoOption
@@ -304,6 +304,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with ProvisioningRequest admission check")
 			}
+			for tasFlavor, topology := range c.tasFlavors {
+				if c.tasCache.Get(tasFlavor) == nil {
+					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
+					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", topology, tasFlavor))
+				}
+			}
 		}
 
 		if len(reasons) == 0 {
@@ -318,6 +324,11 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 func (c *clusterQueue) isTASViolated() bool {
 	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
 		return false
+	}
+	for tasFlavor := range c.tasFlavors {
+		if c.tasCache.Get(tasFlavor) == nil {
+			return true
+		}
 	}
 	return c.HasParent() ||
 		c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever ||
@@ -348,7 +359,10 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 					keys.Insert(k)
 				}
 				if flv.Spec.TopologyName != nil {
-					c.tasFlavors = append(c.tasFlavors, fName)
+					if c.tasFlavors == nil {
+						c.tasFlavors = make(map[kueue.ResourceFlavorReference]kueue.TopologyReference, 1)
+					}
+					c.tasFlavors[fName] = *flv.Spec.TopologyName
 				}
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
