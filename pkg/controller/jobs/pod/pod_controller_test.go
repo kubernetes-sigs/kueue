@@ -5194,8 +5194,8 @@ func TestReconciler(t *testing.T) {
 
 func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	now := time.Now()
-	fakeClock := testingclock.NewFakeClock(now)
+	// now := time.Now()
+	// fakeClock := testingclock.NewFakeClock(now)
 
 	clientBuilder := utiltesting.NewClientBuilder()
 	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -5256,7 +5256,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 
-	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
+	reconciler := NewReconciler(kClient, recorder)
 
 	podKey := client.ObjectKeyFromObject(&pod)
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{
