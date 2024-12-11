@@ -77,6 +77,10 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		return
 	}
 	if QueueNameForObject(jobObj) == "" {
+		// Do not default the queue-name for a job whose owner is already managed by Kueue
+		if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+			return
+		}
 		labels := jobObj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string, 1)
