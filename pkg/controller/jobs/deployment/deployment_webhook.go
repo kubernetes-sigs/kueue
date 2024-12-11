@@ -74,14 +74,14 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 	if suspend {
-		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 2)
 		}
+		deployment.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
+		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if queueName != "" {
 			deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
 		}
-		deployment.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
 	}
 
 	return nil

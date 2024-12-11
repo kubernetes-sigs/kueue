@@ -20,7 +20,6 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -39,14 +38,13 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &appsv1.StatefulSet{},
-		AddToScheme:            appsv1.AddToScheme,
-		DependencyList:         []string{"pod"},
-		GVK:                    gvk,
-		IsManagingObjectsOwner: isStatefulSet,
+		SetupIndexes:   SetupIndexes,
+		NewReconciler:  NewReconciler,
+		SetupWebhook:   SetupWebhook,
+		JobType:        &appsv1.StatefulSet{},
+		AddToScheme:    appsv1.AddToScheme,
+		DependencyList: []string{"pod"},
+		GVK:            gvk,
 	}))
 }
 
@@ -66,8 +64,4 @@ func (d *StatefulSet) GVK() schema.GroupVersionKind {
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
-}
-
-func isStatefulSet(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "StatefulSet" && owner.APIVersion == gvk.GroupVersion().String()
 }

@@ -78,6 +78,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if ss.Spec.Template.Labels == nil {
 			ss.Spec.Template.Labels = make(map[string]string, 3)
 		}
+		ss.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
@@ -91,7 +92,6 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
-		ss.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
 	}
 
 	return nil
