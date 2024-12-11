@@ -45,9 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-tas-sts-"}}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		topology = testing.MakeTopology("datacenter").
-			Levels(topologyLevelBlock, topologyLevelRack, corev1.LabelHostname).
-			Obj()
+		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -85,7 +83,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				Limit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).
-				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.provider.com/topology-block").
+				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 
