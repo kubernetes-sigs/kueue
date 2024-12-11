@@ -58,7 +58,7 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateSpecLabel(pod.SuspendedByParentLabelKey, FrameworkName).
+				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
@@ -76,7 +76,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateSpecLabel(pod.SuspendedByParentLabelKey, FrameworkName).
+				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				PodTemplateSpecPodGroupServingAnnotation(true).
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
@@ -89,7 +89,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
 				PodTemplateSpecQueue("default").
-				PodTemplateSpecLabel(pod.SuspendedByParentLabelKey, FrameworkName).
+				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
@@ -104,7 +104,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateSpecLabel(pod.SuspendedByParentLabelKey, FrameworkName).
+				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).

@@ -106,6 +106,15 @@ func (ss *StatefulSetWrapper) PodTemplateSpecLabel(k, v string) *StatefulSetWrap
 	return ss
 }
 
+// PodTemplateAnnotation sets the annotation of the pod template
+func (ss *StatefulSetWrapper) PodTemplateAnnotation(k, v string) *StatefulSetWrapper {
+	if ss.Spec.Template.Annotations == nil {
+		ss.Spec.Template.Annotations = make(map[string]string, 1)
+	}
+	ss.Spec.Template.Annotations[k] = v
+	return ss
+}
+
 // PodTemplateSpecAnnotation sets the annotation of the pod template spec of the StatefulSet
 func (ss *StatefulSetWrapper) PodTemplateSpecAnnotation(k, v string) *StatefulSetWrapper {
 	if ss.Spec.Template.Annotations == nil {

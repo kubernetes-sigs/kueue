@@ -128,6 +128,15 @@ func (d *DeploymentWrapper) PodTemplateSpecLabel(k, v string) *DeploymentWrapper
 	return d
 }
 
+// PodTemplateAnnotation sets the annotation of the pod template
+func (d *DeploymentWrapper) PodTemplateAnnotation(k, v string) *DeploymentWrapper {
+	if d.Spec.Template.Annotations == nil {
+		d.Spec.Template.Annotations = make(map[string]string, 1)
+	}
+	d.Spec.Template.Annotations[k] = v
+	return d
+}
+
 // PodTemplateSpecQueue updates the queue name of the pod template spec of the Deployment
 func (d *DeploymentWrapper) PodTemplateSpecQueue(q string) *DeploymentWrapper {
 	return d.PodTemplateSpecLabel(constants.QueueLabel, q)

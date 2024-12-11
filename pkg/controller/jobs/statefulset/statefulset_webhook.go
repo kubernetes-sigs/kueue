@@ -75,18 +75,17 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 	if suspend {
-		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 3)
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		ss.Spec.Template.Labels[pod.SuspendedByParentLabelKey] = FrameworkName
+		ss.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
+		if ss.Spec.Template.Labels == nil {
+			ss.Spec.Template.Labels = make(map[string]string, 2)
+		}
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
 			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
-
-			if ss.Spec.Template.Annotations == nil {
-				ss.Spec.Template.Annotations = make(map[string]string, 4)
-			}
 			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
