@@ -263,6 +263,10 @@ func GetIntegration(name string) (IntegrationCallbacks, bool) {
 	return manager.get(name)
 }
 
+func IsIntegrationEnabled(name string) bool {
+	return manager.enabledIntegrations.Has(name)
+}
+
 // GetIntegrationByGVK looks-up the framework identified by GroupVersionKind in the currently
 // registered list of frameworks returning its callbacks and true if found.
 func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
