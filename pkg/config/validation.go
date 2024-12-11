@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -337,4 +338,11 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	}
 
 	return allErrs
+}
+
+func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+	if featureGateCLI != "" && featureGateMap != nil {
+		return errors.New("feature gates for CLI and configuration cannot both specified")
+	}
+	return nil
 }

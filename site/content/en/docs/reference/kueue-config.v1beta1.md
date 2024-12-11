@@ -187,6 +187,16 @@ instead.</p>
    <p>Resources provides additional configuration options for handling the resources.</p>
 </td>
 </tr>
+<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<code>map[string]bool</code>
+</td>
+<td>
+   <p>FeatureGates is a map of feature names to bools that allows to override the
+default enablement status of a feature. The map cannot be used in conjunction
+with passing the list of features via the command line argument &quot;--feature-gates&quot;
+for the Kueue Deployment.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
