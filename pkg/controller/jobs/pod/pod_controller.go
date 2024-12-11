@@ -455,7 +455,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 						Type:   ConditionTypeTerminationTarget,
 						Status: corev1.ConditionTrue,
 						LastTransitionTime: metav1.Time{
-							Time: p.clock.Now(),
+							Time: p.getClock().Now(),
 						},
 						Reason:  string(stopReason),
 						Message: eventMsg,
