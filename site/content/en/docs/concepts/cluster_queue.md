@@ -129,7 +129,7 @@ spec:
         nominalQuota: 10
 ```
 
-In the example above, `cpu` and `memory` belong to one resourceGroup, while `gpu`
+In the example above, `cpu`, `memory`, and `foo.com/gpu` belong to one resourceGroup, while `bar.com/license`
 belongs to another.
 
 A resource flavor must belong to at most one resource group.
