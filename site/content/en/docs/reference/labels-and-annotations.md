@@ -150,6 +150,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 The annotation key is used to indicate how many Pods to expect in the group.
 
 
+### kueue.x-k8s.io/pod-suspending-parent
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/pod-suspending-parent: "deployment"`
+
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
+
+The annotation key is used to indicate the integration name of the Pod owner.
+
+
 ### kueue.x-k8s.io/prebuilt-workload-name
 
 Type: Label
