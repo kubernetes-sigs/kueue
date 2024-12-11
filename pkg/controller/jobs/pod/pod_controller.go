@@ -209,6 +209,13 @@ func (p *Pod) isUnretriableGroup() bool {
 	return false
 }
 
+func (p *Pod) Clock() clock.Clock {
+	if p.clock != nil {
+		return p.clock
+	}
+	return realClock
+}
+
 // IsSuspended returns whether the job is suspended or not.
 func (p *Pod) IsSuspended() bool {
 	if !p.isGroup {
