@@ -235,10 +235,10 @@ type WaitForPodsReady struct {
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
 	// replacementTimeoutSeconds defines optional time duration in seconds, relative to
-	// pod's failure after a Workload is Admitted and running.
+	// pod's failure expressed by PodsReady=false condition, after a Workload is Admitted and running.
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
-	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
+	// enforced only if waitForPodsReady.enable=true. Defaults to 3 mins.
 	// +optional
 	ReplacementTimeoutSeconds *int64
 }
@@ -301,6 +301,8 @@ We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, we add
 the condition when `job.status.ready + job.status.uncountedTerimnatedPods + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
+
+Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
 
 Note that, we don't take failed pods into account when verifying if the
 `PodsReady` condition should be added. However, a buggy admitted workload is
