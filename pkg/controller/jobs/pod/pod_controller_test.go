@@ -5194,6 +5194,8 @@ func TestReconciler(t *testing.T) {
 
 func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 
 	clientBuilder := utiltesting.NewClientBuilder()
 	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -5254,7 +5256,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 
-	reconciler := NewReconciler(kClient, recorder)
+	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
 
 	podKey := client.ObjectKeyFromObject(&pod)
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -5388,6 +5390,7 @@ func TestGetWorkloadNameForPod(t *testing.T) {
 
 func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.T) {
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	connRefusedErrMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	var triggerUpdateErr, triggerDeleteErr bool
@@ -5475,7 +5478,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-	reconciler := NewReconciler(kClient, recorder)
+	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
 	reconcileRequest := reconcileRequestForPod(&pods[0])
 
 	// Reconcile for the first time. It'll try  to remove the finalizers but fail
