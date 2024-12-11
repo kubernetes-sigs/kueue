@@ -209,7 +209,7 @@ func (p *Pod) isUnretriableGroup() bool {
 	return false
 }
 
-func (p *Pod) Clock() clock.Clock {
+func (p *Pod) getClock() clock.Clock {
 	if p.clock != nil {
 		return p.clock
 	}
