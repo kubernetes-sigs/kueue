@@ -18,7 +18,7 @@ controllerManager:
     image:
       repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
       # tag
-      tag: v0.8.0
+      tag: v0.16.0
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: IfNotPresent
   manager:
