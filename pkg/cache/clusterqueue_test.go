@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -974,12 +975,13 @@ func TestCohortLendable(t *testing.T) {
 
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
 	cases := []struct {
-		name        string
-		cq          *kueue.ClusterQueue
-		updatedCq   *kueue.ClusterQueue
-		wantStatus  metrics.ClusterQueueStatus
-		wantReason  string
-		wantMessage string
+		name         string
+		skipTopology bool
+		cq           *kueue.ClusterQueue
+		updatedCq    *kueue.ClusterQueue
+		wantStatus   metrics.ClusterQueueStatus
+		wantReason   string
+		wantMessage  string
 	}{
 		{
 			name: "TAS CQ goes active state",
@@ -1067,6 +1069,18 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
 			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
 		},
+		{
+			name:         "TAS do not support ProvisioningRequest AdmissionCheck",
+			skipTopology: true,
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -1074,12 +1088,21 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cqCache := New(utiltesting.NewFakeClient())
+
+			clientBuilder := utiltesting.NewClientBuilder()
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			client := clientBuilder.Build()
+
+			cqCache := New(client)
 
 			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
 			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
 			cqCache.AddOrUpdateResourceFlavor(rf)
+
+			if !tc.skipTopology {
+				cqCache.AddOrUpdateTopologyForFlavor(topology, rf)
+			}
 
 			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
 			cqCache.AddOrUpdateAdmissionCheck(mkAC)

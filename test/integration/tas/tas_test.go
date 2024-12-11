@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -518,11 +516,20 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
 
-				// TODO(#3645): replace the sleep with waiting for CQ deactivation.
-				// The sleep is a temporary solution to minimize the chance for the test flaking in case
-				// the workload is created and admitted before the event is handled and the topology
-				// is removed from the cache.
-				time.Sleep(time.Second)
+				ginkgo.By("await for the CQ to become inactive", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedCq kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+						g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+							{
+								Type:    kueue.ClusterQueueActive,
+								Status:  metav1.ConditionFalse,
+								Reason:  "TopologyNotFound",
+								Message: `Can't admit new workloads: there is no Topology "default" for TAS flavor "tas-flavor".`,
+							},
+						}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
@@ -539,8 +546,82 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				topology = testing.MakeDefaultTwoLevelTopology("default")
-				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+				ginkgo.By("recreate the Topology and wait for the queue to become active", func() {
+					topology = testing.MakeDefaultTwoLevelTopology("default")
+					gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+					util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("verify admission for the workload", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"b1", "r1"}},
+								{Count: 1, Values: []string{"b1", "r2"}},
+							},
+						},
+					))
+				})
+			})
+
+			ginkgo.It("should not admit the workload after the TAS RF is deleted and admit it after the RF is re-created", func() {
+				ginkgo.By("remove TAS RF finalizers to allow deletion", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedFlavor kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
+						updatedFlavor.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("delete TAS RF", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				})
+
+				ginkgo.By("await for the CQ to become inactive", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedCq kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+						g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+							{
+								Type:    kueue.ClusterQueueActive,
+								Status:  metav1.ConditionFalse,
+								Reason:  "FlavorNotFound",
+								Message: `Can't admit new workloads: references missing ResourceFlavor(s): [tas-flavor].`,
+							},
+						}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				var wl *kueue.Workload
+				ginkgo.By("creating a workload which requires block and can fit", func() {
+					wl = testing.MakeWorkload("wl", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl.Spec.PodSets[0].Count = 2
+					wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(testing.DefaultBlockTopologyLevel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible", func() {
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("recreate the ResourceFlavor and wait for the queue to become active", func() {
+					tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+						NodeLabel("node-group", "tas").
+						TopologyName("default").Obj()
+					gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+					util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+				})
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
