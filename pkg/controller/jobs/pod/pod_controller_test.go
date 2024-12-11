@@ -5194,8 +5194,6 @@ func TestReconciler(t *testing.T) {
 
 func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	// now := time.Now()
-	// fakeClock := testingclock.NewFakeClock(now)
 
 	clientBuilder := utiltesting.NewClientBuilder()
 	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
