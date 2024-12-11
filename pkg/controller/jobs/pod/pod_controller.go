@@ -1335,7 +1335,7 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 
 	if updated {
 		replCond.ObservedGeneration = wl.Generation
-		replCond.LastTransitionTime = metav1.Now()
+		replCond.LastTransitionTime = metav1.NewTime(p.getClock().Now())
 	}
 
 	return replCond, updated
