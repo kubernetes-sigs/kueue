@@ -534,11 +534,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl = testing.MakeWorkload("wl", ns.Name).
-						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-					wl.Spec.PodSets[0].Count = 2
-					wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultBlockTopologyLevel),
-					}
+						Queue(localQueue.Name).PodSets(*testing.MakePodSet("worker", 2).
+						RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+						Obj()).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 				})
 
@@ -603,11 +601,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl = testing.MakeWorkload("wl", ns.Name).
-						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-					wl.Spec.PodSets[0].Count = 2
-					wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(testing.DefaultBlockTopologyLevel),
-					}
+						Queue(localQueue.Name).PodSets(*testing.MakePodSet("worker", 2).
+						RequiredTopologyRequest(testing.DefaultBlockTopologyLevel).
+						Obj()).Request(corev1.ResourceCPU, "1").Obj()
 					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 				})
 

@@ -637,7 +637,7 @@ func (h *cqTopologyHandler) Generic(_ context.Context, e event.GenericEvent, q w
 			NamespacedName: types.NamespacedName{
 				Name: cq,
 			}}
-		q.AddAfter(req, time.Second)
+		q.Add(req)
 	}
 }
 
