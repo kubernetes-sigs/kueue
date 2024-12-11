@@ -10,6 +10,9 @@ An Admission Check Controller, referred to as **ACC** in the rest of the doc, is
 
 Read [Admission Check](/docs/concepts/admission_check/) to learn more about the mechanism from a user perspective.
 
+## Demo ACC
+
+An example AdmissionCheck Controller is implemented in `cmd/experimental/demo-acc`.
 
 ## Subcomponents
 
@@ -21,14 +24,14 @@ Monitors the AdmissionChecks in the cluster and maintains the `Active` condition
 
 Optionally, it can watch custom [parameters](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference) objects.
 
-The [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/) implements this in `pkg/controller/admissionchecks/provisioning/admissioncheck_reconciler.go`
+The Demo Admission Check Controller implements this in `cmd/experimental/demo-acc/internal/controller/admissioncheck_controller.go` setting all the AdmissionChecks managed by it as `Active` without any additional checks.
 
 ### Workload Reconciler
 
 It is in charge of maintaining the [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) of individual workloads
 based on the ACC's custom logic. It can either allow the admission, requeue or fail the workload. 
 
-The [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/) implements this in `pkg/controller/admissionchecks/provisioning/controller.go`
+The Demo Admission Check Controller implements this in `cmd/experimental/demo-acc/internal/controller/workload_controller.go` setting the Workload's AdmissionCheckState to `Ready` one minute after the Workload's creation.
 
 ### Parameters Object Type
 Optionally, you can define a cluster level object type to hold the Admission Check parameters specific to your implementation.
