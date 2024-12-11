@@ -781,16 +781,18 @@ func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 // lastActiveTime returns the last timestamp on which the pod was observed active:
 // - the time the pod was declared Failed
 // - the deletion time
-func lastActiveTime(p *corev1.Pod) time.Time {
-	var lastTransition time.Time
+func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
+	if !p.DeletionTimestamp.IsZero() {
+		return p.DeletionTimestamp.Time
+	}
+	lastTransition := clock.Now()
 	for _, c := range p.Status.Conditions {
-		if c.Type == corev1.ContainersReady && c.Status == corev1.ConditionFalse && c.Reason == string(corev1.PodFailed) {
-			lastTransition = c.LastTransitionTime.Time
+		if c.Type == corev1.ContainersReady {
+			if c.Status == corev1.ConditionFalse && c.Reason == string(corev1.PodFailed) {
+				lastTransition = c.LastTransitionTime.Time
+			}
 			break
 		}
-	}
-	if p.DeletionTimestamp != nil && p.DeletionTimestamp.Time.After(lastTransition) {
-		return p.DeletionTimestamp.Time
 	}
 	return lastTransition
 }
@@ -799,7 +801,7 @@ func lastActiveTime(p *corev1.Pod) time.Time {
 // - finalizer state (pods with finalizers are first)
 // - lastActiveTime (pods that were active last are first)
 // - creation timestamp (newer pods are first)
-func sortInactivePods(inactivePods []corev1.Pod) {
+func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 	sort.Slice(inactivePods, func(i, j int) bool {
 		pi := &inactivePods[i]
 		pj := &inactivePods[j]
@@ -809,8 +811,8 @@ func sortInactivePods(inactivePods []corev1.Pod) {
 			return iFin
 		}
 
-		iLastActive := lastActiveTime(pi)
-		jLastActive := lastActiveTime(pj)
+		iLastActive := lastActiveTime(clock, pi)
+		jLastActive := lastActiveTime(clock, pj)
 
 		if iLastActive.Equal(jLastActive) {
 			return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
@@ -1157,7 +1159,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		}
 
 		if finalizeablePodsCount := min(len(roleInactivePods), len(roleInactivePods)+len(roleActivePods)-int(ps.Count)); finalizeablePodsCount > 0 {
-			sortInactivePods(roleInactivePods)
+			sortInactivePods(p.getClock(), roleInactivePods)
 			replacedInactivePods = append(replacedInactivePods, roleInactivePods[len(roleInactivePods)-finalizeablePodsCount:]...)
 			keptPods = append(keptPods, roleInactivePods[:len(roleInactivePods)-finalizeablePodsCount]...)
 		} else {
