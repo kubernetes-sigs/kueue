@@ -264,6 +264,8 @@ func GetIntegration(name string) (IntegrationCallbacks, bool) {
 }
 
 func IsIntegrationEnabled(name string) bool {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
 	return manager.enabledIntegrations.Has(name)
 }
 
