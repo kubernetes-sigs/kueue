@@ -28,39 +28,39 @@ type FakeKueueV1beta1 struct {
 }
 
 func (c *FakeKueueV1beta1) AdmissionChecks() v1beta1.AdmissionCheckInterface {
-	return &FakeAdmissionChecks{c}
+	return newFakeAdmissionChecks(c)
 }
 
 func (c *FakeKueueV1beta1) ClusterQueues() v1beta1.ClusterQueueInterface {
-	return &FakeClusterQueues{c}
+	return newFakeClusterQueues(c)
 }
 
 func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInterface {
-	return &FakeLocalQueues{c, namespace}
+	return newFakeLocalQueues(c, namespace)
 }
 
 func (c *FakeKueueV1beta1) MultiKueueClusters() v1beta1.MultiKueueClusterInterface {
-	return &FakeMultiKueueClusters{c}
+	return newFakeMultiKueueClusters(c)
 }
 
 func (c *FakeKueueV1beta1) MultiKueueConfigs() v1beta1.MultiKueueConfigInterface {
-	return &FakeMultiKueueConfigs{c}
+	return newFakeMultiKueueConfigs(c)
 }
 
 func (c *FakeKueueV1beta1) ProvisioningRequestConfigs() v1beta1.ProvisioningRequestConfigInterface {
-	return &FakeProvisioningRequestConfigs{c}
+	return newFakeProvisioningRequestConfigs(c)
 }
 
 func (c *FakeKueueV1beta1) ResourceFlavors() v1beta1.ResourceFlavorInterface {
-	return &FakeResourceFlavors{c}
+	return newFakeResourceFlavors(c)
 }
 
 func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface {
-	return &FakeWorkloads{c, namespace}
+	return newFakeWorkloads(c, namespace)
 }
 
 func (c *FakeKueueV1beta1) WorkloadPriorityClasses() v1beta1.WorkloadPriorityClassInterface {
-	return &FakeWorkloadPriorityClasses{c}
+	return newFakeWorkloadPriorityClasses(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

@@ -28,11 +28,11 @@ type FakeVisibilityV1beta1 struct {
 }
 
 func (c *FakeVisibilityV1beta1) ClusterQueues() v1beta1.ClusterQueueInterface {
-	return &FakeClusterQueues{c}
+	return newFakeClusterQueues(c)
 }
 
 func (c *FakeVisibilityV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInterface {
-	return &FakeLocalQueues{c, namespace}
+	return newFakeLocalQueues(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

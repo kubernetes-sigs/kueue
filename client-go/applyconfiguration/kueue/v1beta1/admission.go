@@ -18,13 +18,13 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // AdmissionApplyConfiguration represents a declarative configuration of the Admission type for use
 // with apply.
 type AdmissionApplyConfiguration struct {
-	ClusterQueue      *v1beta1.ClusterQueueReference       `json:"clusterQueue,omitempty"`
+	ClusterQueue      *kueuev1beta1.ClusterQueueReference  `json:"clusterQueue,omitempty"`
 	PodSetAssignments []PodSetAssignmentApplyConfiguration `json:"podSetAssignments,omitempty"`
 }
 
@@ -37,7 +37,7 @@ func Admission() *AdmissionApplyConfiguration {
 // WithClusterQueue sets the ClusterQueue field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ClusterQueue field is set to the value of the last call.
-func (b *AdmissionApplyConfiguration) WithClusterQueue(value v1beta1.ClusterQueueReference) *AdmissionApplyConfiguration {
+func (b *AdmissionApplyConfiguration) WithClusterQueue(value kueuev1beta1.ClusterQueueReference) *AdmissionApplyConfiguration {
 	b.ClusterQueue = &value
 	return b
 }

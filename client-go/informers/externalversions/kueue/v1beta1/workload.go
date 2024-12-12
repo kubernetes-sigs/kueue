@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
 )
 
 // WorkloadInformer provides access to a shared informer and lister for
 // Workloads.
 type WorkloadInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.WorkloadLister
+	Lister() kueuev1beta1.WorkloadLister
 }
 
 type workloadInformer struct {
@@ -70,7 +70,7 @@ func NewFilteredWorkloadInformer(client versioned.Interface, namespace string, r
 				return client.KueueV1beta1().Workloads(namespace).Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1beta1.Workload{},
+		&apiskueuev1beta1.Workload{},
 		resyncPeriod,
 		indexers,
 	)
@@ -81,9 +81,9 @@ func (f *workloadInformer) defaultInformer(client versioned.Interface, resyncPer
 }
 
 func (f *workloadInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1beta1.Workload{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1beta1.Workload{}, f.defaultInformer)
 }
 
-func (f *workloadInformer) Lister() v1beta1.WorkloadLister {
-	return v1beta1.NewWorkloadLister(f.Informer().GetIndexer())
+func (f *workloadInformer) Lister() kueuev1beta1.WorkloadLister {
+	return kueuev1beta1.NewWorkloadLister(f.Informer().GetIndexer())
 }

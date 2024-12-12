@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
 )
 
 // ProvisioningRequestConfigInformer provides access to a shared informer and lister for
 // ProvisioningRequestConfigs.
 type ProvisioningRequestConfigInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.ProvisioningRequestConfigLister
+	Lister() kueuev1beta1.ProvisioningRequestConfigLister
 }
 
 type provisioningRequestConfigInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredProvisioningRequestConfigInformer(client versioned.Interface, re
 				return client.KueueV1beta1().ProvisioningRequestConfigs().Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1beta1.ProvisioningRequestConfig{},
+		&apiskueuev1beta1.ProvisioningRequestConfig{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *provisioningRequestConfigInformer) defaultInformer(client versioned.Int
 }
 
 func (f *provisioningRequestConfigInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1beta1.ProvisioningRequestConfig{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1beta1.ProvisioningRequestConfig{}, f.defaultInformer)
 }
 
-func (f *provisioningRequestConfigInformer) Lister() v1beta1.ProvisioningRequestConfigLister {
-	return v1beta1.NewProvisioningRequestConfigLister(f.Informer().GetIndexer())
+func (f *provisioningRequestConfigInformer) Lister() kueuev1beta1.ProvisioningRequestConfigLister {
+	return kueuev1beta1.NewProvisioningRequestConfigLister(f.Informer().GetIndexer())
 }

@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	apisvisibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/visibility/v1beta1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/listers/visibility/v1beta1"
 )
 
 // ClusterQueueInformer provides access to a shared informer and lister for
 // ClusterQueues.
 type ClusterQueueInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.ClusterQueueLister
+	Lister() visibilityv1beta1.ClusterQueueLister
 }
 
 type clusterQueueInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredClusterQueueInformer(client versioned.Interface, resyncPeriod ti
 				return client.VisibilityV1beta1().ClusterQueues().Watch(context.TODO(), options)
 			},
 		},
-		&visibilityv1beta1.ClusterQueue{},
+		&apisvisibilityv1beta1.ClusterQueue{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *clusterQueueInformer) defaultInformer(client versioned.Interface, resyn
 }
 
 func (f *clusterQueueInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&visibilityv1beta1.ClusterQueue{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvisibilityv1beta1.ClusterQueue{}, f.defaultInformer)
 }
 
-func (f *clusterQueueInformer) Lister() v1beta1.ClusterQueueLister {
-	return v1beta1.NewClusterQueueLister(f.Informer().GetIndexer())
+func (f *clusterQueueInformer) Lister() visibilityv1beta1.ClusterQueueLister {
+	return visibilityv1beta1.NewClusterQueueLister(f.Informer().GetIndexer())
 }

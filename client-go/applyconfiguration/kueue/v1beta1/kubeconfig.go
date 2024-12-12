@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // KubeConfigApplyConfiguration represents a declarative configuration of the KubeConfig type for use
 // with apply.
 type KubeConfigApplyConfiguration struct {
-	Location     *string               `json:"location,omitempty"`
-	LocationType *v1beta1.LocationType `json:"locationType,omitempty"`
+	Location     *string                    `json:"location,omitempty"`
+	LocationType *kueuev1beta1.LocationType `json:"locationType,omitempty"`
 }
 
 // KubeConfigApplyConfiguration constructs a declarative configuration of the KubeConfig type for use with
@@ -45,7 +45,7 @@ func (b *KubeConfigApplyConfiguration) WithLocation(value string) *KubeConfigApp
 // WithLocationType sets the LocationType field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the LocationType field is set to the value of the last call.
-func (b *KubeConfigApplyConfiguration) WithLocationType(value v1beta1.LocationType) *KubeConfigApplyConfiguration {
+func (b *KubeConfigApplyConfiguration) WithLocationType(value kueuev1beta1.LocationType) *KubeConfigApplyConfiguration {
 	b.LocationType = &value
 	return b
 }
