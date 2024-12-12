@@ -218,7 +218,7 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 	return nil
 }
 
-// IsOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
+// isOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
 func (m *integrationManager) isOwnerIntegrationEnabled(owner *metav1.OwnerReference) bool {
 	ownerGV, err := schema.ParseGroupVersion(owner.APIVersion)
 	if err != nil {
