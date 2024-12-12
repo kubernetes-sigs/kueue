@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // ProvisioningRequestConfigLister helps list ProvisioningRequestConfigs.
@@ -29,19 +29,19 @@ import (
 type ProvisioningRequestConfigLister interface {
 	// List lists all ProvisioningRequestConfigs in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ProvisioningRequestConfig, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.ProvisioningRequestConfig, err error)
 	// Get retrieves the ProvisioningRequestConfig from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ProvisioningRequestConfig, error)
+	Get(name string) (*kueuev1beta1.ProvisioningRequestConfig, error)
 	ProvisioningRequestConfigListerExpansion
 }
 
 // provisioningRequestConfigLister implements the ProvisioningRequestConfigLister interface.
 type provisioningRequestConfigLister struct {
-	listers.ResourceIndexer[*v1beta1.ProvisioningRequestConfig]
+	listers.ResourceIndexer[*kueuev1beta1.ProvisioningRequestConfig]
 }
 
 // NewProvisioningRequestConfigLister returns a new ProvisioningRequestConfigLister.
 func NewProvisioningRequestConfigLister(indexer cache.Indexer) ProvisioningRequestConfigLister {
-	return &provisioningRequestConfigLister{listers.New[*v1beta1.ProvisioningRequestConfig](indexer, v1beta1.Resource("provisioningrequestconfig"))}
+	return &provisioningRequestConfigLister{listers.New[*kueuev1beta1.ProvisioningRequestConfig](indexer, kueuev1beta1.Resource("provisioningrequestconfig"))}
 }

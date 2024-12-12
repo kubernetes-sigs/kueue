@@ -18,168 +18,35 @@ limitations under the License.
 package fake
 
 import (
-	"context"
-	json "encoding/json"
-	"fmt"
-
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	typedkueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 )
 
-// FakeClusterQueues implements ClusterQueueInterface
-type FakeClusterQueues struct {
+// fakeClusterQueues implements ClusterQueueInterface
+type fakeClusterQueues struct {
+	*gentype.FakeClientWithListAndApply[*v1beta1.ClusterQueue, *v1beta1.ClusterQueueList, *kueuev1beta1.ClusterQueueApplyConfiguration]
 	Fake *FakeKueueV1beta1
 }
 
-var clusterqueuesResource = v1beta1.SchemeGroupVersion.WithResource("clusterqueues")
-
-var clusterqueuesKind = v1beta1.SchemeGroupVersion.WithKind("ClusterQueue")
-
-// Get takes name of the clusterQueue, and returns the corresponding clusterQueue object, and an error if there is any.
-func (c *FakeClusterQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ClusterQueue, err error) {
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootGetActionWithOptions(clusterqueuesResource, name, options), emptyResult)
-	if obj == nil {
-		return emptyResult, err
+func newFakeClusterQueues(fake *FakeKueueV1beta1) typedkueuev1beta1.ClusterQueueInterface {
+	return &fakeClusterQueues{
+		gentype.NewFakeClientWithListAndApply[*v1beta1.ClusterQueue, *v1beta1.ClusterQueueList, *kueuev1beta1.ClusterQueueApplyConfiguration](
+			fake.Fake,
+			"",
+			v1beta1.SchemeGroupVersion.WithResource("clusterqueues"),
+			v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"),
+			func() *v1beta1.ClusterQueue { return &v1beta1.ClusterQueue{} },
+			func() *v1beta1.ClusterQueueList { return &v1beta1.ClusterQueueList{} },
+			func(dst, src *v1beta1.ClusterQueueList) { dst.ListMeta = src.ListMeta },
+			func(list *v1beta1.ClusterQueueList) []*v1beta1.ClusterQueue {
+				return gentype.ToPointerSlice(list.Items)
+			},
+			func(list *v1beta1.ClusterQueueList, items []*v1beta1.ClusterQueue) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// List takes label and field selectors, and returns the list of ClusterQueues that match those selectors.
-func (c *FakeClusterQueues) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ClusterQueueList, err error) {
-	emptyResult := &v1beta1.ClusterQueueList{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootListActionWithOptions(clusterqueuesResource, clusterqueuesKind, opts), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1beta1.ClusterQueueList{ListMeta: obj.(*v1beta1.ClusterQueueList).ListMeta}
-	for _, item := range obj.(*v1beta1.ClusterQueueList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested clusterQueues.
-func (c *FakeClusterQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewRootWatchActionWithOptions(clusterqueuesResource, opts))
-}
-
-// Create takes the representation of a clusterQueue and creates it.  Returns the server's representation of the clusterQueue, and an error, if there is any.
-func (c *FakeClusterQueues) Create(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.CreateOptions) (result *v1beta1.ClusterQueue, err error) {
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateActionWithOptions(clusterqueuesResource, clusterQueue, opts), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// Update takes the representation of a clusterQueue and updates it. Returns the server's representation of the clusterQueue, and an error, if there is any.
-func (c *FakeClusterQueues) Update(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateActionWithOptions(clusterqueuesResource, clusterQueue, opts), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeClusterQueues) UpdateStatus(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateSubresourceActionWithOptions(clusterqueuesResource, "status", clusterQueue, opts), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// Delete takes name of the clusterQueue and deletes it. Returns an error if one occurs.
-func (c *FakeClusterQueues) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteActionWithOptions(clusterqueuesResource, name, opts), &v1beta1.ClusterQueue{})
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeClusterQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewRootDeleteCollectionActionWithOptions(clusterqueuesResource, opts, listOpts)
-
-	_, err := c.Fake.Invokes(action, &v1beta1.ClusterQueueList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched clusterQueue.
-func (c *FakeClusterQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ClusterQueue, err error) {
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceActionWithOptions(clusterqueuesResource, name, pt, data, opts, subresources...), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied clusterQueue.
-func (c *FakeClusterQueues) Apply(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
-	if clusterQueue == nil {
-		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
-	}
-	data, err := json.Marshal(clusterQueue)
-	if err != nil {
-		return nil, err
-	}
-	name := clusterQueue.Name
-	if name == nil {
-		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
-	}
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceActionWithOptions(clusterqueuesResource, *name, types.ApplyPatchType, data, opts.ToPatchOptions()), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
-}
-
-// ApplyStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-func (c *FakeClusterQueues) ApplyStatus(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
-	if clusterQueue == nil {
-		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
-	}
-	data, err := json.Marshal(clusterQueue)
-	if err != nil {
-		return nil, err
-	}
-	name := clusterQueue.Name
-	if name == nil {
-		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
-	}
-	emptyResult := &v1beta1.ClusterQueue{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceActionWithOptions(clusterqueuesResource, *name, types.ApplyPatchType, data, opts.ToPatchOptions(), "status"), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1beta1.ClusterQueue), err
 }

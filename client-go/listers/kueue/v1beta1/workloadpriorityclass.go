@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // WorkloadPriorityClassLister helps list WorkloadPriorityClasses.
@@ -29,19 +29,19 @@ import (
 type WorkloadPriorityClassLister interface {
 	// List lists all WorkloadPriorityClasses in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.WorkloadPriorityClass, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.WorkloadPriorityClass, err error)
 	// Get retrieves the WorkloadPriorityClass from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.WorkloadPriorityClass, error)
+	Get(name string) (*kueuev1beta1.WorkloadPriorityClass, error)
 	WorkloadPriorityClassListerExpansion
 }
 
 // workloadPriorityClassLister implements the WorkloadPriorityClassLister interface.
 type workloadPriorityClassLister struct {
-	listers.ResourceIndexer[*v1beta1.WorkloadPriorityClass]
+	listers.ResourceIndexer[*kueuev1beta1.WorkloadPriorityClass]
 }
 
 // NewWorkloadPriorityClassLister returns a new WorkloadPriorityClassLister.
 func NewWorkloadPriorityClassLister(indexer cache.Indexer) WorkloadPriorityClassLister {
-	return &workloadPriorityClassLister{listers.New[*v1beta1.WorkloadPriorityClass](indexer, v1beta1.Resource("workloadpriorityclass"))}
+	return &workloadPriorityClassLister{listers.New[*kueuev1beta1.WorkloadPriorityClass](indexer, kueuev1beta1.Resource("workloadpriorityclass"))}
 }
