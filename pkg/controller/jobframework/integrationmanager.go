@@ -218,6 +218,27 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 	return nil
 }
 
+// IsOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
+func (m *integrationManager) isOwnerIntegrationEnabled(owner *metav1.OwnerReference) bool {
+	ownerGV, err := schema.ParseGroupVersion(owner.APIVersion)
+	if err != nil {
+		return false
+	}
+	gvk := ownerGV.WithKind(owner.Kind)
+	for jobKey := range m.getEnabledIntegrations() {
+		cbs, found := m.integrations[jobKey]
+		if found && matchingGVK(cbs, gvk) {
+			return true
+		}
+	}
+	for _, jt := range m.externalIntegrations {
+		if jt.GetObjectKind().GroupVersionKind() == gvk {
+			return true
+		}
+	}
+	return false
+}
+
 // RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name or if a
 // mandatory callback is missing.
@@ -300,23 +321,7 @@ func IsOwnerIntegrationEnabled(owner *metav1.OwnerReference) bool {
 	// The difference is caused because the Deployment and StatefulState integrations do not register
 	// an IsManagingObjectsOwner function.  We should attempt to register these integrations properly,
 	// adjust GenericJobReconciler to handle this, and go back to only one function to answer this question.
-	ownerGV, err := schema.ParseGroupVersion(owner.APIVersion)
-	if err != nil {
-		return false
-	}
-	gvk := ownerGV.WithKind(owner.Kind)
-	for jobKey := range manager.getEnabledIntegrations() {
-		cbs, found := manager.integrations[jobKey]
-		if found && matchingGVK(cbs, gvk) {
-			return true
-		}
-	}
-	for _, jt := range manager.externalIntegrations {
-		if jt.GetObjectKind().GroupVersionKind() == gvk {
-			return true
-		}
-	}
-	return false
+	return manager.isOwnerIntegrationEnabled(owner)
 }
 
 // GetEmptyOwnerObject returns an empty object of the owner's type,
