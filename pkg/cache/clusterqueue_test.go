@@ -399,8 +399,8 @@ func TestFitInCohort(t *testing.T) {
 
 func TestClusterQueueUpdate(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
-		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		utiltesting.MakeResourceFlavor("on-demand").Obj(),
+		utiltesting.MakeResourceFlavor("spot").Obj(),
 	}
 	clusterQueue :=
 		*utiltesting.MakeClusterQueue("eng-alpha").

@@ -2222,9 +2222,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 		}
 
-		topology = testing.MakeTopology("default").Levels([]string{
-			tasBlockLabel,
-		}).Obj()
+		topology = testing.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").

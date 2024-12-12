@@ -601,8 +601,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
-		tasRackLabel   = "cloud.com/topology-rack"
 	)
 
 	var (
@@ -637,9 +635,9 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "b1r1",
 					Labels: map[string]string{
-						nodeGroupLabel: "tas",
-						tasBlockLabel:  "b1",
-						tasRackLabel:   "r1",
+						nodeGroupLabel:                    "tas",
+						testing.DefaultBlockTopologyLevel: "b1",
+						testing.DefaultRackTopologyLevel:  "r1",
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -661,9 +659,7 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 			gomega.Expect(k8sClient.Status().Update(ctx, &node)).Should(gomega.Succeed())
 		}
 
-		topology = testing.MakeTopology("default").Levels([]string{
-			tasBlockLabel, tasRackLabel,
-		}).Obj()
+		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
@@ -698,14 +694,14 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: tasRackLabel,
+						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
 				},
 				testingpytorchjob.PyTorchReplicaSpecRequirement{
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation: tasBlockLabel,
+						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
 				},
 			).
@@ -728,14 +724,14 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasRackLabel),
+							Required: ptr.To(testing.DefaultRackTopologyLevel),
 						},
 					},
 					{
 						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(tasBlockLabel),
+							Preferred: ptr.To(testing.DefaultBlockTopologyLevel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
@@ -754,13 +750,13 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
