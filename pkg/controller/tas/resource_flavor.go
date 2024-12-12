@@ -140,7 +140,7 @@ func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.Typ
 
 var _ handler.EventHandler = (*topologyHandler)(nil)
 
-// topologyHandler handles node update events.
+// topologyHandler handles topology update events.
 type topologyHandler struct {
 	client   client.Client
 	queues   *queue.Manager
@@ -163,7 +163,9 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 
 	defer h.notifyTopologyWatchers(nil, topology)
 
-	// trigger reconcile for TAS flavors affected by the node being created or updated
+	// Trigger reconcile for TAS flavors affected by the topology being created.
+	// Additionally, update the cache to account for the created topology, before
+	// notifying the listeners.
 	for _, flv := range flavors.Items {
 		if flv.Spec.TopologyName == nil {
 			continue
@@ -184,6 +186,8 @@ func (h *topologyHandler) Delete(_ context.Context, e event.DeleteEvent, _ workq
 		return
 	}
 	defer h.notifyTopologyWatchers(topology, nil)
+	// Update the cache to account for the deleted topology, before notifying
+	// the listeners.
 	for name, flavor := range h.tasCache.Clone() {
 		if flavor.TopologyName == kueue.TopologyReference(topology.Name) {
 			h.cache.DeleteTopologyForFlavor(name)

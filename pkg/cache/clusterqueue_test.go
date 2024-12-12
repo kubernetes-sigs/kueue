@@ -1373,7 +1373,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
 		},
 		{
-			name:         "TAS do not support ProvisioningRequest AdmissionCheck",
+			name:         "Referenced TAS flavor without topology",
 			skipTopology: true,
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
