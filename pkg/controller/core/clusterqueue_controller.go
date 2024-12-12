@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -68,6 +69,7 @@ type ClusterQueueReconciler struct {
 	rfUpdateCh                           chan event.GenericEvent
 	acUpdateCh                           chan event.GenericEvent
 	snapUpdateCh                         chan event.GenericEvent
+	topologyUpdateCh                     chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
 	fairSharingEnabled                   bool
@@ -142,6 +144,7 @@ func NewClusterQueueReconciler(
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
+		topologyUpdateCh:                     make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
 		fairSharingEnabled:                   options.FairSharingEnabled,
@@ -199,6 +202,22 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
+}
+
+// Only topology Creation or Delete can impact the CQ active state, so we
+// ignore other updates
+func (r *ClusterQueueReconciler) NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology) {
+	// if oldTopology is nil, it's a create event.
+	if oldTopology == nil {
+		r.topologyUpdateCh <- event.GenericEvent{Object: newTopology}
+		return
+	}
+
+	// if newTopology is nil, it's a delete event.
+	if newTopology == nil {
+		r.topologyUpdateCh <- event.GenericEvent{Object: oldTopology}
+		return
+	}
 }
 
 func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
@@ -580,6 +599,34 @@ func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEven
 	}
 }
 
+type cqTopologyHandler struct {
+	cache *cache.Cache
+}
+
+func (h *cqTopologyHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cqTopologyHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cqTopologyHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cqTopologyHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	topology, isTopology := e.Object.(*kueuealpha.Topology)
+	if !isTopology {
+		return
+	}
+	cqs := h.cache.ClusterQueuesUsingTopology(kueue.TopologyReference(topology.Name))
+	for _, cq := range cqs {
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name: cq,
+			}}
+		q.AddAfter(req, time.Second)
+	}
+}
+
 func (h *cqSnapshotHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
@@ -622,6 +669,9 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 	acHandler := cqAdmissionCheckHandler{
 		cache: r.cache,
 	}
+	topologyHandler := cqTopologyHandler{
+		cache: r.cache,
+	}
 	snapHandler := cqSnapshotHandler{
 		queueVisibilityUpdateInterval: r.queueVisibilityUpdateInterval,
 	}
@@ -632,6 +682,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &wHandler)).
 		WatchesRawSource(source.Channel(r.rfUpdateCh, &rfHandler)).
 		WatchesRawSource(source.Channel(r.acUpdateCh, &acHandler)).
+		WatchesRawSource(source.Channel(r.topologyUpdateCh, &topologyHandler)).
 		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))

@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -1272,5 +1273,168 @@ func TestCohortLendable(t *testing.T) {
 	lendable := cache.hm.Cohorts["test-cohort"].resourceNode.calculateLendable()
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
+	}
+}
+
+func TestClusterQueueReadinessWithTAS(t *testing.T) {
+	cases := []struct {
+		name         string
+		skipTopology bool
+		cq           *kueue.ClusterQueue
+		updatedCq    *kueue.ClusterQueue
+		wantStatus   metrics.ClusterQueueStatus
+		wantReason   string
+		wantMessage  string
+	}{
+		{
+			name: "TAS CQ goes active state",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
+		},
+		{
+			name: "TAS do not support Cohorts",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Cohort("some-cohort").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported for cohorts.",
+		},
+		{
+			name: "TAS do not support Preemption",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported for preemption within cluster queue.",
+		},
+		{
+			name: "TAS do not support MultiKueue AdmissionCheck",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).AdmissionChecks("mk-check").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
+		},
+		{
+			name: "TAS do not support ProvisioningRequest AdmissionCheck",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).AdmissionChecks("pr-check").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
+		},
+		{
+			name:         "TAS do not support ProvisioningRequest AdmissionCheck",
+			skipTopology: true,
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.NewClientBuilder()
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			client := clientBuilder.Build()
+
+			cqCache := New(client)
+
+			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
+
+			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
+			cqCache.AddOrUpdateResourceFlavor(rf)
+
+			if !tc.skipTopology {
+				cqCache.AddOrUpdateTopologyForFlavor(topology, rf)
+			}
+
+			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+			cqCache.AddOrUpdateAdmissionCheck(mkAC)
+
+			acWithPR := utiltesting.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
+			cqCache.AddOrUpdateAdmissionCheck(acWithPR)
+
+			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
+			}
+
+			if tc.updatedCq != nil {
+				if err := cqCache.UpdateClusterQueue(tc.updatedCq); err != nil {
+					t.Fatalf("Updating clusterQueue %s in cache: %v", tc.updatedCq.Name, err)
+				}
+			}
+
+			_, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(tc.cq.Name)
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantMessage, gotMessage); diff != "" {
+				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
