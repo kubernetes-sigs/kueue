@@ -144,7 +144,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		if j.Spec.SubmitterPodTemplate != nil {
 			submitterJobPodSet.Template = *j.Spec.SubmitterPodTemplate.DeepCopy()
 		} else {
-			submitterJobPodSet.Template = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
+			submitterJobPodSet.Template = *getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
 		}
 
 		podSets = append(podSets, submitterJobPodSet)
@@ -155,6 +155,10 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 
 func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		expectedLen++
+	}
+
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -176,11 +180,29 @@ func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 			return err
 		}
 	}
+
+	// submitter
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		submitterPod := j.Spec.SubmitterPodTemplate
+		if submitterPod == nil {
+			submitterPod = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
+		}
+		info := podSetsInfo[expectedLen-1]
+		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		expectedLen++
+	}
+
+	if len(podSetsInfo) != expectedLen {
 		return false
 	}
 
@@ -194,6 +216,17 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		info := podSetsInfo[index+1]
 		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
+
+	// submitter
+	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+		submitterPod := j.Spec.SubmitterPodTemplate
+		if submitterPod == nil {
+			submitterPod = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
+		}
+		info := podSetsInfo[expectedLen-1]
+		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
+	}
+
 	return changed
 }
 
@@ -222,8 +255,8 @@ func isRayJob(owner *metav1.OwnerReference) bool {
 
 // getDefaultSubmitterTemplate creates a default submitter template for the Ray job.
 // This method is copied from https://github.com/ray-project/kuberay/blob/86506d6b88a6428fc66048c276d7d93b39df7489/ray-operator/controllers/ray/common/job.go#L122-L146
-func getDefaultSubmitterTemplate(rayClusterInstance *rayv1.RayCluster) corev1.PodTemplateSpec {
-	return corev1.PodTemplateSpec{
+func getDefaultSubmitterTemplate(rayClusterInstance *rayv1.RayCluster) *corev1.PodTemplateSpec {
+	return &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{

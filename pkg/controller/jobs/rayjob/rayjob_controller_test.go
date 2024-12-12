@@ -288,9 +288,9 @@ func TestPodSets(t *testing.T) {
 						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
 					},
 					{
-						Name:     "ray-job-submitter",
+						Name:     "submitter",
 						Count:    1,
-						Template: getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}),
+						Template: *getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}),
 					},
 				}
 			},
@@ -355,7 +355,7 @@ func TestPodSets(t *testing.T) {
 						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
 					},
 					{
-						Name:  "ray-job-submitter",
+						Name:  "submitter",
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
