@@ -20,29 +20,46 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
    and enable the `pod` integration.
 
-   A configuration for Kueue with enabled pod integration would look like follows:
+   To allow Kubernetes system pods to be successfully scheduled, you must limit the scope of the `pod` integration.
+   The recomended mechanism for doing this is using the `managedJobsNamespaceSelector`.
+
+   One approach is to only enable management only for specific namespaces:
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta1
    kind: Configuration
+   managedJobsNamespaceSelector:
+     matchLabels:
+      kueue-managed: "true"
    integrations:
      frameworks:
       - "pod"
-     podOptions:
-       # You can change namespaceSelector to define in which 
-       # namespaces kueue will manage the pods.
-       namespaceSelector:
-         matchExpressions:
-         - key: kubernetes.io/metadata.name
-           operator: NotIn
-           values: [ kube-system, kueue-system ]
-       # Kueue uses podSelector to manage pods with particular 
-       # labels. The default podSelector will match all the pods. 
-       podSelector:
-         matchExpressions:
-         - key: kueue-job
-           operator: In
-           values: [ "true", "True", "yes" ]
    ```
+   An alternate approach is to exempt system namespaces from management:
+   ```yaml
+   apiVersion: config.kueue.x-k8s.io/v1beta1
+   kind: Configuration
+   managedJobsNamespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: [ kube-system, kueue-system ]
+   integrations:
+     frameworks:
+      - "pod"
+   ```
+
+{{< feature-state state="beta" for_version="v0.10" >}}
+{{% alert title="Note" color="primary" %}}
+
+`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
+
+You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
+
+  Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
+  and `integrations.podOptions.podSelector` were used instead. Although `podOptions` is
+  still supported in Kueue v0.10, it is expected to be deprecated in a future release.
+
 
 2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
    used to filter the pods to reconcile. The default webhook namespaceSelector is:
