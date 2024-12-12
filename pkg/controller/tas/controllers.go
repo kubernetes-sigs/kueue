@@ -26,6 +26,10 @@ import (
 
 func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
+	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache)
+	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
+		return ctrlName, err
+	}
 	rfRec := newRfReconciler(mgr.GetClient(), queues, cache, recorder)
 	if ctrlName, err := rfRec.setupWithManager(mgr, cache, cfg); err != nil {
 		return ctrlName, err
