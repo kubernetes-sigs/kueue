@@ -78,6 +78,10 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+type TopologyUpdateWatcher interface {
+	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
+}
+
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
@@ -94,6 +98,8 @@ type Manager struct {
 	workloadInfoOptions []workload.InfoOption
 
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
+
+	topologyUpdateWatchers []TopologyUpdateWatcher
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -112,9 +118,21 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
+
+		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 	}
 	m.cond.L = &m.RWMutex
 	return m
+}
+
+func (m *Manager) AddTopologyUpdateWatcher(watcher TopologyUpdateWatcher) {
+	m.topologyUpdateWatchers = append(m.topologyUpdateWatchers, watcher)
+}
+
+func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueuealpha.Topology) {
+	for _, watcher := range m.topologyUpdateWatchers {
+		watcher.NotifyTopologyUpdate(oldTopology, newTopology)
+	}
 }
 
 func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueuealpha.Cohort) {
