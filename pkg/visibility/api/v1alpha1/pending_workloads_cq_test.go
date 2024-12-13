@@ -336,7 +336,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				manager.AddOrUpdateWorkload(w)
+				if err := manager.AddOrUpdateWorkload(w); err != nil {
+					t.Fatalf("Adding workload %s: %v", w.Name, err)
+				}
 			}
 
 			info, err := pendingWorkloadsInCqRest.Get(ctx, tc.req.queueName, tc.req.queryParams)
