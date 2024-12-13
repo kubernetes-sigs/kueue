@@ -91,6 +91,41 @@ func TestWlReconcile(t *testing.T) {
 		wantWorker2Workloads []kueue.Workload
 		wantWorker2Jobs      []batchv1.Job
 	}{
+		"deleted regular workload is removed from the cache": {
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					DeletionTimestamp(now).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
+		},
+		"deleted MultiKueue workload is deleted from cache - the worker will be deleted by GC": {
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					DeletionTimestamp(now).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
 		"missing workload": {
 			reconcileFor: "missing workload",
 		},
