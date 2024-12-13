@@ -38,9 +38,9 @@ import (
 )
 
 var (
-	ErrQueueDoesNotExist         = errors.New("queue doesn't exist")
-	ErrClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
-	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
+	ErrLocalQueueDoesNotExistOrInactive = errors.New("localQueue doesn't exist or inactive")
+	ErrClusterQueueDoesNotExist         = errors.New("clusterQueue doesn't exist")
+	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
 )
 
 type options struct {
@@ -259,7 +259,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	defer m.Unlock()
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return ErrQueueDoesNotExist
+		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
 		oldCQ := m.hm.ClusterQueues[qImpl.ClusterQueue]
@@ -296,7 +296,7 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return 0, ErrQueueDoesNotExist
+		return 0, ErrLocalQueueDoesNotExistOrInactive
 	}
 
 	return int32(len(qImpl.items)), nil
@@ -347,7 +347,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
-		return ErrQueueDoesNotExist
+		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
