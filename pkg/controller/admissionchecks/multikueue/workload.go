@@ -180,7 +180,24 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if mkAc == nil || mkAc.State == kueue.CheckStateRejected {
-		log.V(2).Info("Skip Workload")
+		log.V(2).Info("Skip Workload", "isDeleted", isDeleted)
+		if isDeleted {
+			// Delete the workload from the cache considering the following cases:
+			// 1. the workload is not admitted by MultiKueue and so there are
+			//    no workloads on worker clusters created, we can safely drop it
+			//    from the cache.
+			//    TODO(#3840): Ideally, we would not add it to the cache in the
+			//    first place.
+			// 2. the AdmissionCheck was rejected then, ideally, we trigger
+			//    deletion of the workloads on the worker clusters, rather than
+			//    deleting from cache. However,
+			//    - this is not a regression as the case was not handled anyway.
+			//    - we have the MultiKueue GarbageCollector which will take care
+			//      of the orphaned workloads with a delay.
+			//    TODO(#3841): Ideally, we would delete workloads on the worker
+			//    clusters synchronously.
+			w.deletedWlCache.Delete(req.String())
+		}
 		return reconcile.Result{}, nil
 	}
 
