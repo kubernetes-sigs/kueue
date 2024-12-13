@@ -533,7 +533,11 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		_ = manager.AddOrUpdateWorkload(&wl)
+		// We ignore the ErrClusterQueueDoesNotExist since we never set up ClusterQueue in this test,
+		// and the error should be occurred.
+		if err := manager.AddOrUpdateWorkload(&wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+			t.Fatalf("Failed to add or update workloads: %v", err)
+		}
 	}
 
 	cases := map[string]struct {
