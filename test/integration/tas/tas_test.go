@@ -61,6 +61,66 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		_ = features.SetEnable(features.TopologyAwareScheduling, false)
 	})
 
+	ginkgo.When("Delete Topology", func() {
+		var (
+			topology *kueuealpha.Topology
+		)
+
+		ginkgo.BeforeEach(func() {
+			topology = testing.MakeDefaultOneLevelTopology("topology")
+			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
+		ginkgo.It("should allow to delete topology", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
+		ginkgo.When("ResourceFlavor exist", func() {
+			var (
+				tasFlavor *kueue.ResourceFlavor
+			)
+
+			ginkgo.BeforeEach(func() {
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName(topology.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			})
+
+			ginkgo.It("should not allow to delete topology", func() {
+				createdTopology := &kueuealpha.Topology{}
+
+				ginkgo.By("check topology has finalizer", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), createdTopology)).Should(gomega.Succeed())
+						g.Expect(createdTopology.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("delete topology", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Delete(ctx, topology)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("check topology still present", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), createdTopology)).Should(gomega.Succeed())
+						g.Expect(createdTopology.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+			})
+		})
+	})
+
 	ginkgo.When("Negative scenarios for ResourceFlavor configuration", func() {
 		ginkgo.It("should not allow to create ResourceFlavor with invalid topology name", func() {
 			tasFlavor := testing.MakeResourceFlavor("tas-flavor").
@@ -331,9 +391,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
@@ -512,6 +572,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", func() {
+				ginkgo.By("remove topology finalizers to allow deletion", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedTopology kueuealpha.Topology
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						updatedTopology.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, &updatedTopology)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("delete topology", func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
@@ -714,9 +783,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
@@ -804,9 +873,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
@@ -889,9 +958,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
@@ -1023,10 +1092,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasCPUFlavor, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasGPUFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}

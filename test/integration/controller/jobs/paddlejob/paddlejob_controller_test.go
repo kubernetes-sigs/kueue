@@ -376,7 +376,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for _, node := range nodes {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}

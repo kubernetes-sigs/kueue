@@ -161,7 +161,7 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 		return
 	}
 
-	defer h.notifyTopologyWatchers(nil, topology)
+	defer h.queues.NotifyTopologyUpdateWatchers(nil, topology)
 
 	// Trigger reconcile for TAS flavors affected by the topology being created.
 	// Additionally, update the cache to account for the created topology, before
@@ -180,19 +180,7 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 func (h *topologyHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *topologyHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	topology, isTopology := e.Object.(*kueuealpha.Topology)
-	if !isTopology || topology == nil {
-		return
-	}
-	defer h.notifyTopologyWatchers(topology, nil)
-	// Update the cache to account for the deleted topology, before notifying
-	// the listeners.
-	for name, flavor := range h.tasCache.Clone() {
-		if flavor.TopologyName == kueue.TopologyReference(topology.Name) {
-			h.cache.DeleteTopologyForFlavor(name)
-		}
-	}
+func (h *topologyHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (h *topologyHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -226,10 +214,6 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 	return reconcile.Result{}, nil
-}
-
-func (t *topologyHandler) notifyTopologyWatchers(oldTopology, newTopology *kueuealpha.Topology) {
-	t.queues.NotifyTopologyUpdateWatchers(oldTopology, newTopology)
 }
 
 func (r *rfReconciler) Create(event event.CreateEvent) bool {
