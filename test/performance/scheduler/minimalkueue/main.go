@@ -24,11 +24,14 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"syscall"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,8 +44,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -159,9 +165,41 @@ func mainWithExitCode() int {
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}); err != nil {
+	cfg := configapi.Configuration{
+		MultiKueue: &configapi.MultiKueue{
+			GCInterval:        ptr.To(metav1.Duration{Duration: 2 * time.Second}),
+			Origin:            ptr.To("multikueue"),
+			WorkerLostTimeout: ptr.To(metav1.Duration{Duration: 1 * time.Second}),
+		},
+		Integrations: &configapi.Integrations{
+			Frameworks: []string{"batch/job"},
+		},
+	}
+
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg); err != nil {
 		log.Error(err, "Unable to create controller", "controller", failedCtrl)
 		return 1
+	}
+
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), "kueue-system"); err != nil {
+			log.Error(err, "Could not setup multikueue indexer")
+			os.Exit(1)
+		}
+		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
+		if err != nil {
+			log.Error(err, "Could not get the enabled multikueue adapters")
+			os.Exit(1)
+		}
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
+			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
+			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
+			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
+			multikueue.WithAdapters(adapters),
+		); err != nil {
+			log.Error(err, "Could not setup MultiKueue controller")
+			os.Exit(1)
+		}
 	}
 
 	sched := scheduler.New(
