@@ -153,6 +153,12 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 						corev1.ResourceCPU: "default",
 					},
 				},
+				kueue.PodSetAssignment{
+					Name: createdWorkload.Spec.PodSets[2].Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+					},
+				},
 			).Obj()
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).To(gomega.Succeed())
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
