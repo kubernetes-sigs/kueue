@@ -420,7 +420,7 @@ func TestAddWorkload(t *testing.T) {
 	}
 	cases := []struct {
 		workload *kueue.Workload
-		wantErr  string
+		wantErr  error
 	}{
 		{
 			workload: &kueue.Workload{
@@ -430,7 +430,6 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
-			wantErr: "",
 		},
 		{
 			workload: &kueue.Workload{
@@ -440,7 +439,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "baz"},
 			},
-			wantErr: ErrQueueDoesNotExist.Error(),
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 		{
 			workload: &kueue.Workload{
@@ -450,7 +449,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "bar"},
 			},
-			wantErr: ErrClusterQueueDoesNotExist.Error(),
+			wantErr: ErrClusterQueueDoesNotExist,
 		},
 		{
 			workload: &kueue.Workload{
@@ -460,14 +459,14 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
-			wantErr: ErrQueueDoesNotExist.Error(),
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			err := manager.AddOrUpdateWorkload(tc.workload)
-			if err != nil && err.Error() != tc.wantErr {
-				t.Fatalf("AddWorkload returned %v, want %v", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -554,7 +553,7 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    ErrQueueDoesNotExist,
+			wantErr:    ErrLocalQueueDoesNotExistOrInactive,
 		},
 	}
 	for name, tc := range cases {
@@ -768,7 +767,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueMembers: map[string]sets.Set[string]{
 				"/foo": nil,
 			},
-			wantErr: ErrQueueDoesNotExist,
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 		"from non existing queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -812,8 +811,8 @@ func TestUpdateWorkload(t *testing.T) {
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
 			err := manager.UpdateWorkload(tc.workloads[0], wl)
-			if (err != nil) != (tc.wantErr != nil) {
-				t.Errorf("UpdatedWorkload returned %t, want %t", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
 			q := manager.localQueues[workload.QueueKey(wl)]
 			if q != nil {
