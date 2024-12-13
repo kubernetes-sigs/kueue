@@ -184,27 +184,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
 		if owner := metav1.GetControllerOf(pod.Object()); owner != nil {
-			if jobframework.IsOwnerManagedByKueue(owner) {
-				return nil
-			}
-			// Special case for Deployment integration which intentionally does not register an IsManagingObjectsOwner
-			// function so that it can use the standaloneJob path in the GenericReconciler for its Pods.
 			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
+				// ReplicaSet is an implementation detail; skip over it to the user-facing framework
 				rs := &appsv1.ReplicaSet{}
 				err := w.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: pod.pod.GetNamespace()}, rs)
 				if err != nil {
 					return fmt.Errorf("failed to get replicaset: %w", err)
 				}
 				owner = metav1.GetControllerOf(rs)
-				if owner != nil {
-					if owner.Kind == "Deployment" && owner.APIVersion == "apps/v1" && jobframework.IsIntegrationEnabled("deployment") {
-						return nil
-					}
-				}
 			}
-			// Special case for StatefulSet integration which intentionally does not register an IsManagingObjectsOwner
-			// function so that it can use the standaloneJob path in the GenericReconciler for its Pods.
-			if owner.Kind == "StatefulSet" && owner.APIVersion == "apps/v1" && jobframework.IsIntegrationEnabled("statefulset") {
+			if owner != nil && jobframework.IsOwnerIntegrationEnabled(owner) {
 				return nil
 			}
 		}
