@@ -607,9 +607,8 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
 	if !workload.HasQuotaReservation(wl) {
-		err := r.queues.AddOrUpdateWorkload(wlCopy)
-		if err != nil {
-			log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
+		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
 	}
@@ -714,7 +713,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		err := r.queues.UpdateWorkload(oldWl, wlCopy)
 		if err != nil {
-			log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
+			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(oldWl)
@@ -738,9 +737,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Here we don't take the lock as it is already taken by the wrapping
 			// function.
 			if immediate {
-				err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy)
-				if err != nil {
-					log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
+				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+					log.V(2).Info("ignored an error for now", "error", err)
 				}
 			}
 		})
@@ -751,9 +749,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				updatedWl := kueue.Workload{}
 				err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)
 				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-					err := r.queues.AddOrUpdateWorkload(wlCopy)
-					if err != nil {
-						log.V(2).Info(fmt.Sprintf("%s; ignored for now", err))
+					if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+						log.V(2).Info("ignored an error for now", "error", err)
 					} else {
 						log.V(3).Info("Workload requeued after backoff")
 					}
@@ -897,9 +894,8 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		err := h.r.queues.AddOrUpdateWorkload(wlCopy)
-		if err != nil {
-			log.V(2).Info(err.Error())
+		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	}
 }
