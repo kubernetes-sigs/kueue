@@ -24,7 +24,7 @@ For more information, see [Kueue's overview](/docs/overview).
 1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
 
 2. Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-to learn how to enable the `v1/pod` integration and how to configure it using the `podOptions` field.
+to learn how to enable and configure the `v1/pod` integration.
 
 3. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
