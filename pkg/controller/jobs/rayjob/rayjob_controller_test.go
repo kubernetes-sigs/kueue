@@ -290,7 +290,7 @@ func TestPodSets(t *testing.T) {
 					{
 						Name:     "submitter",
 						Count:    1,
-						Template: *getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}),
+						Template: *getSubmitterTemplate(rayJob),
 					},
 				}
 			},

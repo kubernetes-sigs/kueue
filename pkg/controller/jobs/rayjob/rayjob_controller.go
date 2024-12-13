@@ -141,12 +141,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 			Count: 1,
 		}
 
-		if j.Spec.SubmitterPodTemplate != nil {
-			submitterJobPodSet.Template = *j.Spec.SubmitterPodTemplate.DeepCopy()
-		} else {
-			submitterJobPodSet.Template = *getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
-		}
-
+		submitterJobPodSet.Template = *getSubmitterTemplate(j)
 		podSets = append(podSets, submitterJobPodSet)
 	}
 
@@ -183,10 +178,7 @@ func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		submitterPod := j.Spec.SubmitterPodTemplate
-		if submitterPod == nil {
-			submitterPod = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
-		}
+		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
 		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
@@ -219,10 +211,7 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		submitterPod := j.Spec.SubmitterPodTemplate
-		if submitterPod == nil {
-			submitterPod = getDefaultSubmitterTemplate(&rayv1.RayCluster{Spec: *j.Spec.RayClusterSpec})
-		}
+		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
@@ -253,16 +242,21 @@ func isRayJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "RayJob" && strings.HasPrefix(owner.APIVersion, "ray.io/v1")
 }
 
-// getDefaultSubmitterTemplate creates a default submitter template for the Ray job.
-// This method is copied from https://github.com/ray-project/kuberay/blob/86506d6b88a6428fc66048c276d7d93b39df7489/ray-operator/controllers/ray/common/job.go#L122-L146
-func getDefaultSubmitterTemplate(rayClusterInstance *rayv1.RayCluster) *corev1.PodTemplateSpec {
+// getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
+func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
+	if rayJob.Spec.SubmitterPodTemplate != nil {
+		return rayJob.Spec.SubmitterPodTemplate
+	}
+
+	// The default submitter Job pod template is copied from
+	// https://github.com/ray-project/kuberay/blob/86506d6b88a6428fc66048c276d7d93b39df7489/ray-operator/controllers/ray/common/job.go#L122-L146
 	return &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
 					Name: "ray-job-submitter",
 					// Use the image of the Ray head to be defensive against version mismatch issues
-					Image: rayClusterInstance.Spec.HeadGroupSpec.Template.Spec.Containers[0].Image,
+					Image: rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
