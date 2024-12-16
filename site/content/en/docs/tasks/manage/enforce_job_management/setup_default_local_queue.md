@@ -6,6 +6,8 @@ description: >
   Setup default LocalQueue to fullfil a queue label on jobs that submited without queue label.
 ---
 
+{{< feature-state state="alpha" for_version="v0.10" >}}
+
 This page describes how to setup default LocalQueue to ensure that all Workloads submitted to a specific namespace are managed by Kueue,
 even if the `kueue.x-k8s.io/queue-name` label is not specified explicitly.
 
