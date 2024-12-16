@@ -17,4 +17,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
-  newTag: main
+  newTag: release-0.10
