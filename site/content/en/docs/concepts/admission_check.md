@@ -121,7 +121,7 @@ If any of the Workload's AdmissionCheck is in the `Retry` state:
 
 If any of the Workload's AdmissionCheck is in the `Rejected` state:
   - Workload is deactivated - [`workload.Spec.Active`](docs/concepts/workload/#active) is set to `False`
-  - If `Admitted` the Workload is evicted - Workload has an `Evicted` condition in `workload.Status.Condition` with `InactiveWorkload` as a `Reason`
+  - If `Admitted` the Workload is evicted - Workload has an `Evicted` condition in `workload.Status.Condition` with `Deactivated` as a `Reason`
   - If the Workload has `QuotaReservation` it will be released.
   - Event `AdmissionCheckRejected` is emitted
 

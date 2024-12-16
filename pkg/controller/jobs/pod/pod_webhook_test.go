@@ -32,9 +32,11 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 
@@ -68,6 +70,8 @@ func TestDefault(t *testing.T) {
 
 		initObjects                []client.Object
 		pod                        *corev1.Pod
+		localQueueDefaulting       bool
+		defaultLqExist             bool
 		manageJobsWithoutQueueName bool
 		namespaceSelector          *metav1.LabelSelector
 		podSelector                *metav1.LabelSelector
@@ -307,32 +311,97 @@ func TestDefault(t *testing.T) {
 				TopologySchedulingGate().
 				Obj(),
 		},
+		"LocalQueueDefaulting enabled, default queue is created, pod has no queue label": {
+			initObjects:          []client.Object{defaultNamespace},
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			podSelector:          &metav1.LabelSelector{},
+			namespaceSelector:    defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("default").
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default queue isn't created, pod has no queue label": {
+			initObjects:          []client.Object{defaultNamespace},
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			podSelector:          &metav1.LabelSelector{},
+			namespaceSelector:    defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default queue is created, pod has queue label": {
+			initObjects:          []client.Object{defaultNamespace},
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			podSelector:          &metav1.LabelSelector{},
+			namespaceSelector:    defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
+		},
 	}
 
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
-			builder := utiltesting.NewClientBuilder()
-			builder = builder.WithObjects(tc.initObjects...)
-			cli := builder.Build()
-
-			w := &PodWebhook{
-				client:                     cli,
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				namespaceSelector:          tc.namespaceSelector,
-				podSelector:                tc.podSelector,
+	for _, managedJobsFeatureGate := range []bool{false, true} {
+		for name, tc := range testCases {
+			if managedJobsFeatureGate {
+				name += " managedJobsNamespaceSelector"
 			}
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+				features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, managedJobsFeatureGate)
+				features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+				t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+				builder := utiltesting.NewClientBuilder()
+				builder = builder.WithObjects(tc.initObjects...)
+				cli := builder.Build()
+				mjls, err := metav1.LabelSelectorAsSelector(tc.namespaceSelector)
+				if err != nil {
+					t.Errorf("failed to parse namespace selector")
+				}
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+				cqCache := cache.New(cli)
+				queueManager := queue.NewManager(cli, cqCache)
 
-			if err := w.Default(ctx, tc.pod); err != nil {
-				t.Errorf("failed to set defaults for v1/pod: %s", err)
-			}
-			if diff := cmp.Diff(tc.want, tc.pod); len(diff) != 0 {
-				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
-			}
-		})
+				ctx, _ := utiltesting.ContextWithLog(t)
+
+				if tc.defaultLqExist {
+					if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", defaultNamespace.Name).
+						ClusterQueue("cluster-queue").Obj()); err != nil {
+						t.Fatalf("failed to create default local queue: %s", err)
+					}
+				}
+
+				w := &PodWebhook{
+					client:                       cli,
+					queues:                       queueManager,
+					manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+					managedJobsNamespaceSelector: mjls,
+					namespaceSelector:            tc.namespaceSelector,
+					podSelector:                  tc.podSelector,
+				}
+
+				if err := w.Default(ctx, tc.pod); err != nil {
+					t.Errorf("failed to set defaults for v1/pod: %s", err)
+				}
+				if diff := cmp.Diff(tc.want, tc.pod); len(diff) != 0 {
+					t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 

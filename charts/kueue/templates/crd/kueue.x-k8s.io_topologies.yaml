@@ -78,6 +78,16 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: field is immutable
+                  rule: self == oldSelf
+                - message: must be unique
+                  rule: size(self.filter(i, size(self.filter(j, j == i)) > 1)) ==
+                    0
+                - message: the kubernetes.io/hostname label can only be used at the
+                    lowest level of topology
+                  rule: size(self.filter(i, i.nodeLabel == 'kubernetes.io/hostname'))
+                    == 0 || self[size(self) - 1].nodeLabel == 'kubernetes.io/hostname'
             required:
             - levels
             type: object

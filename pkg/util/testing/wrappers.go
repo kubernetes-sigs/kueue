@@ -399,16 +399,42 @@ func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
 }
 
 func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
-	p.TopologyRequest = &kueue.PodSetTopologyRequest{
-		Required: ptr.To(level),
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
+	p.TopologyRequest.Required = &level
 	return p
 }
 
 func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
-	p.TopologyRequest = &kueue.PodSetTopologyRequest{
-		Preferred: ptr.To(level),
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
+	p.TopologyRequest.Preferred = &level
+	return p
+}
+
+func (p *PodSetWrapper) PodIndexLabel(label *string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.PodIndexLabel = label
+	return p
+}
+
+func (p *PodSetWrapper) SubGroupIndexLabel(label *string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.SubGroupIndexLabel = label
+	return p
+}
+
+func (p *PodSetWrapper) SubGroupCount(count *int32) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.SubGroupCount = count
 	return p
 }
 
@@ -842,36 +868,36 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 }
 
 // ResourceQuotaWrapper allows creation the creation of a Resource in a type-safe manner.
-func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *resourceQuotaWrapper {
+func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *ResourceQuotaWrapper {
 	rq := kueue.ResourceQuota{
 		Name: name,
 	}
-	return &resourceQuotaWrapper{parent: f, ResourceQuota: rq}
+	return &ResourceQuotaWrapper{parent: f, ResourceQuota: rq}
 }
 
-// resourceQuotaWrapper wraps a ResourceQuota object.
-type resourceQuotaWrapper struct {
+// ResourceQuotaWrapper wraps a ResourceQuota object.
+type ResourceQuotaWrapper struct {
 	parent *FlavorQuotasWrapper
 	kueue.ResourceQuota
 }
 
-func (rq *resourceQuotaWrapper) NominalQuota(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) NominalQuota(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.NominalQuota = resource.MustParse(quantity)
 	return rq
 }
 
-func (rq *resourceQuotaWrapper) BorrowingLimit(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) BorrowingLimit(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
 	return rq
 }
 
-func (rq *resourceQuotaWrapper) LendingLimit(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) LendingLimit(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
 	return rq
 }
 
 // Append appends the ResourceQuotaWrapper to its parent
-func (rq *resourceQuotaWrapper) Append() *FlavorQuotasWrapper {
+func (rq *ResourceQuotaWrapper) Append() *FlavorQuotasWrapper {
 	rq.parent.Resources = append(rq.parent.Resources, rq.ResourceQuota)
 	return rq.parent
 }
@@ -896,9 +922,9 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
-// TopologyLevels sets the topology name
+// TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.ResourceFlavor.Spec.TopologyName = ptr.To(name)
+	rf.ResourceFlavor.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
 	return rf
 }
 
@@ -948,7 +974,7 @@ func MakeTopology(name string) *TopologyWrapper {
 }
 
 // Levels sets the levels for a Topology.
-func (t *TopologyWrapper) Levels(levels []string) *TopologyWrapper {
+func (t *TopologyWrapper) Levels(levels ...string) *TopologyWrapper {
 	t.Spec.Levels = make([]kueuealpha.TopologyLevel, len(levels))
 	for i, level := range levels {
 		t.Spec.Levels[i] = kueuealpha.TopologyLevel{
@@ -1274,4 +1300,94 @@ func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 
 	return c
+}
+
+// ProvisioningRequestConfigWrapper wraps a ProvisioningRequestConfig
+type ProvisioningRequestConfigWrapper struct {
+	kueue.ProvisioningRequestConfig
+}
+
+// MakeProvisioningRequestConfig creates a wrapper for a ProvisioningRequestConfig.
+func MakeProvisioningRequestConfig(name string) *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{kueue.ProvisioningRequestConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
+
+func (prc *ProvisioningRequestConfigWrapper) ProvisioningClass(pc string) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ProvisioningClassName = pc
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.Parameters == nil {
+		prc.Spec.Parameters = make(map[string]kueue.Parameter, len(parameters))
+	}
+
+	for key, value := range parameters {
+		prc.Spec.Parameters[key] = value
+	}
+
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) WithParameter(key string, value kueue.Parameter) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.Parameters == nil {
+		prc.Spec.Parameters = make(map[string]kueue.Parameter, 1)
+	}
+
+	prc.Spec.Parameters[key] = value
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) ManagedResources(r []corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = r
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) WithManagedResource(managedResource corev1.ResourceName) *ProvisioningRequestConfigWrapper {
+	prc.Spec.ManagedResources = append(prc.Spec.ManagedResources, managedResource)
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.ProvisioningRequestRetryStrategy) *ProvisioningRequestConfigWrapper {
+	prc.Spec.RetryStrategy = retryStrategy
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffBaseSeconds = &backoffBaseSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) MaxBackoff(backoffMaxSeconds int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffMaxSeconds = &backoffMaxSeconds
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32) *ProvisioningRequestConfigWrapper {
+	if prc.Spec.RetryStrategy == nil {
+		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
+	}
+
+	prc.Spec.RetryStrategy.BackoffLimitCount = &backoffLimitCount
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigWrapper {
+	return &ProvisioningRequestConfigWrapper{ProvisioningRequestConfig: *prc.DeepCopy()}
+}
+
+func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
+	return &prc.ProvisioningRequestConfig
 }

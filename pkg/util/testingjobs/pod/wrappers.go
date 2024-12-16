@@ -77,6 +77,20 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	return pods
 }
 
+// MakeIndexedGroup returns multiple indexed pods that form a pod group, based on the original wrapper.
+func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for i := 0; i < count; i++ {
+		pod := p.Clone().
+			Group(p.Pod.Name).
+			GroupTotalCount(strconv.Itoa(count)).
+			GroupIndex(strconv.Itoa(i))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod.Obj())
+	}
+	return pods
+}
+
 // Clone returns deep copy of the Pod.
 func (p *PodWrapper) Clone() *PodWrapper {
 	return &PodWrapper{Pod: *p.DeepCopy()}
@@ -109,6 +123,11 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/pod-group-total-count", gtc)
 }
 
+// GroupIndex updates the pod.GroupIndexLabel of the Pod
+func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
+	return p.Label(kueuealpha.PodGroupPodIndexLabel, index)
+}
+
 // Label sets the label of the Pod
 func (p *PodWrapper) Label(k, v string) *PodWrapper {
 	if p.Labels == nil {
@@ -121,6 +140,10 @@ func (p *PodWrapper) Label(k, v string) *PodWrapper {
 func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	p.Annotations[key] = content
 	return p
+}
+
+func (p *PodWrapper) PodGroupServingAnnotation(enabled bool) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/pod-group-serving", strconv.FormatBool(enabled))
 }
 
 // RoleHash updates the pod.RoleHashAnnotation of the pod

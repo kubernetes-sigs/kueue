@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -31,9 +32,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/queue"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiljob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 type testGenericJob struct {
@@ -125,9 +131,10 @@ func makeTestGenericJob() *testGenericJob {
 func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
 		manageJobsWithoutQueueName bool
-
-		job  *batchv1.Job
-		want *batchv1.Job
+		localQueueDefaulting       bool
+		defaultLqExist             bool
+		job                        *batchv1.Job
+		want                       *batchv1.Job
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job: &batchv1.Job{
@@ -164,12 +171,55 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Spec: batchv1.JobSpec{Suspend: ptr.To(true)},
 			},
 		},
+		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job: utiljob.MakeJob("job", "default").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Label(constants.QueueLabel, "default").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			job: utiljob.MakeJob("job", "default").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Obj(),
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+				)
+			cl := clientBuilder.Build()
+			cqCache := cache.New(cl)
+			queueManager := queue.NewManager(cl, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
 			w := &jobframework.BaseWebhook{
 				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				FromObject:                 makeTestGenericJob().fromObject,
+				Queues:                     queueManager,
 			}
 			if err := w.Default(context.Background(), tc.job); err != nil {
 				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")

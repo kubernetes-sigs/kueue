@@ -637,7 +637,7 @@ func TestIsEvictedByDeactivation(t *testing.T) {
 			workload: utiltesting.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByDeactivation,
+					Reason: kueue.WorkloadDeactivated,
 					Status: metav1.ConditionFalse,
 				}).
 				Obj(),
@@ -651,11 +651,11 @@ func TestIsEvictedByDeactivation(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"evicted condition with InactiveWorkload reason": {
+		"evicted condition with Deactivated reason": {
 			workload: utiltesting.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByDeactivation,
+					Reason: kueue.WorkloadDeactivated,
 					Status: metav1.ConditionTrue,
 				}).
 				Obj(),

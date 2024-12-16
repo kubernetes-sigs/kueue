@@ -81,7 +81,7 @@ type clusterQueue struct {
 	multiKueueAdmissionChecks                       []string
 	provisioningAdmissionChecks                     []string
 	perFlavorMultiKueueAdmissionChecks              []string
-	tasFlavors                                      []kueue.ResourceFlavorReference
+	tasFlavors                                      map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount                          int
 	isStopped                                       bool
 	workloadInfoOptions                             []workload.InfoOption
@@ -119,19 +119,6 @@ type queue struct {
 	//TODO: rename this to better distinguish between reserved and "in use" quantities
 	usage         resources.FlavorResourceQuantities
 	admittedUsage resources.FlavorResourceQuantities
-}
-
-// FitInCohort supports the legacy
-// features.MultiplePreemptions=false path. It doesn't take into
-// account BorrowingLimits. To be cleaned up in v0.10, when we delete
-// the old code.
-func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantities) bool {
-	for fr, value := range q {
-		if available(c, fr, false) < value {
-			return false
-		}
-	}
-	return true
 }
 
 func (c *clusterQueue) Active() bool {
@@ -317,6 +304,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with ProvisioningRequest admission check")
 			}
+			for tasFlavor, topology := range c.tasFlavors {
+				if c.tasCache.Get(tasFlavor) == nil {
+					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
+					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", topology, tasFlavor))
+				}
+			}
 		}
 
 		if len(reasons) == 0 {
@@ -331,6 +324,11 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 func (c *clusterQueue) isTASViolated() bool {
 	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
 		return false
+	}
+	for tasFlavor := range c.tasFlavors {
+		if c.tasCache.Get(tasFlavor) == nil {
+			return true
+		}
 	}
 	return c.HasParent() ||
 		c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever ||
@@ -361,7 +359,10 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 					keys.Insert(k)
 				}
 				if flv.Spec.TopologyName != nil {
-					c.tasFlavors = append(c.tasFlavors, fName)
+					if c.tasFlavors == nil {
+						c.tasFlavors = make(map[kueue.ResourceFlavorReference]kueue.TopologyReference, 1)
+					}
+					c.tasFlavors[fName] = *flv.Spec.TopologyName
 				}
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
@@ -513,24 +514,34 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
 }
 
+func (q *queue) reportActiveWorkloads() {
+	qKeySlice := strings.Split(q.key, "/")
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+}
+
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
-	tasUsage := wi.TASUsage()
 	for fr, q := range frUsage {
-		tasFlvCache := c.tasFlavorCache(fr.Flavor)
 		if m == 1 {
 			addUsage(c, fr, q)
-			if tasFlvCache != nil {
-				tasFlvCache.addUsage(tasUsage)
-			}
 		}
 		if m == -1 {
 			removeUsage(c, fr, q)
-			if tasFlvCache != nil {
-				tasFlvCache.removeUsage(tasUsage)
+		}
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
+		for tasFlavor, tasUsage := range wi.TASUsage() {
+			if tasFlvCache := c.tasFlavorCache(tasFlavor); tasFlvCache != nil {
+				if m == 1 {
+					tasFlvCache.addUsage(tasUsage)
+				}
+				if m == -1 {
+					tasFlvCache.removeUsage(tasUsage)
+				}
 			}
 		}
 	}
@@ -545,6 +556,9 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		if admitted {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
+		}
+		if features.Enabled(features.LocalQueueMetrics) {
+			lq.reportActiveWorkloads()
 		}
 	}
 }
@@ -590,18 +604,24 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
+	if features.Enabled(features.LocalQueueMetrics) {
+		qImpl.reportActiveWorkloads()
+	}
 	return nil
 }
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
+	}
 	delete(c.localQueues, qKey)
 }
 
-func (c *clusterQueue) flavorInUse(flavor string) bool {
+func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	for _, rg := range c.ResourceGroups {
 		for _, fName := range rg.Flavors {
-			if kueue.ResourceFlavorReference(flavor) == fName {
+			if flavor == fName {
 				return true
 			}
 		}

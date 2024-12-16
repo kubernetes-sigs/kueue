@@ -21,15 +21,18 @@ import (
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 var (
@@ -39,14 +42,20 @@ var (
 )
 
 type RayJobWebhook struct {
-	manageJobsWithoutQueueName bool
+	client                       client.Client
+	queues                       *queue.Manager
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
 }
 
 // SetupRayJobWebhook configures the webhook for RayJob.
 func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		client:                       mgr.GetClient(),
+		queues:                       options.Queues,
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
 	obj := &rayv1.RayJob{}
 	return webhook.WebhookManagedBy(mgr).
@@ -64,9 +73,9 @@ var _ admission.CustomDefaulter = &RayJobWebhook{}
 func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
-	jobframework.ApplyDefaultForSuspend((*RayJob)(job), w.manageJobsWithoutQueueName)
-	return nil
+	log.V(5).Info("Applying defaults")
+	jobframework.ApplyDefaultLocalQueue((*RayJob)(job).Object(), w.queues.DefaultLocalQueueExist)
+	return jobframework.ApplyDefaultForSuspend(ctx, (*RayJob)(job), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 }
 
 // +kubebuilder:webhook:path=/validate-ray-io-v1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1,name=vrayjob.kb.io,admissionReviewVersions=v1
@@ -77,7 +86,7 @@ var _ admission.CustomValidator = &RayJobWebhook{}
 func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	log.Info("Validating create", "job", klog.KObj(job))
+	log.Info("Validating create")
 	return nil, w.validateCreate(job).ToAggregate()
 }
 
@@ -85,7 +94,7 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) field.ErrorList {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" || features.Enabled(features.LocalQueueDefaulting) {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
@@ -145,7 +154,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJob := newObj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJob)(newJob)) != "" {
-		log.Info("Validating update", "job", klog.KObj(newJob))
+		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayJob)(oldJob), (*RayJob)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
 		return nil, allErrors.ToAggregate()

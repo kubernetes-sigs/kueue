@@ -120,7 +120,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			for tasFlv, s := range tasSnapshots {
-				if cq.flavorInUse(string(tasFlv)) {
+				if cq.flavorInUse(tasFlv) {
 					cqSnapshot.TASFlavors[tasFlv] = s
 				}
 			}

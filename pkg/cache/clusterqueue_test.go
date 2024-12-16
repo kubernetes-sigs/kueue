@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -94,313 +95,10 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 	}
 }
 
-func TestFitInCohort(t *testing.T) {
-	cases := map[string]struct {
-		request             resources.FlavorResourceQuantities
-		wantFit             bool
-		usage               resources.FlavorResourceQuantities
-		clusterQueue        []*kueue.ClusterQueue
-		disableLendingLimit bool
-	}{
-		"full cohort, empty request": {
-			wantFit: true,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-						*utiltesting.MakeFlavorQuotas("f2").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"can fit": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			},
-			wantFit: true,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-						*utiltesting.MakeFlavorQuotas("f2").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"full cohort, none fit": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			},
-			wantFit: false,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-						*utiltesting.MakeFlavorQuotas("f2").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"one cannot fit": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			},
-			wantFit: false,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    4_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 4,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-						*utiltesting.MakeFlavorQuotas("f2").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"missing flavor": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "non-existent-flavor", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "non-existent-flavor", Resource: corev1.ResourceMemory}: 1,
-			},
-			wantFit: false,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Resource(corev1.ResourceMemory, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"missing resource": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-			},
-			wantFit: false,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "5").
-							Obj(),
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"lendingLimit can't fit": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
-			},
-			wantFit: false,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-				utiltesting.
-					MakeClusterQueue("CQ-B").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("3").
-							LendingLimit("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"lendingLimit should not affect the fit when feature disabled": {
-			disableLendingLimit: true,
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
-			},
-			wantFit: true,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-				utiltesting.
-					MakeClusterQueue("CQ-B").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("3").
-							LendingLimit("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-		"lendingLimit can fit": {
-			request: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
-			},
-			wantFit: true,
-			usage: resources.FlavorResourceQuantities{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 1_000,
-			},
-			clusterQueue: []*kueue.ClusterQueue{
-				utiltesting.
-					MakeClusterQueue("CQ").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-				utiltesting.
-					MakeClusterQueue("CQ-B").
-					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("f1").
-							ResourceQuotaWrapper(corev1.ResourceCPU).
-							NominalQuota("3").
-							LendingLimit("2").
-							Append().
-							FlavorQuotas,
-					).
-					Cohort("C").
-					Obj(),
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
-			cache := New(utiltesting.NewFakeClient())
-
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f2").Obj())
-
-			for _, cq := range tc.clusterQueue {
-				_ = cache.AddClusterQueue(ctx, cq)
-			}
-
-			snapshot, err := cache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			cq := snapshot.ClusterQueues["CQ"]
-			cq.AddUsage(tc.usage)
-
-			got := cq.FitInCohort(tc.request)
-			if got != tc.wantFit {
-				t.Errorf("Unexpected result, %v", got)
-			}
-		})
-	}
-}
-
 func TestClusterQueueUpdate(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
-		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		utiltesting.MakeResourceFlavor("on-demand").Obj(),
+		utiltesting.MakeResourceFlavor("spot").Obj(),
 	}
 	clusterQueue :=
 		*utiltesting.MakeClusterQueue("eng-alpha").
@@ -1272,5 +970,168 @@ func TestCohortLendable(t *testing.T) {
 	lendable := cache.hm.Cohorts["test-cohort"].resourceNode.calculateLendable()
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
+	}
+}
+
+func TestClusterQueueReadinessWithTAS(t *testing.T) {
+	cases := []struct {
+		name         string
+		skipTopology bool
+		cq           *kueue.ClusterQueue
+		updatedCq    *kueue.ClusterQueue
+		wantStatus   metrics.ClusterQueueStatus
+		wantReason   string
+		wantMessage  string
+	}{
+		{
+			name: "TAS CQ goes active state",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
+		},
+		{
+			name: "TAS do not support Cohorts",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Cohort("some-cohort").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported for cohorts.",
+		},
+		{
+			name: "TAS do not support Preemption",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported for preemption within cluster queue.",
+		},
+		{
+			name: "TAS do not support MultiKueue AdmissionCheck",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).AdmissionChecks("mk-check").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
+		},
+		{
+			name: "TAS do not support ProvisioningRequest AdmissionCheck",
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			updatedCq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).AdmissionChecks("pr-check").Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
+			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
+		},
+		{
+			name:         "Referenced TAS flavor without topology",
+			skipTopology: true,
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.NewClientBuilder()
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			client := clientBuilder.Build()
+
+			cqCache := New(client)
+
+			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
+
+			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
+			cqCache.AddOrUpdateResourceFlavor(rf)
+
+			if !tc.skipTopology {
+				cqCache.AddOrUpdateTopologyForFlavor(topology, rf)
+			}
+
+			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+			cqCache.AddOrUpdateAdmissionCheck(mkAC)
+
+			acWithPR := utiltesting.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
+			cqCache.AddOrUpdateAdmissionCheck(acWithPR)
+
+			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
+			}
+
+			if tc.updatedCq != nil {
+				if err := cqCache.UpdateClusterQueue(tc.updatedCq); err != nil {
+					t.Fatalf("Updating clusterQueue %s in cache: %v", tc.updatedCq.Name, err)
+				}
+			}
+
+			_, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(tc.cq.Name)
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantMessage, gotMessage); diff != "" {
+				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }

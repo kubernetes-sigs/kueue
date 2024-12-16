@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -54,7 +55,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -89,18 +89,16 @@ var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
-	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:          SetupIndexes,
-		NewJob:                NewJob,
-		NewReconciler:         NewReconciler,
-		SetupWebhook:          SetupWebhook,
-		JobType:               &corev1.Pod{},
-		CanSupportIntegration: CanSupportIntegration,
+		SetupIndexes:  SetupIndexes,
+		NewJob:        NewJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupWebhook,
+		JobType:       &corev1.Pod{},
 	}))
 }
 
@@ -127,8 +125,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
 	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", concurrency)
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("pod").
-		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).Named("v1_pod").
+		Named("v1_pod").
+		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
 		Watches(&kueue.Workload{}, &workloadHandler{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
@@ -368,7 +366,7 @@ func (p *Pod) PodSets() []kueue.PodSet {
 			Template: corev1.PodTemplateSpec{
 				Spec: *p.pod.Spec.DeepCopy(),
 			},
-			TopologyRequest: jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil),
 		},
 	}
 }
@@ -495,16 +493,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 	return nil
-}
-
-func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
-	options := jobframework.ProcessOptions(opts...)
-
-	v := options.KubeServerVersion.GetServerVersion()
-	if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-		return false, fmt.Errorf("kubernetesVersion %q: %w", v.String(), errPodNoSupportKubeVersion)
-	}
-	return true, nil
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
@@ -716,6 +704,12 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	if err != nil {
 		return err
 	}
+
+	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueuealpha.PodGroupPodIndexLabel, groupTotalCount)
+	if utilpod.IgnoreLabelNotFoundError(err) != nil {
+		return err
+	}
+
 	originalQueue := jobframework.QueueName(p)
 	_, useFastAdmission := p.pod.GetAnnotations()[GroupFastAdmissionAnnotation]
 
@@ -1228,8 +1222,16 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 	return true
 }
 
+func (p *Pod) isServing() bool {
+	return p.isGroup && p.pod.Annotations[GroupServingAnnotation] == "true"
+}
+
+func (p *Pod) isReclaimable() bool {
+	return p.isGroup && !p.isServing()
+}
+
 func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
-	if !p.isGroup {
+	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}
 

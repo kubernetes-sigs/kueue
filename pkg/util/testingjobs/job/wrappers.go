@@ -51,7 +51,7 @@ func MakeJob(name, ns string) *JobWrapper {
 						{
 							Name:      "c",
 							Image:     "pause",
-							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 						},
 					},
 					NodeSelector: map[string]string{},
@@ -177,6 +177,12 @@ func (j *JobWrapper) PodLabel(k, v string) *JobWrapper {
 // Request adds a resource request to the default container.
 func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return j
+}
+
+// Limit adds a resource limit to the default container.
+func (j *JobWrapper) Limit(r corev1.ResourceName, v string) *JobWrapper {
+	j.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return j
 }
 

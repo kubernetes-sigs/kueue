@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -51,6 +53,7 @@ var (
 	integrationsExternalFrameworkPath = integrationsPath.Child("externalFrameworks")
 	podOptionsPath                    = integrationsPath.Child("podOptions")
 	namespaceSelectorPath             = podOptionsPath.Child("namespaceSelector")
+	managedJobsNamespaceSelectorPath  = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath              = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                    = field.NewPath("multiKueue")
@@ -69,6 +72,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
+	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	return allErrs
 }
 
@@ -301,4 +305,44 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		}
 	}
 	return allErrs
+}
+
+func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if !features.Enabled(features.ManagedJobsNamespaceSelector) {
+		return allErrs
+	}
+
+	if c.ManagedJobsNamespaceSelector == nil {
+		return field.ErrorList{field.Required(managedJobsNamespaceSelectorPath, "required when feature gate is enabled")}
+	}
+
+	// The namespace selector must exempt every prohibitedNamespace
+	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
+	if c.Namespace != nil && *c.Namespace != "" {
+		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
+	}
+
+	allErrs = append(allErrs, validation.ValidateLabelSelector(c.ManagedJobsNamespaceSelector, validation.LabelSelectorValidationOptions{}, managedJobsNamespaceSelectorPath)...)
+	selector, err := metav1.LabelSelectorAsSelector(c.ManagedJobsNamespaceSelector)
+	if err != nil {
+		return allErrs
+	}
+
+	for _, pn := range prohibitedNamespaces {
+		if selector.Matches(pn) {
+			allErrs = append(allErrs, field.Invalid(managedJobsNamespaceSelectorPath, c.ManagedJobsNamespaceSelector,
+				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+		}
+	}
+
+	return allErrs
+}
+
+func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+	if featureGateCLI != "" && featureGateMap != nil {
+		return errors.New("feature gates for CLI and configuration cannot both specified")
+	}
+	return nil
 }

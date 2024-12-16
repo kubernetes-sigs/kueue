@@ -17,6 +17,40 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate--v1-pod
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: mpod.kb.io
+    namespaceSelector:
+      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-deployment
     {{- if has "deployment" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -38,6 +72,7 @@ webhooks:
           - v1
         operations:
           - CREATE
+          - UPDATE
         resources:
           - deployments
     sideEffects: None
@@ -199,40 +234,6 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate--v1-pod
-    {{- if has "pod" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
-    name: mpod.kb.io
-    namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
-      {{- else }}
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - '{{ .Release.Namespace }}'
-      {{- end }}
-    rules:
-      - apiGroups:
-          - ""
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-        resources:
-          - pods
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
         path: /mutate-ray-io-v1-raycluster
     failurePolicy: Fail
     name: mraycluster.kb.io
@@ -281,6 +282,7 @@ webhooks:
           - v1
         operations:
           - CREATE
+          - UPDATE
         resources:
           - statefulsets
     sideEffects: None
@@ -354,6 +356,41 @@ metadata:
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate--v1-pod
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: vpod.kb.io
+    namespaceSelector:
+      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+    sideEffects: None
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -544,41 +581,6 @@ webhooks:
           - UPDATE
         resources:
           - mpijobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /validate--v1-pod
-    {{- if has "pod" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
-    name: vpod.kb.io
-    namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
-      {{- else }}
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - '{{ .Release.Namespace }}'
-      {{- end }}
-    rules:
-      - apiGroups:
-          - ""
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - pods
     sideEffects: None
   - admissionReviewVersions:
       - v1

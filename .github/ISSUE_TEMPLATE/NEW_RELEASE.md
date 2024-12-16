@@ -65,8 +65,9 @@ Please do not remove items from the checklist
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
-  - [ ] Create the presubmits jobs for the next patch release:
-        <!-- example https://github.com/kubernetes/test-infra/pull/33107 -->
+  - [ ] Create the presubmits and the periodic jobs for the next patch release:
+        <!-- example presubmit: https://github.com/kubernetes/test-infra/pull/33107 -->
+        <!-- example periodic: https://github.com/kubernetes/test-infra/pull/33833 -->
 
 
 ## Changelog

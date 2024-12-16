@@ -32,15 +32,16 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	ErrQueueDoesNotExist         = errors.New("queue doesn't exist")
-	ErrClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
-	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
+	ErrLocalQueueDoesNotExistOrInactive = errors.New("localQueue doesn't exist or inactive")
+	ErrClusterQueueDoesNotExist         = errors.New("clusterQueue doesn't exist")
+	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
 )
 
 type options struct {
@@ -78,6 +79,10 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+type TopologyUpdateWatcher interface {
+	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
+}
+
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
@@ -94,6 +99,8 @@ type Manager struct {
 	workloadInfoOptions []workload.InfoOption
 
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
+
+	topologyUpdateWatchers []TopologyUpdateWatcher
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -112,9 +119,21 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
+
+		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 	}
 	m.cond.L = &m.RWMutex
 	return m
+}
+
+func (m *Manager) AddTopologyUpdateWatcher(watcher TopologyUpdateWatcher) {
+	m.topologyUpdateWatchers = append(m.topologyUpdateWatchers, watcher)
+}
+
+func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueuealpha.Topology) {
+	for _, watcher := range m.topologyUpdateWatchers {
+		watcher.NotifyTopologyUpdate(oldTopology, newTopology)
+	}
 }
 
 func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueuealpha.Cohort) {
@@ -165,6 +184,17 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
 	m.reportPendingWorkloads(cq.Name, cqImpl)
+
+	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
+	if features.Enabled(features.LocalQueueMetrics) {
+		for _, q := range queues.Items {
+			qImpl := m.localQueues[Key(&q)]
+			if qImpl != nil {
+				m.reportLQPendingWorkloads(qImpl)
+			}
+		}
+	}
+
 	if queued || addedWorkloads {
 		m.Broadcast()
 	}
@@ -190,6 +220,13 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	// If any workload becomes admissible or the queue becomes active.
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
+		if features.Enabled(features.LocalQueueMetrics) {
+			for _, q := range m.localQueues {
+				if q.ClusterQueue == cq.Name {
+					m.reportLQPendingWorkloads(q)
+				}
+			}
+		}
 		m.Broadcast()
 	}
 	return nil
@@ -204,6 +241,14 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	m.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearClusterQueueMetrics(cq.Name)
+}
+
+func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	_, ok := m.localQueues[DefaultQueueKey(namespace)]
+	return ok
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
@@ -241,7 +286,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	defer m.Unlock()
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return ErrQueueDoesNotExist
+		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
 		oldCQ := m.hm.ClusterQueues[qImpl.ClusterQueue]
@@ -269,6 +314,9 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.ClearLocalQueueMetrics(metrics.LQRefFromLocalQueueKey(key))
+	}
 	delete(m.localQueues, key)
 }
 
@@ -278,7 +326,7 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return 0, ErrQueueDoesNotExist
+		return 0, ErrLocalQueueDoesNotExistOrInactive
 	}
 
 	return int32(len(qImpl.items)), nil
@@ -319,28 +367,31 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
-		return false
+		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
-		return false
+		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
+	if features.Enabled(features.LocalQueueMetrics) {
+		m.reportLQPendingWorkloads(q)
+	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
-	return true
+	return nil
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
@@ -371,6 +422,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	added := cq.RequeueIfNotPresent(info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
+	if features.Enabled(features.LocalQueueMetrics) {
+		m.reportLQPendingWorkloads(q)
+	}
 	if added {
 		m.Broadcast()
 	}
@@ -393,6 +447,9 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	if cq != nil {
 		cq.Delete(w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
+	}
+	if features.Enabled(features.LocalQueueMetrics) {
+		m.reportLQPendingWorkloads(q)
 	}
 }
 
@@ -503,7 +560,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
@@ -558,12 +615,25 @@ func (m *Manager) heads() []workload.Info {
 		workloads = append(workloads, wlCopy)
 		q := m.localQueues[workload.QueueKey(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
+		if features.Enabled(features.LocalQueueMetrics) {
+			m.reportLQPendingWorkloads(q)
+		}
 	}
 	return workloads
 }
 
 func (m *Manager) Broadcast() {
 	m.cond.Broadcast()
+}
+
+func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
+	active := m.PendingActiveInLocalQueue(lq)
+	inadmissible := m.PendingInadmissibleInLocalQueue(lq)
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(lq.ClusterQueue) {
+		inadmissible += active
+		active = 0
+	}
+	metrics.ReportLocalQueuePendingWorkloads(metrics.LQRefFromLocalQueueKey(lq.Key), active, inadmissible)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
@@ -590,6 +660,11 @@ func (m *Manager) getClusterQueue(cqName string) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
 	return m.hm.ClusterQueues[cqName]
+}
+
+func (m *Manager) getClusterQueueLockless(cqName string) (val *ClusterQueue, ok bool) {
+	val, ok = m.hm.ClusterQueues[cqName]
+	return
 }
 
 func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {

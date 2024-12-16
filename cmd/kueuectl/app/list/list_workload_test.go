@@ -17,10 +17,10 @@ limitations under the License.
 package list
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -911,7 +911,7 @@ wl2               j2         lq2          cq2            PENDING   22           
 					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 					Resp: &http.Response{
 						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
+						Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job[0]))),
 					},
 				})
 			}

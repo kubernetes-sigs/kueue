@@ -24,6 +24,7 @@
     - [Single Pods](#single-pods)
     - [Groups of Pods created beforehand](#groups-of-pods-created-beforehand)
     - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
+    - [Serving Workload](#serving-workload)
   - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
   - [Retrying Failed Pods](#retrying-failed-pods)
   - [Dynamically reclaiming Quota](#dynamically-reclaiming-quota)
@@ -428,6 +429,8 @@ To fully identify the group of pods, the pods need the following:
 - The annotation `kueue.x-k8s.io/pod-group-total-count` to indicate how many pods to expect in
   the group.
 
+Additionally, to index the pod group a user can use an optional label `kueue.x-k8s.io/pod-group-pod-index`, to indicate an index of a Pod within the group
+
 The Pod reconciler would group the pods into similar buckets by only looking at the fields that are
 relevant to admission, scheduling and/or autoscaling.
 This list might need to be updated for Kubernetes versions that add new fields relevant to 
@@ -548,6 +551,24 @@ spec:
             requests:
               cpu: 1m
 ```
+
+#### Serving Workload
+
+1. The Pod Group integration adds successfully completed pods to the `ReclaimablePods` list. However,
+   this is problematic for serving workloads, such as `StatefulSet`, because it prevents to ungate the replacement
+   pod. This behavior is incorrect, as recreated pods for serving workloads should continue to run
+   regardless if the pod was failed or succeeded.
+   To resolve this issue, the `kueue.x-k8s.io/pod-group-serving` annotation can be used. When this
+   annotation is set to true, the `ReclaimablePods` mechanism no longer tracks the number of
+   pods, allowing to ungate the replacement pod.
+2. The Pod Group integration waits until all pods are created. However, for serving workloads such
+   as `StatefulSets` with a `PodManagementPolicyType` of `OrderedReady`, pods are created sequentially,
+   with each subsequent pod being created only after the previous pod is fully running. This
+   sequential behavior can result in a deadlock.
+   To resolve this issue, the `kueue.x-k8s.io/pod-group-fast-admission` annotation is used.
+   When this annotation is set to true, the PodGroup can proceed with admission without requiring
+   all pods to reach the ungated state.
+
 
 ### Tracking admitted and finished Pods
 

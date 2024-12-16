@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -118,10 +119,12 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
-			Name:            replicatedJob.Name,
-			Template:        *replicatedJob.Template.Spec.Template.DeepCopy(),
-			Count:           podsCount(&replicatedJob),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template.ObjectMeta),
+			Name:     replicatedJob.Name,
+			Template: *replicatedJob.Template.Spec.Template.DeepCopy(),
+			Count:    podsCount(&replicatedJob),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template.ObjectMeta,
+				ptr.To(batchv1.JobCompletionIndexAnnotation), ptr.To(jobsetapi.JobIndexKey),
+				ptr.To(replicatedJob.Replicas)),
 		}
 	}
 	return podSets

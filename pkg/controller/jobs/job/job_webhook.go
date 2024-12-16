@@ -23,11 +23,12 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -37,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 )
 
 var (
@@ -47,20 +47,22 @@ var (
 )
 
 type JobWebhook struct {
-	manageJobsWithoutQueueName bool
-	kubeServerVersion          *kubeversion.ServerVersionFetcher
-	queues                     *queue.Manager
-	cache                      *cache.Cache
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *queue.Manager
+	cache                        *cache.Cache
 }
 
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobWebhook{
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		kubeServerVersion:          options.KubeServerVersion,
-		queues:                     options.Queues,
-		cache:                      options.Cache,
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
+		cache:                        options.Cache,
 	}
 	obj := &batchv1.Job{}
 	return webhook.WebhookManagedBy(mgr).
@@ -78,9 +80,12 @@ var _ admission.CustomDefaulter = &JobWebhook{}
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
+	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 
 	if canDefaultManagedBy(job.Spec.ManagedBy) {
 		localQueueName, found := job.Labels[constants.QueueLabel]
@@ -89,12 +94,12 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.ObjectMeta.Namespace, localQueueName))
 		if !ok {
-			log.V(5).Info("Cluster queue for local queue not found", "job", klog.KObj(job), "localQueueName", localQueueName)
+			log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 			if admissionCheck.Controller == kueue.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
+				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", job.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
 				job.Spec.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
 				return nil
 			}
@@ -117,7 +122,7 @@ var _ admission.CustomValidator = &JobWebhook{}
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.V(5).Info("Validating create", "job", klog.KObj(job))
+	log.V(5).Info("Validating create")
 	return nil, w.validateCreate(job).ToAggregate()
 }
 
@@ -154,12 +159,6 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 			if job.Spec.CompletionMode == nil || *job.Spec.CompletionMode == batchv1.NonIndexedCompletion {
 				allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "should not be enabled for NonIndexed jobs"))
 			}
-			if w.kubeServerVersion != nil {
-				version := w.kubeServerVersion.GetServerVersion()
-				if version.String() == "" || version.LessThan(kubeversion.KubeVersion1_27) {
-					allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "only supported in Kubernetes 1.27 or newer"))
-				}
-			}
 			if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
 				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions, fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)))
 			}
@@ -173,7 +172,7 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
+	log.V(5).Info("Validating update")
 	return nil, w.validateUpdate(oldJob, newJob).ToAggregate()
 }
 

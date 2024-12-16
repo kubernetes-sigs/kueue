@@ -101,6 +101,21 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	Preferred *string `json:"preferred,omitempty"`
+
+	// PodIndexLabel indicates the name of the label indexing the pods.
+	// For example, in the context of
+	// - kubernetes job this is: kubernetes.io/job-completion-index
+	// - JobSet: kubernetes.io/job-completion-index (inherited from Job)
+	// - Kubeflow: training.kubeflow.org/replica-index
+	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
+
+	// SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
+
+	// SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 }
 
 type Admission struct {
@@ -146,7 +161,9 @@ type PodSetAssignment struct {
 	// domain and specifies the node selectors for each topology domain, in the
 	// following way: the node selector keys are specified by the levels field
 	// (same for all domains), and the corresponding node selector value is
-	// specified by the domains.values subfield.
+	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
+	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
+	// this label, and omit higher levels in the topology
 	//
 	// Example:
 	//
@@ -167,6 +184,21 @@ type PodSetAssignment struct {
 	// - 2 Pods are to be scheduled on nodes matching the node selector:
 	//   cloud.provider.com/topology-block: block-1
 	//   cloud.provider.com/topology-rack: rack-2
+	//
+	// Example:
+	// Below there is an equivalent of the above example assuming, Topology
+	// object defines kubernetes.io/hostname as the lowest level in topology.
+	// Hence we omit higher level of topologies, since the hostname label
+	// is sufficient to explicitly identify a proper node.
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - kubernetes.io/hostname
+	//   domains:
+	//   - values: [hostname-1]
+	//     count: 4
+	//   - values: [hostname-2]
+	//     count: 2
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
@@ -448,7 +480,7 @@ const (
 	// - "PodsReadyTimeout": the workload exceeded the PodsReady timeout
 	// - "AdmissionCheck": at least one admission check transitioned to False
 	// - "ClusterQueueStopped": the ClusterQueue is stopped
-	// - "InactiveWorkload": the workload has spec.active set to false
+	// - "Deactivated": the workload has spec.active set to false
 	// When a workload is preempted, this condition is accompanied by the "Preempted"
 	// condition which contains a more detailed reason for the preemption.
 	WorkloadEvicted = "Evicted"
@@ -514,7 +546,14 @@ const (
 
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
+	// Deprecated: The reason is not set any longer, it is only kept temporarily to ensure
+	// pre-existing deactivated workloads remain deactivated after upgrade from version
+	// prior to 0.10. The reason declaration can be removed in 0.11.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
+
+	// WorkloadDeactivated indicates that the workload was evicted
+	// because spec.active is set to false.
+	WorkloadDeactivated = "Deactivated"
 
 	// WorkloadReactivated indicates that the workload was requeued because
 	// spec.active is set to true after deactivation.

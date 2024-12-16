@@ -59,6 +59,15 @@ const (
 	// from the Job's PodTemplate also have the label. For the Pod-based
 	// integrations the label is added in webhook during the Pod creation.
 	TASLabel = "kueue.x-k8s.io/tas"
+
+	// PodGroupPodIndexLabel is a label set on the Pod's metadata belonging
+	// to a Pod group. It indicates the Pod's index within the group.
+	PodGroupPodIndexLabel = "kueue.x-k8s.io/pod-group-pod-index"
+
+	// PodGroupPodIndexLabelAnnotation is an annotation on the Pod's metadata
+	// belonging to a Pod group. It indicates a label name used to retrieve
+	// the Pod's index within the group.
+	PodGroupPodIndexLabelAnnotation = "kueue.x-k8s.io/pod-group-pod-index-label"
 )
 
 // TopologySpec defines the desired state of Topology
@@ -69,6 +78,9 @@ type TopologySpec struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="field is immutable"
+	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, size(self.filter(j, j == i)) > 1)) == 0",message="must be unique"
+	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, i.nodeLabel == 'kubernetes.io/hostname')) == 0 || self[size(self) - 1].nodeLabel == 'kubernetes.io/hostname'",message="the kubernetes.io/hostname label can only be used at the lowest level of topology"
 	Levels []TopologyLevel `json:"levels,omitempty"`
 }
 

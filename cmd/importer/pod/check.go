@@ -54,8 +54,8 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, util.ErrCQInvalid)
 		}
 
-		rfName := string(cq.Spec.ResourceGroups[0].Flavors[0].Name)
-		rf, rfFound := cache.ResourceFalvors[rfName]
+		rfName := cq.Spec.ResourceGroups[0].Flavors[0].Name
+		rf, rfFound := cache.ResourceFlavors[rfName]
 		if !rfFound {
 			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
 		}

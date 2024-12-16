@@ -88,6 +88,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - replicasets
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - autoscaling.x-k8s.io
   resources:
   - provisioningrequests
@@ -226,6 +235,7 @@ rules:
   - clusterqueues/finalizers
   - localqueues/finalizers
   - resourceflavors/finalizers
+  - topology/finalizers
   - workloads/finalizers
   verbs:
   - update
@@ -259,6 +269,15 @@ rules:
   - resourceflavors
   verbs:
   - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - topology
+  verbs:
   - get
   - list
   - update

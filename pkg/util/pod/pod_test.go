@@ -17,11 +17,15 @@ limitations under the License.
 package pod
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestHasGate(t *testing.T) {
@@ -193,6 +197,93 @@ func TestGate(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPod.Spec.SchedulingGates, tc.pod.Spec.SchedulingGates); diff != "" {
 				t.Errorf("Unexpected scheduling gates\ndiff=%s", diff)
+			}
+		})
+	}
+}
+
+func TestReadUIntFromLabel(t *testing.T) {
+	testCases := map[string]struct {
+		obj     client.Object
+		label   string
+		max     int
+		wantVal *int
+		wantErr error
+	}{
+		"label not found": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+				},
+			},
+			label:   "label",
+			max:     math.MaxInt,
+			wantErr: ErrLabelNotFound,
+		},
+		"valid label value": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "1000"},
+				},
+			},
+			label:   "label",
+			max:     math.MaxInt,
+			wantVal: ptr.To(1000),
+		},
+		"invalid label value": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "value"},
+				},
+			},
+			label:   "label",
+			wantErr: ErrInvalidUInt,
+		},
+		"less than zero": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "-1"},
+				},
+			},
+			label:   "label",
+			wantErr: ErrInvalidUInt,
+		},
+		"equal to bound": {
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: ""},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod",
+					Namespace: "ns",
+					Labels:    map[string]string{"label": "1001"},
+				},
+			},
+			label:   "label",
+			max:     1001,
+			wantErr: ErrValidation,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotValue, gotErr := ReadUIntFromLabelBelowBound(tc.obj, tc.label, tc.max)
+
+			if diff := cmp.Diff(tc.wantVal, gotValue); diff != "" {
+				t.Errorf("Unexpected value (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}

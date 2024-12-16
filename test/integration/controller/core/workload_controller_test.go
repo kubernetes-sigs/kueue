@@ -36,8 +36,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                           *corev1.Namespace
@@ -313,7 +311,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -397,7 +395,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -471,7 +469,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						metav1.Condition{
 							Type:    kueue.WorkloadEvicted,
 							Status:  metav1.ConditionTrue,
-							Reason:  kueue.WorkloadEvictedByDeactivation + kueue.WorkloadMaximumExecutionTimeExceeded,
+							Reason:  "DeactivatedDueToMaximumExecutionTimeExceeded",
 							Message: "The workload is deactivated due to exceeding the maximum execution time",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration,

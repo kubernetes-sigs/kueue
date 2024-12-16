@@ -25,16 +25,20 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
@@ -50,6 +54,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -100,6 +106,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
+	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -129,6 +138,22 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 
 func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllMPIJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &kfmpi.MPIJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &kftraining.PyTorchJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
 		return err
 	}
@@ -418,6 +443,51 @@ func ExpectAdmissionAttemptsMetric(pending, admitted int) {
 }
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
+
+func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible int) {
+	vals := []int{active, inadmissible}
+	for i, status := range pendingStatuses {
+		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status)
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(int(v)).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
+func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
+	metric := metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).To(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, value int) {
+	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus) {
+	for i, s := range metrics.ConditionStatusValues {
+		var wantV float64
+		if metrics.ConditionStatusValues[i] == status {
+			wantV = 1
+		}
+		metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
 	vals := []int{active, inadmissible}
@@ -760,4 +830,58 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", cq.Name, cond.Status, cond.Message)
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readLq := &kueue.LocalQueue{}
+		for _, lq := range lqs {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(readLq.Status.Conditions, kueue.LocalQueueActive)
+			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.LocalQueueActive, lq.Name)
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", lq.Name, cond.Status, cond.Message)
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func CreateNodes(ctx context.Context, c client.Client, nodes []corev1.Node) {
+	for _, node := range nodes {
+		// 1. Create a node
+		gomega.ExpectWithOffset(1, c.Create(ctx, &node)).Should(gomega.Succeed())
+
+		// 2. Update status based on the object
+		createdNode := &corev1.Node{}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
+			createdNode.Status = node.Status
+			g.Expect(c.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
+		}, Timeout, Interval).Should(gomega.Succeed())
+
+		// 3. Removes the taint if the node is Ready
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
+			if utiltas.IsNodeStatusConditionTrue(createdNode.Status.Conditions, corev1.NodeReady) {
+				createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {
+					return taint.Key == corev1.TaintNodeNotReady
+				})
+				g.Expect(c.Update(ctx, createdNode)).Should(gomega.Succeed())
+			}
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
+func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
+	unmanaged = append(unmanaged, "kube-system", "kueue_system")
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "kubernetes.io/metadata.name",
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   unmanaged,
+			},
+		},
+	}
+	sel, err := metav1.LabelSelectorAsSelector(ls)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return sel
 }

@@ -29,8 +29,6 @@ import (
 	fakekueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1/fake"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	fakekueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1/fake"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
-	fakevisibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1/fake"
 	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
 	fakevisibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1/fake"
 )
@@ -129,11 +127,6 @@ func (c *Clientset) KueueV1alpha1() kueuev1alpha1.KueueV1alpha1Interface {
 // KueueV1beta1 retrieves the KueueV1beta1Client
 func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 	return &fakekueuev1beta1.FakeKueueV1beta1{Fake: &c.Fake}
-}
-
-// VisibilityV1alpha1 retrieves the VisibilityV1alpha1Client
-func (c *Clientset) VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface {
-	return &fakevisibilityv1alpha1.FakeVisibilityV1alpha1{Fake: &c.Fake}
 }
 
 // VisibilityV1beta1 retrieves the VisibilityV1beta1Client

@@ -1668,7 +1668,9 @@ The assignment specifies the number of Pods to be scheduled per topology
 domain and specifies the node selectors for each topology domain, in the
 following way: the node selector keys are specified by the levels field
 (same for all domains), and the corresponding node selector value is
-specified by the domains.values subfield.</p>
+specified by the domains.values subfield. If the TopologySpec.Levels field contains
+&quot;kubernetes.io/hostname&quot; label, topologyAssignment will contain data only for
+this label, and omit higher levels in the topology</p>
 <p>Example:</p>
 <p>topologyAssignment:
 levels:</p>
@@ -1689,6 +1691,21 @@ cloud.provider.com/topology-rack: rack-1</li>
 <li>2 Pods are to be scheduled on nodes matching the node selector:
 cloud.provider.com/topology-block: block-1
 cloud.provider.com/topology-rack: rack-2</li>
+</ul>
+<p>Example:
+Below there is an equivalent of the above example assuming, Topology
+object defines kubernetes.io/hostname as the lowest level in topology.
+Hence we omit higher level of topologies, since the hostname label
+is sufficient to explicitly identify a proper node.</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>kubernetes.io/hostname
+domains:</li>
+<li>values: [hostname-1]
+count: 4</li>
+<li>values: [hostname-2]
+count: 2</li>
 </ul>
 </td>
 </tr>
@@ -1761,6 +1778,35 @@ annotation.</p>
    <p>preferred indicates the topology level preferred by the PodSet, as
 indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
 annotation.</p>
+</td>
+</tr>
+<tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>PodIndexLabel indicates the name of the label indexing the pods.
+For example, in the context of</p>
+<ul>
+<li>kubernetes job this is: kubernetes.io/job-completion-index</li>
+<li>JobSet: kubernetes.io/job-completion-index (inherited from Job)</li>
+<li>Kubeflow: training.kubeflow.org/replica-index</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>subGroupIndexLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.</p>
+</td>
+</tr>
+<tr><td><code>subGroupCount</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
 </td>
 </tr>
 </tbody>
@@ -2100,7 +2146,7 @@ cloud.provider.com/preemptible=&quot;true&quot;:NoSchedule</p>
 </td>
 </tr>
 <tr><td><code>topologyName</code><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
 </td>
 <td>
    <p>topologyName indicates topology for the TAS ResourceFlavor.
@@ -2343,6 +2389,20 @@ domain indicated by the values field.</p>
 </tr>
 </tbody>
 </table>
+
+## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec)
+
+
+<p>TopologyReference is the name of the Topology.</p>
+
+
+
 
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     

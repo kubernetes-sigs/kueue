@@ -1,0 +1,59 @@
+---
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiVersion: kubeadm.k8s.io/v1beta3
+        scheduler:
+          extraArgs:
+            v: "2"
+        controllerManager:
+          extraArgs:
+            v: "2"
+        apiServer:
+          extraArgs:
+            enable-aggregator-routing: "true"
+            v: "2"
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b1
+      cloud.provider.com/topology-rack: r1
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b1
+      cloud.provider.com/topology-rack: r1
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b1
+      cloud.provider.com/topology-rack: r2
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b1
+      cloud.provider.com/topology-rack: r2
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b2
+      cloud.provider.com/topology-rack: r1
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b2
+      cloud.provider.com/topology-rack: r1
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b2
+      cloud.provider.com/topology-rack: r2
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      cloud.provider.com/topology-block: b2
+      cloud.provider.com/topology-rack: r2

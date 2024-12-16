@@ -19,6 +19,7 @@ package tas
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -68,6 +69,11 @@ type podWithUngateInfo struct {
 	nodeLabels map[string]string
 }
 
+type podWithDomain struct {
+	pod      *corev1.Pod
+	domainID utiltas.TopologyDomainID
+}
+
 var _ reconcile.Reconciler = (*topologyUngater)(nil)
 var _ predicate.Predicate = (*topologyUngater)(nil)
 
@@ -113,6 +119,9 @@ func (h *podHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueu
 	h.queueReconcileForPod(ctx, e.Object, true, q)
 }
 
+func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
 func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Object, deleted bool, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := object.(*corev1.Pod)
 	if !isPod {
@@ -135,9 +144,6 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 		}
 		q.AddAfter(reconcile.Request{NamespacedName: key}, ungateBatchPeriod)
 	}
-}
-
-func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -164,14 +170,18 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, nil
 	}
 
+	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			toUngate, err := r.podsetPodsToUngate(ctx, log, wl, &psa)
+			pods, err := r.podsForPodSet(ctx, wl.Namespace, wl.Name, psa.Name)
 			if err != nil {
-				log.Error(err, "failed to identify pods to ungate", "podset", psa.Name, "count", psa.Count)
+				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
-			} else if len(toUngate) > 0 {
+			}
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name])
+			if len(gatedPodsToDomains) > 0 {
+				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
 				allToUngate = append(allToUngate, toUngate...)
 			}
@@ -243,33 +253,92 @@ func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func isAdmittedByTAS(w *kueue.Workload) bool {
-	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
-		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
-			func(psa kueue.PodSetAssignment) bool {
-				return psa.TopologyAssignment != nil
-			})
-}
-
-func (r *topologyUngater) podsetPodsToUngate(ctx context.Context, log logr.Logger, wl *kueue.Workload, psa *kueue.PodSetAssignment) ([]podWithUngateInfo, error) {
-	levelKeys := psa.TopologyAssignment.Levels
-	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
-	domainIDToExpectedCount := make(map[utiltas.TopologyDomainID]int32)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
-		domainID := utiltas.DomainID(psaDomain.Values)
-		domainIDToExpectedCount[domainID] = psaDomain.Count
-		domainIDToLabelValues[domainID] = psaDomain.Values
-	}
-	pods, err := r.podsForDomain(ctx, wl.Namespace, wl.Name, psa.Name)
-	if err != nil {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
+	var pods corev1.PodList
+	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
+		kueuealpha.PodSetLabel: psName,
+	}, client.MatchingFields{
+		indexer.WorkloadNameKey: wlName,
+	}); err != nil {
 		return nil, err
 	}
+	result := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		if phase := pods.Items[i].Status.Phase; phase == corev1.PodFailed || phase == corev1.PodSucceeded {
+			// ignore failed or succeeded pods as they need to be replaced, and
+			// so we don't want to count them as already ungated Pods.
+			continue
+		}
+		result = append(result, &pods.Items[i])
+	}
+	return result, nil
+}
+
+func podsToUngateInfo(
+	psa *kueue.PodSetAssignment,
+	podToUngateWithDomain []podWithDomain) []podWithUngateInfo {
+	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
+	for _, psaDomain := range psa.TopologyAssignment.Domains {
+		domainID := utiltas.DomainID(psaDomain.Values)
+		domainIDToLabelValues[domainID] = psaDomain.Values
+	}
+	toUngate := make([]podWithUngateInfo, len(podToUngateWithDomain))
+	for i, pd := range podToUngateWithDomain {
+		domainValues := domainIDToLabelValues[pd.domainID]
+		nodeLabels := utiltas.NodeLabelsFromKeysAndValues(psa.TopologyAssignment.Levels, domainValues)
+		toUngate[i] = podWithUngateInfo{
+			pod:        pd.pod,
+			nodeLabels: nodeLabels,
+		}
+	}
+	return toUngate
+}
+
+func assignGatedPodsToDomains(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod,
+	psReq *kueue.PodSetTopologyRequest) []podWithDomain {
+	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq); ok {
+		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
+	}
+	return assignGatedPodsToDomainsGreedy(log, psa, pods)
+}
+
+func assignGatedPodsToDomainsByRanks(
+	psa *kueue.PodSetAssignment,
+	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
+	toUngate := make([]podWithDomain, 0)
+	totalCount := 0
+	for i := range psa.TopologyAssignment.Domains {
+		totalCount += int(psa.TopologyAssignment.Domains[i].Count)
+	}
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalCount)
+	index := int32(0)
+	for _, domain := range psa.TopologyAssignment.Domains {
+		for s := range domain.Count {
+			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
+		}
+		index += domain.Count
+	}
+	for rank, pod := range rankToGatedPod {
+		toUngate = append(toUngate, podWithDomain{
+			pod:      pod,
+			domainID: rankToDomainID[rank],
+		})
+	}
+	return toUngate
+}
+
+func assignGatedPodsToDomainsGreedy(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod) []podWithDomain {
+	levelKeys := psa.TopologyAssignment.Levels
 	gatedPods := make([]*corev1.Pod, 0)
 	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
-	for i := range pods {
-		pod := pods[i]
-		isGated := utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate)
-		if isGated {
+	for _, pod := range pods {
+		if utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) {
 			gatedPods = append(gatedPods, pod)
 		} else {
 			levelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)
@@ -281,49 +350,93 @@ func (r *topologyUngater) podsetPodsToUngate(ctx context.Context, log logr.Logge
 		"podSetName", psa.Name,
 		"podSetCount", psa.Count,
 		"domainIDToUngatedCount", domainIDToUngatedCnt,
-		"domainIDToLabelValues", domainIDToLabelValues,
 		"levelKeys", levelKeys)
-	toUngate := make([]podWithUngateInfo, 0)
-	for domainID, expectedInDomainCnt := range domainIDToExpectedCount {
+	toUngate := make([]podWithDomain, 0)
+	for _, psaDomain := range psa.TopologyAssignment.Domains {
+		domainID := utiltas.DomainID(psaDomain.Values)
 		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
-		remainingUngatedInDomain := max(expectedInDomainCnt-ungatedInDomainCnt, 0)
+		remainingUngatedInDomain := max(psaDomain.Count-ungatedInDomainCnt, 0)
 		if remainingUngatedInDomain > 0 {
-			domainValues := domainIDToLabelValues[domainID]
-
-			nodeLabels := utiltas.NodeLabelsFromKeysAndValues(levelKeys, domainValues)
 			remainingGatedCnt := int32(max(len(gatedPods)-len(toUngate), 0))
 			toUngateCnt := min(remainingUngatedInDomain, remainingGatedCnt)
 			if toUngateCnt > 0 {
 				podsToUngateInDomain := gatedPods[len(toUngate) : int32(len(toUngate))+toUngateCnt]
 				for i := range podsToUngateInDomain {
-					toUngate = append(toUngate, podWithUngateInfo{
-						pod:        podsToUngateInDomain[i],
-						nodeLabels: nodeLabels,
+					toUngate = append(toUngate, podWithDomain{
+						pod:      podsToUngateInDomain[i],
+						domainID: domainID,
 					})
 				}
 			}
 		}
 	}
-	return toUngate, nil
+	return toUngate
 }
 
-func (r *topologyUngater) podsForDomain(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
-	var pods corev1.PodList
-	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		kueuealpha.PodSetLabel: psName,
-	}, client.MatchingFields{
-		indexer.WorkloadNameKey: wlName,
-	}); err != nil {
-		return nil, err
+func readRanksIfAvailable(log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod,
+	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, bool) {
+	if psReq == nil || psReq.PodIndexLabel == nil {
+		return nil, false
 	}
-	result := make([]*corev1.Pod, 0, len(pods.Items))
-	for i := range pods.Items {
-		if pods.Items[i].Status.Phase == corev1.PodFailed {
-			// ignore failed pods as they need to be replaced, and so we don't
-			// want to count them as already ungated Pods.
-			continue
+	result, err := readRanksForLabels(psa, pods, psReq)
+	if err != nil {
+		log.Error(err, "failed to read rank information from Pods")
+		return nil, false
+	}
+	return result, true
+}
+
+func readRanksForLabels(
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod,
+	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, error) {
+	result := make(map[int]*corev1.Pod)
+	podSetSize := int(*psa.Count)
+	singleJobSize := podSetSize
+	if psReq.SubGroupIndexLabel != nil {
+		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
+	}
+
+	for _, pod := range pods {
+		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, singleJobSize)
+		if err != nil {
+			// the Pod has no rank information - ranks cannot be used
+			return nil, err
 		}
-		result = append(result, &pods.Items[i])
+		rank := *podIndex
+		if psReq.SubGroupIndexLabel != nil {
+			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
+			if err != nil {
+				// the Pod has no Job index information - ranks cannot be used
+				return nil, err
+			}
+			if *podIndex >= singleJobSize {
+				// the pod index exceeds size, this scenario is not
+				// supported by the rank-based ordering of pods.
+				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
+			}
+			rank = *podIndex + *jobIndex*singleJobSize
+		}
+		if rank >= podSetSize {
+			// the rank exceeds the PodSet size, this scenario is not supported
+			// by the rank-based ordering of pods.
+			return nil, fmt.Errorf("rank %v of Pod %q exceeds PodSet size %v", rank, klog.KObj(pod), podSetSize)
+		}
+		if _, found := result[rank]; found {
+			// there is a conflict in ranks, they cannot be used
+			return nil, fmt.Errorf("conflicting rank %v found for pod %q", rank, klog.KObj(pod))
+		}
+		result[rank] = pod
 	}
 	return result, nil
+}
+
+func isAdmittedByTAS(w *kueue.Workload) bool {
+	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
+		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+			func(psa kueue.PodSetAssignment) bool {
+				return psa.TopologyAssignment != nil
+			})
 }

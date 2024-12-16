@@ -19,26 +19,34 @@ package jobframework
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
 type BaseWebhook struct {
-	ManageJobsWithoutQueueName bool
-	FromObject                 func(runtime.Object) GenericJob
+	Client                       client.Client
+	ManageJobsWithoutQueueName   bool
+	ManagedJobsNamespaceSelector labels.Selector
+	FromObject                   func(runtime.Object) GenericJob
+	Queues                       *queue.Manager
 }
 
 func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
 		wh := &BaseWebhook{
-			ManageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-			FromObject:                 fromObject,
+			Client:                       mgr.GetClient(),
+			ManageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+			FromObject:                   fromObject,
+			Queues:                       options.Queues,
 		}
 		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
@@ -54,9 +62,9 @@ var _ admission.CustomDefaulter = &BaseWebhook{}
 func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job.Object()))
-	ApplyDefaultForSuspend(job, w.ManageJobsWithoutQueueName)
-	return nil
+	log.V(5).Info("Applying defaults")
+	ApplyDefaultLocalQueue(job.Object(), w.Queues.DefaultLocalQueueExist)
+	return ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector)
 }
 
 var _ admission.CustomValidator = &BaseWebhook{}
@@ -65,7 +73,7 @@ var _ admission.CustomValidator = &BaseWebhook{}
 func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
-	log.V(5).Info("Validating create", "job", klog.KObj(job.Object()))
+	log.V(5).Info("Validating create")
 	allErrs := ValidateJobOnCreate(job)
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnCreate()...)
@@ -78,7 +86,7 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 	oldJob := w.FromObject(oldObj)
 	newJob := w.FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Validating update", "job", klog.KObj(newJob.Object()))
+	log.Info("Validating update")
 	allErrs := ValidateJobOnUpdate(oldJob, newJob)
 	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnUpdate(oldJob)...)

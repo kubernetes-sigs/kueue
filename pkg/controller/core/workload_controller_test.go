@@ -470,11 +470,24 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -498,24 +511,31 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
-				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
-				Conditions(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionTrue,
-					Reason:  "AdmittedByTest",
-					Message: "Admitted by ClusterQueue q1",
-				},
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
 					metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "ByTest",
 						Message: "Admitted by ClusterQueue q1",
-					}).
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -523,6 +543,71 @@ func TestReconcile(t *testing.T) {
 					EventType: "Warning",
 					Reason:    "AdmissionCheckRejected",
 					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
+				},
+			},
+		},
+		"workload with deactivation target condition should be deactivated and admission checks reset": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Active(false).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:  "check-1",
+						State: kueue.CheckStateRejected,
+					},
+					kueue.AdmissionCheckState{
+						Name:  "check-2",
+						State: kueue.CheckStateRetry,
+					},
+				).
+				Conditions(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Admission check(s): [check-1], were rejected",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Active(false).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "check-1",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					},
+					kueue.AdmissionCheckState{
+						Name:    "check-2",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToAdmissionCheck",
+						Message: "The workload is deactivated due to Admission check(s): [check-1], were rejected",
+					},
+					// In a real cluster this condition would be removed but it cant be in the fake cluster
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Admission check(s): [check-1], were rejected",
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "EvictedDueToDeactivatedDueToAdmissionCheck",
+					Message:   "The workload is deactivated due to Admission check(s): [check-1], were rejected",
 				},
 			},
 		},
@@ -722,7 +807,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
@@ -908,19 +993,19 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False": {
+		"should set the Evicted condition with Deactivated reason when the .spec.active=False": {
 			workload: utiltesting.MakeWorkload("wl", "ns").Active(false).Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
 		},
-		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False and Admitted": {
+		"should set the Evicted condition with Deactivated reason when the .spec.active=False and Admitted": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -933,7 +1018,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
@@ -941,12 +1026,12 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkload",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated",
 				},
 			},
 		},
-		"should set the Evicted condition with InactiveWorkload reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
+		"should set the Evicted condition with Deactivated reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -965,7 +1050,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
@@ -973,12 +1058,12 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkload",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated",
 				},
 			},
 		},
-		"should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+		"should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1018,7 +1103,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
@@ -1033,12 +1118,12 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
 		},
-		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+		"[backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1079,7 +1164,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
@@ -1096,7 +1181,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},

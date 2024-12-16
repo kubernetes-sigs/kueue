@@ -346,7 +346,9 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		manager.AddOrUpdateWorkload(w)
+		if err := manager.AddOrUpdateWorkload(w); err != nil {
+			t.Errorf("Failed to add or update workload: %v", err)
+		}
 	}
 
 	// Update cluster queue of first queue.
@@ -417,8 +419,8 @@ func TestAddWorkload(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		workload  *kueue.Workload
-		wantAdded bool
+		workload *kueue.Workload
+		wantErr  error
 	}{
 		{
 			workload: &kueue.Workload{
@@ -428,7 +430,6 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
-			wantAdded: true,
 		},
 		{
 			workload: &kueue.Workload{
@@ -438,6 +439,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "baz"},
 			},
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 		{
 			workload: &kueue.Workload{
@@ -447,6 +449,7 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "bar"},
 			},
+			wantErr: ErrClusterQueueDoesNotExist,
 		},
 		{
 			workload: &kueue.Workload{
@@ -456,12 +459,14 @@ func TestAddWorkload(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			if added := manager.AddOrUpdateWorkload(tc.workload); added != tc.wantAdded {
-				t.Errorf("AddWorkload returned %t, want %t", added, tc.wantAdded)
+			err := manager.AddOrUpdateWorkload(tc.workload)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -527,7 +532,11 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		manager.AddOrUpdateWorkload(&wl)
+		// We ignore the ErrClusterQueueDoesNotExist since we never set up ClusterQueue in this test,
+		// and the error should be occurred.
+		if err := manager.AddOrUpdateWorkload(&wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+			t.Fatalf("Failed to add or update workloads: %v", err)
+		}
 	}
 
 	cases := map[string]struct {
@@ -548,7 +557,7 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    ErrQueueDoesNotExist,
+			wantErr:    ErrLocalQueueDoesNotExistOrInactive,
 		},
 	}
 	for name, tc := range cases {
@@ -671,6 +680,7 @@ func TestUpdateWorkload(t *testing.T) {
 		wantUpdated      bool
 		wantQueueOrder   map[string][]string
 		wantQueueMembers map[string]sets.Set[string]
+		wantErr          error
 	}{
 		"in queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -761,6 +771,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueMembers: map[string]sets.Set[string]{
 				"/foo": nil,
 			},
+			wantErr: ErrLocalQueueDoesNotExistOrInactive,
 		},
 		"from non existing queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -799,12 +810,13 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				manager.AddOrUpdateWorkload(w)
+				_ = manager.AddOrUpdateWorkload(w)
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
-				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
+			err := manager.UpdateWorkload(tc.workloads[0], wl)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
 			q := manager.localQueues[workload.QueueKey(wl)]
 			if q != nil {
@@ -916,7 +928,9 @@ func TestHeads(t *testing.T) {
 
 			go manager.CleanUpOnContext(ctx)
 			for _, wl := range tc.workloads {
-				manager.AddOrUpdateWorkload(wl)
+				if err := manager.AddOrUpdateWorkload(wl); err != nil {
+					t.Errorf("Failed to add or update workload: %v", err)
+				}
 			}
 
 			wlNames := sets.New[string]()
@@ -971,13 +985,15 @@ func TestHeadsAsync(t *testing.T) {
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
 			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				mgr.AddOrUpdateWorkload(&wl)
 				go func() {
-					if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
-						t.Errorf("Failed adding clusterQueue: %v", err)
+					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
 			},
@@ -1016,7 +1032,9 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					mgr.AddOrUpdateWorkload(&wl)
+					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
+					}
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1037,7 +1055,9 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					wlCopy := wl.DeepCopy()
 					wlCopy.ResourceVersion = "old"
-					mgr.UpdateWorkload(wlCopy, &wl)
+					if err := mgr.UpdateWorkload(wlCopy, &wl); err != nil {
+						t.Errorf("Failed to add or update workload: %v", err)
+					}
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1217,7 +1237,9 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		manager.AddOrUpdateWorkload(w)
+		if err := manager.AddOrUpdateWorkload(w); err != nil {
+			t.Errorf("Failed to add or update workload: %v", err)
+		}
 	}
 
 	cases := map[string]struct {

@@ -332,12 +332,12 @@ the same "rack" label, but in different "blocks".
 
 For example, this is a representation of the dataset hierarchy;
 
-|  node  |  cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
-|:------:|:----------------------------------:|:--------------------------------:|
-| node-1 |               block-1              |              rack-1              |
-| node-2 |               block-1              |              rack-2              |
-| node-3 |               block-2              |              rack-1              |
-| node-4 |               block-2              |              rack-3              |
+|  node  | cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
+| :----: | :-------------------------------: | :------------------------------: |
+| node-1 |              block-1              |              rack-1              |
+| node-2 |              block-1              |              rack-2              |
+| node-3 |              block-2              |              rack-1              |
+| node-4 |              block-2              |              rack-3              |
 
 Note that, there is a pair of nodes, node-1 and node-3, with the same value of
 the "cloud.provider.com/topology-rack" label, but in different blocks.
@@ -476,6 +476,21 @@ type PodSetTopologyRequest struct {
   //
   // +optional
   Preferred *string `json:"preferred,omitempty"`
+
+  // PodIndexLabel indicates the name of the label indexing the pods.
+  // For example, in the context of
+  // - kubernetes job this is: kubernetes.io/job-completion-index
+  // - JobSet: kubernetes.io/job-completion-index (inherited from Job)
+  // - Kubeflow: training.kubeflow.org/replica-index
+  PodIndexLabel *string
+
+  // SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+  // within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+  SubGroupIndexLabel *string
+
+  // SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+  // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+  SubGroupCount *int32
 }
 ```
 
@@ -492,7 +507,9 @@ type PodSetAssignment struct {
   // domain and specifies the node selectors for each topology domain, in the
   // following way: the node selector keys are specified by the levels field
   // (same for all domains), and the corresponding node selector value is
-  // specified by the domains.values subfield.
+  // specified by the domains.values subfield. If the TopologySpec.Levels field contains
+  // "kubernetes.io/hostname" label, topologyAssignment will contain data only for
+  // this label, and omit higher levels in the topology
   //
   // Example:
   //
@@ -513,6 +530,21 @@ type PodSetAssignment struct {
   // - 2 Pods are to be scheduled on nodes matching the node selector:
   //   cloud.provider.com/topology-block: block-1
   //   cloud.provider.com/topology-rack: rack-2
+  //
+  // Example:
+	// Below there is an equivalent of the above example assuming, Topology
+	// object defines kubernetes.io/hostname as the lowest level in topology.
+	// Hence we omit higher level of topologies, since the hostname label
+	// is sufficient to explicitly identify a proper node.
+  //
+  // topologyAssignment:
+  //   levels:
+  //   - kubernetes.io/hostname
+  //   domains:
+  //   - values: [hostname-1]
+  //     count: 4
+  //   - values: [hostname-2]
+  //     count: 2
   //
   // +optional
   TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
@@ -704,6 +736,11 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need to support for "preferred/required" preferences at the
   Workload level (see [Story 3](#story-3))
 - re-evaluate the need for the `kueue.x-k8s.io/tas`
+- re-evaluate handling of topologies without `kubernetes.io/hostname` in the lowest
+  level, the main issues are: (a) no check for fragmentation, and (b) no support
+  for node taints. Some options to consider include virtual level as proposed in
+  the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
+  or explicit level added by webhook.
 
 #### Stable
 

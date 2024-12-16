@@ -25,12 +25,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
-
-// +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
@@ -94,8 +93,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	ginkgo.BeforeEach(func() {
 		ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
-
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
@@ -215,9 +214,18 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		for _, rf := range resourceFlavors {
 			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
 		}
+
+		// LQ metrics should all be 0 here
+		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 0)
+		util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
+
 		ginkgo.By("Creating a clusterQueue")
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
+		util.ExpectLQByStatusMetric(queue, metav1.ConditionTrue)
+
+		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
 				Queue(queue.Name).
@@ -279,6 +287,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		util.ExpectLQPendingWorkloadsMetric(queue, 3, 0)
 		ginkgo.By("Setting the workloads quota reservation")
 		for i, w := range workloads {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -342,6 +351,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		util.ExpectLQReservingActiveWorkloadsMetric(queue, 3)
 		ginkgo.By("Setting the workloads admission checks")
 		for _, w := range workloads {
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
@@ -380,6 +390,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 3)
+		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 		ginkgo.By("Finishing workloads")
 		util.FinishWorkloads(ctx, k8sClient, workloads...)
 		gomega.Eventually(func(g gomega.Gomega) {

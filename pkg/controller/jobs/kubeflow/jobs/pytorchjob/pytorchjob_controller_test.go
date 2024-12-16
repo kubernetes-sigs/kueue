@@ -278,16 +278,18 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
 				return []kueue.PodSet{
 					{
-						Name:            strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
-						Template:        job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
+						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 					{
-						Name:            strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
-						Template:        job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
+						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 				}
 			},

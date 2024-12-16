@@ -101,13 +101,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),
-			configs: []kueue.ProvisioningRequestConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "config1",
-					},
-				},
-			},
+			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").Obj()},
 			wantCondition: &metav1.Condition{
 				Type:               kueue.AdmissionCheckActive,
 				Status:             metav1.ConditionTrue,

@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
-			}, jobframework.WithManageJobsWithoutQueueName(true)))
+			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -149,6 +149,12 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					},
 				}, kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[1].Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+					},
+				},
+				kueue.PodSetAssignment{
+					Name: createdWorkload.Spec.PodSets[2].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "default",
 					},

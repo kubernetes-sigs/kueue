@@ -196,7 +196,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
-	var successfullyPreempted int64
+	var successfullyPreempted atomic.Int64
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
@@ -214,15 +214,15 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj))
 		}
-		atomic.AddInt64(&successfullyPreempted, 1)
+		successfullyPreempted.Add(1)
 	})
-	return int(successfullyPreempted), errCh.ReceiveError()
+	return int(successfullyPreempted.Load()), errCh.ReceiveError()
 }
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
 	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
-	workload.ResetChecksOnEviction(w)
+	workload.ResetChecksOnEviction(w, p.clock.Now())
 	workload.SetPreemptedCondition(w, reason, message)
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, true)
 }
@@ -513,7 +513,7 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
 		onlyLowerPriority := cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny
-		for _, cohortCQ := range cq.Parent().ChildCQs() {
+		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
 			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue

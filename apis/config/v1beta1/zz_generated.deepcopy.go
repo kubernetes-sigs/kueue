@@ -78,6 +78,11 @@ func (in *Configuration) DeepCopyInto(out *Configuration) {
 		**out = **in
 	}
 	in.ControllerManager.DeepCopyInto(&out.ControllerManager)
+	if in.ManagedJobsNamespaceSelector != nil {
+		in, out := &in.ManagedJobsNamespaceSelector, &out.ManagedJobsNamespaceSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.InternalCertManagement != nil {
 		in, out := &in.InternalCertManagement, &out.InternalCertManagement
 		*out = new(InternalCertManagement)
@@ -117,6 +122,13 @@ func (in *Configuration) DeepCopyInto(out *Configuration) {
 		in, out := &in.Resources, &out.Resources
 		*out = new(Resources)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.FeatureGates != nil {
+		in, out := &in.FeatureGates, &out.FeatureGates
+		*out = make(map[string]bool, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 }
 

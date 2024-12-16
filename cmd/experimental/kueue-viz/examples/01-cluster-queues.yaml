@@ -1,0 +1,78 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "emergency-cluster-queue"
+spec:
+  cohort: ai-for-humanity-foundation
+  namespaceSelector: {} # match all.
+  preemption:
+    borrowWithinCohort:
+      policy: LowerPriority
+    withinClusterQueue: LowerPriority
+    reclaimWithinCohort: Any # if the pending Workload fits within the nominal quota of its ClusterQueue, preempt any Workload in the cohort, irrespective of priority.
+  flavorFungibility:
+    whenCanBorrow: Borrow  # this is the default but I'm making it explicit here
+    whenCanPreempt: Preempt  # ensures that accelerators aren't hit with compute workloads
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 1
+      - name: "memory"
+        nominalQuota: 1Gi
+  - coveredResources: [ "gpu"]
+    flavors:
+    - name: "gpu"
+      resources:
+      - name: "gpu"
+        nominalQuota: 1Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: agi-cluster-queue
+spec:
+  cohort: ai-for-humanity-foundation
+  namespaceSelector: {}
+  preemption:
+    reclaimWithinCohort: Never # do not preempt Workloads in the cohort. 
+  flavorFungibility:
+    whenCanBorrow: Borrow  # this is the default but I'm making it explicit here
+    whenCanPreempt: Preempt  # ensures that accelerators aren't hit with compute workloads
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 300m 
+      - name: "memory"
+        nominalQuota: 300Mi
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: llm-cluster-queue
+spec:
+  cohort: ai-for-humanity-foundation
+  namespaceSelector: {}
+  preemption:
+    reclaimWithinCohort: LowerPriority # only preempt Workloads in the cohort that have lower priority than the pending Workload.
+  flavorFungibility:
+    whenCanBorrow: Borrow  # this is the default but I'm making it explicit here
+    whenCanPreempt: Preempt  # ensures that accelerators aren't hit with compute workloads
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 300m
+      - name: "memory"
+        nominalQuota: 300Mi
+
+

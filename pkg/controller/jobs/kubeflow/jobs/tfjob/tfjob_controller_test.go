@@ -294,16 +294,18 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
 					{
-						Name:            strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
-						Template:        job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
+						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 					{
-						Name:            strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
-						Template:        job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
+						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 					{
 						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeWorker)),

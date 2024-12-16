@@ -52,6 +52,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		flavorOnDemand                     = "on-demand"
 	)
 
+	baseConfig := testing.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
+
+	baseConfigWithParameters := baseConfig.Clone().Parameters(map[string]kueue.Parameter{
+		"p1": "v1",
+		"p2": "v2",
+	})
+
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -84,35 +91,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To[int32](0),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
-			prc2 = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config2",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class2",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1.2",
-						"p2": "v2.2",
-					},
-				},
-			}
+			prc2 = testing.MakeProvisioningRequestConfig("prov-config2").ProvisioningClass("provisioning-class2").Parameters(map[string]kueue.Parameter{
+				"p1": "v1.2",
+				"p2": "v2.2",
+			}).Obj()
+
 			gomega.Expect(k8sClient.Create(ctx, prc2)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -411,22 +397,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the admission check", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if workload is deactivated, Rejected status was once in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -443,7 +421,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -495,8 +473,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -516,7 +495,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 			})
 		})
 
@@ -548,14 +527,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -575,7 +555,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 			})
 		})
 
@@ -655,7 +635,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 0)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadDeactivated, 0)
 			})
 		})
 
@@ -948,21 +928,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To[int32](0),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
+
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -1135,13 +1102,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse(), "The workload should be deactivated")
@@ -1161,7 +1129,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue(), "The workload should be evicted by deactivation")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 			})
 		})
 	})
@@ -1192,22 +1160,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					Parameters: map[string]kueue.Parameter{
-						"p1": "v1",
-						"p2": "v2",
-					},
-					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To[int32](1),
-						BackoffBaseSeconds: ptr.To[int32](1),
-					},
-				},
-			}
+			prc = baseConfigWithParameters.Clone().RetryLimit(1).BaseBackoff(1).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -1416,23 +1369,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the admission check is rejected", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -1450,7 +1395,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1565,18 +1510,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			prc = &kueue.ProvisioningRequestConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "prov-config",
-				},
-				Spec: kueue.ProvisioningRequestConfigSpec{
-					ProvisioningClassName: "provisioning-class",
-					RetryStrategy: ptr.To(kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To[int32](1),
-						BackoffBaseSeconds: ptr.To[int32](2),
-					}),
-				},
-			}
+			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
@@ -1877,23 +1811,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the admission check is rejected", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(check).NotTo(gomega.BeNil())
-					g.Expect(check.State).To(gomega.Equal(kueue.CheckStateRejected))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if the workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if the workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:  ac.Name,
-							State: kueue.CheckStateRejected,
+							Name:    ac.Name,
+							State:   kueue.CheckStatePending,
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -1911,7 +1837,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

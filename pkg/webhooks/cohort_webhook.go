@@ -21,7 +21,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -50,7 +49,7 @@ var _ webhook.CustomValidator = &CohortWebhook{}
 func (w *CohortWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	cohort := obj.(*kueuealpha.Cohort)
 	log := ctrl.LoggerFrom(ctx).WithName("cohort-webhook")
-	log.V(5).Info("Validating Cohort create", "cohort", klog.KObj(cohort))
+	log.V(5).Info("Validating Cohort create")
 	return nil, validateCohort(cohort).ToAggregate()
 }
 
@@ -58,7 +57,7 @@ func (w *CohortWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 func (w *CohortWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	cohort := newObj.(*kueuealpha.Cohort)
 	log := ctrl.LoggerFrom(ctx).WithName("cohort-webhook")
-	log.V(5).Info("Validating Cohort update", "cohort", klog.KObj(cohort))
+	log.V(5).Info("Validating Cohort update")
 	return nil, validateCohort(cohort).ToAggregate()
 }
 

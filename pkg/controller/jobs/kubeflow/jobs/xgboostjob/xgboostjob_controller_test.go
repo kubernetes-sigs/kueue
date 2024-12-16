@@ -25,6 +25,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -284,16 +285,18 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
 					{
-						Name:            strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template:        job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
+						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 					{
-						Name:            strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template:        job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:           1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
+						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
+						Count:    1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
+							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
 					},
 				}
 			},
@@ -415,6 +418,14 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns",
+			Labels: map[string]string{
+				"kubernetes.io/metadata.name": "ns",
+			},
+		},
+	}
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *kftraining.XGBoostJob
@@ -426,6 +437,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with podsets": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job:     testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantJob: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
@@ -544,7 +556,7 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			kcBuilder = kcBuilder.WithObjects(utiltesting.MakeResourceFlavor("default").Obj())
-			kcBuilder = kcBuilder.WithObjects(tc.job)
+			kcBuilder = kcBuilder.WithObjects(tc.job, testNamespace)
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}

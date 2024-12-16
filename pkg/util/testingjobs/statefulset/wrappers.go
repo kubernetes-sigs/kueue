@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -105,6 +106,15 @@ func (ss *StatefulSetWrapper) PodTemplateSpecLabel(k, v string) *StatefulSetWrap
 	return ss
 }
 
+// PodTemplateAnnotation sets the annotation of the pod template
+func (ss *StatefulSetWrapper) PodTemplateAnnotation(k, v string) *StatefulSetWrapper {
+	if ss.Spec.Template.Annotations == nil {
+		ss.Spec.Template.Annotations = make(map[string]string, 1)
+	}
+	ss.Spec.Template.Annotations[k] = v
+	return ss
+}
+
 // PodTemplateSpecAnnotation sets the annotation of the pod template spec of the StatefulSet
 func (ss *StatefulSetWrapper) PodTemplateSpecAnnotation(k, v string) *StatefulSetWrapper {
 	if ss.Spec.Template.Annotations == nil {
@@ -137,6 +147,14 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replic
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *StatefulSetWrapper {
 	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
+}
+
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation(enabled bool) *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(pod.GroupServingAnnotation, strconv.FormatBool(enabled))
+}
+
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {

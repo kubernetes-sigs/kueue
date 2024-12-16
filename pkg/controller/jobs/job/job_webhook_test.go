@@ -26,10 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/apimachinery/pkg/version"
-	fakediscovery "k8s.io/client-go/discovery/fake"
-	fakeclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -38,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
@@ -63,10 +60,9 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name          string
-		job           *batchv1.Job
-		wantErr       field.ErrorList
-		serverVersion string
+		name    string
+		job     *batchv1.Job
+		wantErr field.ErrorList
 	}{
 		{
 			name:    "simple",
@@ -137,7 +133,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "completions"), ptr.To[int32](6), fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)),
 			},
-			serverVersion: "1.27.0",
 		},
 		{
 			name: "valid sync completions annotation, wrong job completions type (default)",
@@ -149,7 +144,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
 			},
-			serverVersion: "1.27.0",
 		},
 		{
 			name: "valid sync completions annotation, wrong job completions type",
@@ -162,32 +156,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
 			},
-			serverVersion: "1.27.0",
-		},
-		{
-			name: "valid sync completions annotation, server version less then 1.27",
-			job: testingutil.MakeJob("job", "default").
-				Parallelism(4).
-				Completions(4).
-				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
-				Indexed(true).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(syncCompletionAnnotationsPath, "true", "only supported in Kubernetes 1.27 or newer"),
-			},
-			serverVersion: "1.26.3",
-		},
-		{
-			name: "valid sync completions annotation, server version wasn't specified",
-			job: testingutil.MakeJob("job", "default").
-				Parallelism(4).
-				Completions(4).
-				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
-				Indexed(true).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(syncCompletionAnnotationsPath, "true", "only supported in Kubernetes 1.27 or newer"),
-			},
 		},
 		{
 			name: "valid sync completions annotation",
@@ -197,8 +165,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
 				Indexed(true).
 				Obj(),
-			wantErr:       nil,
-			serverVersion: "1.27.0",
+			wantErr: nil,
 		},
 		{
 			name: "invalid prebuilt workload",
@@ -211,7 +178,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
 			},
-			serverVersion: "1.27.0",
 		},
 		{
 			name: "valid prebuilt workload",
@@ -221,8 +187,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.PrebuiltWorkloadLabel, "workload-name").
 				Indexed(true).
 				Obj(),
-			wantErr:       nil,
-			serverVersion: "1.27.0",
+			wantErr: nil,
 		},
 		{
 			name: "invalid maximum execution time",
@@ -235,7 +200,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, "NaN", `strconv.Atoi: parsing "NaN": invalid syntax`),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "zero maximum execution time",
@@ -248,7 +212,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, 0, "should be greater than 0"),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "negative maximum execution time",
@@ -261,7 +224,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, -10, "should be greater than 0"),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "valid maximum execution time",
@@ -271,7 +233,6 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.MaxExecTimeSecondsLabel, "10").
 				Indexed(true).
 				Obj(),
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "valid topology request",
@@ -316,12 +277,6 @@ func TestValidateCreate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			jw := &JobWebhook{}
-			fakeDiscoveryClient, _ := fakeclient.NewSimpleClientset().Discovery().(*fakediscovery.FakeDiscovery)
-			fakeDiscoveryClient.FakedServerVersion = &version.Info{GitVersion: tc.serverVersion}
-			jw.kubeServerVersion = kubeversion.NewServerVersionFetcher(fakeDiscoveryClient)
-			if err := jw.kubeServerVersion.FetchServerVersion(); err != nil && tc.serverVersion != "" {
-				t.Fatalf("Failed fetching server version: %v", err)
-			}
 
 			gotErr := jw.validateCreate((*Job)(tc.job))
 
@@ -597,6 +552,8 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName             bool
 		multiKueueEnabled                      bool
 		multiKueueBatchJobWithManagedByEnabled bool
+		localQueueDefaulting                   bool
+		defaultLqExist                         bool
 		want                                   *batchv1.Job
 		wantErr                                error
 	}{
@@ -683,11 +640,35 @@ func TestDefault(t *testing.T) {
 			multiKueueEnabled:                      true,
 			multiKueueBatchJobWithManagedByEnabled: true,
 		},
+		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job:                  testingutil.MakeJob("test-job", "default").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
+				Queue("default").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			job:                  testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			job:                  testingutil.MakeJob("test-job", "").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Obj(),
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
 			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -698,6 +679,12 @@ func TestDefault(t *testing.T) {
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
 
 			for _, q := range tc.queues {
 				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {
@@ -716,9 +703,11 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			w := &JobWebhook{
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				queues:                     queueManager,
-				cache:                      cqCache,
+				client:                       cl,
+				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector: labels.Everything(),
+				queues:                       queueManager,
+				cache:                        cqCache,
 			}
 			gotErr := w.Default(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {

@@ -174,16 +174,13 @@ status:
       Memory: 600Mi
 ```
 
-{{< feature-state state="alpha" for_version="v0.9" >}}
+{{< feature-state state="beta" for_version="v0.10" >}}
 {{% alert title="Note" color="primary" %}}
 
-`resourceRequests` is an Alpha feature that is not enabled by default.  When the feature is enabled,
-the status will contain the detailed description of the resources being requested by the Workload.
+Populating the `status.resourceRequests` field of pending workloads is a Beta feature that is enabled by default.
 
-You can enable it by setting the `WorkloadResourceRequestsSummary` feature gate.
-Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+You can disable it by setting the `WorkloadResourceRequestsSummary` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
-
 
 ### Does my ClusterQueue have the resource requests that the job requires?
 

@@ -115,6 +115,13 @@ Defaults to false; therefore, those jobs are not managed and if they are created
 unsuspended, they will start immediately.</p>
 </td>
 </tr>
+<tr><td><code>managedJobsNamespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName</p>
+</td>
+</tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
 <a href="#InternalCertManagement"><code>InternalCertManagement</code></a>
 </td>
@@ -178,6 +185,16 @@ instead.</p>
 </td>
 <td>
    <p>Resources provides additional configuration options for handling the resources.</p>
+</td>
+</tr>
+<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<code>map[string]bool</code>
+</td>
+<td>
+   <p>FeatureGates is a map of feature names to bools that allows to override the
+default enablement status of a feature. The map cannot be used in conjunction
+with passing the list of features via the command line argument &quot;--feature-gates&quot;
+for the Kueue Deployment.</p>
 </td>
 </tr>
 </tbody>

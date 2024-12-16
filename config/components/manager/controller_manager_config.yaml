@@ -33,6 +33,9 @@ clientConnection:
 #    backoffBaseSeconds: 60
 #    backoffMaxSeconds: 3600
 #manageJobsWithoutQueueName: true
+#managedJobsNamespaceSelector:
+#  matchLabels:
+#    kueue-managed: "true"
 #internalCertManagement:
 #  enable: false
 #  webhookServiceName: ""

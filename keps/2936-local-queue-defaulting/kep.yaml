@@ -1,0 +1,32 @@
+title: LocalQueue defaulting
+kep-number: 2936
+authors:
+  - "@yaroslava-serdiuk"
+status: implementable
+creation-date: 2024-11-25
+reviewers:
+  - "@pbundyra"
+  - "@tenzen-y"
+  - "@mimowo"
+approvers:
+  - "@mimowo"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.10"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.10"
+  beta:
+  stable:
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: LocalQueueDefaulting
+disable-supported: true

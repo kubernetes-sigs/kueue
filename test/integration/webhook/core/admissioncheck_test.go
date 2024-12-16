@@ -4,6 +4,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,20 +46,14 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			),
 		)
 
-		ginkgo.DescribeTable("Validate AdmissionCheck on creation", func(ac kueue.AdmissionCheck, errorType int) {
+		ginkgo.DescribeTable("Validate AdmissionCheck on creation", func(ac kueue.AdmissionCheck, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, &ac)
 			if err == nil {
 				defer func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &ac, true)
 				}()
 			}
-
-			if errorType == isInvalid {
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeInvalidError())
-			} else {
-				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-			}
+			gomega.Expect(err).Should(matcher)
 		},
 			ginkgo.Entry("Should fail to create AdmissionCheck with no controller name",
 				kueue.AdmissionCheck{
@@ -70,7 +65,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref api group",
 				kueue.AdmissionCheck{
@@ -83,7 +78,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref api group",
 				kueue.AdmissionCheck{
@@ -95,7 +90,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref kind",
 				kueue.AdmissionCheck{
@@ -108,7 +103,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref kind",
 				kueue.AdmissionCheck{
@@ -120,7 +115,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with bad ref name",
 				kueue.AdmissionCheck{
@@ -133,7 +128,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should fail to create AdmissionCheck with no ref name",
 				kueue.AdmissionCheck{
@@ -145,7 +140,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isInvalid,
+				testing.BeInvalidError(),
 			),
 			ginkgo.Entry("Should allow to create AdmissionCheck with no parameters",
 				kueue.AdmissionCheck{
@@ -156,7 +151,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						ControllerName: "controller-name",
 					},
 				},
-				isValid,
+				gomega.Succeed(),
 			),
 			ginkgo.Entry("Should allow to create AdmissionCheck with valid spec",
 				kueue.AdmissionCheck{
@@ -172,7 +167,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 						},
 					},
 				},
-				isValid,
+				gomega.Succeed(),
 			),
 		)
 	})

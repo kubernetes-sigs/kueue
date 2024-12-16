@@ -98,6 +98,9 @@ const (
 	// owner: @gabesaba
 	// alpha: v0.8
 	// beta: v0.9
+	// stable: v0.10
+	//
+	// remove in v0.12
 	//
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
@@ -113,6 +116,7 @@ const (
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
 	// alpha: v0.9
+	// beta: v0.10
 	//
 	// Enable applying configurable resource transformations when computing
 	// the resource requests of a Workload
@@ -121,6 +125,7 @@ const (
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
 	// alpha: v0.9
+	// beta: v0.10
 	//
 	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
 	// to improve observability
@@ -146,6 +151,24 @@ const (
 	//
 	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
 	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
+	// beta: v0.10
+	//
+	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
+	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
+
+	// owner: @kpostoffice
+	// alpha: v0.10
+	//
+	// Enabled gathering of LocalQueue metrics
+	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
+	// owner: @yaroslava-serdiuk
+	// alpha: v0.10
+	//
+	// Enable to set default LocalQueue.
+	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
 )
 
 func init() {
@@ -168,13 +191,16 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueue:                          {Default: true, PreRelease: featuregate.Beta},
 	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
+	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.GA},
 	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
-	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
-	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
+	ConfigurableResourceTransformations: {Default: true, PreRelease: featuregate.Beta},
+	WorkloadResourceRequestsSummary:     {Default: true, PreRelease: featuregate.Beta},
 	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
 	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
 	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
+	ManagedJobsNamespaceSelector:        {Default: true, PreRelease: featuregate.Beta},
+	LocalQueueMetrics:                   {Default: false, PreRelease: featuregate.Alpha},
+	LocalQueueDefaulting:                {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

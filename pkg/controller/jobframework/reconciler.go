@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -75,27 +76,28 @@ var (
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
-	client                     client.Client
-	record                     record.EventRecorder
-	manageJobsWithoutQueueName bool
-	waitForPodsReady           bool
-	labelKeysToCopy            []string
-	clock                      clock.Clock
+	client                       client.Client
+	record                       record.EventRecorder
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	waitForPodsReady             bool
+	labelKeysToCopy              []string
+	clock                        clock.Clock
 }
 
 type Options struct {
-	ManageJobsWithoutQueueName bool
-	WaitForPodsReady           bool
-	KubeServerVersion          *kubeversion.ServerVersionFetcher
-	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	IntegrationOptions        map[string]any
-	EnabledFrameworks         sets.Set[string]
-	EnabledExternalFrameworks sets.Set[string]
-	ManagerName               string
-	LabelKeysToCopy           []string
-	Queues                    *queue.Manager
-	Cache                     *cache.Cache
-	Clock                     clock.Clock
+	ManageJobsWithoutQueueName   bool
+	ManagedJobsNamespaceSelector labels.Selector
+	WaitForPodsReady             bool
+	KubeServerVersion            *kubeversion.ServerVersionFetcher
+	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
+	EnabledFrameworks            sets.Set[string]
+	EnabledExternalFrameworks    sets.Set[string]
+	ManagerName                  string
+	LabelKeysToCopy              []string
+	Queues                       *queue.Manager
+	Cache                        *cache.Cache
+	Clock                        clock.Clock
 }
 
 // Option configures the reconciler.
@@ -114,6 +116,13 @@ func ProcessOptions(opts ...Option) Options {
 func WithManageJobsWithoutQueueName(f bool) Option {
 	return func(o *Options) {
 		o.ManageJobsWithoutQueueName = f
+	}
+}
+
+// WithManagedJobsNamespaceSelector is used for namespace-based filtering of ManagedJobsWithoutQueueName
+func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
+	return func(o *Options) {
+		o.ManagedJobsNamespaceSelector = ls
 	}
 }
 
@@ -211,12 +220,13 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
-		client:                     client,
-		record:                     record,
-		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		waitForPodsReady:           options.WaitForPodsReady,
-		labelKeysToCopy:            options.LabelKeysToCopy,
-		clock:                      options.Clock,
+		client:                       client,
+		record:                       record,
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		waitForPodsReady:             options.WaitForPodsReady,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		clock:                        options.Clock,
 	}
 }
 
@@ -288,9 +298,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		isStandaloneJob = false
 	}
 
-	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
-	// queue-name or the parent-workload annotation set.
-	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
+	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that either
+	// have a queue-name label or have a kueue-managed parent that has a queue-name label.
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isStandaloneJob {
 			log.V(3).Info("queue-name label is not set, ignoring the job", "queueName", QueueName(job))
@@ -302,7 +311,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if !isParentJobManaged {
-			log.V(3).Info("parent-workload annotation is set, and the parent job doesn't have a queue-name label, ignoring the job",
+			log.V(3).Info("parent job is managed by kueue but doesn't have a queue-name label, ignoring the job",
 				"parentJob", objectOwner.Name)
 			return ctrl.Result{}, nil
 		}
@@ -327,6 +336,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
+	// are still not managed if they don't match the namespace selector.
+	if features.Enabled(features.ManagedJobsNamespaceSelector) && r.manageJobsWithoutQueueName && QueueName(job) == "" {
+		ns := corev1.Namespace{}
+		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
+		if err != nil {
+			log.Error(err, "failed to get job namespace")
+			return ctrl.Result{}, err
+		}
+		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			log.V(3).Info("namespace selector does not match, ignoring the job", "namespace", ns.Name)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	log.V(2).Info("Reconciling Job")

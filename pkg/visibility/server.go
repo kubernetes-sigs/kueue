@@ -31,7 +31,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
@@ -73,10 +72,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
-	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(
-		visibilityv1alpha1.SchemeGroupVersion,
-		visibilityv1beta1.SchemeGroupVersion,
-	))
+	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta1.SchemeGroupVersion))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	// The directory where TLS certs will be created

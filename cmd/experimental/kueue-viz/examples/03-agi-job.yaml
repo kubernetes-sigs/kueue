@@ -1,0 +1,26 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: agi-
+  labels:
+    kueue.x-k8s.io/queue-name: agi-model-queue 
+    kueue.x-k8s.io/priority-class: long-term-research
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: agi-training-brain
+        image: gcr.io/google-containers/busybox:latest
+        command: ['sh', '-c', 'echo "Training AGI ... this may take a while ..." && sleep 600']
+        resources:
+          requests:
+            cpu: 50m
+            memory: "100Mi"
+      restartPolicy: Never
+
+
+

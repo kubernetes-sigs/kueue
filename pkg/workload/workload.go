@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -261,15 +262,26 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+// IsUsingTAS returns information if the workload is using TAS
+func (i *Info) IsUsingTAS() bool {
+	return slices.ContainsFunc(i.TotalRequests,
+		func(ps PodSetResources) bool {
+			return ps.TopologyRequest != nil
+		})
+}
+
 // TASUsage returns topology usage requested by the Workload
-func (i *Info) TASUsage() []TopologyDomainRequests {
-	if !features.Enabled(features.TopologyAwareScheduling) {
-		return nil
-	}
-	result := make([]TopologyDomainRequests, 0)
+func (i *Info) TASUsage() map[kueue.ResourceFlavorReference][]TopologyDomainRequests {
+	result := make(map[kueue.ResourceFlavorReference][]TopologyDomainRequests, 0)
 	for _, ps := range i.TotalRequests {
 		if ps.TopologyRequest != nil {
-			result = append(result, ps.TopologyRequest.DomainRequests...)
+			psFlavors := sets.New[kueue.ResourceFlavorReference]()
+			for _, psFlavor := range ps.Flavors {
+				psFlavors.Insert(psFlavor)
+			}
+			for psFlavor := range psFlavors {
+				result[psFlavor] = append(result[psFlavor], ps.TopologyRequest.DomainRequests...)
+			}
 		}
 	}
 	return result
@@ -346,6 +358,12 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 		}
 	}
 	return totalCounts
+}
+
+func PodSetNameToTopologyRequest(wl *kueue.Workload) map[string]*kueue.PodSetTopologyRequest {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, *kueue.PodSetTopologyRequest) {
+		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].TopologyRequest
+	})
 }
 
 func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
@@ -756,7 +774,8 @@ func IsActive(w *kueue.Workload) bool {
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
 func IsEvictedByDeactivation(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedByDeactivation
+	return cond != nil && cond.Status == metav1.ConditionTrue &&
+		(strings.HasPrefix(cond.Reason, kueue.WorkloadDeactivated) || strings.HasPrefix(cond.Reason, kueue.WorkloadEvictedByDeactivation))
 }
 
 func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
@@ -834,6 +853,9 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string) {
 	metrics.ReportEvictedWorkloads(cqName, reason)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
+	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
 }
 

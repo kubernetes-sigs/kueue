@@ -164,14 +164,17 @@ func TestValidateUpdate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testCases := []struct {
-		name              string
-		jobSet            *jobset.JobSet
-		queues            []kueue.LocalQueue
-		clusterQueues     []kueue.ClusterQueue
-		admissionCheck    *kueue.AdmissionCheck
-		multiKueueEnabled bool
-		wantManagedBy     *string
-		wantErr           error
+		name                 string
+		jobSet               *jobset.JobSet
+		queues               []kueue.LocalQueue
+		clusterQueues        []kueue.ClusterQueue
+		admissionCheck       *kueue.AdmissionCheck
+		multiKueueEnabled    bool
+		localQueueDefaulting bool
+		defaultLqExist       bool
+		want                 *jobset.JobSet
+		wantManagedBy        *string
+		wantErr              error
 	}{
 		{
 			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
@@ -362,11 +365,33 @@ func TestDefault(t *testing.T) {
 			multiKueueEnabled: true,
 			wantManagedBy:     nil,
 		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			jobSet:               testingutil.MakeJobSet("test-js", "default").Obj(),
+			want:                 testingutil.MakeJobSet("test-js", "default").Queue("default").Obj(),
+		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq is created, job has queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			jobSet:               testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+			want:                 testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+		},
+		{
+			name:                 "LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label",
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			jobSet:               testingutil.MakeJobSet("test-js", "default").Obj(),
+			want:                 testingutil.MakeJobSet("test-js", "default").Obj(),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -377,6 +402,13 @@ func TestDefault(t *testing.T) {
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
+
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
 
 			for _, q := range tc.queues {
 				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {
@@ -406,6 +438,11 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantManagedBy, tc.jobSet.Spec.ManagedBy); diff != "" {
 				t.Errorf("Default() jobSet.Spec.ManagedBy mismatch (-want +got):\n%s", diff)
+			}
+			if tc.want != nil {
+				if diff := cmp.Diff(tc.want, tc.jobSet); diff != "" {
+					t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

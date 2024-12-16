@@ -22,26 +22,6 @@ updates:
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  # Maintain dependencies for kjobctl
-  - package-ecosystem: "gomod"
-    directories:
-      - "/cmd/experimental/kjobctl"
-      - "/cmd/experimental/kjobctl/hack/tools"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
-    groups:
-      kubernetes:
-        patterns:
-          - "k8s.io/*"
-    ignore:
-      # Ignore major and minor versions for dependencies updates
-      # Allow patches and security updates.
-      - dependency-name: k8s.io/*
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-
   # Maintain npm dependencies for site
   - package-ecosystem: "npm"
     directory: "/site"
@@ -79,9 +59,42 @@ updates:
       - "ok-to-test"
       - "release-note-none"
 
-  # Maintain kjobctl shellcheck dependency
+  # Maintain go dependencies for kueue-viz backend
+  - package-ecosystem: "gomod"
+    directories:
+      - "/cmd/experimental/kueue-viz/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+    ignore:
+      # Ignore major and minor versions for dependencies updates
+      # Allow patches and security updates.
+      - dependency-name: k8s.io/*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # Maintain npm dependencies for kueue-viz frontend
+  - package-ecosystem: "npm"
+    directory: "/cmd/experimental/kueue-viz/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+    groups:
+      all:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Maintain docker dependencies for kueue-viz frontend
   - package-ecosystem: "docker"
-    directory: "/cmd/experimental/kjobctl/hack/shellcheck"
+    directory: "/cmd/experimental/kueue-viz/frontend"
     schedule:
       interval: "weekly"
     labels:

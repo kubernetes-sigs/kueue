@@ -27,7 +27,11 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
@@ -38,9 +42,11 @@ var (
 
 func TestValidateDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayv1.RayCluster
-		newJob    *rayv1.RayCluster
-		manageAll bool
+		oldJob               *rayv1.RayCluster
+		newJob               *rayv1.RayCluster
+		manageAll            bool
+		localQueueDefaulting bool
+		defaultLqExist       bool
 	}{
 		"unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
@@ -69,12 +75,50 @@ func TestValidateDefault(t *testing.T) {
 				Suspend(true).
 				Obj(),
 		},
+		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			oldJob:               testingrayutil.MakeCluster("test-job", "default").Obj(),
+			newJob: testingrayutil.MakeCluster("test-job", "default").
+				Queue("default").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			oldJob:               testingrayutil.MakeCluster("test-job", "").Queue("test-queue").Obj(),
+			newJob: testingrayutil.MakeCluster("test-job", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
+			localQueueDefaulting: true,
+			defaultLqExist:       false,
+			oldJob:               testingrayutil.MakeCluster("test-job", "").Obj(),
+			newJob: testingrayutil.MakeCluster("test-job", "").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, false)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder()
+			cli := builder.Build()
+			cqCache := cache.New(cli)
+			queueManager := queue.NewManager(cli, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
+
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queueManager,
 			}
 			result := tc.oldJob.DeepCopy()
 			if err := wh.Default(context.Background(), result); err != nil {

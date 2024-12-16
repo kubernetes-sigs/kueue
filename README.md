@@ -97,22 +97,31 @@ presents the detailed design of the controller.
 
 ## Roadmap
 
-This is a high-level overview of the main priorities for 2023, in expected order of release:
+High-level overview of the main priorities for 2025:
+- Improve user experience for [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/) - multi-cluster Job dispatching, in particular:
+  * sequential attempts to try worker clusters [#3757](https://github.com/kubernetes-sigs/kueue/issues/3757)
+  * log retrieval from worker clusters [3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
+- Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
+  * make Topology Aware Scheduling compatible with cohorts and preemption [#3761](https://github.com/kubernetes-sigs/kueue/issues/3761)
+  * optimize the algorithm to minimize fragmentation [#3756](https://github.com/kubernetes-sigs/kueue/issues/3756)
+  * better accuracy of scheduling by tighter integration with kube-scheduler [#3755](https://github.com/kubernetes-sigs/kueue/issues/3755)
+  * reduce friction by defaulting the PodSet annotations [#3754](https://github.com/kubernetes-sigs/kueue/issues/3754)
+- Productization of the Kueue dashboard [#940](https://github.com/kubernetes-sigs/kueue/issues/940)
+- Support Hierarchical Cohorts with FairSharing [#3759](https://github.com/kubernetes-sigs/kueue/issues/3759)
+- Improved support for AI inference, including:
+  * partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
+  * LeaderWorkerSet support [#3232](https://github.com/kubernetes-sigs/kueue/issues/3232)
+- Progress towards the stable API (v1beta2) [#768](https://github.com/kubernetes-sigs/kueue/issues/768)
 
-- Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)
-- Flavor assignment strategies, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
-- Integration with cluster-autoscaler for guaranteed resource provisioning
-- Integration with common custom workloads [#74](https://github.com/kubernetes-sigs/kueue/issues/74):
-  - Kubeflow (TFJob, MPIJob, etc.)
-  - Spark
-  - Ray
-  - Workflows (Tekton, Argo, etc.)
-
-These are features that we aim to have in the long-term, in no particular order:
-
+Long-term aspirational goals:
+- Integration with workflow frameworks [#74](https://github.com/kubernetes-sigs/kueue/issues/74)
+- Support dynamically-sized Jobs [#77](https://github.com/kubernetes-sigs/kueue/issues/77)
 - Budget support [#28](https://github.com/kubernetes-sigs/kueue/issues/28)
-- Dashboard for management and monitoring for administrators
-- Multi-cluster support
+- Flavor assignment strategies, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
+- Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)
+- Delayed preemption for two-stage admission [#3758](https://github.com/kubernetes-sigs/kueue/issues/3758)
+- Support Structured Parameters (DRA) in Kueue [#2941](https://github.com/kubernetes-sigs/kueue/issues/2941)
+- Graduate the API to v1 [#3476](https://github.com/kubernetes-sigs/kueue/issues/3476)
 
 ## Community, discussion, contribution, and support
 

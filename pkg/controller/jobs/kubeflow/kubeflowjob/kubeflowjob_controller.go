@@ -102,10 +102,11 @@ func (j *KubeflowJob) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:            strings.ToLower(string(replicaType)),
-			Template:        *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
-			Count:           podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta),
+			Name:     strings.ToLower(string(replicaType)),
+			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
+			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+				ptr.To(kftraining.ReplicaIndexLabel), nil, nil),
 		}
 	}
 	return podSets

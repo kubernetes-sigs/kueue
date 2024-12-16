@@ -62,7 +62,7 @@ type ImportCache struct {
 	MappingRules    MappingRules
 	LocalQueues     map[string]map[string]*kueue.LocalQueue
 	ClusterQueues   map[string]*kueue.ClusterQueue
-	ResourceFalvors map[string]*kueue.ResourceFlavor
+	ResourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	PriorityClasses map[string]*schedulingv1.PriorityClass
 	AddLabels       map[string]string
 }
@@ -158,7 +158,9 @@ func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, 
 	if err := c.List(ctx, rfList); err != nil {
 		return nil, fmt.Errorf("loading resource flavors: %w", err)
 	}
-	ret.ResourceFalvors = utilslices.ToRefMap(rfList.Items, func(rf *kueue.ResourceFlavor) string { return rf.Name })
+	ret.ResourceFlavors = utilslices.ToRefMap(rfList.Items, func(rf *kueue.ResourceFlavor) kueue.ResourceFlavorReference {
+		return kueue.ResourceFlavorReference(rf.Name)
+	})
 
 	// PriorityClasses
 	pcList := &schedulingv1.PriorityClassList{}

@@ -49,8 +49,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// +kubebuilder:docs-gen:collapse=Imports
-
 var _ = ginkgo.Describe("MultiKueue", func() {
 	var (
 		managerNs *corev1.Namespace
@@ -271,7 +269,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Type:   batchv1.JobComplete,
 						Status: corev1.ConditionTrue,
 					},
-					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 			})
 		})
 		ginkgo.It("Should run a jobSet on worker if admitted", func() {

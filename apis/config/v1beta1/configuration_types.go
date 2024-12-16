@@ -48,6 +48,9 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
+	// ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
+	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
+
 	// InternalCertManagement is configuration for internalCertManagement
 	InternalCertManagement *InternalCertManagement `json:"internalCertManagement,omitempty"`
 
@@ -80,6 +83,12 @@ type Configuration struct {
 
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
+
+	// FeatureGates is a map of feature names to bools that allows to override the
+	// default enablement status of a feature. The map cannot be used in conjunction
+	// with passing the list of features via the command line argument "--feature-gates"
+	// for the Kueue Deployment.
+	FeatureGates map[string]bool `json:"featureGates,omitempty"`
 }
 
 type ControllerManager struct {
