@@ -1,8 +1,5 @@
-# Comment the "auth_proxy_service.yaml" entry if you want to disable the service
-# for auth proxy (https://github.com/brancz/kube-rbac-proxy)
 resources:
 - manager.yaml
-- auth_proxy_service.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

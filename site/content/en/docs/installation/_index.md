@@ -119,7 +119,7 @@ data:
     health:
       healthProbeBindAddress: :8081
     metrics:
-      bindAddress: :8080
+      bindAddress: :8443
       # enableClusterQueueResources: true
     webhook:
       port: 9443
