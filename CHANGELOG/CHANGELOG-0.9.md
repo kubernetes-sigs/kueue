@@ -1,3 +1,35 @@
+## v0.9.2
+
+Changes since `v0.9.2`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Added validation for Deployment queue-name to fail fast (#3580, @mbobrovskyi)
+- Added validation for StatefulSet queue-name to fail fast. (#3585, @mbobrovskyi)
+- Fix a bug which occasionally prevented updates to the PodTemplate of the Job on the management cluster
+  when starting a Job (e.g. updating nodeSelectors), when using `MultiKueueBatchJobWithManagedBy` enabled. (#3731, @IrvingMg)
+- Fix dropping of reconcile requests for non-leading replica, which was resulting in workloads
+  getting stuck pending after the rolling restart of Kueue. (#3613, @mimowo)
+- Fix memory leak due to workload entries left in MultiKueue cache. The leak affects the 0.9.0 and 0.9.1
+  releases which enable MultiKueue by default, even if MultiKueue is not explicitly used on the cluster. (#3843, @mimowo)
+- Fix misleading log messages from workload_controller indicating not existing LocalQueue or
+  Cluster Queue. For example "LocalQueue for workload didn't exist or not active; ignored for now"
+  could also be logged the ClusterQueue does not exist. (#3832, @PBundyra)
+- Fix preemption when using Hierarchical Cohorts by considering as preemption candidates workloads
+  from ClusterQueues located further in the hierarchy tree than direct siblings. (#3705, @gabesaba)
+- Fix scheduling of workload which does not include the toleration for the taint in ResourceFlavor's spec.nodeTaints,
+  if the toleration is specified on the ResourceFlavor itself. (#3724, @PBundyra)
+- Fix the bug which prevented the use of MultiKueue if there is a CRD which is not installed
+  and removed from the list of enabled integrations. (#3631, @mszadkow)
+- TAS: Fixed bug that doesn't allow to update cache on delete Topology. (#3655, @mbobrovskyi)
+- TAS: The CQ referencing a Topology is deactivated if the topology does not exist. (#3819, @mimowo)
+
+### Other (Cleanup or Flake)
+
+- Replace deprecated gcr.io/kubebuilder/kube-rbac-proxy with registry.k8s.io/kubebuilder/kube-rbac-proxy. (#3749, @mbobrovskyi)
+
 ## v0.9.1
 
 Changes since `v0.9.0`:
