@@ -19,6 +19,7 @@ package pod
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -34,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	testingclock "k8s.io/utils/clock/testing"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -60,6 +62,9 @@ var (
 )
 
 var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
 		var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel("kubernetes.io/arch", "arm64").Obj()
 		var clusterQueue = testing.MakeClusterQueue("cluster-queue").
@@ -330,7 +335,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					gomega.Expect(
 						workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
-							kueue.WorkloadEvictedByPreemption, "By test", "evict"),
+							kueue.WorkloadEvictedByPreemption, "By test", "evict", fakeClock),
 					).Should(gomega.Succeed())
 					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 

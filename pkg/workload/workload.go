@@ -453,8 +453,9 @@ func UpdateStatus(ctx context.Context,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
-	managerPrefix string) error {
-	now := metav1.Now()
+	managerPrefix string,
+	clock clock.Clock) error {
+	now := metav1.NewTime(clock.Now())
 	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
@@ -585,14 +586,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
 		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
-		evictedCond.LastTransitionTime = metav1.Now()
+		evictedCond.LastTransitionTime = metav1.Now() //here
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
 		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
-		preemptedCond.LastTransitionTime = metav1.Now()
+		preemptedCond.LastTransitionTime = metav1.Now() //here
 	}
 }
 
