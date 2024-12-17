@@ -1,10 +1,10 @@
-ARG GOLANG_IMAGE=registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.22.2
-# Start of Go versioning workaround for lack of go-toolset for version 1.22
+ARG GOLANG_IMAGE=registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.23
+# Start of Go versioning workaround for lack of go-toolset for version 1.23
 FROM ${GOLANG_IMAGE} AS golang
 
 FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
 
-ARG GOLANG_VERSION=1.22.2
+ARG GOLANG_VERSION=1.23.0
 
 # Install system dependencies
 RUN dnf upgrade -y && dnf install -y \
