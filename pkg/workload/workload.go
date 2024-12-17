@@ -569,7 +569,7 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 
 // SetQuotaReservation applies the provided admission to the workload.
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
-func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
+func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock clock.Clock) {
 	w.Status.Admission = admission
 	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
 	admittedCond := metav1.Condition{
@@ -586,14 +586,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
 		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
-		evictedCond.LastTransitionTime = metav1.Now() //here
+		evictedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
 		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
-		preemptedCond.LastTransitionTime = metav1.Now() //here
+		preemptedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
 }
 

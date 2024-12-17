@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -590,11 +591,13 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 }
 
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	wl = wl.DeepCopy()
 	if admission == nil {
 		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", time.Now())
 	} else {
-		workload.SetQuotaReservation(wl, admission)
+		workload.SetQuotaReservation(wl, admission, fakeClock)
 	}
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
