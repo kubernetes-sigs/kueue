@@ -28,6 +28,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Kueue Configuration API](#kueue-configuration-api)
+  - [Workload API changes](#workload-api-changes)
   - [PodsReady workload condition](#podsready-workload-condition)
   - [Waiting for PodsReady condition](#waiting-for-podsready-condition)
   - [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
@@ -277,6 +278,37 @@ const (
 	EvictionTimestamp RequeuingTimestamp = "Eviction"
 )
 
+```
+
+### Workload API changes
+We are also adding a `RequeueState` field to the WorkloadStatus API to track how many
+times a Workload has been requeued and when the Workload should be requeued.
+```go
+type WorkloadStatus struct {
+	...
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
+}
+
+type RequeueState struct {
+	// count records the number of times a workload has been re-queued
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this count would be reset to null.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Count *int32 `json:"count,omitempty"`
+
+	// requeueAt records the time when a workload will be re-queued.
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this time would be reset to null.
+	//
+	// +optional
+	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+}
 ```
 
 ### PodsReady workload condition
