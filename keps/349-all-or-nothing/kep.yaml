@@ -2,13 +2,17 @@ title: All-or-nothing semantics for workload resource assignment
 kep-number: 349
 authors:
   - "@mimowo"
+  - "@pbundyra"           # for recoveryTimeout extension
 status: provisional
 creation-date: 2022-11-23
 reviewers:
   - "@kerthcet"
   - "@alculquicondor"
+  - "@mimowo" # for recoveryTimeout extension
+  - "@yaroslava-serdiuk"  # for recoveryTimeout extension
 approvers:
   - "@ahg-g"
+  - "@mimowo" # for recoveryTimeout extension
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: stable
