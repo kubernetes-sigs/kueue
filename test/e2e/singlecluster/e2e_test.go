@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,7 +41,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 	var ns *corev1.Namespace
 	var sampleJob *batchv1.Job
 	var jobKey types.NamespacedName
-	var realClock = clock.RealClock{}
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
