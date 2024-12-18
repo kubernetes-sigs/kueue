@@ -357,6 +357,7 @@ kueue-viz-image-push: kueue-viz-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz image
 .PHONY: kueue-viz-image
+kueue-viz-image: VIZ_PLATFORMS=linux/amd64
 kueue-viz-image: PUSH=--load
 kueue-viz-image: kueue-viz-image-build
 
