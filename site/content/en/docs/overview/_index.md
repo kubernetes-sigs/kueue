@@ -35,10 +35,8 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run/jobs/#partial-admission), based on available quota, if the application supports it.
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](/docs/tasks/run/deployment/) or [StatefulSets](/docs/tasks/run/statefulset/))
-- **Configurable resource abstractions**: Allows to define quota in derived units, such as monetary credits
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
-- **Managing Kueue-agnostic workloads**: [setting up a default Queue](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/) in a namespace allows managing all workloads created in that namespace without any Kueue-specific labels.
 
 ## Job-integrated features
 
