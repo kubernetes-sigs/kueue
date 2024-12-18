@@ -26,6 +26,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +37,8 @@ import (
 var (
 	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
 	k8sClient                    client.WithWatch
+	cfg                          *rest.Config
+	restClient                   *rest.RESTClient
 	ctx                          context.Context
 	visibilityClient             visibilityv1beta1.VisibilityV1beta1Interface
 	impersonatedVisibilityClient visibilityv1beta1.VisibilityV1beta1Interface
@@ -55,7 +58,8 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
-	k8sClient, _ = util.CreateClientUsingCluster("")
+	k8sClient, cfg = util.CreateClientUsingCluster("")
+	restClient = util.CreateRestClient(cfg)
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
 	ctx = context.Background()
