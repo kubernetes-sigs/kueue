@@ -13,7 +13,7 @@ Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/c
 a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
 created) and when it should stop (as in active pods should be deleted).
 
-Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
+Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueue-related [talks & presentations](https://kueue.sigs.k8s.io/docs/talks_and_presentations/) to learn more.
 
 ## Features overview
 
