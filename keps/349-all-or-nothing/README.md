@@ -17,34 +17,33 @@ tags, and then generate with `hack/update-toc.sh`.
 -->
 
 <!-- toc -->
-- [KEP-349: All-or-nothing semantics for job resource assignment](#kep-349-all-or-nothing-semantics-for-job-resource-assignment)
-	- [Summary](#summary)
-	- [Motivation](#motivation)
-		- [Goals](#goals)
-		- [Non-Goals](#non-goals)
-	- [Proposal](#proposal)
-		- [User Stories (Optional)](#user-stories-optional)
-			- [Story 1](#story-1)
-			- [Story 2](#story-2)
-		- [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-		- [Risks and Mitigations](#risks-and-mitigations)
-	- [Design Details](#design-details)
-		- [Kueue Configuration API](#kueue-configuration-api)
-		- [Workload API changes](#workload-api-changes)
-		- [PodsReady workload condition](#podsready-workload-condition)
-		- [Waiting for PodsReady condition](#waiting-for-podsready-condition)
-		- [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
-		- [Test Plan](#test-plan)
-				- [Prerequisite testing updates](#prerequisite-testing-updates)
-			- [Unit Tests](#unit-tests)
-			- [Integration tests](#integration-tests)
-		- [Graduation Criteria](#graduation-criteria)
-	- [Implementation History](#implementation-history)
-	- [Drawbacks](#drawbacks)
-	- [Alternatives](#alternatives)
-			- [Delay job start instead of workload admission](#delay-job-start-instead-of-workload-admission)
-			- [Pod Resource Reservation](#pod-resource-reservation)
-			- [More granular configuration to enable the mechanism](#more-granular-configuration-to-enable-the-mechanism)
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+    - [Story 2](#story-2)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [Kueue Configuration API](#kueue-configuration-api)
+  - [Workload API changes](#workload-api-changes)
+  - [PodsReady workload condition](#podsready-workload-condition)
+  - [Waiting for PodsReady condition](#waiting-for-podsready-condition)
+  - [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+    - [Delay job start instead of workload admission](#delay-job-start-instead-of-workload-admission)
+    - [Pod Resource Reservation](#pod-resource-reservation)
+    - [More granular configuration to enable the mechanism](#more-granular-configuration-to-enable-the-mechanism)
 <!-- /toc -->
 
 ## Summary
@@ -240,7 +239,7 @@ type WaitForPodsReady struct {
 	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
 	// enforced only if waitForPodsReady.enable=true. Defaults to 3 mins.
 	// +optional
-	recoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+	RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
 }
 
 type RequeuingStrategy struct {
@@ -383,8 +382,11 @@ We introduce new `WorkloadWaitForPodsReadyStart` and `WorkloadWaitForPodsReadyRe
 
 When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
-ClusterQueue's `inadmissibleWorkloads` list. The timeouts apply only when
-`waitForPodsReady` is enabled.
+ClusterQueue's `inadmissibleWorkloads` list. It also updates Workload's `.requeueState` field.
+When `.requeueState.count` surpasses `waitForPodsReady.requeuingBackoffLimitCount` workloads gets
+deactivated and won't be requeued.
+
+Both timeouts apply only when `waitForPodsReady` is enabled.
 
 
 ### Test Plan
