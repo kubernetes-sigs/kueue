@@ -104,7 +104,7 @@ know that this has succeeded?
 
 - guarantee that two jobs would not schedule pods concurrently. Example
 scenarios in which two jobs may still concurrently schedule their pods:
-- when succeeded pods are replaced with new because job's parallelism is less than its completions;
+- when succeeded pods are replaced with new because job's parallelism is less than its completions.
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
@@ -151,7 +151,7 @@ configuration.
 #### Story 2
 
 As a Kueue administrator I want to ensure that a Workload will be evicted after
-configured timeout if a pod fails during runtime and can't be scheduled.
+configured timeout if a pod fails during its execution and the replacement Pod can't be scheduled.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -233,11 +233,13 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// recoveryTimeout defines optional time duration, relative to
-	// pod's failure expressed by PodsReady=false condition, after a Workload is Admitted and running.
+	// recoveryTimeout defines an optional timeout, measured since the
+	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
+	// Such a transition may happen when a Pod failed and the replacement Pod 
+	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
-	// enforced only if waitForPodsReady.enable=true. Defaults to 3 mins.
+	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true. 
+	// Defaults to 3 mins.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
@@ -298,7 +300,7 @@ const (
 
 We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, we add
-the condition when `job.status.ready + job.status.uncountedTerimnatedPods + job.status.succeeded` is greater or equal
+the condition when `job.status.ready + len(job.status.uncountedTerimnatedPods.succeeded) + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
 
 Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
