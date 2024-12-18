@@ -233,13 +233,13 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// recoveryTimeoutSeconds defines optional time duration in seconds, relative to
+	// recoveryTimeout defines optional time duration, relative to
 	// pod's failure expressed by PodsReady=false condition, after a Workload is Admitted and running.
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
 	// enforced only if waitForPodsReady.enable=true. Defaults to 3 mins.
 	// +optional
-	RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
 
 type RequeuingStrategy struct {
@@ -331,7 +331,7 @@ condition, so the corresponding job is unsuspended without further waiting.
 ### Timeout on reaching the PodsReady condition
 
 
-We introduce two timeouts defined in the `waitForPodsReady.timeoutSeconds` and `waitForPodsReady.recoveryTimeoutSeconds` fields.
+We introduce two timeouts defined in the `waitForPodsReady.timeoutSeconds` and `waitForPodsReady.recoveryTimeout` fields.
 
 First one applies before the job has started. It tracks the time between job getting unsuspended for the first time (the time of unsuspending a job is marked by the Job's
 `job.status.startTime` field) and reaching the `PodsReady=true` condition (marked by condition's `.lastTransitionTime`).
@@ -364,7 +364,7 @@ flowchart TD;
 	id3(PodsReady=true);
 	id4("PodsReady=false(2nd)
 	waits for
-	.recoveryTimeoutSeconds");
+	.recoveryTimeout");
 	id5("Suspended=true (Requeued)");
 
 
@@ -449,8 +449,8 @@ extending the production code to implement this enhancement.
 The following scenarios will be covered with integration tests when `waitForPodsReady` is enabled:
 - no workloads are admitted if there is already an admitted workload which is not in the `PodsReady` condition
 - a workload gets admitted if all other admitted workloads are in the `PodsReady` condition
-- a workload which exceeds the `waitForPodsReady.timeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
-- a workload which exceeds the `waitForPodsReady.recoveryTimeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.timeout` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.recoveryTimeout` timeout is suspended and put into the `inadmissibleWorkloads` list
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
