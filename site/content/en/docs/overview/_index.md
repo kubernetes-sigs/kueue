@@ -38,6 +38,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Configurable resource abstractions**: Allows to define quota in derived units, such as monetary credits
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
+- **Managing Kueue-agnostic workloads**: [setting up a default Queue](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/) in a namespace allows managing all workloads created in that namespace without any Kueue-specific labels.
 
 ## Job-integrated features
 

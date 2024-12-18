@@ -31,6 +31,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 - **Configurable resource abstractions**: Allows to define quota in derived units, such as monetary credits
 - **Multi-cluster job dispatching:** called [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/).
+- **Managing Kueue-agnostic workloads**: [setting up a default Queue](https://kueue.sigs.k8s.io/docs/tasks/manage/enforce_job_management/setup_default_local_queue/) in a namespace allows managing all workloads created in that namespace without any Kueue-specific labels.
 
 ## Production Readiness status
 
