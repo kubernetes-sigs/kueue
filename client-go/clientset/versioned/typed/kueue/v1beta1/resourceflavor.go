@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	applyconfigurationkueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,32 +37,33 @@ type ResourceFlavorsGetter interface {
 
 // ResourceFlavorInterface has methods to work with ResourceFlavor resources.
 type ResourceFlavorInterface interface {
-	Create(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.CreateOptions) (*v1beta1.ResourceFlavor, error)
-	Update(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.UpdateOptions) (*v1beta1.ResourceFlavor, error)
+	Create(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavor, opts v1.CreateOptions) (*kueuev1beta1.ResourceFlavor, error)
+	Update(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavor, opts v1.UpdateOptions) (*kueuev1beta1.ResourceFlavor, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.ResourceFlavor, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.ResourceFlavorList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1beta1.ResourceFlavor, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1beta1.ResourceFlavorList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ResourceFlavor, err error)
-	Apply(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavorApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ResourceFlavor, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1beta1.ResourceFlavor, err error)
+	Apply(ctx context.Context, resourceFlavor *applyconfigurationkueuev1beta1.ResourceFlavorApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.ResourceFlavor, err error)
 	ResourceFlavorExpansion
 }
 
 // resourceFlavors implements ResourceFlavorInterface
 type resourceFlavors struct {
-	*gentype.ClientWithListAndApply[*v1beta1.ResourceFlavor, *v1beta1.ResourceFlavorList, *kueuev1beta1.ResourceFlavorApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1beta1.ResourceFlavor, *kueuev1beta1.ResourceFlavorList, *applyconfigurationkueuev1beta1.ResourceFlavorApplyConfiguration]
 }
 
 // newResourceFlavors returns a ResourceFlavors
 func newResourceFlavors(c *KueueV1beta1Client) *resourceFlavors {
 	return &resourceFlavors{
-		gentype.NewClientWithListAndApply[*v1beta1.ResourceFlavor, *v1beta1.ResourceFlavorList, *kueuev1beta1.ResourceFlavorApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1beta1.ResourceFlavor, *kueuev1beta1.ResourceFlavorList, *applyconfigurationkueuev1beta1.ResourceFlavorApplyConfiguration](
 			"resourceflavors",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1beta1.ResourceFlavor { return &v1beta1.ResourceFlavor{} },
-			func() *v1beta1.ResourceFlavorList { return &v1beta1.ResourceFlavorList{} }),
+			func() *kueuev1beta1.ResourceFlavor { return &kueuev1beta1.ResourceFlavor{} },
+			func() *kueuev1beta1.ResourceFlavorList { return &kueuev1beta1.ResourceFlavorList{} },
+		),
 	}
 }

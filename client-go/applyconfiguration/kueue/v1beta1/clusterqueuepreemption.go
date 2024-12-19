@@ -18,15 +18,15 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // ClusterQueuePreemptionApplyConfiguration represents a declarative configuration of the ClusterQueuePreemption type for use
 // with apply.
 type ClusterQueuePreemptionApplyConfiguration struct {
-	ReclaimWithinCohort *v1beta1.PreemptionPolicy             `json:"reclaimWithinCohort,omitempty"`
+	ReclaimWithinCohort *kueuev1beta1.PreemptionPolicy        `json:"reclaimWithinCohort,omitempty"`
 	BorrowWithinCohort  *BorrowWithinCohortApplyConfiguration `json:"borrowWithinCohort,omitempty"`
-	WithinClusterQueue  *v1beta1.PreemptionPolicy             `json:"withinClusterQueue,omitempty"`
+	WithinClusterQueue  *kueuev1beta1.PreemptionPolicy        `json:"withinClusterQueue,omitempty"`
 }
 
 // ClusterQueuePreemptionApplyConfiguration constructs a declarative configuration of the ClusterQueuePreemption type for use with
@@ -38,7 +38,7 @@ func ClusterQueuePreemption() *ClusterQueuePreemptionApplyConfiguration {
 // WithReclaimWithinCohort sets the ReclaimWithinCohort field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ReclaimWithinCohort field is set to the value of the last call.
-func (b *ClusterQueuePreemptionApplyConfiguration) WithReclaimWithinCohort(value v1beta1.PreemptionPolicy) *ClusterQueuePreemptionApplyConfiguration {
+func (b *ClusterQueuePreemptionApplyConfiguration) WithReclaimWithinCohort(value kueuev1beta1.PreemptionPolicy) *ClusterQueuePreemptionApplyConfiguration {
 	b.ReclaimWithinCohort = &value
 	return b
 }
@@ -54,7 +54,7 @@ func (b *ClusterQueuePreemptionApplyConfiguration) WithBorrowWithinCohort(value 
 // WithWithinClusterQueue sets the WithinClusterQueue field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the WithinClusterQueue field is set to the value of the last call.
-func (b *ClusterQueuePreemptionApplyConfiguration) WithWithinClusterQueue(value v1beta1.PreemptionPolicy) *ClusterQueuePreemptionApplyConfiguration {
+func (b *ClusterQueuePreemptionApplyConfiguration) WithWithinClusterQueue(value kueuev1beta1.PreemptionPolicy) *ClusterQueuePreemptionApplyConfiguration {
 	b.WithinClusterQueue = &value
 	return b
 }

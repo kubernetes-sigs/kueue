@@ -18,24 +18,24 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	apiskueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1alpha1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1alpha1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1alpha1"
 )
 
 // TopologyInformer provides access to a shared informer and lister for
 // Topologies.
 type TopologyInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.TopologyLister
+	Lister() kueuev1alpha1.TopologyLister
 }
 
 type topologyInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredTopologyInformer(client versioned.Interface, resyncPeriod time.D
 				return client.KueueV1alpha1().Topologies().Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1alpha1.Topology{},
+		&apiskueuev1alpha1.Topology{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *topologyInformer) defaultInformer(client versioned.Interface, resyncPer
 }
 
 func (f *topologyInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1alpha1.Topology{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1alpha1.Topology{}, f.defaultInformer)
 }
 
-func (f *topologyInformer) Lister() v1alpha1.TopologyLister {
-	return v1alpha1.NewTopologyLister(f.Informer().GetIndexer())
+func (f *topologyInformer) Lister() kueuev1alpha1.TopologyLister {
+	return kueuev1alpha1.NewTopologyLister(f.Informer().GetIndexer())
 }

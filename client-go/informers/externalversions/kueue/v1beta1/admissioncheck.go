@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
 )
 
 // AdmissionCheckInformer provides access to a shared informer and lister for
 // AdmissionChecks.
 type AdmissionCheckInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.AdmissionCheckLister
+	Lister() kueuev1beta1.AdmissionCheckLister
 }
 
 type admissionCheckInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredAdmissionCheckInformer(client versioned.Interface, resyncPeriod 
 				return client.KueueV1beta1().AdmissionChecks().Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1beta1.AdmissionCheck{},
+		&apiskueuev1beta1.AdmissionCheck{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *admissionCheckInformer) defaultInformer(client versioned.Interface, res
 }
 
 func (f *admissionCheckInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1beta1.AdmissionCheck{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1beta1.AdmissionCheck{}, f.defaultInformer)
 }
 
-func (f *admissionCheckInformer) Lister() v1beta1.AdmissionCheckLister {
-	return v1beta1.NewAdmissionCheckLister(f.Informer().GetIndexer())
+func (f *admissionCheckInformer) Lister() kueuev1beta1.AdmissionCheckLister {
+	return kueuev1beta1.NewAdmissionCheckLister(f.Informer().GetIndexer())
 }

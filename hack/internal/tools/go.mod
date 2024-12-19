@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/internal/tools
 
-go 1.23
+go 1.23.2
 
 require (
 	github.com/gohugoio/hugo v0.139.5
@@ -10,7 +10,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.12.0
 	helm.sh/helm/v3 v3.16.3
-	k8s.io/code-generator v0.31.4
+	k8s.io/code-generator v0.32.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
 	sigs.k8s.io/controller-tools v0.16.5
 	sigs.k8s.io/kind v0.25.0
@@ -112,18 +112,18 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/api v0.31.4 // indirect
 	k8s.io/apiextensions-apiserver v0.31.2 // indirect
-	k8s.io/apimachinery v0.31.4 // indirect
+	k8s.io/apimachinery v0.32.0 // indirect
 	k8s.io/apiserver v0.31.4 // indirect
 	k8s.io/cli-runtime v0.31.4 // indirect
 	k8s.io/client-go v0.31.4 // indirect
-	k8s.io/gengo/v2 v2.0.0-20240812201722-3b05ca7b6e59 // indirect
+	k8s.io/gengo/v2 v2.0.0-20240911193312-2b36238f13e9 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20240812233141-91dab695df6f // indirect
-	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
-	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
+	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
+	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
+	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/kustomize/api v0.18.0 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.18.1 // indirect
 	sigs.k8s.io/release-utils v0.8.3 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.4.2 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )

@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // LocalQueueLister helps list LocalQueues.
@@ -29,7 +29,7 @@ import (
 type LocalQueueLister interface {
 	// List lists all LocalQueues in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.LocalQueue, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.LocalQueue, err error)
 	// LocalQueues returns an object that can list and get LocalQueues.
 	LocalQueues(namespace string) LocalQueueNamespaceLister
 	LocalQueueListerExpansion
@@ -37,17 +37,17 @@ type LocalQueueLister interface {
 
 // localQueueLister implements the LocalQueueLister interface.
 type localQueueLister struct {
-	listers.ResourceIndexer[*v1beta1.LocalQueue]
+	listers.ResourceIndexer[*kueuev1beta1.LocalQueue]
 }
 
 // NewLocalQueueLister returns a new LocalQueueLister.
 func NewLocalQueueLister(indexer cache.Indexer) LocalQueueLister {
-	return &localQueueLister{listers.New[*v1beta1.LocalQueue](indexer, v1beta1.Resource("localqueue"))}
+	return &localQueueLister{listers.New[*kueuev1beta1.LocalQueue](indexer, kueuev1beta1.Resource("localqueue"))}
 }
 
 // LocalQueues returns an object that can list and get LocalQueues.
 func (s *localQueueLister) LocalQueues(namespace string) LocalQueueNamespaceLister {
-	return localQueueNamespaceLister{listers.NewNamespaced[*v1beta1.LocalQueue](s.ResourceIndexer, namespace)}
+	return localQueueNamespaceLister{listers.NewNamespaced[*kueuev1beta1.LocalQueue](s.ResourceIndexer, namespace)}
 }
 
 // LocalQueueNamespaceLister helps list and get LocalQueues.
@@ -55,15 +55,15 @@ func (s *localQueueLister) LocalQueues(namespace string) LocalQueueNamespaceList
 type LocalQueueNamespaceLister interface {
 	// List lists all LocalQueues in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.LocalQueue, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.LocalQueue, err error)
 	// Get retrieves the LocalQueue from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.LocalQueue, error)
+	Get(name string) (*kueuev1beta1.LocalQueue, error)
 	LocalQueueNamespaceListerExpansion
 }
 
 // localQueueNamespaceLister implements the LocalQueueNamespaceLister
 // interface.
 type localQueueNamespaceLister struct {
-	listers.ResourceIndexer[*v1beta1.LocalQueue]
+	listers.ResourceIndexer[*kueuev1beta1.LocalQueue]
 }

@@ -19,14 +19,14 @@ package v1beta1
 
 import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // AdmissionCheckStateApplyConfiguration represents a declarative configuration of the AdmissionCheckState type for use
 // with apply.
 type AdmissionCheckStateApplyConfiguration struct {
 	Name               *string                          `json:"name,omitempty"`
-	State              *v1beta1.CheckState              `json:"state,omitempty"`
+	State              *kueuev1beta1.CheckState         `json:"state,omitempty"`
 	LastTransitionTime *v1.Time                         `json:"lastTransitionTime,omitempty"`
 	Message            *string                          `json:"message,omitempty"`
 	PodSetUpdates      []PodSetUpdateApplyConfiguration `json:"podSetUpdates,omitempty"`
@@ -49,7 +49,7 @@ func (b *AdmissionCheckStateApplyConfiguration) WithName(value string) *Admissio
 // WithState sets the State field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the State field is set to the value of the last call.
-func (b *AdmissionCheckStateApplyConfiguration) WithState(value v1beta1.CheckState) *AdmissionCheckStateApplyConfiguration {
+func (b *AdmissionCheckStateApplyConfiguration) WithState(value kueuev1beta1.CheckState) *AdmissionCheckStateApplyConfiguration {
 	b.State = &value
 	return b
 }
