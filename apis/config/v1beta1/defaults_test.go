@@ -122,7 +122,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
 	}
 
-	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
+	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
+	podsReadyRecoveryTimeout := metav1.Duration{Duration: defaultPodsRecoveryTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
 	testCases := map[string]struct {
@@ -388,9 +389,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutTimeout,
+					Enable:          true,
+					BlockAdmission:  ptr.To(true),
+					Timeout:         &podsReadyTimeout,
+					RecoveryTimeout: &podsReadyRecoveryTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
@@ -420,9 +422,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         false,
-					BlockAdmission: ptr.To(false),
-					Timeout:        &podsReadyTimeoutTimeout,
+					Enable:          false,
+					BlockAdmission:  ptr.To(false),
+					Timeout:         &podsReadyTimeout,
+					RecoveryTimeout: &podsReadyRecoveryTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
@@ -458,9 +461,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutOverwrite,
+					Enable:          true,
+					BlockAdmission:  ptr.To(true),
+					Timeout:         &podsReadyTimeoutOverwrite,
+					RecoveryTimeout: &podsReadyRecoveryTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),

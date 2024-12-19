@@ -512,6 +512,11 @@ func (in *WaitForPodsReady) DeepCopyInto(out *WaitForPodsReady) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.RecoveryTimeout != nil {
+		in, out := &in.RecoveryTimeout, &out.RecoveryTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.BlockAdmission != nil {
 		in, out := &in.BlockAdmission, &out.BlockAdmission
 		*out = new(bool)
