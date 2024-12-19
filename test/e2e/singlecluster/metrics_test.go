@@ -22,12 +22,15 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	gomegaformat "github.com/onsi/gomega/format"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -39,6 +42,19 @@ const (
 )
 
 var _ = ginkgo.Describe("Metrics", func() {
+	var (
+		ns *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-"}}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
 	ginkgo.It("should ensure the metrics endpoint is serving metrics", func() {
 		ginkgo.By("Creating a ClusterRoleBinding for the service account to allow access to metrics")
 		metricsReaderClusterRoleBinding := &rbacv1.ClusterRoleBinding{
@@ -62,6 +78,59 @@ var _ = ginkgo.Describe("Metrics", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 			})
 		})
+
+		ginkgo.By("creating resource flavor", func() {
+			resourceFlavor := utiltesting.MakeResourceFlavor("test-flavor").
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating a cluster queue", func() {
+			clusterQueue := utiltesting.MakeClusterQueue("test-cq").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("test-flavor").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating a local queue", func() {
+			localQueue := utiltesting.MakeLocalQueue("test-lq", ns.GetName()).
+				ClusterQueue("test-cq").
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating a job", func() {
+			job := testingjob.MakeJob("test-job", ns.GetName()).
+				Queue("test-lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+		})
+
+		ginkgo.DeferCleanup(
+			func() {
+				ginkgo.By("Deleting the workload", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, testingjob.MakeJob("test-job", ns.GetName()).Obj(), true)
+				})
+				ginkgo.By("Deleting the local queue", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, utiltesting.MakeLocalQueue("test-lq", ns.GetName()).Obj(), true)
+				})
+				ginkgo.By("Deleting the cluster queue", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, utiltesting.MakeClusterQueue("test-cq").Obj(), true)
+				})
+				ginkgo.By("Deleting the resource flavor", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, utiltesting.MakeResourceFlavor("test-flavor").Obj(), true)
+				})
+			})
 
 		ginkgo.By("Creating the curl-metrics pod to access the metrics endpoint")
 		pod := testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
@@ -88,11 +157,39 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}, util.LongTimeout).Should(gomega.Succeed())
 		})
 
+		metrics := []string{
+			"controller_runtime_reconcile_total",
+
+			"kueue_admission_attempts_total",
+			"kueue_admission_attempt_duration_seconds",
+			"kueue_pending_workloads",
+			"kueue_reserving_active_workloads",
+			"kueue_admitted_active_workloads",
+			"kueue_quota_reserved_workloads_total",
+			"kueue_quota_reserved_wait_time_seconds",
+			"kueue_admitted_workloads_total",
+			"kueue_admission_wait_time_seconds",
+			"kueue_cluster_queue_status",
+
+			// LocalQueueMetrics
+			"kueue_local_queue_pending_workloads",
+			"kueue_local_queue_reserving_active_workloads",
+			"kueue_local_queue_admitted_active_workloads",
+			"kueue_local_queue_quota_reserved_workloads_total",
+			"kueue_local_queue_quota_reserved_wait_time_seconds",
+			"kueue_local_queue_admitted_workloads_total",
+			"kueue_local_queue_admission_wait_time_seconds",
+			"kueue_local_queue_status",
+		}
+
 		ginkgo.By("Getting the metrics by checking curl-metrics logs", func() {
 			cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", config.DefaultNamespace)
 			metricsOutput, err := cmd.CombinedOutput()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(metricsOutput).To(gomega.ContainSubstring("controller_runtime_reconcile_total"))
+			gomegaformat.MaxLength = 0 // Disable truncation
+			for _, metric := range metrics {
+				gomega.Expect(metricsOutput).To(gomega.ContainSubstring(metric))
+			}
 		})
 	})
 })
