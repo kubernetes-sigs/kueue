@@ -27,7 +27,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 - **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete..
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](https://kueue.sigs.k8s.io/docs/tasks/run/deployment/) or [StatefulSets](https://kueue.sigs.k8s.io/docs/tasks/run/statefulset/))
 - **Multi-cluster job dispatching:** called [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
-- **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/).
+- **Topology-Aware Scheduling**: Allows to optimize the Pod-to-Pod communication throughput by [scheduling aware of the data-center topology](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/).
 
 ## Production Readiness status
 
