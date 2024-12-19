@@ -4,6 +4,7 @@
 resources:
 - bases/kueue.x-k8s.io_localqueues.yaml
 - bases/kueue.x-k8s.io_clusterqueues.yaml
+- bases/kueue.x-k8s.io_clusterqueuebindings.yaml
 - bases/kueue.x-k8s.io_cohorts.yaml
 - bases/kueue.x-k8s.io_workloads.yaml
 - bases/kueue.x-k8s.io_resourceflavors.yaml

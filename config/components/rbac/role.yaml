@@ -207,6 +207,7 @@ rules:
   - kueue.x-k8s.io
   resources:
   - admissionchecks
+  - clusterqueuebindings
   - clusterqueues
   - cohorts
   - localqueues

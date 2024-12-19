@@ -629,6 +629,80 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
+## `ClusterQueueBinding`     {#kueue-x-k8s-io-v1beta1-ClusterQueueBinding}
+    
+
+**Appears in:**
+
+
+
+<p>ClusterQueueBinding is the Schema for the clusterqueuebindings API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ClusterQueueBindingSpec"><code>ClusterQueueBindingSpec</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>status</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ClusterQueueBindingStatus"><code>ClusterQueueBindingStatus</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterQueueBindingSpec`     {#kueue-x-k8s-io-v1beta1-ClusterQueueBindingSpec}
+    
+
+**Appears in:**
+
+- [ClusterQueueBinding](#kueue-x-k8s-io-v1beta1-ClusterQueueBinding)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>clusterQueue</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ClusterQueueReference"><code>ClusterQueueReference</code></a>
+</td>
+<td>
+   <p>clusterQueue is a reference to a clusterQueue that backs this localQueue.</p>
+</td>
+</tr>
+<tr><td><code>subjects</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-Subject"><code>[]Subject</code></a>
+</td>
+<td>
+   <p>subjects is a list of references to the objects that are allowed to access the localQueue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterQueueBindingStatus`     {#kueue-x-k8s-io-v1beta1-ClusterQueueBindingStatus}
+    
+
+**Appears in:**
+
+- [ClusterQueueBinding](#kueue-x-k8s-io-v1beta1-ClusterQueueBinding)
+
+
+<p>ClusterQueueBindingStatus defines the observed state of ClusterQueueBinding</p>
+
+
+
+
 ## `ClusterQueuePendingWorkload`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload}
     
 
@@ -768,6 +842,8 @@ and are newer than the pending workload.</li>
 **Appears in:**
 
 - [Admission](#kueue-x-k8s-io-v1beta1-Admission)
+
+- [ClusterQueueBindingSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueBindingSpec)
 
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
@@ -2321,6 +2397,41 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 
 
+
+## `Subject`     {#kueue-x-k8s-io-v1beta1-Subject}
+    
+
+**Appears in:**
+
+- [ClusterQueueBindingSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueBindingSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
 
 ## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
     

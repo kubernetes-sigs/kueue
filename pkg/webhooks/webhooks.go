@@ -18,6 +18,8 @@ package webhooks
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // Setup sets up the webhooks for core controllers. It returns the name of the
@@ -38,6 +40,9 @@ func Setup(mgr ctrl.Manager) (string, error) {
 	if err := setupWebhookForCohort(mgr); err != nil {
 		return "Cohort", err
 	}
+
+	lqValidator := NewLocalQueueValidator(mgr.GetClient(), admission.NewDecoder(mgr.GetScheme()))
+	mgr.GetWebhookServer().Register("/validate-localqueue", &webhook.Admission{Handler: lqValidator})
 
 	return "", nil
 }
