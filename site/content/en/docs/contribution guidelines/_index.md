@@ -1,7 +1,7 @@
 ---
 title: "Contribution Guidelines"
 linkTitle: "Contribution Guidelines"
-weight: 10
+weight: 25
 description: >
   How to contribute to Kueue
 ---
