@@ -26,7 +26,7 @@ description: >
 * KubeCon EU, March, Paris<br>
   [Scale Your Batch / Big Data / AI Workloads Beyond the Kubernetes Scheduler](https://youtu.be/Ij5EAnuF-jk)<br>
   Antonin Stefanutti & Anish Asthana, Red Hat<br>
-  Supplementary materials: [kube-schedulers project](https://github.com/astefanutti/kube-schedulers)
+  Supplementary materials: [astefanutti/kube-schedulers](https://github.com/astefanutti/kube-schedulers)
 
 # 2023
 
