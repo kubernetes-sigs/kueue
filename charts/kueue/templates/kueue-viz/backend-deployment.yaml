@@ -1,0 +1,24 @@
+{{- if .Values.kueueViz.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-viz-backend
+  namespace: {{ .Values.kueueViz.namespace }}
+spec:
+  replicas: {{ .Values.kueueViz.replicaCount }}
+  selector:
+    matchLabels:
+      app: kueue-viz-backend
+  template:
+    metadata:
+      labels:
+        app: kueue-viz-backend
+    spec:
+      containers:
+        - name: backend
+          image: {{ .Values.kueueViz.backend.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+{{- end }}
+
