@@ -233,7 +233,7 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// recoveryTimeout defines an optional timeout, measured since the
+	// RecoveryTimeout defines an optional timeout, measured since the
 	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
 	// Such a transition may happen when a Pod failed and the replacement Pod 
 	// is awaited to be scheduled.
@@ -333,7 +333,7 @@ condition, so the corresponding job is unsuspended without further waiting.
 ### Timeout on reaching the PodsReady condition
 
 
-We introduce two timeouts defined in the `waitForPodsReady.timeoutSeconds` and `waitForPodsReady.recoveryTimeout` fields.
+We introduce two timeouts defined in the `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout` fields.
 
 First one applies before the job has started. It tracks the time between job getting unsuspended for the first time (the time of unsuspending a job is marked by the Job's
 `job.status.startTime` field) and reaching the `PodsReady=true` condition (marked by condition's `.lastTransitionTime`).
