@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -594,7 +595,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue
 	if admission == nil {
 		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", time.Now())
 	} else {
-		workload.SetQuotaReservation(wl, admission)
+		workload.SetQuotaReservation(wl, admission, clock.RealClock{})
 	}
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
