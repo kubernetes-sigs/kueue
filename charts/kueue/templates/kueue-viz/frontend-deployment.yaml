@@ -1,0 +1,29 @@
+{{- if .Values.kueueViz.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-viz-frontend
+  namespace: {{ .Values.kueueViz.namespace }}
+spec:
+  replicas: {{ .Values.kueueViz.replicaCount }}
+  selector:
+    matchLabels:
+      app: kueue-viz-frontend
+  template:
+    metadata:
+      labels:
+        app: kueue-viz-frontend
+    spec:
+
+      containers:
+        - name: frontend
+          image: {{ .Values.kueueViz.frontend.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "{{ if .Values.kueueViz.tls.enabled }}wss://{{ else }}ws://{{ end }}{{ .Values.kueueViz.backend.ingress.host }}"
+
+{{- end }}
+

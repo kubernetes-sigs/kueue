@@ -1,0 +1,28 @@
+{{- if .Values.kueueViz.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kueue.fullname" . }}-frontend-ingress
+  namespace: '{{ .Release.Namespace }}'
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  {{- if and .Values.enableCertManager .Values.kueueViz.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.kueueViz.frontend.ingress.host }}
+      secretName: {{ include "kueue.fullname" . }}-kueue-viz-tls-secret
+  {{- end }}
+  rules:
+    - host: {{ .Values.kueueViz.frontend.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kueue.fullname" . }}-frontend
+                port:
+                  number: 8080
+{{- end }}
