@@ -626,9 +626,10 @@ webhook:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(false),
-					Timeout:        &metav1.Duration{Duration: 50 * time.Second},
+					Enable:          true,
+					BlockAdmission:  ptr.To(false),
+					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),

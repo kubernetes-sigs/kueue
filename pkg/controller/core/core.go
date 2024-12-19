@@ -92,7 +92,8 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 		return nil
 	}
 	result := waitForPodsReadyConfig{
-		timeout: cfg.Timeout.Duration,
+		timeout:         cfg.Timeout.Duration,
+		recoveryTimeout: cfg.RecoveryTimeout.Duration,
 	}
 	if cfg.RequeuingStrategy != nil {
 		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds

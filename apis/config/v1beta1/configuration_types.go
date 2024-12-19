@@ -211,6 +211,16 @@ type WaitForPodsReady struct {
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
+	// RecoveryTimeout defines an optional timeout, measured since the
+	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
+	// Such a transition may happen when a Pod failed and the replacement Pod
+	// is awaited to be scheduled.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+	// Defaults to 3 mins.
+	// +optional
+	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
+
 	// BlockAdmission when true, cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
 	// This setting is only honored when `Enable` is set to true.
