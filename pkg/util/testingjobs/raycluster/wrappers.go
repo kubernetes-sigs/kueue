@@ -167,3 +167,45 @@ func (j *ClusterWrapper) WorkloadPriorityClass(wpc string) *ClusterWrapper {
 	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
 	return j
 }
+
+// Label sets the label key and value
+func (j *ClusterWrapper) Label(key, value string) *ClusterWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
+}
+
+// StatusConditions adds a condition
+func (j *ClusterWrapper) StatusConditions(c metav1.Condition) *ClusterWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *ClusterWrapper) ManagedBy(_ string) *ClusterWrapper {
+	// j.Spec.ManagedBy = &c
+	return j
+}
+
+// Request adds a resource request to the default container.
+func (j *ClusterWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ClusterWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	}
+	return j
+}
+
+func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *ClusterWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
+	}
+	return j
+}
