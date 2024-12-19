@@ -41,6 +41,7 @@ const (
 	DefaultClientConnectionQPS                  float32 = 20.0
 	DefaultClientConnectionBurst                int32   = 30
 	defaultPodsReadyTimeout                             = 5 * time.Minute
+	defaultPodsRecoveryTimeout                          = 3 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
 	defaultJobFrameworkName                             = "batch/job"
@@ -118,6 +119,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.WaitForPodsReady != nil {
 		if cfg.WaitForPodsReady.Timeout == nil {
 			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+		}
+		if cfg.WaitForPodsReady.RecoveryTimeout == nil {
+			cfg.WaitForPodsReady.RecoveryTimeout = &metav1.Duration{Duration: defaultPodsRecoveryTimeout}
 		}
 		if cfg.WaitForPodsReady.BlockAdmission == nil {
 			defaultBlockAdmission := true
