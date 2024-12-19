@@ -379,8 +379,8 @@ flowchart TD;
 	id4 --"timeout	exceeded"--> id5
 ```
 
-We introduce new `WorkloadWaitForPodsReadyStart` and `WorkloadWaitForPodsReadyRecovery` reasons to distinguish the reasons of setting the `PodsReady=false` condition.
-`WorkloadWaitForPodsReadyStart` will be set before the job started, and `WorkloadWaitForPodsReadyRecovery` after.
+We introduce new `WorkloadWaitForPodsStart` and `WorkloadWaitForPodsRecovery` reasons to distinguish the reasons of setting the `PodsReady=false` condition.
+`WorkloadWaitForPodsStart` will be set before the job started, and `WorkloadWaitForPodsRecovery` after.
 
 When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
