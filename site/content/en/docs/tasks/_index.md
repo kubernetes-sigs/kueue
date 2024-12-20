@@ -45,6 +45,7 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 - [Submit jobs to MultiKueue](run/multikueue).
+- [Run an argo workflow](run/argo_workload)
 
 ### Serving user
 
