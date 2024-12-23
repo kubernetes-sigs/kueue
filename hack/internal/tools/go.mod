@@ -9,7 +9,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.22.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.12.0
-	helm.sh/helm/v3 v3.16.3
+	helm.sh/helm/v3 v3.16.4
 	k8s.io/code-generator v0.31.4
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
 	sigs.k8s.io/controller-tools v0.16.5
@@ -111,7 +111,7 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/api v0.31.4 // indirect
-	k8s.io/apiextensions-apiserver v0.31.2 // indirect
+	k8s.io/apiextensions-apiserver v0.31.3 // indirect
 	k8s.io/apimachinery v0.31.4 // indirect
 	k8s.io/apiserver v0.31.4 // indirect
 	k8s.io/cli-runtime v0.31.4 // indirect
