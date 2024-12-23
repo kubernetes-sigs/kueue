@@ -194,6 +194,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 
 func TestSyncCheckStates(t *testing.T) {
 	now := metav1.NewTime(time.Now())
+	fakeClock := testingclock.NewFakeClock(time.Now())
 	cases := map[string]struct {
 		states               []kueue.AdmissionCheckState
 		list                 []string
@@ -287,7 +288,7 @@ func TestSyncCheckStates(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotStates, gotShouldChange := syncAdmissionCheckConditions(tc.states, sets.New(tc.list...))
+			gotStates, gotShouldChange := syncAdmissionCheckConditions(tc.states, sets.New(tc.list...), fakeClock)
 
 			if tc.wantChange != gotShouldChange {
 				t.Errorf("Unexpected should change, want=%v", tc.wantChange)

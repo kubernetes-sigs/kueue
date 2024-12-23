@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"k8s.io/utils/clock"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -117,6 +118,8 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 })
 
 var _ = ginkgo.Describe("Workload validating webhook", func() {
+	var realClock = clock.RealClock{}
+
 	ginkgo.Context("When creating a Workload", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
@@ -376,7 +379,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, realClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
@@ -976,7 +979,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				})
+				}, realClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -989,7 +992,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				})
+				}, realClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -289,6 +290,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 func TestSetCheckState(t *testing.T) {
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	t0 := metav1.NewTime(now.Add(-5 * time.Second))
 	t1 := metav1.NewTime(now)
 	ps1Updates := kueue.PodSetUpdate{
@@ -440,7 +442,7 @@ func TestSetCheckState(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotStates := tc.origStates
 
-			SetAdmissionCheckState(&gotStates, tc.state)
+			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
 
 			opts := []cmp.Option{}
 			if tc.state.LastTransitionTime.IsZero() {

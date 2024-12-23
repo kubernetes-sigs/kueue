@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
+func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint, clk clock.Clock) error {
 	ch := make(chan corev1.Pod)
 	go func() {
 		err := util.PushPods(ctx, c, cache.Namespaces, ch)
@@ -119,7 +120,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		if err := admitWorkload(ctx, c, wl); err != nil {
+		if err := admitWorkload(ctx, c, wl, clk); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -198,8 +199,8 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	err := workload.ApplyAdmissionStatus(ctx, c, wl, false)
+func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, clk clock.Clock) error {
+	err := workload.ApplyAdmissionStatus(ctx, c, wl, false, clk)
 	retry, _, timeout := checkError(err)
 	for retry {
 		if timeout >= 0 {
@@ -209,7 +210,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) err
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.ApplyAdmissionStatus(ctx, c, wl, false)
+		err = workload.ApplyAdmissionStatus(ctx, c, wl, false, clk)
 		retry, _, timeout = checkError(err)
 	}
 	return err
