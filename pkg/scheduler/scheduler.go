@@ -274,7 +274,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
 			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
-			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false); err != nil {
+			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false, s.clock); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -583,7 +583,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 }
 
 func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
-	return workload.ApplyAdmissionStatus(ctx, s.client, w, false)
+	return workload.ApplyAdmissionStatus(ctx, s.client, w, false, s.clock)
 }
 
 type entryOrdering struct {

@@ -485,7 +485,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
 				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
-				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 				}
