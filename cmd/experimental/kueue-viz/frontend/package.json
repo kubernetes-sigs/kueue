@@ -18,7 +18,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.2",
     "react-scripts": "^5.0.0",
-    "react-toastify": "^10.0.6"
+    "react-toastify": "^11.0.2"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
