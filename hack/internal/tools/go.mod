@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue/internal/tools
 go 1.23
 
 require (
-	github.com/gohugoio/hugo v0.139.5
+	github.com/gohugoio/hugo v0.140.0
 	github.com/golangci/golangci-lint v1.62.2
 	github.com/mikefarah/yq/v4 v4.44.6
 	github.com/onsi/ginkgo/v2 v2.22.0
@@ -104,7 +104,7 @@ require (
 	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
-	golang.org/x/tools v0.27.0 // indirect
+	golang.org/x/tools v0.28.0 // indirect
 	google.golang.org/protobuf v1.35.2 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
