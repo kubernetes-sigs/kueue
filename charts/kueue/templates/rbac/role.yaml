@@ -236,7 +236,7 @@ rules:
       - clusterqueues/finalizers
       - localqueues/finalizers
       - resourceflavors/finalizers
-      - topology/finalizers
+      - topologies/finalizers
       - workloads/finalizers
     verbs:
       - update
@@ -258,7 +258,6 @@ rules:
       - multikueueclusters
       - multikueueconfigs
       - provisioningrequestconfigs
-      - topologies
       - workloadpriorityclasses
     verbs:
       - get
@@ -277,7 +276,7 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
-      - topology
+      - topologies
     verbs:
       - get
       - list
