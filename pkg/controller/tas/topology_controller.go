@@ -78,8 +78,8 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 		Complete(core.WithLeadingManager(mgr, r, &kueuealpha.Topology{}, cfg))
 }
 
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topology,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topology/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies/finalizers,verbs=update
 
 func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	topology := &kueuealpha.Topology{}
