@@ -552,11 +552,17 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 		}
 	}
 
+	var patchOptions []clientutil.PatchOption
+
+	if !features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+		patchOptions = append(patchOptions, clientutil.WithLoose())
+	}
+
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
 		return clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
 			return pod, controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
-		}, clientutil.WithLoose())
+		}, patchOptions...)
 	})
 }
 
@@ -913,13 +919,20 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
+
+		var patchOptions []clientutil.PatchOption
+
+		if !features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+			patchOptions = append(patchOptions, clientutil.WithLoose())
+		}
+
 		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			}
 			return &pod, removed, nil
-		}, clientutil.WithLoose()); err != nil {
+		}, patchOptions...); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -955,13 +968,20 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
+
+		var patchOptions []clientutil.PatchOption
+
+		if !features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+			patchOptions = append(patchOptions, clientutil.WithLoose())
+		}
+
 		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			}
 			return &pod, removed, nil
-		}, clientutil.WithLoose()); err != nil {
+		}, patchOptions...); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
