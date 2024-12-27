@@ -48,6 +48,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -526,9 +527,14 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 		}
 	}
 
+	strictPatch := false
+	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+		strictPatch = true
+	}
+
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
+		return clientutil.Patch(ctx, c, pod, strictPatch, func() (bool, error) {
 			return controllerutil.RemoveFinalizer(pod, PodFinalizer), nil
 		})
 	})
@@ -862,10 +868,16 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
 	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
+	strictPatch := false
+	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+		strictPatch = true
+	}
+
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+
+		if err := clientutil.Patch(ctx, c, &pod, strictPatch, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			return removed, nil
@@ -902,10 +914,16 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
 	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
+	strictPatch := false
+	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
+		strictPatch = true
+	}
+
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+
+		if err := clientutil.Patch(ctx, c, &pod, strictPatch, func() (bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			return removed, nil
