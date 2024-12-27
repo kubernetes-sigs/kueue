@@ -32,14 +32,14 @@ func CreatePatch(before, after client.Object) (client.Patch, error) {
 }
 
 // Patch applies the merge patch of client.Object.
-// If strict is true, the resourceVersion will be part of the patch, make this call fail if
+// The resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
-func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (bool, error)) error {
+func Patch(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
 	objOriginal := obj.DeepCopyObject().(client.Object)
-	if strict {
-		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
-		objOriginal.SetResourceVersion("")
-	}
+
+	// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
+	objOriginal.SetResourceVersion("")
+
 	updated, err := update()
 	if err != nil || !updated {
 		return err

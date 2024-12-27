@@ -81,7 +81,7 @@ func (r *Reconciler) finalizePods(ctx context.Context, pods []corev1.Pod) error 
 		if p.Status.Phase != corev1.PodSucceeded && p.Status.Phase != corev1.PodFailed {
 			return nil
 		}
-		err := clientutil.Patch(ctx, r.client, p, true, func() (bool, error) {
+		err := clientutil.Patch(ctx, r.client, p, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(p, pod.PodFinalizer)
 			if removed {
 				log.V(3).Info("Finalizing pod in group", "pod", klog.KObj(p), "group", p.Labels[pod.GroupNameLabel])
