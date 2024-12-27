@@ -289,6 +289,7 @@ spec:
 | `LocalQueueDefaulting`                | `true`  | Beta       | 0.12  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
 | `ObjectRetentionPolicies`             | `false` | Alpha      | 0.12  |       |
+| `RemoveFinalizersWithStrictPatch`     | `true`  | Beta       | 0.12  |       |
 
 ### Feature gates for graduated or deprecated features
 
