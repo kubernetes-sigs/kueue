@@ -187,6 +187,12 @@ const (
 	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
 	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -289,6 +295,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
