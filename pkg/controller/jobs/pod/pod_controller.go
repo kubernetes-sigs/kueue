@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -523,7 +524,7 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
+		return clientutil.Patch(ctx, c, pod, features.Enabled(features.RemoveFinalizersWithStrictPatch), func() (bool, error) {
 			return controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
 		})
 	})
@@ -860,7 +861,8 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+
+		if err := clientutil.Patch(ctx, c, &pod, features.Enabled(features.RemoveFinalizersWithStrictPatch), func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			return removed, nil
@@ -900,7 +902,8 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+
+		if err := clientutil.Patch(ctx, c, &pod, features.Enabled(features.RemoveFinalizersWithStrictPatch), func() (bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			return removed, nil

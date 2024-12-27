@@ -163,6 +163,12 @@ const (
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -251,6 +257,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Beta},
 	},
 }
 
