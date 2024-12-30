@@ -40,15 +40,23 @@ func MakeJob(name, ns string) *JobWrapper {
 		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
 			RayClusterSpec: &rayv1.RayClusterSpec{
+				RayVersion: "2.9.0",
 				HeadGroupSpec: rayv1.HeadGroupSpec{
-					RayStartParams: map[string]string{"p1": "v1"},
+					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
+							RestartPolicy: "Never",
 							Containers: []corev1.Container{
 								{
-									Name: "head-container",
+									Name:    "head-container",
+									Command: []string{},
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{},
+										Limits:   corev1.ResourceList{},
+									},
 								},
 							},
+							NodeSelector: map[string]string{},
 						},
 					},
 				},
@@ -58,14 +66,21 @@ func MakeJob(name, ns string) *JobWrapper {
 						Replicas:       ptr.To[int32](1),
 						MinReplicas:    ptr.To[int32](0),
 						MaxReplicas:    ptr.To[int32](10),
-						RayStartParams: map[string]string{"p1": "v1"},
+						RayStartParams: map[string]string{},
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
+								RestartPolicy: "Never",
 								Containers: []corev1.Container{
 									{
-										Name: "worker-container",
+										Name:    "worker-container",
+										Command: []string{},
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{},
+											Limits:   corev1.ResourceList{},
+										},
 									},
 								},
+								NodeSelector: map[string]string{},
 							},
 						},
 					},
@@ -179,4 +194,73 @@ func (j *JobWrapper) Generation(num int64) *JobWrapper {
 // Clone returns a deep copy of the job.
 func (j *JobWrapper) Clone() *JobWrapper {
 	return &JobWrapper{*j.DeepCopy()}
+}
+
+// Label sets the label key and value
+func (j *JobWrapper) Label(key, value string) *JobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
+}
+
+// JobDeploymentStatus sets a deployment status of the job
+func (j *JobWrapper) JobDeploymentStatus(ds rayv1.JobDeploymentStatus) *JobWrapper {
+	j.Status.JobDeploymentStatus = ds
+	return j
+}
+
+// JobStatus sets a status of the job
+func (j *JobWrapper) JobStatus(s rayv1.JobStatus) *JobWrapper {
+	j.Status.JobStatus = s
+	return j
+}
+
+// Request adds a resource request to the default container.
+func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	}
+	return j
+}
+
+func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+	}
+	return j
+}
+
+func (j *JobWrapper) Entrypoint(e string) *JobWrapper {
+	j.Spec.Entrypoint = e
+	return j
+}
+
+func (j *JobWrapper) RayVersion(rv string) *JobWrapper {
+	j.Spec.RayClusterSpec.RayVersion = rv
+	return j
+}
+
+func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		if j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env == nil {
+			j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
+		}
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+	} else if rayType == rayv1.WorkerNode {
+		if j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
+			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
+		}
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+	}
+	return j
 }
