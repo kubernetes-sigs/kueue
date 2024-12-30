@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue/internal/tools
 go 1.23
 
 require (
-	github.com/gohugoio/hugo v0.140.0
+	github.com/gohugoio/hugo v0.140.1
 	github.com/golangci/golangci-lint v1.62.2
 	github.com/mikefarah/yq/v4 v4.44.6
 	github.com/onsi/ginkgo/v2 v2.22.1
@@ -85,7 +85,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
-	github.com/spf13/cast v1.7.0 // indirect
+	github.com/spf13/cast v1.7.1 // indirect
 	github.com/spf13/cobra v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
