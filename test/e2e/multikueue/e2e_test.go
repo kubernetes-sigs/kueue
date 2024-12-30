@@ -18,13 +18,16 @@ package mke2e
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -40,11 +43,13 @@ import (
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
+	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -491,6 +496,57 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should run a RayJob on worker if admitted", func() {
+			var found bool
+			E2eKuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
+			gomega.Expect(found).To(gomega.BeTrue())
+			if runtime.GOOS == "darwin" {
+				E2eKuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
+				gomega.Expect(found).To(gomega.BeTrue())
+			}
+
+			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
+			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
+				Suspend(true).
+				Queue(managerLq.Name).
+				WithSubmissionMode(rayv1.K8sJobMode).
+				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+				Image(rayv1.HeadNode, E2eKuberayTestImage, []string{}).
+				Image(rayv1.WorkerNode, E2eKuberayTestImage, []string{}).
+				Obj()
+
+			ginkgo.By("Creating the RayJob", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, rayjob)).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			// the execution should be given to the worker1
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
+
+			ginkgo.By("Waiting for the RayJob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdRayJob := &rayv1.RayJob{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+					finishReasonMessage := "Job finished successfully."
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
+				}, 5*util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerRayJob := &rayv1.RayJob{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
@@ -571,23 +627,22 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 })
 
 func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName string) {
-	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager", workerName), func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			createdWorkload := &kueue.Workload{}
-			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-				Type:    kueue.WorkloadAdmitted,
-				Status:  metav1.ConditionTrue,
-				Reason:  "Admitted",
-				Message: "The workload is admitted",
-			}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, acName)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-				Name:    acName,
-				State:   kueue.CheckStateReady,
-				Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
-			}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
+	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager", workerName))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		createdWorkload := &kueue.Workload{}
+		g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+			Type:    kueue.WorkloadAdmitted,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Admitted",
+			Message: "The workload is admitted",
+		}, util.IgnoreConditionTimestampsAndObservedGeneration))
+		g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, acName)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+			Name:    acName,
+			State:   kueue.CheckStateReady,
+			Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
+		}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 }
 
 func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {

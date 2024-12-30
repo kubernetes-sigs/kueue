@@ -297,9 +297,16 @@ rules:
   - rayclusters/finalizers
   - rayclusters/status
   - rayjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - ray.io
+  resources:
   - rayjobs/status
   verbs:
   - get
+  - patch
   - update
 - apiGroups:
   - scheduling.k8s.io
