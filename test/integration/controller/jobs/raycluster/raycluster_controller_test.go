@@ -283,6 +283,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 	ginkgo.It("Should suspend a cluster if the parent's workload does not exist or is not admitted", func() {
 		ginkgo.By("Creating the parent job which has a queue name")
 		parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
+			RayJobSpecsDefault().
 			Queue("test").
 			Suspend(false).
 			Obj()

@@ -121,6 +121,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 		ginkgo.It("Should not suspend a cluster if the parent's workload exist and is admitted", func() {
 			ginkgo.By("Creating the parent job which has a queue name")
 			parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
+				RayJobSpecsDefault().
 				Queue("test").
 				Suspend(false).
 				Obj()

@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingjob.MakeJob("rayjob", ns.Name).Queue("indexed_job").Obj()
+			job := testingjob.MakeJob("rayjob", ns.Name).Queue("indexed_job").RayJobSpecsDefault().Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 		ginkgo.It("invalid configuration shutdown after job finishes", func() {
 			job := testingjob.MakeJob("rayjob", ns.Name).
+				RayJobSpecsDefault().
 				Queue("queue-name").
 				ShutdownAfterJobFinishes(false).
 				Obj()
