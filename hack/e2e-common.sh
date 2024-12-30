@@ -45,6 +45,14 @@ if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
 
+if [[ -n ${KUBERAY_VERSION:-} ]]; then
+    export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
+    export KUBERAY_IMAGE=bitnami/kuberay-operator:${KUBERAY_VERSION/#v}
+    export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
+    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
+    export KUBERAY_CRDS=${ROOT_DIR}/dep-crds/ray-operator/crd/bases
+fi
+
 # sleep image to use for testing.
 export E2E_TEST_SLEEP_IMAGE_OLD=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b
 E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE_OLD%%@*}
@@ -96,6 +104,17 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
+    fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        docker pull "${KUBERAY_IMAGE}"
+
+        # Extra e2e images required for Kuberay
+        unamestr=$(uname)
+        if [[ "$unamestr" == 'Linux' ]]; then
+            docker pull "${KUBERAY_RAY_IMAGE}"
+        elif [[ "$unamestr" == 'Darwin' ]]; then
+            docker pull "${KUBERAY_RAY_IMAGE_ARM}"
+        fi 
     fi
 }
 
@@ -149,6 +168,22 @@ function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+}
+
+#$1 - cluster name
+function install_kuberay {
+    # Extra e2e images required for Kuberay
+    unamestr=$(uname)
+    if [[ "$unamestr" == 'Linux' ]]; then
+        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
+    elif [[ "$unamestr" == 'Darwin' ]]; then
+        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE_ARM}"
+    fi 
+
+    cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
+    kubectl config use-context "kind-${1}"
+    # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
+    kubectl create -k "${KUBERAY_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
