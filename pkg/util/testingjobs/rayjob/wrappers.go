@@ -50,7 +50,7 @@ func MakeJob(name, ns string) *JobWrapper {
 
 func (j *JobWrapper) RayJobSpecsDefault() *JobWrapper {
 	j.Spec.RayClusterSpec.HeadGroupSpec = rayv1.HeadGroupSpec{
-		RayStartParams: map[string]string{"p1": "v1"},
+		RayStartParams: map[string]string{},
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -74,7 +74,7 @@ func (j *JobWrapper) RayJobSpecsDefault() *JobWrapper {
 		Replicas:       ptr.To[int32](1),
 		MinReplicas:    ptr.To[int32](0),
 		MaxReplicas:    ptr.To[int32](10),
-		RayStartParams: map[string]string{"p1": "v1"},
+		RayStartParams: map[string]string{},
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
