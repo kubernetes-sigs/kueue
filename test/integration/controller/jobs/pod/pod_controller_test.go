@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -330,7 +331,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					gomega.Expect(
 						workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
-							kueue.WorkloadEvictedByPreemption, "By test", "evict"),
+							kueue.WorkloadEvictedByPreemption, "By test", "evict", clock.RealClock{}),
 					).Should(gomega.Succeed())
 					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 
