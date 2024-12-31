@@ -104,7 +104,7 @@ know that this has succeeded?
 
 - guarantee that two jobs would not schedule pods concurrently. Example
 scenarios in which two jobs may still concurrently schedule their pods:
-- when succeeded pods are replaced with new because job's parallelism is less than its completions.
+  - when succeeded pods are replaced with new because job's parallelism is less than its completions.
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
