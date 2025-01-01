@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -90,6 +92,9 @@ func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType stri
 }
 
 func TestReconcile(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
 	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
 		PodSets(
 			*utiltesting.MakePodSet("ps1", 4).
@@ -137,7 +142,7 @@ func TestReconcile(t *testing.T) {
 	workload.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
 		Name:  "check1",
 		State: kueue.CheckStateReady,
-	})
+	}, fakeClock)
 
 	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
 		Toleration(corev1.Toleration{

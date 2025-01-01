@@ -24,6 +24,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -131,6 +132,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 
 		ginkgo.It("the workload should have appropriate AdditionalChecks added", framework.SlowSpec, func() {
+			var realClock = clock.RealClock{}
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue("queue").
 				Request(resourceGPU, "3").
@@ -172,12 +174,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					})
+					}, realClock)
 					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check3",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					})
+					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(&updatedWl)).Should(gomega.BeTrue(), "should have been admitted")

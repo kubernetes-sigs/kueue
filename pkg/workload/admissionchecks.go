@@ -22,6 +22,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -106,14 +107,14 @@ func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState) {
+func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) {
 	if checks == nil {
 		return
 	}
 	existingCondition := FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
 		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(time.Now())
+			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
 		}
 		*checks = append(*checks, newCheck)
 		return
@@ -124,7 +125,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 		if !newCheck.LastTransitionTime.IsZero() {
 			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
 		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(time.Now())
+			existingCondition.LastTransitionTime = metav1.NewTime(clock.Now())
 		}
 	}
 	existingCondition.Message = newCheck.Message

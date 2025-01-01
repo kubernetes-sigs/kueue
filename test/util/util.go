@@ -346,7 +346,7 @@ func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient cli
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 		workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout,
 			fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false)
-		g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true)).Should(gomega.Succeed())
+		g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, clock.RealClock{})).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -597,7 +597,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue
 	} else {
 		workload.SetQuotaReservation(wl, admission, clock.RealClock{})
 	}
-	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
+	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, clock.RealClock{})
 }
 
 // SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
@@ -608,7 +608,7 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	for _, wl := range wls {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		if workload.SyncAdmittedCondition(&updatedWorkload, time.Now()) {
-			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false)).To(gomega.Succeed())
+			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false, clock.RealClock{})).To(gomega.Succeed())
 		}
 	}
 }
@@ -633,7 +633,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			g.Expect(k8sClient.Get(ctx, key, &updatedWorkload)).Should(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
 				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)).Should(
+				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{})).Should(
 					gomega.Succeed(),
 					fmt.Sprintf("Unable to unset quota reservation for %q", key),
 				)
@@ -668,7 +668,7 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 			workload.SetAdmissionCheckState(&updatedWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 				Name:  check,
 				State: state,
-			})
+			}, clock.RealClock{})
 		}
 		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())

@@ -26,6 +26,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -195,6 +196,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	})
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
+		var realClock = clock.RealClock{}
+
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.ShortTimeout
 			requeueingBackoffLimitCount = ptr.To[int32](2)
@@ -281,7 +284,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
 				workload.SetRequeuedCondition(prodWl, kueue.WorkloadDeactivated, "by test", false)
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true)).Should(gomega.Succeed())
+				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true, realClock)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			// should observe a metrics of WorkloadEvictedByDeactivation

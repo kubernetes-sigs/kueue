@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -199,7 +200,8 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	err := workload.ApplyAdmissionStatus(ctx, c, wl, false)
+	var realClock = clock.RealClock{}
+	err := workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
 	retry, _, timeout := checkError(err)
 	for retry {
 		if timeout >= 0 {
@@ -209,7 +211,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) err
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.ApplyAdmissionStatus(ctx, c, wl, false)
+		err = workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
 		retry, _, timeout = checkError(err)
 	}
 	return err

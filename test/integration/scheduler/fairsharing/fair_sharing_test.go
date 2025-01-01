@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -311,6 +312,7 @@ func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 }
 
 func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
+	var realClock = clock.RealClock{}
 	finished := sets.New[types.UID]()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wList kueue.WorkloadList
@@ -324,7 +326,7 @@ func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 			quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if evicted && quotaReserved {
 				workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true)).To(gomega.Succeed())
+				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, realClock)).To(gomega.Succeed())
 				finished.Insert(wl.UID)
 			}
 		}

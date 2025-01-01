@@ -61,6 +61,8 @@ var (
 )
 
 var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var realClock = clock.RealClock{}
+
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
 		var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel("kubernetes.io/arch", "arm64").Obj()
 		var clusterQueue = testing.MakeClusterQueue("cluster-queue").
@@ -483,7 +485,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 										},
 									},
 								},
-							})
+							}, realClock)
 							g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 						}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					})
@@ -738,7 +740,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Expect(func() error {
 						w := createdWorkload.DeepCopy()
 						workload.SetEvictedCondition(w, "ByTest", "by test")
-						return workload.ApplyAdmissionStatus(ctx, k8sClient, w, false)
+						return workload.ApplyAdmissionStatus(ctx, k8sClient, w, false, realClock)
 					}()).Should(gomega.Succeed())
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -1330,7 +1332,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("setting evicted condition to true", func() {
 					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
 					gomega.Expect(
-						workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false),
+						workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock),
 					).Should(gomega.Succeed())
 				})
 

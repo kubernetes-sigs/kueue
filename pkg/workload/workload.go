@@ -683,22 +683,22 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
 }
 
-func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
+func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
 	if wlCopy.Status.AdmissionChecks == nil && w.Status.AdmissionChecks != nil {
 		wlCopy.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, 0)
 	}
 	for _, ac := range w.Status.AdmissionChecks {
-		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac)
+		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac, c)
 	}
 }
 
 // ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
-func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
 	wlCopy := BaseSSAWorkload(w)
 	AdmissionStatusPatch(w, wlCopy, strict)
-	AdmissionChecksStatusPatch(w, wlCopy)
+	AdmissionChecksStatusPatch(w, wlCopy, clk)
 	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
 }
 
