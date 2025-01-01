@@ -193,8 +193,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 }
 
 func TestSyncCheckStates(t *testing.T) {
-	now := metav1.NewTime(time.Now())
-	fakeClock := testingclock.NewFakeClock(time.Now())
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	cases := map[string]struct {
 		states               []kueue.AdmissionCheckState
 		list                 []string
@@ -262,7 +262,7 @@ func TestSyncCheckStates(t *testing.T) {
 					Name:               "ac0",
 					State:              kueue.CheckStateReady,
 					Message:            "Message one",
-					LastTransitionTime: *now.DeepCopy(),
+					LastTransitionTime: metav1.NewTime(now),
 				},
 				{
 					Name:  "ac1",
@@ -276,7 +276,7 @@ func TestSyncCheckStates(t *testing.T) {
 					Name:               "ac0",
 					State:              kueue.CheckStateReady,
 					Message:            "Message one",
-					LastTransitionTime: *now.DeepCopy(),
+					LastTransitionTime: metav1.NewTime(now),
 				},
 				{
 					Name:  "ac1",
