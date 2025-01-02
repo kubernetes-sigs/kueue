@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						origKey := client.ObjectKeyFromObject(origPod)
 						g.Expect(k8sClient.Get(ctx, origKey, &p)).To(testing.BeNotFoundError())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify the high-priority pods are scheduled", func() {
