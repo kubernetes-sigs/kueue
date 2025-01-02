@@ -840,6 +840,13 @@ k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic
 k8s.io/apiserver/pkg/admission/plugin/policy/matching
 k8s.io/apiserver/pkg/admission/plugin/policy/validating
 k8s.io/apiserver/pkg/admission/plugin/policy/validating/metrics
+k8s.io/apiserver/pkg/admission/plugin/resourcequota
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/install
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1alpha1
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1beta1
+k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/validation
 k8s.io/apiserver/pkg/admission/plugin/webhook
 k8s.io/apiserver/pkg/admission/plugin/webhook/config
 k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission
@@ -914,6 +921,7 @@ k8s.io/apiserver/pkg/endpoints/responsewriter
 k8s.io/apiserver/pkg/endpoints/warning
 k8s.io/apiserver/pkg/features
 k8s.io/apiserver/pkg/quota/v1
+k8s.io/apiserver/pkg/quota/v1/generic
 k8s.io/apiserver/pkg/registry/generic
 k8s.io/apiserver/pkg/registry/generic/registry
 k8s.io/apiserver/pkg/registry/rest
