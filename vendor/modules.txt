@@ -42,6 +42,9 @@ github.com/coreos/go-systemd/v22/journal
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit
 github.com/davecgh/go-spew/spew
+# github.com/distribution/reference v0.5.0
+## explicit; go 1.20
+github.com/distribution/reference
 # github.com/emicklei/go-restful/v3 v3.12.1
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
@@ -278,12 +281,19 @@ github.com/onsi/gomega/types
 # github.com/open-policy-agent/cert-controller v0.12.0
 ## explicit; go 1.22.0
 github.com/open-policy-agent/cert-controller/pkg/rotator
+# github.com/opencontainers/go-digest v1.0.0
+## explicit; go 1.13
+github.com/opencontainers/go-digest
 # github.com/peterbourgon/diskv v2.0.1+incompatible
 ## explicit
 github.com/peterbourgon/diskv
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
+# github.com/project-codeflare/appwrapper v1.0.0
+## explicit; go 1.23.0
+github.com/project-codeflare/appwrapper/api/v1beta2
+github.com/project-codeflare/appwrapper/pkg/utils
 # github.com/prometheus/client_golang v1.20.5
 ## explicit; go 1.20
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil
@@ -326,8 +336,6 @@ github.com/spf13/pflag
 # github.com/stoewer/go-strcase v1.3.0
 ## explicit; go 1.11
 github.com/stoewer/go-strcase
-# github.com/stretchr/objx v0.5.2
-## explicit; go 1.20
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16
@@ -417,14 +425,6 @@ go.opentelemetry.io/proto/otlp/collector/trace/v1
 go.opentelemetry.io/proto/otlp/common/v1
 go.opentelemetry.io/proto/otlp/resource/v1
 go.opentelemetry.io/proto/otlp/trace/v1
-# go.starlark.net v0.0.0-20230525235612-a134d8f9ddca
-## explicit; go 1.16
-go.starlark.net/internal/compile
-go.starlark.net/internal/spell
-go.starlark.net/resolve
-go.starlark.net/starlark
-go.starlark.net/starlarkstruct
-go.starlark.net/syntax
 # go.uber.org/atomic v1.11.0
 ## explicit; go 1.18
 go.uber.org/atomic
@@ -1566,8 +1566,8 @@ sigs.k8s.io/jobset/pkg/util/testing
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/kustomize/api v0.17.3
-## explicit; go 1.21
+# sigs.k8s.io/kustomize/api v0.18.0
+## explicit; go 1.22.7
 sigs.k8s.io/kustomize/api/filters/annotations
 sigs.k8s.io/kustomize/api/filters/fieldspec
 sigs.k8s.io/kustomize/api/filters/filtersutil
@@ -1612,8 +1612,8 @@ sigs.k8s.io/kustomize/api/provider
 sigs.k8s.io/kustomize/api/resmap
 sigs.k8s.io/kustomize/api/resource
 sigs.k8s.io/kustomize/api/types
-# sigs.k8s.io/kustomize/kyaml v0.17.2
-## explicit; go 1.21
+# sigs.k8s.io/kustomize/kyaml v0.18.1
+## explicit; go 1.22.7
 sigs.k8s.io/kustomize/kyaml/comments
 sigs.k8s.io/kustomize/kyaml/errors
 sigs.k8s.io/kustomize/kyaml/ext
@@ -1622,10 +1622,7 @@ sigs.k8s.io/kustomize/kyaml/filesys
 sigs.k8s.io/kustomize/kyaml/fn/runtime/container
 sigs.k8s.io/kustomize/kyaml/fn/runtime/exec
 sigs.k8s.io/kustomize/kyaml/fn/runtime/runtimeutil
-sigs.k8s.io/kustomize/kyaml/fn/runtime/starlark
-sigs.k8s.io/kustomize/kyaml/internal/forked/github.com/qri-io/starlib/util
 sigs.k8s.io/kustomize/kyaml/kio
-sigs.k8s.io/kustomize/kyaml/kio/filters
 sigs.k8s.io/kustomize/kyaml/kio/kioutil
 sigs.k8s.io/kustomize/kyaml/openapi
 sigs.k8s.io/kustomize/kyaml/openapi/kubernetesapi
@@ -1645,7 +1642,6 @@ sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/sets
 sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/validation
 sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/validation/field
 sigs.k8s.io/kustomize/kyaml/yaml/merge2
-sigs.k8s.io/kustomize/kyaml/yaml/merge3
 sigs.k8s.io/kustomize/kyaml/yaml/schema
 sigs.k8s.io/kustomize/kyaml/yaml/walk
 # sigs.k8s.io/structured-merge-diff/v4 v4.5.0
