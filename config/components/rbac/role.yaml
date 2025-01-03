@@ -309,3 +309,21 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers/finalizers
+  - appwrappers/status
+  verbs:
+  - get
+  - update

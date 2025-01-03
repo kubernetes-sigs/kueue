@@ -143,8 +143,14 @@ cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
+APPWRAPPER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/project-codeflare/appwrapper)
+.PHONY: appwrapper-crd
+appwrapper-crd: ## Copy the CRDs from the appwrapper to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/appwrapper/
+	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper/
+
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd appwrapper-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs
