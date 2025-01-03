@@ -24,12 +24,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 )
 
@@ -77,6 +74,11 @@ func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 	return &ss.StatefulSet
 }
 
+// Clone returns deep copy of the StatefulSetWrapper.
+func (ss *StatefulSetWrapper) Clone() *StatefulSetWrapper {
+	return &StatefulSetWrapper{StatefulSet: *ss.DeepCopy()}
+}
+
 // Label sets the label of the StatefulSet
 func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 	if ss.Labels == nil {
@@ -94,6 +96,12 @@ func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
 // Name updated the name of the StatefulSet
 func (ss *StatefulSetWrapper) Name(n string) *StatefulSetWrapper {
 	ss.ObjectMeta.Name = n
+	return ss
+}
+
+// Namespace updated the name of the StatefulSet
+func (ss *StatefulSetWrapper) Namespace(n string) *StatefulSetWrapper {
+	ss.ObjectMeta.Namespace = n
 	return ss
 }
 
@@ -134,11 +142,13 @@ func (ss *StatefulSetWrapper) Replicas(r int32) *StatefulSetWrapper {
 	return ss
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
-	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
-) *StatefulSetWrapper {
-	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, gvk)
+func (ss *StatefulSetWrapper) ReadyReplicas(r int32) *StatefulSetWrapper {
+	ss.Status.ReadyReplicas = r
+	return ss
+}
+
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(groupName string) *StatefulSetWrapper {
+	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, groupName)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
