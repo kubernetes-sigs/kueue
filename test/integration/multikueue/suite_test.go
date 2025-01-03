@@ -18,9 +18,9 @@ package multikueue
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -92,9 +92,11 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	c.fwk = &framework.Framework{
 		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
+		DepCRDPaths: []string{
+			filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
 			filepath.Join("..", "..", "..", "dep-crds", "training-operator-crds"),
 			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
+			filepath.Join("..", "..", "..", "dep-crds", "ray-operator"),
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -206,6 +208,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	names := jobframework.GetIntegrationsList()
+	fmt.Println("KROWA", names)
 }
 
 func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
@@ -219,7 +224,7 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
-		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+		multikueue.WithWorkerLostTimeout(5*testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 	)
@@ -234,25 +239,28 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 
 	ginkgo.By("creating the clusters", func() {
-		wg := sync.WaitGroup{}
-		wg.Add(3)
-		go func() {
-			defer wg.Done()
-			// pass nil setup since the manager for the manage cluster is different in some specs.
-			c := createCluster(nil, managerFeatureGates...)
-			managerTestCluster = c
-		}()
-		go func() {
-			defer wg.Done()
-			c := createCluster(managerSetup)
-			worker1TestCluster = c
-		}()
-		go func() {
-			defer wg.Done()
-			c := createCluster(managerSetup)
-			worker2TestCluster = c
-		}()
-		wg.Wait()
+		//wg := sync.WaitGroup{}
+		//wg.Add(3)
+		//go func() {
+		//	defer wg.Done()
+		//	defer ginkgo.GinkgoRecover()
+		// pass nil setup since the manager for the manage cluster is different in some specs.
+		//c :=
+		managerTestCluster = createCluster(nil, managerFeatureGates...)
+		//}()
+		//go func() {
+		//	defer wg.Done()
+		//	defer ginkgo.GinkgoRecover()
+		//	c :=
+		worker1TestCluster = createCluster(managerSetup)
+		//}()
+		//go func() {
+		//	defer wg.Done()
+		//	defer ginkgo.GinkgoRecover()
+		//	c :=
+		worker2TestCluster = createCluster(managerSetup)
+		//}()
+		//wg.Wait()
 	})
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerTestCluster.cfg)
