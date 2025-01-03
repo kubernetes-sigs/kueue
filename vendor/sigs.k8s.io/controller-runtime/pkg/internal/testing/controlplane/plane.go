@@ -68,6 +68,7 @@ func (f *ControlPlane) Start() (retErr error) {
 		return err
 	}
 	defer func() {
+		fmt.Println("KACZKA STOPPED APISERVER")
 		if retErr != nil {
 			_ = f.APIServer.Stop()
 		}

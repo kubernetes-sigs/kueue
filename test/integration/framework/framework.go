@@ -68,7 +68,7 @@ type Framework struct {
 }
 
 var setupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	ctrl.SetLogger(util.NewTestingLogger(os.Stdout, -10))
 })
 
 func (f *Framework) Init() *rest.Config {
@@ -77,7 +77,10 @@ func (f *Framework) Init() *rest.Config {
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
+			CRDDirectoryPaths: append(f.DepCRDPaths, f.CRDPath),
+			CRDInstallOptions: envtest.CRDInstallOptions{
+				MaxTime: time.Minute,
+			},
 			ErrorIfCRDPathMissing: true,
 		}
 		if len(f.WebhookPath) > 0 {
@@ -96,6 +99,7 @@ func (f *Framework) Init() *rest.Config {
 
 		var err error
 		cfg, err = f.testEnv.Start()
+		fmt.Println("KACZKA", err)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 	})
