@@ -68,7 +68,7 @@ type Framework struct {
 }
 
 var setupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(util.NewTestingLogger(os.Stdout, -3))
+	ctrl.SetLogger(util.NewTestingLogger(os.Stdout, -10))
 })
 
 func (f *Framework) Init() *rest.Config {
