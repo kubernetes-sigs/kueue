@@ -77,7 +77,10 @@ func (f *Framework) Init() *rest.Config {
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
+			CRDDirectoryPaths: append(f.DepCRDPaths, f.CRDPath),
+			CRDInstallOptions: envtest.CRDInstallOptions{
+				MaxTime: time.Minute,
+			},
 			ErrorIfCRDPathMissing: true,
 		}
 		if len(f.WebhookPath) > 0 {
