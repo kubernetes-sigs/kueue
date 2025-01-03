@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -95,6 +96,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
 			filepath.Join("..", "..", "..", "dep-crds", "training-operator-crds"),
 			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
+			filepath.Join("..", "..", "..", "dep-crds", "ray-operator"),
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -206,6 +208,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	names := jobframework.GetIntegrationsList()
+	fmt.Println("KROWA", names)
 }
 
 func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
@@ -219,7 +224,7 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
-		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+		multikueue.WithWorkerLostTimeout(5*testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 	)

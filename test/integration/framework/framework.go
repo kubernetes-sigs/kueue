@@ -68,7 +68,7 @@ type Framework struct {
 }
 
 var setupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	ctrl.SetLogger(util.NewTestingLogger(os.Stdout, -3))
 })
 
 func (f *Framework) Init() *rest.Config {
@@ -96,6 +96,7 @@ func (f *Framework) Init() *rest.Config {
 
 		var err error
 		cfg, err = f.testEnv.Start()
+		fmt.Println("KACZKA", err)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 	})
