@@ -37,12 +37,12 @@ ENVTEST_K8S_VERSION ?= 1.31
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+INTEGRATION_NPROCS ?= 2
 # Folder where the integration tests are located.
 INTEGRATION_TARGET ?= ./test/integration/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
-INTEGRATION_API_LOG_LEVEL ?= 0
+INTEGRATION_API_LOG_LEVEL ?= 1
 # Integration filters
 INTEGRATION_RUN_ALL?=true
 ifneq ($(INTEGRATION_RUN_ALL),true) 
@@ -80,11 +80,12 @@ test: gotestsum ## Run tests.
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run tests.
+	ls "$(PROJECT_DIR)/dep-crds/ray-operator-crds"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --output-interceptor-mode=none --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true

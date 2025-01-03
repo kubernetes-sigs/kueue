@@ -96,6 +96,7 @@ func (f *Framework) Init() *rest.Config {
 
 		var err error
 		cfg, err = f.testEnv.Start()
+		fmt.Println("KACZKA", err)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 	})

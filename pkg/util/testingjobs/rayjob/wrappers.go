@@ -254,6 +254,12 @@ func (j *JobWrapper) RayVersion(rv string) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) RayStartParams(sp map[string]string) *JobWrapper {
+	j.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams = sp
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].RayStartParams = sp
+	return j
+}
+
 func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrapper {
 	if rayType == rayv1.HeadNode {
 		if j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env == nil {

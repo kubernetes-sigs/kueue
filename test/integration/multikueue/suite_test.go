@@ -209,16 +209,14 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	rayJobReconciler := workloadrayjob.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = rayJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	err = workloadrayjob.SetupRayJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadrayjob.SetupRayJobWebhook(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
