@@ -58,8 +58,13 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     crdPath,
-		DepCRDPaths: []string{rayCrdPath},
+		CRDPath: crdPath,
+		DepCRDPaths: []string{
+			rayCrdPath,
+			filepath.Join("..", "..", "..", "..", "..", "dep-crds", "jobset-operator"),
+			filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator-crds"),
+			filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator"),
+		},
 	}
 
 	cfg = fwk.Init()

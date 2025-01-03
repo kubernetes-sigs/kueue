@@ -79,6 +79,7 @@ test: gotestsum ## Run tests.
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run tests.
+	ls -al "$(PROJECT_DIR)/dep-crds/ray-operator"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
