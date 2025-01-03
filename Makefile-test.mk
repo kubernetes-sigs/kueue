@@ -42,7 +42,7 @@ INTEGRATION_NPROCS ?= 4
 INTEGRATION_TARGET ?= ./test/integration/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
-INTEGRATION_API_LOG_LEVEL ?= 0
+INTEGRATION_API_LOG_LEVEL ?= 5
 # Integration filters
 INTEGRATION_RUN_ALL?=true
 ifneq ($(INTEGRATION_RUN_ALL),true) 

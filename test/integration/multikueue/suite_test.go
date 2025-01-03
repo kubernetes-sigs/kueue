@@ -93,7 +93,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	c.fwk = &framework.Framework{
 		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
+		DepCRDPaths: []string{
+			filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
 			filepath.Join("..", "..", "..", "dep-crds", "training-operator-crds"),
 			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
 			filepath.Join("..", "..", "..", "dep-crds", "ray-operator"),
@@ -210,7 +211,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	names := jobframework.GetIntegrationsList()
-	fmt.Println("KROWA", names)
+	enabledNames := jobframework.GetEnabledIntegrationsList()
+	fmt.Println("KROWA", names, "KROWA2", enabledNames)
 }
 
 func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
