@@ -99,6 +99,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}()
 
 		job := testingrayjob.MakeJob(jobName, ns.Name).
+			RayJobSpecsDefault().
 			Suspend(false).
 			WithPriorityClassName(priorityClassName).
 			Obj()
@@ -261,6 +262,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.It("A RayJob created in an unmanaged namespace is not suspended and a workload is not created", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 		job := testingrayjob.MakeJob(jobName, "unmanaged-ns").
+			RayJobSpecsDefault().
 			Suspend(false).
 			Obj()
 		err := k8sClient.Create(ctx, job)
@@ -303,7 +305,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
+		job := testingrayjob.MakeJob(jobName, ns.Name).RayJobSpecsDefault().Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		createdJob := &rayv1.RayJob{}
@@ -371,7 +373,10 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
 			ginkgo.By("Create a job")
-			job := testingrayjob.MakeJob(jobName, ns.Name).WithSubmissionMode(rayv1.K8sJobMode).Obj()
+			job := testingrayjob.MakeJob(jobName, ns.Name).
+				RayJobSpecsDefault().
+				WithSubmissionMode(rayv1.K8sJobMode).
+				Obj()
 			jobQueueName := "test-queue"
 			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -576,7 +581,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
 		ginkgo.By("checking a dev job starts")
-		job := testingrayjob.MakeJob("dev-job", ns.Name).Queue(localQueue.Name).
+		job := testingrayjob.MakeJob("dev-job", ns.Name).
+			RayJobSpecsDefault().
+			Queue(localQueue.Name).
 			RequestHead(corev1.ResourceCPU, "3").
 			RequestWorkerGroup(corev1.ResourceCPU, "4").
 			Obj()
@@ -650,7 +657,9 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", func() {
 		ginkgo.By("Create a low priority rayJob")
-		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).Queue(localQueue.Name).
+		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).
+			RayJobSpecsDefault().
+			Queue(localQueue.Name).
 			RequestHead(corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "2").
 			Obj()
@@ -665,7 +674,9 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Create a high priority rayJob which will preempt the lower one")
-		highPriorityJob := testingrayjob.MakeJob("rayjob-with-high-priority", ns.Name).Queue(localQueue.Name).
+		highPriorityJob := testingrayjob.MakeJob("rayjob-with-high-priority", ns.Name).
+			RayJobSpecsDefault().
+			Queue(localQueue.Name).
 			RequestHead(corev1.ResourceCPU, "2").
 			WithPriorityClassName(priorityClassName).
 			RequestWorkerGroup(corev1.ResourceCPU, "2").
