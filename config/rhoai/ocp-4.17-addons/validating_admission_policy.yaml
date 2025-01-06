@@ -1,0 +1,20 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: validating-admission-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["ray.io"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["rayclusters"]
+  matchConditions:
+    - name: "skip-if-deleting"
+      expression: "!has(object.metadata.deletionTimestamp)"
+    - name: "skip-if-owned-by-appwrapper"
+      expression: "!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.exists(ref, ref.kind != 'AppWrapper')"
+  validations:
+    - expression: "has(object.metadata.labels) && 'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
+      message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set."

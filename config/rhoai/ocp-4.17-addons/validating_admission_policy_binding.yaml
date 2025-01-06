@@ -1,0 +1,9 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: validating-admission-policy-binding
+spec:
+  policyName: kueue-validating-admission-policy
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector: {} # Match all namespaces

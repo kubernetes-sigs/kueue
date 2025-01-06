@@ -1,0 +1,17 @@
+# RHOAI configuration for Kueue.
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: kueue-
+
+# Labels to add to all resources and selectors.
+commonLabels:
+  app.kubernetes.io/name: kueue
+  app.kubernetes.io/component: controller
+
+resources:
+- validating_admission_policy.yaml
+- validating_admission_policy_binding.yaml
