@@ -6,7 +6,7 @@ require (
 	github.com/gohugoio/hugo v0.140.2
 	github.com/golangci/golangci-lint v1.63.4
 	github.com/mikefarah/yq/v4 v4.44.6
-	github.com/onsi/ginkgo/v2 v2.22.1
+	github.com/onsi/ginkgo/v2 v2.22.2
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.12.0
 	helm.sh/helm/v3 v3.16.4
@@ -105,7 +105,7 @@ require (
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	golang.org/x/tools v0.28.0 // indirect
-	google.golang.org/protobuf v1.35.2 // indirect
+	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
