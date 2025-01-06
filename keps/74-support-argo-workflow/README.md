@@ -293,20 +293,30 @@ A typical workflow for building images involves two main steps: cloning a git re
 constructing the container, both of which share the same local disk space. The git clone operation 
 has minimal resource requirements, whereas the container construction process demands more 
 substantial resources. It is essential that the Pod tasked with the git clone is scheduled onto 
-a node capable of also running the Pod responsible for the container build, which can be achieved
-with the help of Kueue.
+a node capable of also running the Pod responsible for the container build. I hope that some 
+information of workflows can be considered when using workflows with Kueue.
 
 #### Story 2
 
-As a SaaS provider, users will submit a pipeline description and pay for the resource consumption.
-We want to limit the maximum number of concurrently running pipelines to ensure they complete
-before the deadlines. Kueue can help to limit the number of concurrently running pipelines.
+As a Kubernetes administrator, my goal is to ensure fair sharing of cluster resources among users. 
+Kueue is designed to assist with this. However, achieving this requires modifying the YAML files 
+for the pipelines, so that all workloads are scheduled via Kueue, which can be quite intricate. 
+I am looking for workflow managers to offer an automated solution for submitting all pipeline 
+workloads directly to Kueue.
 
 #### Story 3
 
+As a SaaS provider, users will submit a pipeline description and pay for the resource consumption.
+We want to limit the maximum number of concurrently running pipelines to ensure they complete
+before the deadlines. Kueue can help to limit the number of concurrently running pipelines. I hope
+that Kueue can support to limit the number of concurrently running workflows in a certain queue.
+
+#### Story 4
+
 As an ML engineer, my workflow consists of several GPU-dependent stages with uniform resource 
 requirements. I aim to reuse resources allocated to earlier workflow stages to boost efficiency 
-and resource utilization.
+and resource utilization, that is, try to schedule the subsequent stages on the same node as as 
+their preceding stages. 
 
 ## Design Details
 
