@@ -4,7 +4,7 @@ go 1.23
 
 require (
 	github.com/gohugoio/hugo v0.140.2
-	github.com/golangci/golangci-lint v1.62.2
+	github.com/golangci/golangci-lint v1.63.4
 	github.com/mikefarah/yq/v4 v4.44.6
 	github.com/onsi/ginkgo/v2 v2.22.1
 	gopkg.in/yaml.v3 v3.0.1
