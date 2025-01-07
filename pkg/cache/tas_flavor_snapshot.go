@@ -344,7 +344,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 			Values: domain.levelValues[levelIdx:],
 			Count:  domain.state,
 		}
-		var usage resources.Requests
+		usage := make(resources.Requests)
 		for k, v := range singlePodRequest {
 			usage[k] = v * int64(domain.state)
 		}
