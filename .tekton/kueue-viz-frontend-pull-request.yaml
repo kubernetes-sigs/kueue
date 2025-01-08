@@ -12,9 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: kueue
-    appstudio.openshift.io/component: kubernetes-sigs-kueue
+    appstudio.openshift.io/component: kueue-viz-frontend
     pipelines.appstudio.openshift.io/type: build
-  name: kubernetes-sigs-kueue-on-pull-request
+  name: kueue-viz-frontend-on-pull-request
   namespace: kueue-operator-tenant
 spec:
   params:
@@ -23,11 +23,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/kueue-operator-tenant/kubernetes-sigs-kueue:on-pr-{{revision}}
+    value: quay.io/redhat-user-workloads/kueue-operator-tenant/kueue-viz-frontend:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: Dockerfile
+    value: /cmd/experimental/kueue-viz/frontend/Dockerfile
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

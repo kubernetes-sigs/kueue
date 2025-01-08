@@ -4,17 +4,16 @@ metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/openshift/kubernetes-sigs-kueue?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: kueue
-    appstudio.openshift.io/component: kubernetes-sigs-kueue
+    appstudio.openshift.io/component: kueue-viz-backend
     pipelines.appstudio.openshift.io/type: build
-  name: kubernetes-sigs-kueue-on-pull-request
+  name: kueue-viz-backend-on-push
   namespace: kueue-operator-tenant
 spec:
   params:
@@ -23,11 +22,9 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/kueue-operator-tenant/kubernetes-sigs-kueue:on-pr-{{revision}}
-  - name: image-expires-after
-    value: 5d
+    value: quay.io/redhat-user-workloads/kueue-operator-tenant/kueue-viz-backend:{{revision}}
   - name: dockerfile
-    value: Dockerfile
+    value: /cmd/experimental/kueue-viz/backend/Dockerfile
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
