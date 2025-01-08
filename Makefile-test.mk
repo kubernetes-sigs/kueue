@@ -42,7 +42,7 @@ INTEGRATION_NPROCS ?= 4
 INTEGRATION_TARGET ?= ./test/integration/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
-INTEGRATION_API_LOG_LEVEL ?= 0
+INTEGRATION_API_LOG_LEVEL ?= 1
 # Integration filters
 INTEGRATION_RUN_ALL?=true
 ifneq ($(INTEGRATION_RUN_ALL),true) 
@@ -83,7 +83,7 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --output-interceptor-mode=none --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true

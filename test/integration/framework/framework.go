@@ -96,7 +96,7 @@ func (f *Framework) Init() *rest.Config {
 
 		var err error
 		cfg, err = f.testEnv.Start()
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to setup envtest: %v", err))
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 	})
 	f.scheme = runtime.NewScheme()
