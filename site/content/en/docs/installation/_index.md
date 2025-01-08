@@ -264,6 +264,7 @@ The currently supported features are:
 | `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
 | `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
+| `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
 
 ## What's next
 
