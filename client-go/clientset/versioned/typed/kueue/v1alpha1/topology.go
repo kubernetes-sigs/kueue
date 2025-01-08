@@ -18,14 +18,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	applyconfigurationkueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,32 +37,33 @@ type TopologiesGetter interface {
 
 // TopologyInterface has methods to work with Topology resources.
 type TopologyInterface interface {
-	Create(ctx context.Context, topology *v1alpha1.Topology, opts v1.CreateOptions) (*v1alpha1.Topology, error)
-	Update(ctx context.Context, topology *v1alpha1.Topology, opts v1.UpdateOptions) (*v1alpha1.Topology, error)
+	Create(ctx context.Context, topology *kueuev1alpha1.Topology, opts v1.CreateOptions) (*kueuev1alpha1.Topology, error)
+	Update(ctx context.Context, topology *kueuev1alpha1.Topology, opts v1.UpdateOptions) (*kueuev1alpha1.Topology, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1alpha1.Topology, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1alpha1.TopologyList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1alpha1.Topology, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1alpha1.TopologyList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.Topology, err error)
-	Apply(ctx context.Context, topology *kueuev1alpha1.TopologyApplyConfiguration, opts v1.ApplyOptions) (result *v1alpha1.Topology, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1alpha1.Topology, err error)
+	Apply(ctx context.Context, topology *applyconfigurationkueuev1alpha1.TopologyApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1alpha1.Topology, err error)
 	TopologyExpansion
 }
 
 // topologies implements TopologyInterface
 type topologies struct {
-	*gentype.ClientWithListAndApply[*v1alpha1.Topology, *v1alpha1.TopologyList, *kueuev1alpha1.TopologyApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1alpha1.Topology, *kueuev1alpha1.TopologyList, *applyconfigurationkueuev1alpha1.TopologyApplyConfiguration]
 }
 
 // newTopologies returns a Topologies
 func newTopologies(c *KueueV1alpha1Client) *topologies {
 	return &topologies{
-		gentype.NewClientWithListAndApply[*v1alpha1.Topology, *v1alpha1.TopologyList, *kueuev1alpha1.TopologyApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1alpha1.Topology, *kueuev1alpha1.TopologyList, *applyconfigurationkueuev1alpha1.TopologyApplyConfiguration](
 			"topologies",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1alpha1.Topology { return &v1alpha1.Topology{} },
-			func() *v1alpha1.TopologyList { return &v1alpha1.TopologyList{} }),
+			func() *kueuev1alpha1.Topology { return &kueuev1alpha1.Topology{} },
+			func() *kueuev1alpha1.TopologyList { return &kueuev1alpha1.TopologyList{} },
+		),
 	}
 }

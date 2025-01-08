@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
 )
 
 // MultiKueueClusterInformer provides access to a shared informer and lister for
 // MultiKueueClusters.
 type MultiKueueClusterInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.MultiKueueClusterLister
+	Lister() kueuev1beta1.MultiKueueClusterLister
 }
 
 type multiKueueClusterInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredMultiKueueClusterInformer(client versioned.Interface, resyncPeri
 				return client.KueueV1beta1().MultiKueueClusters().Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1beta1.MultiKueueCluster{},
+		&apiskueuev1beta1.MultiKueueCluster{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *multiKueueClusterInformer) defaultInformer(client versioned.Interface, 
 }
 
 func (f *multiKueueClusterInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1beta1.MultiKueueCluster{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1beta1.MultiKueueCluster{}, f.defaultInformer)
 }
 
-func (f *multiKueueClusterInformer) Lister() v1beta1.MultiKueueClusterLister {
-	return v1beta1.NewMultiKueueClusterLister(f.Informer().GetIndexer())
+func (f *multiKueueClusterInformer) Lister() kueuev1beta1.MultiKueueClusterLister {
+	return kueuev1beta1.NewMultiKueueClusterLister(f.Informer().GetIndexer())
 }

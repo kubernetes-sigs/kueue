@@ -19,17 +19,17 @@ package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name               *string                                             `json:"name,omitempty"`
-	Flavors            map[v1.ResourceName]v1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
-	ResourceUsage      *v1.ResourceList                                    `json:"resourceUsage,omitempty"`
-	Count              *int32                                              `json:"count,omitempty"`
-	TopologyAssignment *TopologyAssignmentApplyConfiguration               `json:"topologyAssignment,omitempty"`
+	Name               *string                                                  `json:"name,omitempty"`
+	Flavors            map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
+	ResourceUsage      *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
+	Count              *int32                                                   `json:"count,omitempty"`
+	TopologyAssignment *TopologyAssignmentApplyConfiguration                    `json:"topologyAssignment,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -50,9 +50,9 @@ func (b *PodSetAssignmentApplyConfiguration) WithName(value string) *PodSetAssig
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Flavors field,
 // overwriting an existing map entries in Flavors field with the same key.
-func (b *PodSetAssignmentApplyConfiguration) WithFlavors(entries map[v1.ResourceName]v1beta1.ResourceFlavorReference) *PodSetAssignmentApplyConfiguration {
+func (b *PodSetAssignmentApplyConfiguration) WithFlavors(entries map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference) *PodSetAssignmentApplyConfiguration {
 	if b.Flavors == nil && len(entries) > 0 {
-		b.Flavors = make(map[v1.ResourceName]v1beta1.ResourceFlavorReference, len(entries))
+		b.Flavors = make(map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference, len(entries))
 	}
 	for k, v := range entries {
 		b.Flavors[k] = v

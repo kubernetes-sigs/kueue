@@ -19,16 +19,16 @@ package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // LocalQueueFlavorStatusApplyConfiguration represents a declarative configuration of the LocalQueueFlavorStatus type for use
 // with apply.
 type LocalQueueFlavorStatusApplyConfiguration struct {
-	Name       *v1beta1.ResourceFlavorReference `json:"name,omitempty"`
-	Resources  []v1.ResourceName                `json:"resources,omitempty"`
-	NodeLabels map[string]string                `json:"nodeLabels,omitempty"`
-	NodeTaints []v1.Taint                       `json:"nodeTaints,omitempty"`
+	Name       *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
+	Resources  []v1.ResourceName                     `json:"resources,omitempty"`
+	NodeLabels map[string]string                     `json:"nodeLabels,omitempty"`
+	NodeTaints []v1.Taint                            `json:"nodeTaints,omitempty"`
 }
 
 // LocalQueueFlavorStatusApplyConfiguration constructs a declarative configuration of the LocalQueueFlavorStatus type for use with
@@ -40,7 +40,7 @@ func LocalQueueFlavorStatus() *LocalQueueFlavorStatusApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *LocalQueueFlavorStatusApplyConfiguration) WithName(value v1beta1.ResourceFlavorReference) *LocalQueueFlavorStatusApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithName(value kueuev1beta1.ResourceFlavorReference) *LocalQueueFlavorStatusApplyConfiguration {
 	b.Name = &value
 	return b
 }
