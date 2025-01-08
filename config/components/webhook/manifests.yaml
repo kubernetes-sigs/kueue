@@ -182,6 +182,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset
+  failurePolicy: Fail
+  name: mleaderworkerset.kb.io
+  rules:
+  - apiGroups:
+    - leaderworkerset.x-k8s.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - leaderworkersets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubeflow-org-v2beta1-mpijob
   failurePolicy: Fail
   name: mmpijob.kb.io
@@ -495,6 +515,26 @@ webhooks:
     - UPDATE
     resources:
     - xgboostjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-leaderworkerset-x-k8s-io-v1-leaderworkerset
+  failurePolicy: Fail
+  name: vleaderworkerset.kb.io
+  rules:
+  - apiGroups:
+    - leaderworkerset.x-k8s.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - leaderworkersets
   sideEffects: None
 - admissionReviewVersions:
   - v1
