@@ -1,0 +1,17 @@
+{{- if and .Values.enableCertManager .Values.kueueViz.tls.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kueue.fullname" . }}-kueue-viz-cert
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+    {{- include "kueue.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+    - {{ .Values.kueueViz.backend.ingress.host }}
+    - {{ .Values.kueueViz.frontend.ingress.host }}
+  issuerRef:
+    kind: Issuer
+    name: {{ include "kueue.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "kueue.fullname" . }}-kueue-viz-tls-secret
+{{- end }}
