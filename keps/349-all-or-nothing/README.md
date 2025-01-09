@@ -299,11 +299,12 @@ const (
 ### PodsReady workload condition
 
 We introduce a new workload condition, called `PodsReady`, to indicate
-if the workload's startup requirements are satisfied. More precisely, we add
+if the workload's startup requirements are satisfied. More precisely, for a batch/v1 Job we add
 the condition when `job.status.ready + len(job.status.uncountedTerimnatedPods.succeeded) + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
 
 Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
+This applies only for batch/v1 Job, since Kueue doesn't count active pods for other Job types, and delegate it to third-party Job types operators.
 
 Note that, we don't take failed pods into account when verifying if the
 `PodsReady` condition should be added. However, a buggy admitted workload is
