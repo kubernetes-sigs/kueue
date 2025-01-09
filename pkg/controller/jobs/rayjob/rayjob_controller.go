@@ -87,7 +87,7 @@ func (j *RayJob) IsSuspended() bool {
 }
 
 func (j *RayJob) IsActive() bool {
-	return j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended
+	return (j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended) && (j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusNew)
 }
 
 func (j *RayJob) Suspend() {
