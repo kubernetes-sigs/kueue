@@ -11,6 +11,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -60,9 +61,22 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	err = kfmpi.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	cfg.APIPath = "/api"
+	cfg.ContentConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+	cfg.ContentConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	return client, cfg
+}
+
+// CreateRestClient creates a *rest.RESTClient using the provided config.
+func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
+	restClient, err := rest.RESTClientFor(cfg)
+	gomega.ExpectWithOffset(1, err).Should(gomega.Succeed())
+	gomega.ExpectWithOffset(1, restClient).NotTo(gomega.BeNil())
+
+	return restClient
 }
 
 func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Interface {
