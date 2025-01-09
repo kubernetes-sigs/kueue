@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
@@ -31,14 +30,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
-	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
+	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 )
 
 var (

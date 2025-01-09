@@ -638,7 +638,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			ginkgo.By("Await for the AppWrapper to be unsuspended")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
-				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.Equal(false))
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeAppWrapperStatus != nil {
