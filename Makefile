@@ -27,8 +27,8 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
-CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
@@ -333,6 +333,12 @@ importer-image: PLATFORMS=linux/amd64
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
+# Install multiarch build dependencies and then create a builder instance to build the kueue-viz dashboard images
+kueue-viz-image-multiarch:
+	docker run --privileged --rm tonistiigi/binfmt --install all
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
+	$(MAKE) kueue-viz-image-build
+	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 # Build the kueue-viz dashboard images (frontend and backend)
 .PHONY: kueue-viz-image-build
@@ -357,10 +363,14 @@ kueue-viz-image-build:
 kueue-viz-image-push: PUSH=--push
 kueue-viz-image-push: kueue-viz-image-build
 
+.PHONY: kueue-viz-image-multiarch-push
+kueue-viz-image-multiarch-push: PUSH=--push
+kueue-viz-image-multiarch-push: kueue-viz-image-multiarch
+
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz image
 .PHONY: kueue-viz-image
 kueue-viz-image: VIZ_PLATFORMS=linux/amd64
-kueue-viz-image: PUSH=--load
+kueue-viz-image: IMAGE_BUILD_EXTRA_OPTS=--load
 kueue-viz-image: kueue-viz-image-build
 
 
