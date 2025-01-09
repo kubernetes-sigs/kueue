@@ -361,6 +361,10 @@ kueue-viz-image-build:
 kueue-viz-image-push: PUSH=--push
 kueue-viz-image-push: kueue-viz-image-build
 
+.PHONY: kueue-viz-image-multiarch-push
+kueue-viz-image-multiarch-push: PUSH=--push
+kueue-viz-image-multiarch-push: kueue-viz-image-multiarch
+
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz image
 .PHONY: kueue-viz-image
 kueue-viz-image: VIZ_PLATFORMS=linux/amd64
