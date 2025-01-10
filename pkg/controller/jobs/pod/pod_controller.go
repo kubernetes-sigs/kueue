@@ -19,8 +19,6 @@ package pod
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -557,35 +555,11 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
-// getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256
-// checksum of those fields. This is used to group the pods of the same roles when interacting with the workload.
 func getRoleHash(p corev1.Pod) (string, error) {
 	if roleHash, ok := p.Annotations[RoleHashAnnotation]; ok {
 		return roleHash, nil
 	}
-
-	shape := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"initContainers":            containersShape(p.Spec.InitContainers),
-			"containers":                containersShape(p.Spec.Containers),
-			"nodeSelector":              p.Spec.NodeSelector,
-			"affinity":                  p.Spec.Affinity,
-			"tolerations":               p.Spec.Tolerations,
-			"runtimeClassName":          p.Spec.RuntimeClassName,
-			"priority":                  p.Spec.Priority,
-			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
-			"overhead":                  p.Spec.Overhead,
-			"resourceClaims":            p.Spec.ResourceClaims,
-		},
-	}
-
-	shapeJSON, err := json.Marshal(shape)
-	if err != nil {
-		return "", err
-	}
-
-	// Trim hash to 8 characters and return
-	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
+	return utilpod.GenerateRoleHash(p.Spec)
 }
 
 // Load loads all pods in the group

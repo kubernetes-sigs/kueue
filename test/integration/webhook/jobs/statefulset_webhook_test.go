@@ -22,7 +22,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,20 +72,10 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
-			var (
-				statefulset *appsv1.StatefulSet
-				lookupKey   types.NamespacedName
-			)
-
-			ginkgo.BeforeEach(func() {
-				statefulset = testingstatefulset.MakeStatefulSet("statefulset-with-queue-name", ns.Name).
-					Queue("user-queue").
-					Obj()
-				lookupKey = client.ObjectKeyFromObject(statefulset)
-			})
-
 			ginkgo.It("Should inject queue name, pod group name to pod template labels, and pod group total count to pod template annotations", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulset)).Should(gomega.Succeed())
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
+				lookupKey := client.ObjectKeyFromObject(sts)
+				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
@@ -96,9 +85,13 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
 						)
+
+					groupName, err := statefulset.GetWorkloadName(sts)
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+
 					g.Expect(createdStatefulSet.Spec.Template.Labels[pod.GroupNameLabel]).
 						To(
-							gomega.Equal(jobframework.GetWorkloadNameForOwnerWithGVK(createdStatefulSet.Name, "", appsv1.SchemeGroupVersion.WithKind("StatefulSet"))),
+							gomega.Equal(groupName),
 							"Pod group name should be injected to pod template labels",
 						)
 					g.Expect(createdStatefulSet.Spec.Template.Annotations[pod.GroupTotalCountAnnotation]).
@@ -116,7 +109,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					}
 					updatedStatefulSet := statefulsetWrapper.
 						Queue("another-queue").
-						PodTemplateSpecPodGroupNameLabel("another", "another", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
 						Obj()
 					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
 				})
@@ -128,7 +120,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					}
 					updatedStatefulSet := statefulsetWrapper.
 						Replicas(5).
-						PodTemplateSpecPodGroupNameLabel("another", "another", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
 						Obj()
 					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
 				})
@@ -136,19 +127,11 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.When("The queue-name label is not set", func() {
-			var (
-				statefulset *appsv1.StatefulSet
-				lookupKey   types.NamespacedName
-			)
-
-			ginkgo.BeforeEach(func() {
-				statefulset = testingstatefulset.MakeStatefulSet("statefulset-without-queue-name", ns.Name).
-					Obj()
-				lookupKey = client.ObjectKeyFromObject(statefulset)
-			})
-
 			ginkgo.It("Should not inject queue name to pod template labels", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulset)).Should(gomega.Succeed())
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				lookupKey := client.ObjectKeyFromObject(sts)
+
+				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
