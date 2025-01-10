@@ -1,5 +1,6 @@
+ARG GOLANG_IMAGE=registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.22.2
 # Start of Go versioning workaround for lack of go-toolset for version 1.22
-FROM registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.22.2 AS golang
+FROM ${GOLANG_IMAGE} AS golang
 
 FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
 
