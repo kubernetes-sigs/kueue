@@ -46,7 +46,7 @@ var (
 	webhookPath          = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 	mpiCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "mpi-operator")
 	jobsetCrdPath        = filepath.Join("..", "..", "..", "..", "dep-crds", "jobset-operator")
-	rayCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "ray-operator")
+	rayCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "ray-operator-crds")
 	kubeflowCrdPath      = filepath.Join("..", "..", "..", "..", "dep-crds", "training-operator-crds")
 )
 

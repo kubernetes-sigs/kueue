@@ -100,10 +100,17 @@ function kind_load {
     install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"
     install_kubeflow "$WORKER2_KIND_CLUSTER_NAME"
     
-     ## MPI
+    ## MPI
     install_mpi "$MANAGER_KIND_CLUSTER_NAME"
     install_mpi "$WORKER1_KIND_CLUSTER_NAME"
     install_mpi "$WORKER2_KIND_CLUSTER_NAME"
+
+    ## KUBERAY
+    kubectl config use-context "kind-${MANAGER_KIND_CLUSTER_NAME}"
+    kubectl apply --server-side -f "${KUBERAY_CRDS}"
+
+    install_kuberay "$WORKER1_KIND_CLUSTER_NAME"
+    install_kuberay "$WORKER2_KIND_CLUSTER_NAME"
 }
 
 function kueue_deploy {

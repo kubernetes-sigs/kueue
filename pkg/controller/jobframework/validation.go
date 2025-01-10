@@ -23,6 +23,7 @@ import (
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -47,7 +48,8 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
-		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String())
+		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
+		rayv1.SchemeGroupVersion.WithKind("RayJob").String())
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
