@@ -109,9 +109,7 @@ func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request
 			}
 			log.V(5).Info("Removed finalizer")
 		}
-	}
-
-	if controllerutil.AddFinalizer(topology, kueue.ResourceInUseFinalizerName) {
+	} else if controllerutil.AddFinalizer(topology, kueue.ResourceInUseFinalizerName) {
 		if err := r.client.Update(ctx, topology); err != nil {
 			return ctrl.Result{}, err
 		}
