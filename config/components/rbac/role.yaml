@@ -323,7 +323,14 @@ rules:
   - workload.codeflare.dev
   resources:
   - appwrappers/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
   - appwrappers/status
   verbs:
   - get
+  - patch
   - update
