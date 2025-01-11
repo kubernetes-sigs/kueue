@@ -28,6 +28,8 @@ spec:
     value: 5d
   - name: dockerfile
     value: /cmd/experimental/kueue-viz/frontend/Dockerfile
+  - name: path-context
+    value: cmd/experimental/kueue-viz/frontend
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

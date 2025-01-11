@@ -25,6 +25,8 @@ spec:
     value: quay.io/redhat-user-workloads/kueue-operator-tenant/kueue-viz-backend:{{revision}}
   - name: dockerfile
     value: /cmd/experimental/kueue-viz/backend/Dockerfile
+  - name: path-context
+    value: cmd/experimental/kueue-viz/backend
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
