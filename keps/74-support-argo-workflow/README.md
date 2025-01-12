@@ -270,14 +270,14 @@ spec:
 ## Motivation
 
 Workflows are pivotal components in domains like Scientific Computing and Simulations, where 
-administrators often enforce resource usage quotas for different users or departments. Currently, 
-Workflows lacks native support within Kueue.
+administrators often enforce resource usage quotas for different users or departments. 
+
+Not all kinds of templates are supported by Kueue nativly, like the templates that contain only container template in Argo Workflows or the steps in Tekton. Users must submit pods to Kueue separately, which means that gang scheduling or other features cannot be assured.
 
 ### Goals
 
-- Enable support for Generic Workflows within Kueue, allowing users to simply add a label 
+- Queuing by step when using workflows like Argo Workflows or Tekton should be supported. Allowing users to simply add a label 
 `kueue.x-k8s.io/queue-name` to their workflows and submit them initially in a suspended state.
-- Should be easily extended to support various workflow managers.
 
 ### Non-Goals
 
@@ -289,6 +289,10 @@ Workflows lacks native support within Kueue.
 
 #### Story 1
 
+I am an Argo Workflows user. The first step in my workflows involves creating several pods to read from S3 in parallel. I would like these pods to run on the same rack, specifically one that can accommodate at least 10 of them concurrently.
+
+#### Story 2
+
 A typical workflow for building images involves two main steps: cloning a git repository and 
 constructing the container, both of which share the same local disk space. The git clone operation 
 has minimal resource requirements, whereas the container construction process demands more 
@@ -296,7 +300,7 @@ substantial resources. It is essential that the Pod tasked with the git clone is
 a node capable of also running the Pod responsible for the container build. I hope that some 
 information of workflows can be considered when using workflows with Kueue.
 
-#### Story 2
+<!-- #### Story 3
 
 As a Kubernetes administrator, my goal is to ensure fair sharing of cluster resources among users. 
 Kueue is designed to assist with this. However, achieving this requires modifying the YAML files 
@@ -304,14 +308,14 @@ for the pipelines, so that all workloads are scheduled via Kueue, which can be q
 I am looking for workflow managers to offer an automated solution for submitting all pipeline 
 workloads directly to Kueue.
 
-#### Story 3
+#### Story 4
 
 As a SaaS provider, users will submit a pipeline description and pay for the resource consumption.
 We want to limit the maximum number of concurrently running pipelines to ensure they complete
 before the deadlines. Kueue can help to limit the number of concurrently running pipelines. I hope
-that Kueue can support to limit the number of concurrently running workflows in a certain queue.
+that Kueue can support to limit the number of concurrently running workflows in a certain queue. -->
 
-#### Story 4
+#### Story 3
 
 As an ML engineer, my workflow consists of several GPU-dependent stages with uniform resource 
 requirements. I aim to reuse resources allocated to earlier workflow stages to boost efficiency 
