@@ -8,7 +8,7 @@ description: >
 
 This page shows you how to monitor pending workloads with `VisibilityOnDemand` feature.
 
-The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator), and [batch users](/docs/tasks#batch-user) for [Local Queue Visibility section](#local-queue-visibility).
+The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator) for [Cluster Queue visibility section](#cluster-queue-visibility-via-kubectl), and [batch users](/docs/tasks#batch-user) for [Local Queue Visibility section](#local-queue-visibility-via-kubectl).
 
 From version v0.6.0, Kueue provides the ability for a batch administrators to monitor
 the pipeline of pending jobs, and help users to estimate when their jobs will
