@@ -116,9 +116,8 @@ type queue struct {
 	key                string
 	reservingWorkloads int
 	admittedWorkloads  int
-	//TODO: rename this to better distinguish between reserved and "in use" quantities
-	usage         resources.FlavorResourceQuantities
-	admittedUsage resources.FlavorResourceQuantities
+	totalReserved      resources.FlavorResourceQuantities
+	admittedUsage      resources.FlavorResourceQuantities
 }
 
 func (c *clusterQueue) Active() bool {
@@ -551,7 +550,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 	qKey := workload.QueueKey(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateFlavorUsage(frUsage, lq.usage, m)
+		updateFlavorUsage(frUsage, lq.totalReserved, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
@@ -589,13 +588,13 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl := &queue{
 		key:                qKey,
 		reservingWorkloads: 0,
-		usage:              make(resources.FlavorResourceQuantities),
+		totalReserved:      make(resources.FlavorResourceQuantities),
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.FlavorResourceUsage()
-			updateFlavorUsage(frq, qImpl.usage, 1)
+			updateFlavorUsage(frq, qImpl.totalReserved, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
 				updateFlavorUsage(frq, qImpl.admittedUsage, 1)
@@ -631,7 +630,7 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 
 func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
-	q.usage = resetUsage(q.usage, cqUsage)
+	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
