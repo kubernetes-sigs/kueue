@@ -52,7 +52,7 @@ ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
-CGO_ENABLED ?= 0
+CGO_ENABLED ?= 1
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
