@@ -72,6 +72,9 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/cluster-role-and-bindi
 `VisibilityOnDemand` is a Beta feature enabled by default.
 
 You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+
+If you disable the feature, you also need to remove the associated `APIService` from your cluster by doing `kubectl delete APIService v1beta1.visibility.kueue.x-k8s.io`.
+
 {{% /alert %}}
 
 To install a simple setup of ClusterQueue
