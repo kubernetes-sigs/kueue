@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -116,7 +117,9 @@ func (aw *AppWrapper) GVK() schema.GroupVersionKind {
 func (aw *AppWrapper) PodSets() []kueue.PodSet {
 	podSets, err := awutils.GetPodSets((*awv1beta2.AppWrapper)(aw))
 	if err != nil {
+		// TODO: https://github.com/kubernetes-sigs/kueue/issues/3969
 		// Kueue will raise an error on zero length PodSet; the Kueue GenericJob API prevents propagating the actual error.
+		ctrl.Log.Error(err, "Error returned from awutils.GetPodSets", "appwrapper", aw)
 		return []kueue.PodSet{}
 	}
 	return podSets
