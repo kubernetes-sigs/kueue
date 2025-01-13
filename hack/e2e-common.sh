@@ -21,6 +21,11 @@ export YQ="$ROOT_DIR"/bin/yq
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
+if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/standalone
+    APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
+fi
+
 if [[ -n ${JOBSET_VERSION:-} ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
@@ -80,6 +85,9 @@ function prepare_docker_images {
     docker tag $E2E_TEST_SLEEP_IMAGE "$E2E_TEST_SLEEP_IMAGE_WITHOUT_SHA"
     docker tag $E2E_TEST_CURL_IMAGE "$E2E_TEST_CURL_IMAGE_WITHOUT_SHA"
 
+    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+        docker pull "${APPWRAPPER_IMAGE}"
+    fi
     if [[ -n ${JOBSET_VERSION:-} ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
@@ -113,6 +121,13 @@ function cluster_kueue_deploy {
     else
         kubectl apply --server-side -k test/e2e/config/default
     fi
+}
+
+#$1 - cluster name
+function install_appwrapper {
+    cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
+    kubectl config use-context "kind-${1}"
+    kubectl apply -k "${APPWRAPPER_MANIFEST}"
 }
 
 #$1 - cluster name
