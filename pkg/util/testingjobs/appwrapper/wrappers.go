@@ -18,6 +18,7 @@ package appwrapper
 
 import (
 	"encoding/json"
+	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -84,9 +85,14 @@ func (aw *AppWrapperWrapper) Name(n string) *AppWrapperWrapper {
 func (aw *AppWrapperWrapper) Component(comp runtime.Object) *AppWrapperWrapper {
 	data, err := json.Marshal(comp)
 	if err == nil {
+		// See https://github.com/project-codeflare/codeflare-operator/pull/630
+		// The root cause is that the Kubernetes API defines creationTimestamp as a struct instead of a pointer
+		patchedData := strings.ReplaceAll(string(data), `"metadata":{"creationTimestamp":null},`, "")
+		patchedData = strings.ReplaceAll(patchedData, `"metadata":{"creationTimestamp":null,`, `"metadata":{`)
+		patchedData = strings.ReplaceAll(patchedData, `"creationTimestamp":null,`, "")
 		awc := awv1beta2.AppWrapperComponent{
 			Template: runtime.RawExtension{
-				Raw: data,
+				Raw: []byte(patchedData),
 			},
 		}
 		aw.AppWrapper.Spec.Components = append(aw.AppWrapper.Spec.Components, awc)
@@ -98,9 +104,14 @@ func (aw *AppWrapperWrapper) Component(comp runtime.Object) *AppWrapperWrapper {
 func (aw *AppWrapperWrapper) ComponentWithInfos(comp runtime.Object, infos ...awv1beta2.AppWrapperPodSetInfo) *AppWrapperWrapper {
 	data, err := json.Marshal(comp)
 	if err == nil {
+		// See https://github.com/project-codeflare/codeflare-operator/pull/630
+		// The root cause is that the Kubernetes API defines creationTimestamp as a struct instead of a pointer
+		patchedData := strings.ReplaceAll(string(data), `"metadata":{"creationTimestamp":null},`, "")
+		patchedData = strings.ReplaceAll(patchedData, `"metadata":{"creationTimestamp":null,`, `"metadata":{`)
+		patchedData = strings.ReplaceAll(patchedData, `"creationTimestamp":null,`, "")
 		awc := awv1beta2.AppWrapperComponent{
 			Template: runtime.RawExtension{
-				Raw: data,
+				Raw: []byte(patchedData),
 			},
 			PodSetInfos: infos,
 		}
