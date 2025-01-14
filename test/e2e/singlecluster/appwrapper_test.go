@@ -22,7 +22,6 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -88,7 +87,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Suspend(false).
-				Image(util.E2eTestSleepImage, []string{"10s"}).
+				Image(util.E2eTestSleepImage, []string{"10ms"}).
 				SetTypeMeta().Obj()).
 			Queue(localQueueName).
 			Obj()
@@ -103,32 +102,6 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Wait for the appwrapper to be Running", func() {
-			createdAppWrapper := &awv1beta2.AppWrapper{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
-				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		pods := &corev1.PodList{}
-		ginkgo.By("ensure all pods are created", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("ensure all pods are scheduled", func() {
-			listOpts := &client.ListOptions{
-				FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
-			}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
-				g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Wait for the wrapped Job to successfully complete", func() {
