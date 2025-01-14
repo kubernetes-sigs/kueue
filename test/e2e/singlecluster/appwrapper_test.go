@@ -104,6 +104,14 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Wait for the appwrapper to be Running", func() {
+			createdAppWrapper := &awv1beta2.AppWrapper{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		pods := &corev1.PodList{}
 		ginkgo.By("ensure all pods are created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
