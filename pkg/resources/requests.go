@@ -104,6 +104,7 @@ func (req Requests) CountIn(capacity Requests) int32 {
 		if !found {
 			return 0
 		}
+		// find the minimum count matching all the resource quota.
 		count := int32(capacity / rValue)
 		if result == nil || count < *result {
 			result = ptr.To(count)
