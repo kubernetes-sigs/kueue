@@ -381,7 +381,8 @@ flowchart TD;
 ```
 
 We introduce new `WorkloadWaitForPodsStart` and `WorkloadWaitForPodsRecovery` reasons to distinguish the reasons of setting the `PodsReady=false` condition.
-`WorkloadWaitForPodsStart` will be set before the job started, and `WorkloadWaitForPodsRecovery` after.
+`WorkloadWaitForPodsStart` will be set before the job started and is replacement for the old `PodsReady` reason. 
+`WorkloadWaitForPodsRecovery` will be set after the job started.
 
 When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
