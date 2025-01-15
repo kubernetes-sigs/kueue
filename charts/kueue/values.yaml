@@ -29,8 +29,13 @@ controllerManager:
         memory: 512Mi
     podSecurityContext:
       runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
     containerSecurityContext:
       allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
   replicas: 1
   imagePullSecrets: []
   readinessProbe:
