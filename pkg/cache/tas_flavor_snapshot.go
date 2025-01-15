@@ -216,7 +216,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
 	}
-	return s.buildAssignment(currFitDomain), ""
+	return s.buildAssignment(currFitDomain, requests), ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
@@ -294,7 +294,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	return nil
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
 	assignment := kueue.TopologyAssignment{
 		Levels:  s.levelKeys,
 		Domains: make([]kueue.TopologyDomainAssignment, 0),
@@ -304,6 +304,11 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAs
 			Values: s.levelValuesPerDomain[domain.id],
 			Count:  s.state[domain.id],
 		})
+		usage := make(resources.Requests)
+		for resName, resValue := range singlePodRequest {
+			usage[resName] = resValue * int64(s.state[domain.id])
+		}
+		s.addUsage(domain.id, usage)
 	}
 	return &assignment
 }

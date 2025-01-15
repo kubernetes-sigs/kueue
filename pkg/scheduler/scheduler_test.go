@@ -4711,6 +4711,248 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 		},
+		"scheduling workload with multiple PodSets requesting TAS flavor and will succeed": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "y1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "y1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "16").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("worker", 15).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "launcher", "worker").
+					AssignmentWithIndex(0, corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCountWithIndex(0, 1).
+					TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
+						Levels: []string{tasRackLabel, corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"r1",
+									"x1",
+								},
+							},
+						},
+					}).
+					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "15000m").
+					AssignmentPodCountWithIndex(1, 15).
+					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
+						Levels: []string{tasRackLabel, corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 8,
+								Values: []string{
+									"r1",
+									"y1",
+								},
+							},
+							{
+								Count: 7,
+								Values: []string{
+									"r1",
+									"x1",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"scheduling workload with multiple PodSets requesting higher level topology": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "y1",
+						Labels: map[string]string{
+							"tas-node":   "true",
+							tasRackLabel: "r1",
+							tasHostLabel: "y1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "16").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("worker", 15).
+							RequiredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "launcher", "worker").
+					AssignmentWithIndex(0, corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCountWithIndex(0, 1).
+					TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
+						Levels: []string{tasRackLabel, corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"r1",
+									"x1",
+								},
+							},
+						},
+					}).
+					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "15000m").
+					AssignmentPodCountWithIndex(1, 15).
+					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
+						Levels: []string{tasRackLabel, corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 8,
+								Values: []string{
+									"r1",
+									"y1",
+								},
+							},
+							{
+								Count: 7,
+								Values: []string{
+									"r1",
+									"x1",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
