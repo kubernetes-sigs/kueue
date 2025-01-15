@@ -53,6 +53,9 @@ function kind_load {
 	      cluster_kind_load "$KIND_CLUSTER_NAME"
     fi
 
+    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+        install_appwrapper "$KIND_CLUSTER_NAME"
+    fi
     if [[ -n ${JOBSET_VERSION:-} ]]; then
         install_jobset "$KIND_CLUSTER_NAME"
     fi

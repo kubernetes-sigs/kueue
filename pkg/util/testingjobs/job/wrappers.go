@@ -260,3 +260,9 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 	j.Spec.ManagedBy = &c
 	return j
 }
+
+func (j *JobWrapper) SetTypeMeta() *JobWrapper {
+	j.APIVersion = batchv1.SchemeGroupVersion.String()
+	j.Kind = "Job"
+	return j
+}
