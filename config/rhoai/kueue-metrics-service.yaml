@@ -5,7 +5,7 @@ metadata:
 spec:
   ports:
   - name: metrics
-    port: 8080
+    port: 8443
     protocol: TCP
     targetPort: metrics
   selector:

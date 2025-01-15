@@ -19,4 +19,4 @@ spec:
         ports:
         - containerPort: 8443
           protocol: TCP
-          name: https
+          name: metrics
