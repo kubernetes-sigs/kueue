@@ -25,6 +25,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -145,4 +146,20 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 		return apivalidation.ValidateImmutableField(newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], maxExecTimeLabelPath)
 	}
 	return nil
+}
+
+// ValidateImmutablePodSpec function is used for serving workloads to ensure no changes are allowed
+// to the PodSpec except for the image field in containers.
+func ValidateImmutablePodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+	newPodSpec = newPodSpec.DeepCopy()
+	oldPodSpec = oldPodSpec.DeepCopy()
+	resetPodSpecMutableFields(newPodSpec)
+	resetPodSpecMutableFields(oldPodSpec)
+	return apivalidation.ValidateImmutableField(newPodSpec, oldPodSpec, fieldPath)
+}
+
+func resetPodSpecMutableFields(podSpec *corev1.PodSpec) {
+	for i := range podSpec.Containers {
+		podSpec.Containers[i].Image = ""
+	}
 }

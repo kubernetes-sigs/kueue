@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/queue"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type Webhook struct {
@@ -93,9 +92,13 @@ func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpe
 var _ webhook.CustomValidator = &Webhook{}
 
 var (
-	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
-	startupPolicyPath  = field.NewPath("spec", "startupPolicy")
+	labelsPath               = field.NewPath("metadata", "labels")
+	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
+	specPath                 = field.NewPath("spec")
+	startupPolicyPath        = specPath.Child("startupPolicy")
+	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
+	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
+	workerTemplatePath       = leaderWorkerTemplatePath.Child("workerTemplate")
 )
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
@@ -124,6 +127,19 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)
 	allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
 
+	if jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()) != "" {
+		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
+			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			leaderTemplatePath,
+		)...)
+		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
+			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			workerTemplatePath,
+		)...)
+	}
+
 	return warnings, allErrs.ToAggregate()
 }
 
@@ -131,23 +147,9 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) (string, error) {
-	ownerName := lws.Name
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		leaderHash, err := utilpod.GenerateShape(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec)
-		if err != nil {
-			return "", err
-		}
-		ownerName = fmt.Sprintf("%s-%s", ownerName, leaderHash)
-	}
-	workerHash, err := utilpod.GenerateShape(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
-	if err != nil {
-		return "", err
-	}
-	ownerName = fmt.Sprintf("%s-%s", ownerName, workerHash)
-
-	// Workload name should be unique for leader shape, worker shape and group index.
-	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", ownerName, groupIndex), lws.UID, gvk), nil
+func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) string {
+	// Workload name should be unique by group index.
+	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", lws.Name, groupIndex), lws.UID, gvk)
 }
 
 func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
@@ -157,6 +159,16 @@ func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
 		allErrors = append(allErrors,
 			field.Invalid(startupPolicyPath, lws.Spec.StartupPolicy, "only the LeaderCreated startup policy is allowed when using the kueue.x-k8s.io/queue-name label or annotation"),
 		)
+	}
+	return allErrors
+}
+
+func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
+	allErrors := field.ErrorList{}
+	if newPodTemplateSpec == nil && oldPodTemplateSpec != nil || newPodTemplateSpec != nil && oldPodTemplateSpec == nil {
+		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
+	} else if newPodTemplateSpec != nil {
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
 }

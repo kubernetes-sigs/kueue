@@ -124,13 +124,8 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, nil
 	}
 
-	groupName, err := GetWorkloadName(lws, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
-	if err != nil {
-		return false, err
-	}
-
 	pod.Labels[constants.QueueLabel] = queueName
-	pod.Labels[podcontroller.GroupNameLabel] = groupName
+	pod.Labels[podcontroller.GroupNameLabel] = GetWorkloadName(lws, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 	pod.Annotations[podcontroller.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 
 	hash, err := utilpod.GenerateShape(pod.Spec)

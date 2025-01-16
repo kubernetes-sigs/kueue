@@ -114,7 +114,7 @@ func TestPodReconciler(t *testing.T) {
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 				Queue("queue").
-				Group("leaderworkerset-lws-7aa6c7b8-0-8740c").
+				Group("leaderworkerset-lws-0-97565").
 				GroupTotalCount("1").
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
