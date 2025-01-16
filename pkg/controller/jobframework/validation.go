@@ -60,7 +60,7 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
-	allErrs = append(allErrs, validateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	return allErrs
 }
@@ -119,8 +119,8 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func validateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(newJob), workloadPriorityClassName(oldJob), workloadPriorityClassNamePath)
+func ValidateUpdateForWorkloadPriorityClassName(oldObj, newObj client.Object) field.ErrorList {
+	allErrs := apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
 	return allErrs
 }
 

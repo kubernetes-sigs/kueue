@@ -80,7 +80,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
-
+	if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
+		ss.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+	}
 	return nil
 }
 
@@ -103,6 +105,7 @@ var (
 	statefulsetLabelsPath         = field.NewPath("metadata", "labels")
 	statefulsetQueueNameLabelPath = statefulsetLabelsPath.Key(constants.QueueLabel)
 	statefulsetReplicasPath       = field.NewPath("spec", "replicas")
+	priorityClassNameLabelPath    = statefulsetLabelsPath.Key(constants.WorkloadPriorityClassLabel)
 	statefulsetGroupNameLabelPath = statefulsetLabelsPath.Key(pod.GroupNameLabel)
 
 	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
@@ -129,6 +132,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newStatefulSet.GetLabels()[pod.GroupNameLabel],
 		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
 		statefulsetGroupNameLabelPath,
+	)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
 	)...)
 
 	if isManagedByKueue(newStatefulSet.Object()) {
