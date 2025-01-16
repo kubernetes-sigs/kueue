@@ -30,6 +30,7 @@ import (
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -46,6 +47,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -58,6 +60,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -77,7 +80,7 @@ var defaultEnabledIntegrations sets.Set[string] = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob",
-	"pod")
+	"pod", "workload.codeflare.dev/appwrapper")
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -1101,6 +1104,51 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdXGBoostJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+		})
+	})
+
+	ginkgo.It("Should run an appwrapper on worker if admitted", func() {
+		aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
+			Component(testingjob.MakeJob("job-1", managerNs.Name).SetTypeMeta().Parallelism(1).Obj()).
+			Queue(managerLq.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
+			Obj()
+
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, aw)).Should(gomega.Succeed())
+		wlLookupKey := types.NamespacedName{Name: workloadappwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
+
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "aw-0-0",
+			},
+		)
+
+		admitWorkloadAndCheckWorkerCopies(multikueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("changing the status of the appwrapper in the worker, updates the manager's appwrappers status", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperRunning
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finishing the worker appwrapper, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			finishJobReason := "AppWrapper finished successfully"
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperSucceeded
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
