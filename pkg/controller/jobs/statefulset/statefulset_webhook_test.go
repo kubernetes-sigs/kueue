@@ -70,6 +70,27 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
+		"statefulset with queue and priority class": {
+			enableIntegrations: []string{"pod"},
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
+				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
+				PodTemplateSpecPodGroupTotalCountAnnotation(10).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
+				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
+				Obj(),
+		},
 		"statefulset without replicas": {
 			enableIntegrations: []string{"pod"},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
@@ -304,6 +325,30 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in priority class label": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},
