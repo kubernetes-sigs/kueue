@@ -165,9 +165,9 @@ func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
 
 func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
 	allErrors := field.ErrorList{}
-	if newPodTemplateSpec == nil && oldPodTemplateSpec != nil || newPodTemplateSpec != nil && oldPodTemplateSpec == nil {
+	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
-	} else if newPodTemplateSpec != nil {
+	} else {
 		allErrors = append(allErrors, jobframework.ValidateImmutablePodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
