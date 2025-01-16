@@ -67,14 +67,15 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 	jobframework.ApplyDefaultLocalQueue(lws.Object(), wh.queues.DefaultLocalQueueExist)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
-	if err != nil || !suspend {
+	if err != nil {
 		return err
 	}
-
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		wh.podTemplateSpecDefault(lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
+	if suspend {
+		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+			wh.podTemplateSpecDefault(lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
+		}
+		wh.podTemplateSpecDefault(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 	}
-	wh.podTemplateSpecDefault(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 
 	return nil
 }
