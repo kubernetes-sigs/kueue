@@ -183,6 +183,10 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	log := r.log.WithValues("localQueue", klog.KObj(newLq))
 	log.V(2).Info("Queue update event")
 
+	if features.Enabled(features.LocalQueueMetrics) {
+		updateLocalQueueResourceMetrics(newLq)
+	}
+
 	oldStopPolicy := ptr.Deref(oldLq.Spec.StopPolicy, kueue.None)
 	newStopPolicy := ptr.Deref(newLq.Spec.StopPolicy, kueue.None)
 
@@ -207,9 +211,6 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	r.queues.DeleteLocalQueue(oldLq)
-	if features.Enabled(features.LocalQueueMetrics) {
-		updateLocalQueueResourceMetrics(newLq)
-	}
 
 	return true
 }
