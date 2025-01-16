@@ -245,10 +245,8 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	allErrs := jobframework.ValidateJobOnCreate(pod)
 	allErrs = append(allErrs, validateCommon(pod)...)
 
-	if _, suspendByParent := pod.pod.Annotations[SuspendedByParentAnnotation]; !suspendByParent {
-		if warn := warningForPodManagedLabel(pod); warn != "" {
-			warnings = append(warnings, warn)
-		}
+	if warn := warningForPodManagedLabel(pod); warn != "" {
+		warnings = append(warnings, warn)
 	}
 
 	return warnings, allErrs.ToAggregate()

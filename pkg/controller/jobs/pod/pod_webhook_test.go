@@ -510,13 +510,6 @@ func TestValidateCreate(t *testing.T) {
 				"pod owner is managed by kueue, label 'kueue.x-k8s.io/managed=true' might lead to unexpected behaviour",
 			},
 		},
-		"pod owner is managed by kueue with suspend by parent annotation": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
-				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Annotation(SuspendedByParentAnnotation, "job").
-				Obj(),
-		},
 		"pod with group name and no group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				Label(constants.ManagedByKueueLabel, "true").
