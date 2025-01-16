@@ -103,6 +103,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
 			policyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
 			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)

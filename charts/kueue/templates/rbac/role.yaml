@@ -304,7 +304,6 @@ rules:
       - ray.io
     resources:
       - rayclusters/finalizers
-      - rayclusters/status
       - rayjobs/finalizers
     verbs:
       - get
@@ -312,6 +311,7 @@ rules:
   - apiGroups:
       - ray.io
     resources:
+      - rayclusters/status
       - rayjobs/status
     verbs:
       - get
