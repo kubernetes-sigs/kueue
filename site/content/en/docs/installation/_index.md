@@ -10,7 +10,6 @@ description: >
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
-  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -76,10 +75,6 @@ We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to in
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
-
-### Add API Priority and Fairness configuration for the visibility API
-
-See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
 
 ### Uninstall
 
