@@ -716,16 +716,12 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"pod group name is changed with suspend by parent annotation": {
+		"assign pod group name": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
-				GroupTotalCount("2").
-				Gate(SchedulingGateName).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group-new").
 				GroupTotalCount("2").
-				Gate(SchedulingGateName).
 				Obj(),
 		},
 		"retriable in group annotation is removed": {

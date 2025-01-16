@@ -264,7 +264,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
-	if !newPod.IsSuspended() {
+	if podGroupName(oldPod.pod) != "" {
 		allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
 	}
 
