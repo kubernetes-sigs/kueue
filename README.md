@@ -67,7 +67,7 @@ Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to l
 
 ## Usage
 
-A minimal configuration can be set by running the [examples](examples):
+A minimal configuration can be set by running the [examples](site/static/examples):
 
 ```shell
 kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
