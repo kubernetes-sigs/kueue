@@ -150,6 +150,22 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"leader ready startup policy": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Obj(),
+		},
+		"leader ready startup policy with queue-name": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "spec.startupPolicy"},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {

@@ -92,6 +92,12 @@ func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpe
 
 var _ webhook.CustomValidator = &Webhook{}
 
+var (
+	labelsPath         = field.NewPath("metadata", "labels")
+	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
+	startupPolicyPath  = field.NewPath("spec", "startupPolicy")
+)
+
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	lws := fromObject(obj)
 
@@ -99,14 +105,10 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateQueueName(lws.Object())
+	allErrs = append(allErrs, validateStartupPolicy(lws)...)
 
 	return nil, allErrs.ToAggregate()
 }
-
-var (
-	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
-)
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
 	oldLeaderWorkerSet := fromObject(oldObj)
@@ -120,6 +122,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
 	)
+	allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
 
 	return warnings, allErrs.ToAggregate()
 }
@@ -145,4 +148,15 @@ func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) 
 
 	// Workload name should be unique for leader shape, worker shape and group index.
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", ownerName, groupIndex), lws.UID, gvk), nil
+}
+
+func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
+	allErrors := field.ErrorList{}
+	// TODO(#3232): Support LeaderReady StartupPolicy
+	if jobframework.QueueNameForObject(lws.Object()) != "" && lws.Spec.StartupPolicy == leaderworkersetv1.LeaderReadyStartupPolicy {
+		allErrors = append(allErrors,
+			field.Invalid(startupPolicyPath, lws.Spec.StartupPolicy, "only the LeaderCreated startup policy is allowed when using the kueue.x-k8s.io/queue-name label or annotation"),
+		)
+	}
+	return allErrors
 }

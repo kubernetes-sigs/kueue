@@ -92,6 +92,11 @@ func (w *LeaderWorkerSetWrapper) Name(n string) *LeaderWorkerSetWrapper {
 	return w
 }
 
+func (w *LeaderWorkerSetWrapper) StartupPolicy(startupPolicyType leaderworkersetv1.StartupPolicyType) *LeaderWorkerSetWrapper {
+	w.Spec.StartupPolicy = startupPolicyType
+	return w
+}
+
 // WorkerTemplateSpecLabel sets the label of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecLabel(k, v string) *LeaderWorkerSetWrapper {
 	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels == nil {
