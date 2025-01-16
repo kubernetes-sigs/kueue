@@ -151,15 +151,24 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 // ValidateImmutablePodSpec function is used for serving workloads to ensure no changes are allowed
 // to the PodSpec except for the image field in containers.
 func ValidateImmutablePodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
-	newPodSpec = newPodSpec.DeepCopy()
-	oldPodSpec = oldPodSpec.DeepCopy()
-	resetPodSpecMutableFields(newPodSpec)
-	resetPodSpecMutableFields(oldPodSpec)
-	return apivalidation.ValidateImmutableField(newPodSpec, oldPodSpec, fieldPath)
-}
+	// handle updateable fields by munging those fields prior to deep equal comparison.
+	mungedPodSpec := newPodSpec.DeepCopy()
 
-func resetPodSpecMutableFields(podSpec *corev1.PodSpec) {
-	for i := range podSpec.Containers {
-		podSpec.Containers[i].Image = ""
+	// munge spec.containers[*].image
+	newContainers := make([]corev1.Container, 0, len(newPodSpec.Containers))
+	for i, container := range mungedPodSpec.Containers {
+		container.Image = oldPodSpec.Containers[i].Image
+		newContainers = append(newContainers, container)
 	}
+	mungedPodSpec.Containers = newContainers
+
+	// munge spec.initContainers[*].image
+	newInitContainers := make([]corev1.Container, 0, len(newPodSpec.InitContainers))
+	for ix, container := range mungedPodSpec.InitContainers {
+		container.Image = oldPodSpec.InitContainers[ix].Image
+		newInitContainers = append(newInitContainers, container)
+	}
+	mungedPodSpec.InitContainers = newInitContainers
+
+	return apivalidation.ValidateImmutableField(mungedPodSpec, oldPodSpec, fieldPath)
 }

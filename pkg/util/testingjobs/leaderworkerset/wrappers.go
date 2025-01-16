@@ -185,3 +185,9 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplate(leader corev1.PodTemplateSpec) *
 	w.Spec.LeaderWorkerTemplate.LeaderTemplate = &leader
 	return w
 }
+
+// WorkerTemplate sets the worker template of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) WorkerTemplate(worker corev1.PodTemplateSpec) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate = worker
+	return w
+}

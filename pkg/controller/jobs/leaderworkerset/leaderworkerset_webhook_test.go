@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -219,6 +220,294 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change image": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"change resources in container": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: "pause",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change resources in init containers": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic",
+								Image:     "pause:0.1.0",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:  "ic",
+								Image: "pause:0.1.1",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     "pause",
+								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Name:  "ic",
+								Image: "pause",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec").String(),
 				},
 			}.ToAggregate(),
 		},
