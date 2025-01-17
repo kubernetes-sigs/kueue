@@ -45,7 +45,8 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 - [Submit jobs to MultiKueue](run/multikueue).
-- [Run an argo workflow](run/argo_workload)
+- [Support external workloads](run/external-workloads)
+  Kueue allows one to use the pod integration with external workloads that are not part of Kueue.
 
 ### Serving user
 
