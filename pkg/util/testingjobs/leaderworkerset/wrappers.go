@@ -92,6 +92,11 @@ func (w *LeaderWorkerSetWrapper) Name(n string) *LeaderWorkerSetWrapper {
 	return w
 }
 
+func (w *LeaderWorkerSetWrapper) WithOwnerReference(ownerReference metav1.OwnerReference) *LeaderWorkerSetWrapper {
+	w.OwnerReferences = append(w.OwnerReferences, ownerReference)
+	return w
+}
+
 func (w *LeaderWorkerSetWrapper) StartupPolicy(startupPolicyType leaderworkersetv1.StartupPolicyType) *LeaderWorkerSetWrapper {
 	w.Spec.StartupPolicy = startupPolicyType
 	return w

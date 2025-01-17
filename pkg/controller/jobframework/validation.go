@@ -27,6 +27,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -171,4 +172,14 @@ func ValidateImmutablePodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.Pod
 	mungedPodSpec.InitContainers = newInitContainers
 
 	return apivalidation.ValidateImmutableField(mungedPodSpec, oldPodSpec, fieldPath)
+}
+
+func IsManagedByKueue(obj client.Object) bool {
+	objectOwner := metav1.GetControllerOf(obj)
+	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
+		return false
+	} else if QueueNameForObject(obj) != "" {
+		return true
+	}
+	return false
 }

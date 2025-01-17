@@ -29,11 +29,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -397,7 +399,7 @@ func TestValidateUpdate(t *testing.T) {
 				Replicas(4).
 				Obj(),
 		},
-		"change in replicas (scale up with ownerReference while the previous scaling operation is still in progress)": {
+		"change in replicas (scale up with AppWrapper ownerReference while the previous scaling operation is still in progress)": {
 			integrations: []string{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
@@ -415,7 +417,7 @@ func TestValidateUpdate(t *testing.T) {
 				StatusReplicas(1).
 				Obj(),
 		},
-		"change in replicas (scale up with ownerReference)": {
+		"change in replicas (scale up with AppWrapper ownerReference)": {
 			integrations: []string{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
@@ -425,6 +427,40 @@ func TestValidateUpdate(t *testing.T) {
 				WithOwnerReference(metav1.OwnerReference{
 					APIVersion: awv1beta2.GroupVersion.String(),
 					Kind:       "AppWrapper",
+					Controller: ptr.To(true),
+				}).
+				Queue("test-queue").
+				Replicas(4).
+				Obj(),
+		},
+		"change in replicas (scale up with LeaderWorkerSet ownerReference while the previous scaling operation is still in progress)": {
+			integrations: []string{leaderworkerset.FrameworkName},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(0).
+				StatusReplicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: leaderworkersetv1.GroupVersion.String(),
+					Kind:       "LeaderWorkerSet",
+					Controller: ptr.To(true),
+				}).
+				Queue("test-queue").
+				Replicas(3).
+				StatusReplicas(1).
+				Obj(),
+		},
+		"change in replicas (scale up with LeaderWorkerSet ownerReference)": {
+			integrations: []string{leaderworkerset.FrameworkName},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: leaderworkersetv1.GroupVersion.String(),
+					Kind:       "LeaderWorkerSet",
 					Controller: ptr.To(true),
 				}).
 				Queue("test-queue").

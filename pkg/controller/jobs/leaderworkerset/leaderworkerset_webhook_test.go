@@ -22,14 +22,18 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -124,9 +128,10 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		lws       *leaderworkersetv1.LeaderWorkerSet
-		wantErr   error
-		wantWarns admission.Warnings
+		integrations []string
+		lws          *leaderworkersetv1.LeaderWorkerSet
+		wantErr      error
+		wantWarns    admission.Warnings
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -167,11 +172,26 @@ func TestValidateCreate(t *testing.T) {
 				&field.Error{Type: field.ErrorTypeInvalid, Field: "spec.startupPolicy"},
 			}.ToAggregate(),
 		},
+		"leader ready startup policy with owner reference": {
+			integrations: []string{appwrapper.FrameworkName},
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: awv1beta2.GroupVersion.String(),
+					Kind:       "AppWrapper",
+					Controller: ptr.To(true),
+				}).
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			for _, integration := range tc.integrations {
+				jobframework.EnableIntegrationsForTest(t, integration)
+			}
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			w := &Webhook{client: client}
@@ -189,9 +209,10 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		oldObj  *leaderworkersetv1.LeaderWorkerSet
-		newObj  *leaderworkersetv1.LeaderWorkerSet
-		wantErr error
+		integrations []string
+		oldObj       *leaderworkersetv1.LeaderWorkerSet
+		newObj       *leaderworkersetv1.LeaderWorkerSet
+		wantErr      error
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -222,6 +243,46 @@ func TestValidateUpdate(t *testing.T) {
 					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"change startup policy without queue-name": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Obj(),
+		},
+		"change startup policy with queue-name": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: startupPolicyPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change startup policy with owner reference": {
+			integrations: []string{appwrapper.FrameworkName},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: awv1beta2.GroupVersion.String(),
+					Kind:       "AppWrapper",
+					Controller: ptr.To(true),
+				}).
+				Queue("test-queue").
+				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				Obj(),
 		},
 		"change image": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -515,6 +576,10 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for _, integration := range tc.integrations {
+				jobframework.EnableIntegrationsForTest(t, integration)
+			}
+
 			ctx := context.Background()
 
 			wh := &Webhook{}

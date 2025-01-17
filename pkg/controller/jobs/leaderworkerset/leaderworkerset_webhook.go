@@ -108,7 +108,10 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateQueueName(lws.Object())
-	allErrs = append(allErrs, validateStartupPolicy(lws)...)
+
+	if jobframework.IsManagedByKueue(lws.Object()) {
+		allErrs = append(allErrs, validateStartupPolicy(lws)...)
+	}
 
 	return nil, allErrs.ToAggregate()
 }
@@ -125,9 +128,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
 	)
-	allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
 
-	if jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()) != "" {
+	if jobframework.IsManagedByKueue(newLeaderWorkerSet.Object()) {
+		allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
+
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
@@ -155,7 +159,7 @@ func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) 
 func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
 	allErrors := field.ErrorList{}
 	// TODO(#3232): Support LeaderReady StartupPolicy
-	if jobframework.QueueNameForObject(lws.Object()) != "" && lws.Spec.StartupPolicy == leaderworkersetv1.LeaderReadyStartupPolicy {
+	if lws.Spec.StartupPolicy == leaderworkersetv1.LeaderReadyStartupPolicy {
 		allErrors = append(allErrors,
 			field.Invalid(startupPolicyPath, lws.Spec.StartupPolicy, "only the LeaderCreated startup policy is allowed when using the kueue.x-k8s.io/queue-name label or annotation"),
 		)
