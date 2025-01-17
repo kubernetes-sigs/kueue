@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -55,12 +56,13 @@ func init() {
 		JobType:                &rayv1.RayJob{},
 		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayJob,
+		MultiKueueAdapter:      &multikueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups=ray.io,resources=rayjobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=ray.io,resources=rayjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=ray.io,resources=rayjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -82,12 +84,17 @@ func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
 }
 
+func fromObject(obj runtime.Object) *RayJob {
+	return (*RayJob)(obj.(*rayv1.RayJob))
+}
+
 func (j *RayJob) IsSuspended() bool {
 	return j.Spec.Suspend
 }
 
 func (j *RayJob) IsActive() bool {
-	return j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended
+	// When the status is Suspended or New there should be no running Pods, and so the Job is not active.
+	return !(j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusSuspended || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusNew)
 }
 
 func (j *RayJob) Suspend() {

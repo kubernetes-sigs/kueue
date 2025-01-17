@@ -128,8 +128,22 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
-	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator/
-	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator/
+	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
+	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
+
+.PHONY: ray-operator-manifests
+ray-operator-manifests: ## Copy the whole manifests content from the ray-operator to the dep-crds directory.
+	## Full version of the manifest is required for e2e multikueue tests.
+	if [ -d "$(EXTERNAL_CRDS_DIR)/ray-operator" ]; then \
+		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/ray-operator" && \
+		rm -rf "$(EXTERNAL_CRDS_DIR)/ray-operator"; \
+	fi
+	mkdir -p "$(EXTERNAL_CRDS_DIR)/ray-operator"; \
+	cp -rf "$(RAY_ROOT)/config/crd" "$(EXTERNAL_CRDS_DIR)/ray-operator"
+	cp -rf "$(RAY_ROOT)/config/default" "$(EXTERNAL_CRDS_DIR)/ray-operator"
+	cp -rf "$(RAY_ROOT)/config/rbac" "$(EXTERNAL_CRDS_DIR)/ray-operator"
+	cp -rf "$(RAY_ROOT)/config/manager" "$(EXTERNAL_CRDS_DIR)/ray-operator"
+
 
 JOBSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/jobset)
 .PHONY: jobset-operator-crd
@@ -162,7 +176,7 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 	cd "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" && chmod u+w kustomization.yaml && $(KUSTOMIZE) edit set image controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && chmod u-w kustomization.yaml
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs

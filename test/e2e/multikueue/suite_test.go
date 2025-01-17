@@ -27,6 +27,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -98,6 +99,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
@@ -273,7 +276,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
 
-	ginkgo.GinkgoLogr.Info("Kueue and JobSet operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+
+	ginkgo.GinkgoLogr.Info("Kueue and all integration operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
