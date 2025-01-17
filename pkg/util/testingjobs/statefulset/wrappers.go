@@ -97,6 +97,11 @@ func (ss *StatefulSetWrapper) Name(n string) *StatefulSetWrapper {
 	return ss
 }
 
+func (ss *StatefulSetWrapper) WithOwnerReference(ownerReference metav1.OwnerReference) *StatefulSetWrapper {
+	ss.OwnerReferences = append(ss.OwnerReferences, ownerReference)
+	return ss
+}
+
 // PodTemplateSpecLabel sets the label of the pod template spec of the StatefulSet
 func (ss *StatefulSetWrapper) PodTemplateSpecLabel(k, v string) *StatefulSetWrapper {
 	if ss.Spec.Template.Labels == nil {
