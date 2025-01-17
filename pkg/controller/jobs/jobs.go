@@ -23,6 +23,7 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"

@@ -53,6 +53,11 @@ if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_CRDS=${ROOT_DIR}/dep-crds/ray-operator/crd/bases
 fi
 
+if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
+    export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
+fi
+
 # sleep image to use for testing.
 export E2E_TEST_SLEEP_IMAGE_OLD=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b
 E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE_OLD%%@*}
@@ -114,7 +119,10 @@ function prepare_docker_images {
             docker pull "${KUBERAY_RAY_IMAGE}"
         elif [[ "$unamestr" == 'Darwin' ]]; then
             docker pull "${KUBERAY_RAY_IMAGE_ARM}"
-        fi 
+        fi
+    fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        docker pull "${LEADERWORKERSET_IMAGE}"
     fi
 }
 
@@ -184,6 +192,12 @@ function install_kuberay {
     kubectl config use-context "kind-${1}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
     kubectl create -k "${KUBERAY_MANIFEST}"
+}
+
+function install_lws {
+    cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)

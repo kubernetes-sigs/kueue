@@ -65,6 +65,9 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$KIND_CLUSTER_NAME"
     fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        install_lws "$KIND_CLUSTER_NAME"
+    fi
 }
 
 function kueue_deploy {
