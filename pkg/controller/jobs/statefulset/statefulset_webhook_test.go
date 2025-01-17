@@ -342,22 +342,16 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		"change in replicas (scale up while the previous scaling operation is still in progress)": {
-			oldObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(0)),
-				},
-				Status: appsv1.StatefulSetStatus{
-					Replicas: 3,
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
-				},
-				Status: appsv1.StatefulSetStatus{
-					Replicas: 1,
-				},
-			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(0).
+				StatusReplicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				StatusReplicas(1).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
@@ -366,22 +360,39 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change in replicas (scale up)": {
-			oldObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(4)),
-				},
-			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(4).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: replicasPath.String(),
 				},
 			}.ToAggregate(),
+		},
+
+		"change in replicas (scale up without queue-name while the previous scaling operation is still in progress)": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Replicas(0).
+				StatusReplicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Replicas(3).
+				StatusReplicas(1).
+				Obj(),
+		},
+		"change in replicas (scale up without queue-name)": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Replicas(4).
+				Obj(),
 		},
 	}
 
