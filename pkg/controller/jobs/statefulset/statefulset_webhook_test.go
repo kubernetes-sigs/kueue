@@ -261,16 +261,22 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change in replicas": {
-			oldObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
-				},
-			},
-			newObj: &appsv1.StatefulSet{
-				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(4)),
-				},
-			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-name", "test-ns").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-name", "test-ns").
+				Replicas(4).
+				Obj(),
+		},
+		"change in replicas with queue-name": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-name", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-name", "test-ns").
+				Queue("test-queue").
+				Replicas(4).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,

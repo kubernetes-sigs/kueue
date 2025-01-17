@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -130,12 +131,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		statefulsetGroupNameLabelPath,
 	)...)
 
-	// TODO(#3279): support resizes later
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.Spec.Replicas,
-		oldStatefulSet.Spec.Replicas,
-		statefulsetReplicasPath,
-	)...)
+	if isManagedByKueue(newStatefulSet.Object()) {
+		// TODO(#3279): support resizes later
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+			newStatefulSet.Spec.Replicas,
+			oldStatefulSet.Spec.Replicas,
+			statefulsetReplicasPath,
+		)...)
+	}
 
 	return warnings, allErrs.ToAggregate()
 }
@@ -147,4 +150,14 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 func GetWorkloadName(statefulSetName string) string {
 	// Passing empty UID as it is not available before object creation
 	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+}
+
+func isManagedByKueue(obj client.Object) bool {
+	objectOwner := metav1.GetControllerOf(obj)
+	if objectOwner != nil && jobframework.IsOwnerManagedByKueue(objectOwner) {
+		return false
+	} else if jobframework.QueueNameForObject(obj) != "" {
+		return true
+	}
+	return false
 }
