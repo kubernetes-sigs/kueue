@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -200,9 +202,10 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		oldObj  *appsv1.StatefulSet
-		newObj  *appsv1.StatefulSet
-		wantErr error
+		integrations []string
+		oldObj       *appsv1.StatefulSet
+		newObj       *appsv1.StatefulSet
+		wantErr      error
 	}{
 		"no changes": {
 			oldObj: &appsv1.StatefulSet{
@@ -394,10 +397,48 @@ func TestValidateUpdate(t *testing.T) {
 				Replicas(4).
 				Obj(),
 		},
+		"change in replicas (scale up with ownerReference while the previous scaling operation is still in progress)": {
+			integrations: []string{appwrapper.FrameworkName},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(0).
+				StatusReplicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: awv1beta2.GroupVersion.String(),
+					Kind:       "AppWrapper",
+					Controller: ptr.To(true),
+				}).
+				Queue("test-queue").
+				Replicas(3).
+				StatusReplicas(1).
+				Obj(),
+		},
+		"change in replicas (scale up with ownerReference)": {
+			integrations: []string{appwrapper.FrameworkName},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				WithOwnerReference(metav1.OwnerReference{
+					APIVersion: awv1beta2.GroupVersion.String(),
+					Kind:       "AppWrapper",
+					Controller: ptr.To(true),
+				}).
+				Queue("test-queue").
+				Replicas(4).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for _, integration := range tc.integrations {
+				jobframework.EnableIntegration(integration)
+			}
+
 			ctx := context.Background()
 
 			wh := &Webhook{}
