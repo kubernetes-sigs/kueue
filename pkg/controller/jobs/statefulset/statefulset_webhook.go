@@ -130,12 +130,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		statefulsetGroupNameLabelPath,
 	)...)
 
-	// TODO(#3279): support resizes later
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.Spec.Replicas,
-		oldStatefulSet.Spec.Replicas,
-		statefulsetReplicasPath,
-	)...)
+	if jobframework.QueueNameForObject(newStatefulSet.Object()) != "" {
+		// TODO(#3279): support resizes later
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+			newStatefulSet.Spec.Replicas,
+			oldStatefulSet.Spec.Replicas,
+			statefulsetReplicasPath,
+		)...)
+	}
 
 	return warnings, allErrs.ToAggregate()
 }
