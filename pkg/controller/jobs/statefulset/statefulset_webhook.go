@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -142,21 +143,23 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		groupNameLabelPath,
 	)...)
 
-	oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
-	newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
+	if isManagedByKueue(newStatefulSet.Object()) {
+		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
+		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
 
-	// Allow only scale down to zero and scale up from zero.
-	// TODO(#3279): Support custom resizes later
-	if newReplicas != 0 && oldReplicas != 0 {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-			newStatefulSet.Spec.Replicas,
-			oldStatefulSet.Spec.Replicas,
-			replicasPath,
-		)...)
-	}
+		// Allow only scale down to zero and scale up from zero.
+		// TODO(#3279): Support custom resizes later
+		if newReplicas != 0 && oldReplicas != 0 {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+				newStatefulSet.Spec.Replicas,
+				oldStatefulSet.Spec.Replicas,
+				replicasPath,
+			)...)
+		}
 
-	if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-		allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
+			allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		}
 	}
 
 	return warnings, allErrs.ToAggregate()
@@ -169,4 +172,14 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 func GetWorkloadName(statefulSetName string) string {
 	// Passing empty UID as it is not available before object creation
 	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+}
+
+func isManagedByKueue(obj client.Object) bool {
+	objectOwner := metav1.GetControllerOf(obj)
+	if objectOwner != nil && jobframework.IsOwnerManagedByKueue(objectOwner) {
+		return false
+	} else if jobframework.QueueNameForObject(obj) != "" {
+		return true
+	}
+	return false
 }
