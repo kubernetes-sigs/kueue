@@ -19,6 +19,7 @@ package job
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -554,6 +555,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 					createdJob.Status.Succeeded = 1
+					createdJob.Status.StartTime = ptr.To(metav1.NewTime(time.Now()))
+					createdJob.Status.CompletionTime = ptr.To(metav1.NewTime(time.Now()))
 					createdJob.Status.Conditions = []batchv1.JobCondition{
 						{
 							Type:               batchv1.JobComplete,
@@ -562,6 +565,13 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							LastTransitionTime: metav1.Now(),
 							Reason:             "ByTest",
 							Message:            "Job finished successfully",
+						},
+						{
+							Type:               batchv1.JobSuccessCriteriaMet,
+							Status:             corev1.ConditionTrue,
+							LastProbeTime:      metav1.Now(),
+							LastTransitionTime: metav1.Now(),
+							Reason:             "Reached expected number of succeeded pods",
 						},
 					}
 					g.Expect(k8sClient.Status().Update(ctx, &createdJob)).To(gomega.Succeed())
