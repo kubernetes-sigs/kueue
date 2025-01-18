@@ -1025,7 +1025,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("Single pod ready", podsReadyTestSpec{
 			jobStatus: batchv1.JobStatus{
-				Ready: ptr.To[int32](1),
+				Active: 1,
+				Ready:  ptr.To[int32](1),
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -1047,7 +1048,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("All pods are ready", podsReadyTestSpec{
 			jobStatus: batchv1.JobStatus{
-				Ready: ptr.To[int32](2),
+				Active: 2,
+				Ready:  ptr.To[int32](2),
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -1058,6 +1060,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("One pod ready, one succeeded", podsReadyTestSpec{
 			jobStatus: batchv1.JobStatus{
+				Active:    1,
 				Ready:     ptr.To[int32](1),
 				Succeeded: 1,
 			},
@@ -1100,7 +1103,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("One ready pod, one failed; PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &batchv1.JobStatus{
-				Ready: ptr.To[int32](2),
+				Active: 2,
+				Ready:  ptr.To[int32](2),
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -1109,6 +1113,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 			jobStatus: batchv1.JobStatus{
+				Active: 1,
 				Ready:  ptr.To[int32](1),
 				Failed: 1,
 			},
@@ -1121,7 +1126,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("Job suspended without ready pods; but PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &batchv1.JobStatus{
-				Ready: ptr.To[int32](2),
+				Active: 2,
+				Ready:  ptr.To[int32](2),
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -1142,7 +1148,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 		}),
 		ginkgo.Entry("Job suspended with all pods ready; PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &batchv1.JobStatus{
-				Ready: ptr.To[int32](2),
+				Active: 2,
+				Ready:  ptr.To[int32](2),
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -1151,7 +1158,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 			jobStatus: batchv1.JobStatus{
-				Ready: ptr.To[int32](2),
+				Active: 2,
+				Ready:  ptr.To[int32](2),
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{
