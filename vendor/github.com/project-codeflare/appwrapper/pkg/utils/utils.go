@@ -355,6 +355,10 @@ func GetPodSets(aw *workloadv1beta2.AppWrapper) ([]kueue.PodSet, error) {
 			}
 		}
 	}
+
+	if len(podSets) == 0 {
+		return nil, fmt.Errorf("no PodSets found for AppWrapper %s", aw.Name)
+	}
 	return podSets, nil
 }
 

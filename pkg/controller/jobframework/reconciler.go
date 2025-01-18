@@ -717,7 +717,11 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
-		if match == nil && equivalentToWorkload(ctx, c, job, w) {
+		isEquivalent, err := equivalentToWorkload(ctx, c, job, w)
+		if err != nil {
+			return nil, nil, err
+		}
+		if match == nil && isEquivalent {
 			match = w
 		} else {
 			toDelete = append(toDelete, w)
@@ -749,7 +753,10 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
-	if !equivalentToWorkload(ctx, r.client, job, wl) {
+	if equivalent, err := equivalentToWorkload(ctx, r.client, job, wl); !equivalent || err != nil {
+		if err != nil {
+			return false, err
+		}
 		// mark the workload as finished
 		err := workload.UpdateStatus(ctx, r.client, wl,
 			kueue.WorkloadFinished,
@@ -794,33 +801,37 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
-func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) bool {
+func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.
 	if owner.Name != job.Object().GetName() {
-		return false
+		return false, nil
 	}
 
 	defaultDuration := int32(-1)
 	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaximumExecutionTimeSeconds(job), defaultDuration) {
-		return false
+		return false, nil
 	}
 
-	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
+	getPodSets, err := job.PodSets()
+	if err != nil {
+		return false, err
+	}
+	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
 		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, workload.IsAdmitted(wl)) {
-			return true
+			return true, nil
 		}
 		// If the workload is admitted but the job is suspended, do the check
 		// against the non-running info.
 		// This might allow some violating jobs to pass equivalency checks, but their
 		// workloads would be invalidated in the next sync after unsuspending.
-		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl))
+		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
 	}
 
-	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl))
+	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
@@ -935,7 +946,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		return wl, nil
 	}
 
-	podSets := job.PodSets()
+	podSets, err := job.PodSets()
+	if err != nil {
+		return nil, err
+	}
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{

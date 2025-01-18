@@ -114,7 +114,7 @@ func (j *MPIJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
-func (j *MPIJob) PodSets() []kueue.PodSet {
+func (j *MPIJob) PodSets() ([]kueue.PodSet, error) {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
@@ -125,7 +125,7 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta, ptr.To(kfmpi.ReplicaIndexLabel), nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

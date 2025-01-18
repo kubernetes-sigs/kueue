@@ -85,7 +85,10 @@ func TestPodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets := fromObject(tc.job).PodSets()
+			gotPodSets, err := fromObject(tc.job).PodSets()
+			if err != nil {
+				t.Fatalf("failed to get pod sets: %v", err)
+			}
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, podSetCmpOpts...); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}

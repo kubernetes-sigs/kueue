@@ -115,7 +115,7 @@ func (j *JobSet) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
-func (j *JobSet) PodSets() []kueue.PodSet {
+func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
@@ -127,7 +127,7 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 				ptr.To(replicatedJob.Replicas)),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

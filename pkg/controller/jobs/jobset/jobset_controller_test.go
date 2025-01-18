@@ -302,7 +302,10 @@ func TestPodSets(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets := tc.jobSet.PodSets()
+			gotPodSets, err := tc.jobSet.PodSets()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
 			if diff := cmp.Diff(tc.wantPodSets(tc.jobSet), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}

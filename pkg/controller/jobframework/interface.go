@@ -53,7 +53,7 @@ type GenericJob interface {
 	// Observed generation of the workload is set by the jobframework.
 	Finished() (message string, success, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
-	PodSets() []kueue.PodSet
+	PodSets() ([]kueue.PodSet, error)
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
