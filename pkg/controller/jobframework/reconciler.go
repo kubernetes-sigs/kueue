@@ -40,6 +40,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -612,8 +613,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if err != nil {
 			return nil, client.IgnoreNotFound(err)
 		}
+		// Ignore the workload is controlled by another object.
+		if controllerutil.HasControllerReference(wl) && !metav1.IsControlledBy(wl, object) {
+			return nil, nil
+		}
 
-		if owns, err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); !owns || err != nil {
+		if err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); err != nil {
 			return nil, err
 		}
 
@@ -731,14 +736,10 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	return match, toDelete, nil
 }
 
-func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) (bool, error) {
+func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) error {
 	if !metav1.IsControlledBy(wl, object) {
 		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
-			// don't return an error here, since a retry cannot give a different result,
-			// log the error.
-			log := ctrl.LoggerFrom(ctx)
-			log.Error(err, "Cannot take ownership of the workload")
-			return false, nil
+			return err
 		}
 
 		if errs := validation.IsValidLabelValue(string(object.GetUID())); len(errs) == 0 {
@@ -746,10 +747,10 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 		}
 
 		if err := r.client.Update(ctx, wl); err != nil {
-			return false, err
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
