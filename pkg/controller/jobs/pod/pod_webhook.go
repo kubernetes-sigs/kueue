@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,6 +57,20 @@ const (
 	SuspendedByParentAnnotation  = "kueue.x-k8s.io/pod-suspending-parent"
 	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
 	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
+
+	// pod annotation "kueue.x-k8s.io/skip-pod-integration-webhook=true"
+	// can forcefully skip the pod integration webhook.
+	//
+	// Why such annotation is needed?
+	// There is some controllers which mutates OwnerReference by webhook
+	// to its managing pods (e.g., SparkApplication controller).
+	// In such case, even though the CRD integration is enabled in Kueue,
+	// pod integration webhook might be called WITHOUT the OwnerReference.
+	// Then, pod integration webhook can not detect the pod is controlled
+	// by some CRD in the webhook call, consequently, it mistakenly mutates
+	// the pod integration information to the pods.
+	SkipWebhookAnnotationKey   = "kueue.x-k8s.io/skip-pod-integration-webhook"
+	SkipWebhookAnnotationValue = "true"
 )
 
 var (
@@ -138,6 +153,14 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
+
+	if v, ok := pod.pod.Annotations[SkipWebhookAnnotationKey]; ok && v == SkipWebhookAnnotationValue {
+		log.V(5).Info(fmt.Sprintf(
+			"Skip applying defaults due to %s=%s annotation", SkipWebhookAnnotationKey, SkipWebhookAnnotationValue),
+			"pod", klog.KObj(pod.Object()),
+		)
+		return nil
+	}
 
 	_, suspend := pod.pod.GetAnnotations()[SuspendedByParentAnnotation]
 	if !suspend {

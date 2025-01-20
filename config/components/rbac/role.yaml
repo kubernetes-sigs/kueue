@@ -325,6 +325,31 @@ rules:
   - list
   - watch
 - apiGroups:
+  - sparkoperator.k8s.io
+  resources:
+  - sparkapplications
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sparkoperator.k8s.io
+  resources:
+  - sparkapplications/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - sparkoperator.k8s.io
+  resources:
+  - sparkapplications/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - workload.codeflare.dev
   resources:
   - appwrappers
