@@ -1,3 +1,18 @@
+## v0.10.1
+
+Changes since `v0.10.0`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Disable the unnecessary Validating Admission Policy for the visibility server, and drop the associated RBAC permissions to make the server minimal. This also prevents periodic error logging on clusters above Kubernetes 1.29+. (#3946, @varshaprasad96)
+- Fix building TAS assignments for workloads with multiple PodSets (eg. JobSet or kubeflow Jobs). The assignment was computed independently for the PodSets which could result in conflicts rendering the pods unschedulable by the kube-scheduler. (#3970, @kerthcet)
+- Fix populating the LocalQueue metrics: `kueue_local_queue_resource_usage` and `kueue_local_queue_resource_reservation`. (#3990, @mykysha)
+- Fix the bug that prevented scaling StatefulSets which aren't managed by Kueue when the "statefulset" integration is enabled. (#3998, @mbobrovskyi)
+- Fix the permission bug which prevented adding the `kueue.x-k8s.io/resource-in-use` finalizer to the Topology objects, resulting in repeatedly logged errors. (#3911, @kerthcet)
+- Fixes a bug in 0.10.0 which resulted in the kueue manager configuration not being logged. (#3877, @dgrove-oss)
+
 ## v0.10.0
 
 ## Urgent Upgrade Notes
