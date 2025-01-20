@@ -116,8 +116,9 @@ and make progress.
 We introduce a mechanism to ensure jobs get their physical resources
 assigned by avoiding concurrent scheduling of their pods. More precisely, we
 block admission of new workloads until the first batch of pods for the
-unsuspended job is scheduled. This behavior can be opted-in at the level of
-the Kueue configuration.
+unsuspended job is scheduled. Additionally we limit recovery time if any of
+Pods fails during runtime. If the Pod doesn't recover in time, the Workload will be requeued.
+This behavior can be opted-in at the level of the Kueue configuration.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -170,6 +171,18 @@ workloads indefinitely.
 To mitigate this issue we introduce a timeout on reaching the `PodsReady`
 condition by a workload since its job start, and a timeout on reaching the `PodsReady` condition since its pod has failed
  (see:[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
+
+There's a risk that a Pod will fail and recover in an infinite loop, with each recovery happening within the configured time. In this case, the Workload won't get requeued.
+
+To mitigate this risk, users can do a number of things. First, users should use job types that specify
+[`backoffLimit`](https://kubernetes.io/docs/concepts/workloads/controllers/job/#handling-pod-and-container-failures).
+An admin can enforce such a requirement by a customized webhook or [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
+Additionally, a user can specify [`maximumExecutionTime`](https://github.com/kubernetes-sigs/kueue/tree/main/keps/3125-maximum-execution-time)
+to prevent a Workload from running indefinitely.
+
+Another possible mitigation for this would to partially disable the timeout.
+
+All of the above mitigation will be documented on Kueue website.
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
