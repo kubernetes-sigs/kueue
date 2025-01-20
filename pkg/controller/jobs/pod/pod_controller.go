@@ -629,7 +629,10 @@ func constructGroupPodSetsFast(p *Pod, groupTotalCount int) ([]kueue.PodSet, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		podSets, _ := FromObject(&podInGroup).PodSets()
+		podSets, err := FromObject(&podInGroup).PodSets()
+		if err != nil {
+			return nil, err
+		}
 		podSets[0].Name = roleHash
 		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
@@ -660,7 +663,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 
 		if !podRoleFound {
-			podSet, _ := FromObject(&podInGroup).PodSets()
+			podSet, err := FromObject(&podInGroup).PodSets()
+			if err != nil {
+				return nil, err
+			}
 			podSet[0].Name = roleHash
 
 			resultPodSets = append(resultPodSets, podSet[0])
@@ -950,7 +956,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 	// Construct workload for a single pod
 	if !p.isGroup {
-		wl.Spec.PodSets, _ = p.PodSets()
+		var err error
+		wl.Spec.PodSets, err = p.PodSets()
+		if err != nil {
+			return nil, err
+		}
 
 		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.pod.GetUID(), p.GVK())
 		jobUID := string(object.GetUID())
