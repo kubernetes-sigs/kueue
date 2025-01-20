@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/listers/kueue/v1beta1"
 )
 
 // WorkloadPriorityClassInformer provides access to a shared informer and lister for
 // WorkloadPriorityClasses.
 type WorkloadPriorityClassInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.WorkloadPriorityClassLister
+	Lister() kueuev1beta1.WorkloadPriorityClassLister
 }
 
 type workloadPriorityClassInformer struct {
@@ -69,7 +69,7 @@ func NewFilteredWorkloadPriorityClassInformer(client versioned.Interface, resync
 				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(context.TODO(), options)
 			},
 		},
-		&kueuev1beta1.WorkloadPriorityClass{},
+		&apiskueuev1beta1.WorkloadPriorityClass{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *workloadPriorityClassInformer) defaultInformer(client versioned.Interfa
 }
 
 func (f *workloadPriorityClassInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kueuev1beta1.WorkloadPriorityClass{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiskueuev1beta1.WorkloadPriorityClass{}, f.defaultInformer)
 }
 
-func (f *workloadPriorityClassInformer) Lister() v1beta1.WorkloadPriorityClassLister {
-	return v1beta1.NewWorkloadPriorityClassLister(f.Informer().GetIndexer())
+func (f *workloadPriorityClassInformer) Lister() kueuev1beta1.WorkloadPriorityClassLister {
+	return kueuev1beta1.NewWorkloadPriorityClassLister(f.Informer().GetIndexer())
 }

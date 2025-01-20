@@ -46,7 +46,7 @@ func WorkloadPriorityClass(name string) *WorkloadPriorityClassApplyConfiguration
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithKind(value string) *WorkloadPriorityClassApplyConfiguration {
-	b.Kind = &value
+	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
 
@@ -54,7 +54,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithKind(value string) *Worklo
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithAPIVersion(value string) *WorkloadPriorityClassApplyConfiguration {
-	b.APIVersion = &value
+	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
 
@@ -63,7 +63,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithAPIVersion(value string) *
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithName(value string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Name = &value
+	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
 }
 
@@ -72,7 +72,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithName(value string) *Worklo
 // If called multiple times, the GenerateName field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithGenerateName(value string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.GenerateName = &value
+	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
 }
 
@@ -81,7 +81,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithGenerateName(value string)
 // If called multiple times, the Namespace field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithNamespace(value string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Namespace = &value
+	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
 }
 
@@ -90,7 +90,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithNamespace(value string) *W
 // If called multiple times, the UID field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithUID(value types.UID) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.UID = &value
+	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
 }
 
@@ -99,7 +99,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithUID(value types.UID) *Work
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithResourceVersion(value string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.ResourceVersion = &value
+	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
 }
 
@@ -108,7 +108,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithResourceVersion(value stri
 // If called multiple times, the Generation field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithGeneration(value int64) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Generation = &value
+	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
 }
 
@@ -117,7 +117,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithGeneration(value int64) *W
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithCreationTimestamp(value metav1.Time) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.CreationTimestamp = &value
+	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
 }
 
@@ -126,7 +126,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithCreationTimestamp(value me
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.DeletionTimestamp = &value
+	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
 }
 
@@ -135,7 +135,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithDeletionTimestamp(value me
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
 func (b *WorkloadPriorityClassApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.DeletionGracePeriodSeconds = &value
+	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
 }
 
@@ -145,11 +145,11 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithDeletionGracePeriodSeconds
 // overwriting an existing map entries in Labels field with the same key.
 func (b *WorkloadPriorityClassApplyConfiguration) WithLabels(entries map[string]string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	if b.Labels == nil && len(entries) > 0 {
-		b.Labels = make(map[string]string, len(entries))
+	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
+		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
 	}
 	for k, v := range entries {
-		b.Labels[k] = v
+		b.ObjectMetaApplyConfiguration.Labels[k] = v
 	}
 	return b
 }
@@ -160,11 +160,11 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithLabels(entries map[string]
 // overwriting an existing map entries in Annotations field with the same key.
 func (b *WorkloadPriorityClassApplyConfiguration) WithAnnotations(entries map[string]string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	if b.Annotations == nil && len(entries) > 0 {
-		b.Annotations = make(map[string]string, len(entries))
+	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
+		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
 	}
 	for k, v := range entries {
-		b.Annotations[k] = v
+		b.ObjectMetaApplyConfiguration.Annotations[k] = v
 	}
 	return b
 }
@@ -178,7 +178,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithOwnerReferences(values ...
 		if values[i] == nil {
 			panic("nil value passed to WithOwnerReferences")
 		}
-		b.OwnerReferences = append(b.OwnerReferences, *values[i])
+		b.ObjectMetaApplyConfiguration.OwnerReferences = append(b.ObjectMetaApplyConfiguration.OwnerReferences, *values[i])
 	}
 	return b
 }
@@ -189,7 +189,7 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithOwnerReferences(values ...
 func (b *WorkloadPriorityClassApplyConfiguration) WithFinalizers(values ...string) *WorkloadPriorityClassApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
-		b.Finalizers = append(b.Finalizers, values[i])
+		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
 	}
 	return b
 }
@@ -219,5 +219,5 @@ func (b *WorkloadPriorityClassApplyConfiguration) WithDescription(value string) 
 // GetName retrieves the value of the Name field in the declarative configuration.
 func (b *WorkloadPriorityClassApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
-	return b.Name
+	return b.ObjectMetaApplyConfiguration.Name
 }

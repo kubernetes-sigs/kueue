@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // AdmissionCheckStrategyRuleApplyConfiguration represents a declarative configuration of the AdmissionCheckStrategyRule type for use
 // with apply.
 type AdmissionCheckStrategyRuleApplyConfiguration struct {
-	Name      *string                           `json:"name,omitempty"`
-	OnFlavors []v1beta1.ResourceFlavorReference `json:"onFlavors,omitempty"`
+	Name      *string                                `json:"name,omitempty"`
+	OnFlavors []kueuev1beta1.ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
 // AdmissionCheckStrategyRuleApplyConfiguration constructs a declarative configuration of the AdmissionCheckStrategyRule type for use with
@@ -45,7 +45,7 @@ func (b *AdmissionCheckStrategyRuleApplyConfiguration) WithName(value string) *A
 // WithOnFlavors adds the given value to the OnFlavors field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OnFlavors field.
-func (b *AdmissionCheckStrategyRuleApplyConfiguration) WithOnFlavors(values ...v1beta1.ResourceFlavorReference) *AdmissionCheckStrategyRuleApplyConfiguration {
+func (b *AdmissionCheckStrategyRuleApplyConfiguration) WithOnFlavors(values ...kueuev1beta1.ResourceFlavorReference) *AdmissionCheckStrategyRuleApplyConfiguration {
 	for i := range values {
 		b.OnFlavors = append(b.OnFlavors, values[i])
 	}

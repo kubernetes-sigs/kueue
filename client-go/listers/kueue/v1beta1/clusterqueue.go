@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // ClusterQueueLister helps list ClusterQueues.
@@ -29,19 +29,19 @@ import (
 type ClusterQueueLister interface {
 	// List lists all ClusterQueues in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ClusterQueue, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.ClusterQueue, err error)
 	// Get retrieves the ClusterQueue from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ClusterQueue, error)
+	Get(name string) (*kueuev1beta1.ClusterQueue, error)
 	ClusterQueueListerExpansion
 }
 
 // clusterQueueLister implements the ClusterQueueLister interface.
 type clusterQueueLister struct {
-	listers.ResourceIndexer[*v1beta1.ClusterQueue]
+	listers.ResourceIndexer[*kueuev1beta1.ClusterQueue]
 }
 
 // NewClusterQueueLister returns a new ClusterQueueLister.
 func NewClusterQueueLister(indexer cache.Indexer) ClusterQueueLister {
-	return &clusterQueueLister{listers.New[*v1beta1.ClusterQueue](indexer, v1beta1.Resource("clusterqueue"))}
+	return &clusterQueueLister{listers.New[*kueuev1beta1.ClusterQueue](indexer, kueuev1beta1.Resource("clusterqueue"))}
 }

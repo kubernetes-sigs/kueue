@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,41 +37,42 @@ type LocalQueuesGetter interface {
 
 // LocalQueueInterface has methods to work with LocalQueue resources.
 type LocalQueueInterface interface {
-	Create(ctx context.Context, localQueue *v1beta1.LocalQueue, opts v1.CreateOptions) (*v1beta1.LocalQueue, error)
-	Update(ctx context.Context, localQueue *v1beta1.LocalQueue, opts v1.UpdateOptions) (*v1beta1.LocalQueue, error)
+	Create(ctx context.Context, localQueue *visibilityv1beta1.LocalQueue, opts v1.CreateOptions) (*visibilityv1beta1.LocalQueue, error)
+	Update(ctx context.Context, localQueue *visibilityv1beta1.LocalQueue, opts v1.UpdateOptions) (*visibilityv1beta1.LocalQueue, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.LocalQueue, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.LocalQueueList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*visibilityv1beta1.LocalQueue, error)
+	List(ctx context.Context, opts v1.ListOptions) (*visibilityv1beta1.LocalQueueList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.LocalQueue, err error)
-	Apply(ctx context.Context, localQueue *visibilityv1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error)
-	GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (*v1beta1.PendingWorkloadsSummary, error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *visibilityv1beta1.LocalQueue, err error)
+	Apply(ctx context.Context, localQueue *applyconfigurationvisibilityv1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *visibilityv1beta1.LocalQueue, err error)
+	GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (*visibilityv1beta1.PendingWorkloadsSummary, error)
 
 	LocalQueueExpansion
 }
 
 // localQueues implements LocalQueueInterface
 type localQueues struct {
-	*gentype.ClientWithListAndApply[*v1beta1.LocalQueue, *v1beta1.LocalQueueList, *visibilityv1beta1.LocalQueueApplyConfiguration]
+	*gentype.ClientWithListAndApply[*visibilityv1beta1.LocalQueue, *visibilityv1beta1.LocalQueueList, *applyconfigurationvisibilityv1beta1.LocalQueueApplyConfiguration]
 }
 
 // newLocalQueues returns a LocalQueues
 func newLocalQueues(c *VisibilityV1beta1Client, namespace string) *localQueues {
 	return &localQueues{
-		gentype.NewClientWithListAndApply[*v1beta1.LocalQueue, *v1beta1.LocalQueueList, *visibilityv1beta1.LocalQueueApplyConfiguration](
+		gentype.NewClientWithListAndApply[*visibilityv1beta1.LocalQueue, *visibilityv1beta1.LocalQueueList, *applyconfigurationvisibilityv1beta1.LocalQueueApplyConfiguration](
 			"localqueues",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *v1beta1.LocalQueue { return &v1beta1.LocalQueue{} },
-			func() *v1beta1.LocalQueueList { return &v1beta1.LocalQueueList{} }),
+			func() *visibilityv1beta1.LocalQueue { return &visibilityv1beta1.LocalQueue{} },
+			func() *visibilityv1beta1.LocalQueueList { return &visibilityv1beta1.LocalQueueList{} },
+		),
 	}
 }
 
-// GetPendingWorkloadsSummary takes name of the localQueue, and returns the corresponding v1beta1.PendingWorkloadsSummary object, and an error if there is any.
-func (c *localQueues) GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (result *v1beta1.PendingWorkloadsSummary, err error) {
-	result = &v1beta1.PendingWorkloadsSummary{}
+// GetPendingWorkloadsSummary takes name of the localQueue, and returns the corresponding visibilityv1beta1.PendingWorkloadsSummary object, and an error if there is any.
+func (c *localQueues) GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (result *visibilityv1beta1.PendingWorkloadsSummary, err error) {
+	result = &visibilityv1beta1.PendingWorkloadsSummary{}
 	err = c.GetClient().Get().
 		Namespace(c.GetNamespace()).
 		Resource("localqueues").

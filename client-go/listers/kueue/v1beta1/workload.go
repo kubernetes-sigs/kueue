@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // WorkloadLister helps list Workloads.
@@ -29,7 +29,7 @@ import (
 type WorkloadLister interface {
 	// List lists all Workloads in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.Workload, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.Workload, err error)
 	// Workloads returns an object that can list and get Workloads.
 	Workloads(namespace string) WorkloadNamespaceLister
 	WorkloadListerExpansion
@@ -37,17 +37,17 @@ type WorkloadLister interface {
 
 // workloadLister implements the WorkloadLister interface.
 type workloadLister struct {
-	listers.ResourceIndexer[*v1beta1.Workload]
+	listers.ResourceIndexer[*kueuev1beta1.Workload]
 }
 
 // NewWorkloadLister returns a new WorkloadLister.
 func NewWorkloadLister(indexer cache.Indexer) WorkloadLister {
-	return &workloadLister{listers.New[*v1beta1.Workload](indexer, v1beta1.Resource("workload"))}
+	return &workloadLister{listers.New[*kueuev1beta1.Workload](indexer, kueuev1beta1.Resource("workload"))}
 }
 
 // Workloads returns an object that can list and get Workloads.
 func (s *workloadLister) Workloads(namespace string) WorkloadNamespaceLister {
-	return workloadNamespaceLister{listers.NewNamespaced[*v1beta1.Workload](s.ResourceIndexer, namespace)}
+	return workloadNamespaceLister{listers.NewNamespaced[*kueuev1beta1.Workload](s.ResourceIndexer, namespace)}
 }
 
 // WorkloadNamespaceLister helps list and get Workloads.
@@ -55,15 +55,15 @@ func (s *workloadLister) Workloads(namespace string) WorkloadNamespaceLister {
 type WorkloadNamespaceLister interface {
 	// List lists all Workloads in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.Workload, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.Workload, err error)
 	// Get retrieves the Workload from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.Workload, error)
+	Get(name string) (*kueuev1beta1.Workload, error)
 	WorkloadNamespaceListerExpansion
 }
 
 // workloadNamespaceLister implements the WorkloadNamespaceLister
 // interface.
 type workloadNamespaceLister struct {
-	listers.ResourceIndexer[*v1beta1.Workload]
+	listers.ResourceIndexer[*kueuev1beta1.Workload]
 }

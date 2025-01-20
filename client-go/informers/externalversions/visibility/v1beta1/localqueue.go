@@ -18,24 +18,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	apisvisibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
-	v1beta1 "sigs.k8s.io/kueue/client-go/listers/visibility/v1beta1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/listers/visibility/v1beta1"
 )
 
 // LocalQueueInformer provides access to a shared informer and lister for
 // LocalQueues.
 type LocalQueueInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1beta1.LocalQueueLister
+	Lister() visibilityv1beta1.LocalQueueLister
 }
 
 type localQueueInformer struct {
@@ -70,7 +70,7 @@ func NewFilteredLocalQueueInformer(client versioned.Interface, namespace string,
 				return client.VisibilityV1beta1().LocalQueues(namespace).Watch(context.TODO(), options)
 			},
 		},
-		&visibilityv1beta1.LocalQueue{},
+		&apisvisibilityv1beta1.LocalQueue{},
 		resyncPeriod,
 		indexers,
 	)
@@ -81,9 +81,9 @@ func (f *localQueueInformer) defaultInformer(client versioned.Interface, resyncP
 }
 
 func (f *localQueueInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&visibilityv1beta1.LocalQueue{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvisibilityv1beta1.LocalQueue{}, f.defaultInformer)
 }
 
-func (f *localQueueInformer) Lister() v1beta1.LocalQueueLister {
-	return v1beta1.NewLocalQueueLister(f.Informer().GetIndexer())
+func (f *localQueueInformer) Lister() visibilityv1beta1.LocalQueueLister {
+	return visibilityv1beta1.NewLocalQueueLister(f.Informer().GetIndexer())
 }

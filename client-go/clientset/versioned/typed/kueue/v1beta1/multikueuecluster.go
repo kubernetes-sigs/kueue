@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	applyconfigurationkueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,36 +37,37 @@ type MultiKueueClustersGetter interface {
 
 // MultiKueueClusterInterface has methods to work with MultiKueueCluster resources.
 type MultiKueueClusterInterface interface {
-	Create(ctx context.Context, multiKueueCluster *v1beta1.MultiKueueCluster, opts v1.CreateOptions) (*v1beta1.MultiKueueCluster, error)
-	Update(ctx context.Context, multiKueueCluster *v1beta1.MultiKueueCluster, opts v1.UpdateOptions) (*v1beta1.MultiKueueCluster, error)
+	Create(ctx context.Context, multiKueueCluster *kueuev1beta1.MultiKueueCluster, opts v1.CreateOptions) (*kueuev1beta1.MultiKueueCluster, error)
+	Update(ctx context.Context, multiKueueCluster *kueuev1beta1.MultiKueueCluster, opts v1.UpdateOptions) (*kueuev1beta1.MultiKueueCluster, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, multiKueueCluster *v1beta1.MultiKueueCluster, opts v1.UpdateOptions) (*v1beta1.MultiKueueCluster, error)
+	UpdateStatus(ctx context.Context, multiKueueCluster *kueuev1beta1.MultiKueueCluster, opts v1.UpdateOptions) (*kueuev1beta1.MultiKueueCluster, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.MultiKueueCluster, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.MultiKueueClusterList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1beta1.MultiKueueCluster, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1beta1.MultiKueueClusterList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.MultiKueueCluster, err error)
-	Apply(ctx context.Context, multiKueueCluster *kueuev1beta1.MultiKueueClusterApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.MultiKueueCluster, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1beta1.MultiKueueCluster, err error)
+	Apply(ctx context.Context, multiKueueCluster *applyconfigurationkueuev1beta1.MultiKueueClusterApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.MultiKueueCluster, err error)
 	// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-	ApplyStatus(ctx context.Context, multiKueueCluster *kueuev1beta1.MultiKueueClusterApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.MultiKueueCluster, err error)
+	ApplyStatus(ctx context.Context, multiKueueCluster *applyconfigurationkueuev1beta1.MultiKueueClusterApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.MultiKueueCluster, err error)
 	MultiKueueClusterExpansion
 }
 
 // multiKueueClusters implements MultiKueueClusterInterface
 type multiKueueClusters struct {
-	*gentype.ClientWithListAndApply[*v1beta1.MultiKueueCluster, *v1beta1.MultiKueueClusterList, *kueuev1beta1.MultiKueueClusterApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1beta1.MultiKueueCluster, *kueuev1beta1.MultiKueueClusterList, *applyconfigurationkueuev1beta1.MultiKueueClusterApplyConfiguration]
 }
 
 // newMultiKueueClusters returns a MultiKueueClusters
 func newMultiKueueClusters(c *KueueV1beta1Client) *multiKueueClusters {
 	return &multiKueueClusters{
-		gentype.NewClientWithListAndApply[*v1beta1.MultiKueueCluster, *v1beta1.MultiKueueClusterList, *kueuev1beta1.MultiKueueClusterApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1beta1.MultiKueueCluster, *kueuev1beta1.MultiKueueClusterList, *applyconfigurationkueuev1beta1.MultiKueueClusterApplyConfiguration](
 			"multikueueclusters",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1beta1.MultiKueueCluster { return &v1beta1.MultiKueueCluster{} },
-			func() *v1beta1.MultiKueueClusterList { return &v1beta1.MultiKueueClusterList{} }),
+			func() *kueuev1beta1.MultiKueueCluster { return &kueuev1beta1.MultiKueueCluster{} },
+			func() *kueuev1beta1.MultiKueueClusterList { return &kueuev1beta1.MultiKueueClusterList{} },
+		),
 	}
 }

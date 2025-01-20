@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // MultiKueueClusterLister helps list MultiKueueClusters.
@@ -29,19 +29,19 @@ import (
 type MultiKueueClusterLister interface {
 	// List lists all MultiKueueClusters in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.MultiKueueCluster, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.MultiKueueCluster, err error)
 	// Get retrieves the MultiKueueCluster from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.MultiKueueCluster, error)
+	Get(name string) (*kueuev1beta1.MultiKueueCluster, error)
 	MultiKueueClusterListerExpansion
 }
 
 // multiKueueClusterLister implements the MultiKueueClusterLister interface.
 type multiKueueClusterLister struct {
-	listers.ResourceIndexer[*v1beta1.MultiKueueCluster]
+	listers.ResourceIndexer[*kueuev1beta1.MultiKueueCluster]
 }
 
 // NewMultiKueueClusterLister returns a new MultiKueueClusterLister.
 func NewMultiKueueClusterLister(indexer cache.Indexer) MultiKueueClusterLister {
-	return &multiKueueClusterLister{listers.New[*v1beta1.MultiKueueCluster](indexer, v1beta1.Resource("multikueuecluster"))}
+	return &multiKueueClusterLister{listers.New[*kueuev1beta1.MultiKueueCluster](indexer, kueuev1beta1.Resource("multikueuecluster"))}
 }
