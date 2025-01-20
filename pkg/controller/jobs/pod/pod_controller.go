@@ -237,7 +237,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &p.pod, func() (bool, error) {
 			ungate(&p.pod)
 			return true, podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0])
 		}); err != nil {
@@ -258,7 +258,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
 			ungate(pod)
 
 			roleHash, err := getRoleHash(*pod)
@@ -509,7 +509,7 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
+		return clientutil.Patch(ctx, c, pod, func() (bool, error) {
 			return controllerutil.RemoveFinalizer(pod, PodFinalizer), nil
 		})
 	})
@@ -827,7 +827,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			return removed, nil
@@ -867,7 +867,7 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			return removed, nil
