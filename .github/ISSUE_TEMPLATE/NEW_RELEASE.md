@@ -48,20 +48,20 @@ Please do not remove items from the checklist
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
+- [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
   - [ ] Update `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
   - [ ] Release notes in the `CHANGELOG`
   - [ ] `SECURITY-INSIGHTS.yaml` values by running `make update-security-insights GIT_TAG=$VERSION`
   - [ ] Submit a pull request with the changes: <!-- example #3007 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] Create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
          branch has been created (presumably the README update commit above), and, push the tag:
-        `DEVEL=v0.$(($MAJ+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
+        `DEVEL=v$MAJ.$(($MIN+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->

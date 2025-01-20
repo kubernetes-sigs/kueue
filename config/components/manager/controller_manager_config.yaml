@@ -3,7 +3,7 @@ kind: Configuration
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 # enableClusterQueueResources: true
 webhook:
   port: 9443
@@ -52,9 +52,11 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
+  - "codeflare.dev/appwrapper"
 #  - "pod"
 #  - "deployment" # requires enabling pod integration
 #  - "statefulset" # requires enabling pod integration
+#  - "leaderworkerset" # requires enabling pod integration
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #  podOptions:

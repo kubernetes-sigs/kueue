@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -76,8 +78,8 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 		Complete(core.WithLeadingManager(mgr, r, &kueuealpha.Topology{}, cfg))
 }
 
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topology,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topology/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies/finalizers,verbs=update
 
 func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	topology := &kueuealpha.Topology{}
@@ -107,9 +109,7 @@ func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request
 			}
 			log.V(5).Info("Removed finalizer")
 		}
-	}
-
-	if controllerutil.AddFinalizer(topology, kueue.ResourceInUseFinalizerName) {
+	} else if controllerutil.AddFinalizer(topology, kueue.ResourceInUseFinalizerName) {
 		if err := r.client.Update(ctx, topology); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -123,7 +123,34 @@ func (r *topologyReconciler) Generic(event.GenericEvent) bool {
 	return false
 }
 
-func (r *topologyReconciler) Create(event.CreateEvent) bool {
+func (r *topologyReconciler) Create(e event.CreateEvent) bool {
+	topology, isTopology := e.Object.(*kueuealpha.Topology)
+	if !isTopology {
+		return true
+	}
+
+	ctx := context.Background()
+
+	flavors := &kueue.ResourceFlavorList{}
+	if err := r.client.List(ctx, flavors, client.MatchingFields{indexer.ResourceFlavorTopologyNameKey: topology.Name}); err != nil {
+		log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
+		log.Error(err, "Could not list resource flavors")
+		return true
+	}
+
+	defer r.queues.NotifyTopologyUpdateWatchers(nil, topology)
+
+	// Update the cache to account for the created topology, before
+	// notifying the listeners.
+	for _, flv := range flavors.Items {
+		if flv.Spec.TopologyName == nil {
+			continue
+		}
+		if *flv.Spec.TopologyName == kueue.TopologyReference(topology.Name) {
+			r.cache.AddOrUpdateTopologyForFlavor(topology, &flv)
+		}
+	}
+
 	return true
 }
 

@@ -308,7 +308,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
 				ac.Message = api.TruncateConditionMessage(msg)
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock)
 
 				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
@@ -490,9 +490,9 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 	return true
 }
 
-func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
+func (wlInfo *workloadInfo) update(wl *kueue.Workload, c clock.Clock) {
 	for _, check := range wl.Status.AdmissionChecks {
-		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
+		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
 	}
 	wlInfo.requeueState = wl.Status.RequeueState
 }
@@ -504,7 +504,7 @@ func (c *Controller) syncCheckStates(
 	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
-	wlInfo.update(wl)
+	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checkConfig))
@@ -612,7 +612,7 @@ func (c *Controller) syncCheckStates(
 			}
 			recorderMessages = append(recorderMessages, message)
 		}
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
 	}
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {
@@ -622,7 +622,7 @@ func (c *Controller) syncCheckStates(
 			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
-	wlInfo.update(wlPatch)
+	wlInfo.update(wlPatch, c.clock)
 	return nil
 }
 

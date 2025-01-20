@@ -79,15 +79,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - admissionregistration.k8s.io
-  resources:
-  - validatingadmissionpolicies
-  - validatingadmissionpolicybindings
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - apps
   resources:
   - replicasets
@@ -235,7 +226,7 @@ rules:
   - clusterqueues/finalizers
   - localqueues/finalizers
   - resourceflavors/finalizers
-  - topology/finalizers
+  - topologies/finalizers
   - workloads/finalizers
   verbs:
   - update
@@ -257,7 +248,6 @@ rules:
   - multikueueclusters
   - multikueueconfigs
   - provisioningrequestconfigs
-  - topologies
   - workloadpriorityclasses
   verbs:
   - get
@@ -276,11 +266,19 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - topology
+  - topologies
   verbs:
   - get
   - list
   - update
+  - watch
+- apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - node.k8s.io
@@ -307,9 +305,16 @@ rules:
   - rayclusters/finalizers
   - rayclusters/status
   - rayjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - ray.io
+  resources:
   - rayjobs/status
   verbs:
   - get
+  - patch
   - update
 - apiGroups:
   - scheduling.k8s.io
@@ -319,3 +324,28 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers/status
+  verbs:
+  - get
+  - patch
+  - update

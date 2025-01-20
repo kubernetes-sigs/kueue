@@ -5,9 +5,9 @@ go 1.23.0
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/gorilla/websocket v1.5.3
-	k8s.io/api v0.31.3
-	k8s.io/apimachinery v0.31.3
-	k8s.io/client-go v0.31.3
+	k8s.io/api v0.31.5
+	k8s.io/apimachinery v0.31.5
+	k8s.io/client-go v0.31.5
 )
 
 require (
@@ -52,7 +52,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/net v0.26.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect

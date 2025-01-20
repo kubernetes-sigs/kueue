@@ -203,6 +203,11 @@ func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) ServiceAccountName(serviceAccountName string) *PodWrapper {
+	p.Spec.ServiceAccountName = serviceAccountName
+	return p
+}
+
 func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 	p.Spec.Containers[0].Image = image
 	p.Spec.Containers[0].Args = args

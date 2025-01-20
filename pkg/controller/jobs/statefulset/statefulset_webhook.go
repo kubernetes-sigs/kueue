@@ -142,21 +142,23 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		groupNameLabelPath,
 	)...)
 
-	oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
-	newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
+	if jobframework.IsManagedByKueue(newStatefulSet.Object()) {
+		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
+		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
 
-	// Allow only scale down to zero and scale up from zero.
-	// TODO(#3279): Support custom resizes later
-	if newReplicas != 0 && oldReplicas != 0 {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-			newStatefulSet.Spec.Replicas,
-			oldStatefulSet.Spec.Replicas,
-			replicasPath,
-		)...)
-	}
+		// Allow only scale down to zero and scale up from zero.
+		// TODO(#3279): Support custom resizes later
+		if newReplicas != 0 && oldReplicas != 0 {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+				newStatefulSet.Spec.Replicas,
+				oldStatefulSet.Spec.Replicas,
+				replicasPath,
+			)...)
+		}
 
-	if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-		allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
+			allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		}
 	}
 
 	return warnings, allErrs.ToAggregate()

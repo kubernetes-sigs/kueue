@@ -403,7 +403,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName)
+			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -465,7 +465,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
 			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
 			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
+			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
 			}
@@ -485,7 +485,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
 				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
-				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 				}
@@ -504,7 +504,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
+					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName, r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -756,7 +756,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 			metav1.ConditionTrue,
 			kueue.WorkloadFinishedReasonOutOfSync,
 			"The prebuilt workload is out of sync with its user job",
-			constants.JobControllerName)
+			constants.JobControllerName, r.clock)
 		return false, err
 	}
 	return true, nil

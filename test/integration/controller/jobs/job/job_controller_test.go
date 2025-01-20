@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,6 +60,8 @@ const (
 )
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var realClock = clock.RealClock{}
+
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
@@ -622,6 +625,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					kueue.WorkloadEvicted,
 					metav1.ConditionTrue,
 					kueue.WorkloadEvictedByPreemption, "By test", "evict",
+					clock.RealClock{},
 				)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -755,7 +759,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								},
 							},
 						},
-					})
+					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -873,7 +877,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								},
 							},
 						},
-					})
+					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

@@ -17,6 +17,8 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - command:
         - /manager
@@ -27,6 +29,9 @@ spec:
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         livenessProbe:
           httpGet:
             path: /healthz
@@ -43,7 +48,7 @@ spec:
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:
           limits:
-            cpu: 500m
+            cpu: "2"
             memory: 512Mi
           requests:
             cpu: 500m

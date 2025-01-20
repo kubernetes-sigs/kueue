@@ -226,3 +226,9 @@ func (j *PyTorchJobWrapper) Image(replicaType kftraining.ReplicaType, image stri
 	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
+
+func (j *PyTorchJobWrapper) SetTypeMeta() *PyTorchJobWrapper {
+	j.APIVersion = kftraining.GroupVersion.String()
+	j.Kind = kftraining.PyTorchJobKind
+	return j
+}

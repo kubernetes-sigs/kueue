@@ -29,3 +29,5 @@ integrations:
   - "pod"
   - "deployment"
   - "statefulset"
+  - "leaderworkerset"
+  - "codeflare.dev/appwrapper"

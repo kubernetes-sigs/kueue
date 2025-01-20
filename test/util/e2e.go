@@ -9,6 +9,8 @@ import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -30,6 +33,8 @@ const (
 	E2eTestSleepImageOld = "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b"
 	// E2eTestSleepImage is the image used for testing.
 	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+	// E2eTTestCurlImage is the image used for testing with curl execution.
+	E2eTTestCurlImage = "curlimages/curl:8.11.0@sha256:6324a8b41a7f9d80db93c7cf65f025411f55956c6b248037738df3bfca32410c"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
@@ -56,6 +61,15 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = leaderworkersetv1.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = awv1beta2.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
@@ -114,8 +128,18 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 	waitForOperatorAvailability(ctx, k8sClient, kcmKey)
 }
 
+func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
+	jcmKey := types.NamespacedName{Namespace: "appwrapper-system", Name: "appwrapper-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+}
+
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
 	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+}
+
+func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client) {
+	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
 	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
 }
 
@@ -127,4 +151,9 @@ func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+}
+
+func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	kroKey := types.NamespacedName{Namespace: "ray-system", Name: "kuberay-operator"}
+	waitForOperatorAvailability(ctx, k8sClient, kroKey)
 }

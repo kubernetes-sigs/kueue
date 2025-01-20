@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+  name: '{{ include "kueue.fullname" . }}-metrics-auth-rolebinding'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "kueue.fullname" . }}-metrics-auth-role'
+subjects:
+  - kind: ServiceAccount
+    name: '{{ include "kueue.fullname" . }}-controller-manager'
+    namespace: '{{ .Release.Namespace }}'

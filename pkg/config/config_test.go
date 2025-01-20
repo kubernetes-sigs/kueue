@@ -63,7 +63,7 @@ namespace: kueue-tenant-a
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -99,7 +99,7 @@ namespace: kueue-system
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -121,7 +121,7 @@ namespace: kueue-system
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -141,7 +141,7 @@ namespace: kueue-system
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: false
 webhook:
@@ -175,7 +175,7 @@ namespace: kueue-system
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -198,7 +198,7 @@ health:
   readinessEndpointName: ready
   livenessEndpointName: live
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 pprofBindAddress: :8083
 leaderElection:
   leaderElect: true
@@ -317,7 +317,7 @@ invalidField: invalidValue
 health:
   healthProbeBindAddress: :8081
 metrics:
-  bindAddress: :8080
+  bindAddress: :8443
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io

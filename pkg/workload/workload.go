@@ -453,8 +453,9 @@ func UpdateStatus(ctx context.Context,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
-	managerPrefix string) error {
-	now := metav1.Now()
+	managerPrefix string,
+	clock clock.Clock) error {
+	now := metav1.NewTime(clock.Now())
 	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
@@ -568,7 +569,7 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 
 // SetQuotaReservation applies the provided admission to the workload.
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
-func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
+func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock clock.Clock) {
 	w.Status.Admission = admission
 	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
 	admittedCond := metav1.Condition{
@@ -585,14 +586,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
 		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
-		evictedCond.LastTransitionTime = metav1.Now()
+		evictedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
 		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
-		preemptedCond.LastTransitionTime = metav1.Now()
+		preemptedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
 }
 
@@ -682,22 +683,22 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
 }
 
-func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
+func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
 	if wlCopy.Status.AdmissionChecks == nil && w.Status.AdmissionChecks != nil {
 		wlCopy.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, 0)
 	}
 	for _, ac := range w.Status.AdmissionChecks {
-		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac)
+		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac, c)
 	}
 }
 
 // ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
-func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
 	wlCopy := BaseSSAWorkload(w)
 	AdmissionStatusPatch(w, wlCopy, strict)
-	AdmissionChecksStatusPatch(w, wlCopy)
+	AdmissionChecksStatusPatch(w, wlCopy, clk)
 	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
 }
 

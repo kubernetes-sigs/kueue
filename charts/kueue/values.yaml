@@ -14,13 +14,6 @@ controllerManager:
   #featureGates:
   #  - name: PartialAdmission
   #    enabled: true
-  kubeRbacProxy:
-    image:
-      repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
-      # tag
-      tag: v0.16.0
-      # This should be set to 'IfNotPresent' for released version
-      pullPolicy: IfNotPresent
   manager:
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
@@ -29,15 +22,20 @@ controllerManager:
     podAnnotations: {}
     resources:
       limits:
-        cpu: 500m
+        cpu: "2"
         memory: 512Mi
       requests:
         cpu: 500m
         memory: 512Mi
     podSecurityContext:
       runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
     containerSecurityContext:
       allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
   replicas: 1
   imagePullSecrets: []
   readinessProbe:
@@ -65,7 +63,7 @@ managerConfig:
     health:
       healthProbeBindAddress: :8081
     metrics:
-      bindAddress: :8080
+      bindAddress: :8443
     # enableClusterQueueResources: true
     webhook:
       port: 9443
@@ -111,7 +109,9 @@ managerConfig:
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
     #  - "pod"
-    #  - "deployment"
+    #  - "deployment" (requires enabling pod integration)
+    #  - "statefulset" (requires enabling pod integration)
+    #  - "leaderworkerset" (requires enabling pod integration)
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #  podOptions:

@@ -9,9 +9,11 @@ description: >
 Kueue has built-in integrations for several Job types, including
 Kubernetes batch Job, MPIJob, RayJob and JobSet.
 
-There are two options for adding an additional integration for a Job-like CRD with Kueue:
-- As part of the Kueue repository
-- Writing an external controller
+There are three options for using Kueue to manage Job-like CRDs that lack built-in integrations.
+- Leverage the built-in AppWrapper integration by wrapping instances of the custom Job in an AppWrapper.
+  See [Running a Wrapped Custom Workload](/docs/tasks/run/wrapped_custom_workload) for details.
+- Build a new integration as part of the Kueue repository.
+- Build a new integration as an external controller.
 
 This guide is for [platform developers](/docs/tasks#platform-developer) and describes how
 to build a new integration. Integrations should be built using the APIs provided by

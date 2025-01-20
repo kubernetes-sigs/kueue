@@ -165,6 +165,38 @@ rules:
   - mpijobs/status
   verbs:
   - get
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters/status
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
