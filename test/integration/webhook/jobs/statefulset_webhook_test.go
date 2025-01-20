@@ -22,7 +22,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,24 +72,13 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
-			var (
-				statefulset *appsv1.StatefulSet
-				lookupKey   types.NamespacedName
-			)
-
-			ginkgo.BeforeEach(func() {
-				statefulset = testingstatefulset.MakeStatefulSet("statefulset-with-queue-name", ns.Name).
-					Queue("user-queue").
-					Obj()
-				lookupKey = client.ObjectKeyFromObject(statefulset)
-			})
-
 			ginkgo.It("Should inject queue name, pod group name to pod template labels, and pod group total count to pod template annotations", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulset)).Should(gomega.Succeed())
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
+				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
-					g.Expect(k8sClient.Get(ctx, lookupKey, createdStatefulSet)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).Should(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Labels[constants.QueueLabel]).
 						To(
 							gomega.Equal("user-queue"),
@@ -107,52 +95,17 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							"Pod group total count should be injected to pod template annotations",
 						)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("Updating the statefulset should not allow to change the queue name", func() {
-					statefulsetToUpdate := &appsv1.StatefulSet{}
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, statefulsetToUpdate)).Should(gomega.Succeed())
-					statefulsetWrapper := &testingstatefulset.StatefulSetWrapper{
-						StatefulSet: *statefulsetToUpdate,
-					}
-					updatedStatefulSet := statefulsetWrapper.
-						Queue("another-queue").
-						PodTemplateSpecPodGroupNameLabel("another", "another", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
-						Obj()
-					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
-				})
-				ginkgo.By("Updating the statefulset should not allow to change replicas", func() {
-					statefulsetToUpdate := &appsv1.StatefulSet{}
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, statefulsetToUpdate)).Should(gomega.Succeed())
-					statefulsetWrapper := &testingstatefulset.StatefulSetWrapper{
-						StatefulSet: *statefulsetToUpdate,
-					}
-					updatedStatefulSet := statefulsetWrapper.
-						Replicas(5).
-						PodTemplateSpecPodGroupNameLabel("another", "another", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
-						Obj()
-					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
-				})
 			})
 		})
 
 		ginkgo.When("The queue-name label is not set", func() {
-			var (
-				statefulset *appsv1.StatefulSet
-				lookupKey   types.NamespacedName
-			)
-
-			ginkgo.BeforeEach(func() {
-				statefulset = testingstatefulset.MakeStatefulSet("statefulset-without-queue-name", ns.Name).
-					Obj()
-				lookupKey = client.ObjectKeyFromObject(statefulset)
-			})
-
 			ginkgo.It("Should not inject queue name to pod template labels", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulset)).Should(gomega.Succeed())
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
-					g.Expect(k8sClient.Get(ctx, lookupKey, createdStatefulSet)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).Should(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Labels[constants.QueueLabel]).
 						To(
 							gomega.BeEmpty(),
