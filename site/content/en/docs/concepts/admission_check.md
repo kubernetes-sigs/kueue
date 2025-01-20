@@ -128,3 +128,4 @@ If any of the Workload's AdmissionCheck is in the `Rejected` state:
 ## What's next?
 
 - Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheck) for `AdmissionCheck`
+- Learn more from the built-in [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning)
