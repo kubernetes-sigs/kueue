@@ -92,6 +92,12 @@ func (w *LeaderWorkerSetWrapper) Name(n string) *LeaderWorkerSetWrapper {
 	return w
 }
 
+// UID updated the uid of the LeaderWorkerSet
+func (w *LeaderWorkerSetWrapper) UID(uid string) *LeaderWorkerSetWrapper {
+	w.ObjectMeta.UID = types.UID(uid)
+	return w
+}
+
 func (w *LeaderWorkerSetWrapper) WithOwnerReference(ownerReference metav1.OwnerReference) *LeaderWorkerSetWrapper {
 	w.OwnerReferences = append(w.OwnerReferences, ownerReference)
 	return w

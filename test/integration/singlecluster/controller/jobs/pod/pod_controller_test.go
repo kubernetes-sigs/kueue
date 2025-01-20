@@ -517,6 +517,71 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					})
 				})
 			})
+
+			ginkgo.It("Should ungate pod with prebuild workload", func() {
+				const (
+					workloadName = "test-workload"
+				)
+
+				pod := testingpod.MakePod(podName, ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					Queue(lq.Name).
+					PrebuildWorkload(workloadName).
+					Obj()
+
+				ginkgo.By("Creating pod with queue-name", func() {
+					gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+				})
+
+				wl := testing.MakeWorkload(workloadName, ns.Name).
+					Queue(lq.Name).
+					PodSets(*testing.MakePodSet("main", 1).PodSpec(pod.Spec).Obj()).
+					Obj()
+				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
+
+				ginkgo.By("Creating prebuild workload with queue-name", func() {
+					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Admit workload", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						AssignmentPodCount(wl.Spec.PodSets[0].Count).
+						Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Workload should not be finished", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+						g.Expect(wl.Status.Conditions).ToNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the pod is unsuspended", func() {
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, lookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+				})
+
+				ginkgo.By("Finish the pod", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
+				})
+
+				ginkgo.By("Checking the workload is finished ", func() {
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the poda and wl finalizers are removed when pod is succeeded", func() {
+					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, lookupKey)
+					util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, wlLookupKey)
+				})
+			})
 		})
 
 		ginkgo.When("Using pod group", func() {
@@ -1510,6 +1575,117 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(gomega.Succeed())
 						g.Expect(createdPod2.Spec.SchedulingGates).Should(gomega.BeEmpty())
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("Should ungate pods with prebuild workload", func() {
+				const (
+					workloadName = "test-workload"
+				)
+
+				pod1 := testingpod.MakePod("test-pod-1", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "1").
+					Queue(lq.Name).
+					PrebuildWorkload(workloadName).
+					RoleHash("leader").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod-2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "2").
+					Queue(lq.Name).
+					PrebuildWorkload(workloadName).
+					RoleHash("worker").
+					Obj()
+
+				pod1LookupKey := client.ObjectKeyFromObject(pod1)
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+
+				ginkgo.By("Creating first pod", func() {
+					gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
+				})
+
+				wl := testing.MakeWorkload(workloadName, ns.Name).
+					Queue(lq.Name).
+					Annotation(podcontroller.IsGroupWorkloadAnnotationKey, podcontroller.IsGroupWorkloadAnnotationValue).
+					PodSets(
+						*testing.MakePodSet("leader", 1).PodSpec(pod1.Spec).Obj(),
+						*testing.MakePodSet("worker", 1).PodSpec(pod2.Spec).Obj(),
+					).
+					Obj()
+				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
+
+				ginkgo.By("Creating prebuild workload", func() {
+					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Admit workload", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "leader",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To(wl.Spec.PodSets[0].Count),
+						},
+						kueue.PodSetAssignment{
+							Name: "worker",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To(wl.Spec.PodSets[0].Count),
+						},
+					).Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Workload should not be finished", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+						g.Expect(wl.Status.Conditions).ToNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the pod is unsuspended", func() {
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+				})
+
+				ginkgo.By("Creating second pod", func() {
+					gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Workload should be owned by all pods", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+						g.Expect(wl.OwnerReferences).Should(gomega.HaveLen(2))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the second pod is unsuspended", func() {
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+				})
+
+				ginkgo.By("Finish pods", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
+				})
+
+				ginkgo.By("Checking the workload is finished", func() {
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the pod and wl finalizers are removed when pod is succeeded", func() {
+					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
+					util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, wlLookupKey)
 				})
 			})
 		})

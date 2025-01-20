@@ -40,6 +40,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -622,7 +623,16 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, nil
 		}
 
-		if err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); err != nil {
+		if controllerutil.HasControllerReference(wl) && !metav1.IsControlledBy(wl, object) {
+			return nil, nil
+		}
+
+		if cj, implements := job.(ComposableJob); implements {
+			err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
+		} else {
+			err = EnsurePrebuiltWorkloadOwnership(ctx, r.client, wl, object)
+		}
+		if err != nil {
 			return nil, err
 		}
 
@@ -709,7 +719,8 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if toUpdate != nil {
-		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
+		wl, err := r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
+		return wl, err
 	}
 
 	return match, nil
@@ -726,7 +737,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
-		isEquivalent, err := equivalentToWorkload(ctx, c, job, w)
+		isEquivalent, err := EquivalentToWorkload(ctx, c, job, w)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -740,9 +751,9 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	return match, toDelete, nil
 }
 
-func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) error {
+func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *kueue.Workload, object client.Object) error {
 	if !metav1.IsControlledBy(wl, object) {
-		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
+		if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return err
 		}
 
@@ -750,7 +761,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 			wl.Labels = maps.MergeKeepFirst(map[string]string{controllerconsts.JobUIDLabel: string(object.GetUID())}, wl.Labels)
 		}
 
-		if err := r.client.Update(ctx, wl); err != nil {
+		if err := c.Update(ctx, wl); err != nil {
 			return err
 		}
 	}
@@ -758,7 +769,18 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
-	if equivalent, err := equivalentToWorkload(ctx, r.client, job, wl); !equivalent || err != nil {
+	var (
+		equivalent bool
+		err        error
+	)
+
+	if cj, implements := job.(ComposableJob); implements {
+		equivalent, err = cj.EquivalentToWorkload(ctx, r.client, wl)
+	} else {
+		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
+	}
+
+	if !equivalent || err != nil {
 		if err != nil {
 			return false, err
 		}
@@ -805,8 +827,8 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	return runningPodSets
 }
 
-// equivalentToWorkload checks if the job corresponds to the workload
-func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+// EquivalentToWorkload checks if the job corresponds to the workload
+func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.

@@ -22,23 +22,17 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-)
-
-var (
-	baseCmpOpts = []cmp.Option{
-		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
-	}
 )
 
 func TestPodReconciler(t *testing.T) {
@@ -103,6 +97,7 @@ func TestPodReconciler(t *testing.T) {
 		},
 		"should set default values": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
 				Queue("queue").
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -115,15 +110,17 @@ func TestPodReconciler(t *testing.T) {
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 				Queue("queue").
-				Group("leaderworkerset-lws-0-97565").
+				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
+				PrebuildWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
-				Annotation(podcontroller.RoleHashAnnotation, "7aa6c7b8").
+				Annotation(podcontroller.RoleHashAnnotation, "main").
 				Obj(),
 		},
 		"should set default values and priority class when has value": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				UID(testUID).
 				Queue("queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
@@ -138,11 +135,12 @@ func TestPodReconciler(t *testing.T) {
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				Queue("queue").
-				Group("leaderworkerset-lws-0-97565").
+				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
+				PrebuildWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
-				Annotation(podcontroller.RoleHashAnnotation, "7aa6c7b8").
+				Annotation(podcontroller.RoleHashAnnotation, kueue.DefaultPodSetName).
 				Obj(),
 		},
 	}

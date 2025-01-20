@@ -135,6 +135,13 @@ type ComposableJob interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
 	// ForEach calls f on each member of the ComposableJob.
 	ForEach(f func(obj runtime.Object))
+	// EnsureWorkloadOwnedByAllMembers ensures that the provided workload is owned by the specified owners.
+	// If the workload is not owned by all the specified owners, it adds them to the owner references.
+	// Returns true if the workload is updated, and an error if any issues occur.
+	EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error
+	// EquivalentToWorkload checks if the provided workload is equivalent to the target workload.
+	// Returns true if they are equivalent and an error if any issues occur.
+	EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error)
 }
 
 // JobWithCustomWorkloadConditions interface should be implemented by generic jobs,
@@ -157,7 +164,11 @@ func QueueNameForObject(object client.Object) string {
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
-	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
+	return MaximumExecutionTimeSecondsForObject(job.Object())
+}
+
+func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
+	strVal, found := object.GetLabels()[constants.MaxExecTimeSecondsLabel]
 	if !found {
 		return nil
 	}

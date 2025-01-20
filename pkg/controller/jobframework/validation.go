@@ -57,7 +57,8 @@ var (
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
-	allErrs := validateCreateForQueueName(job)
+	allErrs := ValidateQueueName(job.Object())
+	allErrs = append(allErrs, validateCreateForPrebuildWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	return allErrs
 }
@@ -65,14 +66,14 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, validateUpdateForPrebuildWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	return allErrs
 }
 
-func validateCreateForQueueName(job GenericJob) field.ErrorList {
+func validateCreateForPrebuildWorkload(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, ValidateQueueName(job.Object())...)
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job.Object(), constants.PrebuiltWorkloadLabel)...)
 
 	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
@@ -117,10 +118,19 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
 	}
+	return allErrs
+}
 
-	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
-	newWlName, _ := PrebuiltWorkloadFor(newJob)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
+func validateUpdateForPrebuildWorkload(oldJob, newJob GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if !newJob.IsSuspended() {
+		oldWlName, _ := PrebuiltWorkloadFor(oldJob)
+		newWlName, _ := PrebuiltWorkloadFor(newJob)
+
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
+	} else {
+		allErrs = append(allErrs, validateCreateForPrebuildWorkload(newJob)...)
+	}
 	return allErrs
 }
 

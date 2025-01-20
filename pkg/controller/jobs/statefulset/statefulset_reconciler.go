@@ -26,6 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -118,9 +120,39 @@ func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Setting up StatefulSet reconciler")
-	return ctrl.NewControllerManagedBy(mgr).For(&appsv1.StatefulSet{}).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&appsv1.StatefulSet{}).
+		WithEventFilter(r).
+		Complete(r)
 }
 
 func NewReconciler(client client.Client, _ record.EventRecorder, _ ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return &Reconciler{client: client}
+}
+
+var _ predicate.Predicate = (*Reconciler)(nil)
+
+func (r *Reconciler) Generic(event.GenericEvent) bool {
+	return false
+}
+
+func (r *Reconciler) Create(e event.CreateEvent) bool {
+	return r.handle(e.Object)
+}
+
+func (r *Reconciler) Update(e event.UpdateEvent) bool {
+	return r.handle(e.ObjectNew)
+}
+
+func (r *Reconciler) Delete(event.DeleteEvent) bool {
+	return false
+}
+
+func (r *Reconciler) handle(obj client.Object) bool {
+	sts, isSts := obj.(*appsv1.StatefulSet)
+	if !isSts {
+		return false
+	}
+	// Handle only statefulset managed by kueue.
+	return jobframework.IsManagedByKueue(sts)
 }

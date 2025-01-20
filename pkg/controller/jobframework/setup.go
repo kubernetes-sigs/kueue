@@ -113,6 +113,15 @@ func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name st
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 	}
+	for _, rec := range cb.NewAdditionalReconcilers {
+		if err := rec(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+			opts...,
+		).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+		}
+	}
 	if err := cb.SetupWebhook(mgr, opts...); err != nil {
 		return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 	}

@@ -101,6 +101,10 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(controllerconsts.QueueLabel, q)
 }
 
+func (p *PodWrapper) PrebuildWorkload(name string) *PodWrapper {
+	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
+}
+
 // PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc

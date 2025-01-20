@@ -32,11 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type PodReconciler struct {
@@ -57,8 +57,6 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithEventFilter(r).
 		Complete(r)
 }
-
-// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	pod := &corev1.Pod{}
@@ -124,18 +122,25 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, nil
 	}
 
+	wlName := GetWorkloadName(lws.UID, lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
+
 	pod.Labels[constants.QueueLabel] = queueName
-	pod.Labels[podcontroller.GroupNameLabel] = GetWorkloadName(lws, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
+	pod.Labels[podcontroller.GroupNameLabel] = wlName
+	pod.Labels[constants.PrebuiltWorkloadLabel] = wlName
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws); priorityClass != "" {
 		pod.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
 	}
-	pod.Annotations[podcontroller.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 
-	hash, err := utilpod.GenerateShape(pod.Spec)
-	if err != nil {
-		return false, err
+	pod.Annotations[podcontroller.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
+	pod.Annotations[podcontroller.RoleHashAnnotation] = kueue.DefaultPodSetName
+
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		if _, ok := pod.Annotations[leaderworkersetv1.LeaderPodNameAnnotationKey]; !ok {
+			pod.Annotations[podcontroller.RoleHashAnnotation] = leaderPodSetName
+		} else {
+			pod.Annotations[podcontroller.RoleHashAnnotation] = workerPodSetName
+		}
 	}
-	pod.Annotations[podcontroller.RoleHashAnnotation] = hash
 
 	return true, nil
 }
