@@ -1,4 +1,18 @@
+## v0.9.3
+
+Changes since `v0.9.2`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Disable the unnecessary Validating Admission Policy for the visibility server, and drop the associated RBAC permissions to make the server minimal. This also prevents periodic error logging on clusters above Kubernetes 1.29+. (#3977, @varshaprasad96)
+- Fix building TAS assignments for workloads with multiple PodSets (eg. JobSet or kubeflow Jobs). The assignment was computed independently for the PodSets which could result in conflicts rendering the pods unschedulable by the kube-scheduler. (#3972, @kerthcet)
+- Fix the bug that prevented scaling StatefulSets which aren't managed by Kueue when the "statefulset" integration is enabled. (#3999, @mbobrovskyi)
+
 ## v0.9.2
+
+Changes since `v0.9.1`:
 
 ## Changes by Kind
 
