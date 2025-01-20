@@ -272,6 +272,28 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"set queue label": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Obj(),
+		},
+		"set queue label (ReadyReplicas > 0)": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				ReadyReplicas(1).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"delete queue name": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
