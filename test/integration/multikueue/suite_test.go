@@ -49,6 +49,7 @@ import (
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -205,6 +206,29 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadpod.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	podReconciller := workloadpod.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = podReconciller.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	nsSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "kubernetes.io/metadata.name",
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"kube-system", "kueue-system"},
+			},
+		},
+	}
+	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = workloadpod.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithManagedJobsNamespaceSelector(mjnsSelector))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

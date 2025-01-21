@@ -42,6 +42,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -50,12 +51,14 @@ import (
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
@@ -67,7 +70,8 @@ import (
 var defaultEnabledIntegrations sets.Set[string] = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/mxjob", "kubeflow.org/paddlejob",
-	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob")
+	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob",
+	"pod")
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -1178,6 +1182,107 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+		})
+	})
+
+	ginkgo.It("Should create a pod on worker if admitted", func() {
+		pod := testingpod.MakePod("pod1", managerNs.Name).
+			Queue(managerLq.Name).
+			Label(constants.ManagedByKueueLabel, "true").
+			KueueSchedulingGate().
+			Obj()
+
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, pod)).Should(gomega.Succeed())
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
+
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload creation in the worker clusters", func() {
+			managerWl := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finishing the worker pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdPod := corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(pod), &createdPod)).To(gomega.Succeed())
+				createdPod.Status.Phase = corev1.PodSucceeded
+				createdPod.Status.Conditions = append(createdPod.Status.Conditions,
+					corev1.PodCondition{
+						Type:               corev1.PodReadyToStartContainers,
+						Status:             corev1.ConditionFalse,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Reason:             "",
+					},
+					corev1.PodCondition{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Reason:             string(corev1.PodSucceeded),
+					},
+					corev1.PodCondition{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionFalse,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Reason:             string(corev1.PodSucceeded),
+					},
+					corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Reason:             string(corev1.PodSucceeded),
+					},
+					corev1.PodCondition{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Reason:             "",
+					},
+				)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdPod)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "")
 		})
 	})
 
