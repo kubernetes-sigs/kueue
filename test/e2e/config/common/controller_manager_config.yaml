@@ -29,5 +29,5 @@ integrations:
   - "pod"
   - "deployment"
   - "statefulset"
-  - "leaderworkerset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"
   - "codeflare.dev/appwrapper"

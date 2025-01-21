@@ -35,7 +35,7 @@ var (
 )
 
 const (
-	FrameworkName = "leaderworkerset"
+	FrameworkName = "leaderworkerset.x-k8s.io/leaderworkerset"
 )
 
 func init() {

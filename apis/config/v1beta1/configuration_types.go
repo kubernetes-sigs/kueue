@@ -333,7 +333,7 @@ type Integrations struct {
 	//  - "pod"
 	//  - "deployment" (requires enabling pod integration)
 	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset" (requires enabling pod integration)
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
