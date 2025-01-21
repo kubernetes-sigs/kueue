@@ -265,13 +265,22 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is finished when job is completed")
+		createdJob.Status.StartTime = ptr.To(metav1.Now())
+		createdJob.Status.CompletionTime = ptr.To(metav1.Now())
 		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
+			batchv1.JobCondition{
+				Type:               batchv1.JobSuccessCriteriaMet,
+				Status:             corev1.ConditionTrue,
+				LastProbeTime:      metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			},
 			batchv1.JobCondition{
 				Type:               batchv1.JobComplete,
 				Status:             corev1.ConditionTrue,
 				LastProbeTime:      metav1.Now(),
 				LastTransitionTime: metav1.Now(),
-			})
+			},
+		)
 		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -1310,13 +1319,22 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectReservingActiveWorkloadsMetric(devClusterQ, 1)
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
+		createdProdJob1.Status.StartTime = ptr.To(metav1.Now())
+		createdProdJob1.Status.CompletionTime = ptr.To(metav1.Now())
 		createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
+			batchv1.JobCondition{
+				Type:               batchv1.JobSuccessCriteriaMet,
+				Status:             corev1.ConditionTrue,
+				LastProbeTime:      metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			},
 			batchv1.JobCondition{
 				Type:               batchv1.JobComplete,
 				Status:             corev1.ConditionTrue,
 				LastProbeTime:      metav1.Now(),
 				LastTransitionTime: metav1.Now(),
-			})
+			},
+		)
 		gomega.Expect(k8sClient.Status().Update(ctx, createdProdJob1)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
