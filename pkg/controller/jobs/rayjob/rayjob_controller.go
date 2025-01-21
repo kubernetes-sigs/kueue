@@ -112,7 +112,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets() []kueue.PodSet {
+func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -152,7 +152,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		podSets = append(podSets, submitterJobPodSet)
 	}
 
-	return podSets
+	return podSets, nil
 }
 
 func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

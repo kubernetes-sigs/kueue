@@ -97,7 +97,7 @@ func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 	return "", true, false
 }
 
-func (j *KubeflowJob) PodSets() []kueue.PodSet {
+func (j *KubeflowJob) PodSets() ([]kueue.PodSet, error) {
 	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
@@ -109,7 +109,7 @@ func (j *KubeflowJob) PodSets() []kueue.PodSet {
 				ptr.To(kftraining.ReplicaIndexLabel), nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *KubeflowJob) IsActive() bool {

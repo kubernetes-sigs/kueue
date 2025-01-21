@@ -76,7 +76,7 @@ func (t *testGenericJob) Finished() (string, bool, bool) {
 	panic("not implemented")
 }
 
-func (t *testGenericJob) PodSets() []kueue.PodSet {
+func (t *testGenericJob) PodSets() ([]kueue.PodSet, error) {
 	panic("not implemented")
 }
 

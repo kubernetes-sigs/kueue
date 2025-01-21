@@ -246,7 +246,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	return pt
 }
 
-func (j *Job) PodSets() []kueue.PodSet {
+func (j *Job) PodSets() ([]kueue.PodSet, error) {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
@@ -256,7 +256,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta,
 				ptr.To(batchv1.JobCompletionIndexAnnotation), nil, nil),
 		},
-	}
+	}, nil
 }
 
 func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

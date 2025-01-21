@@ -98,7 +98,7 @@ func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
-func (j *RayCluster) PodSets() []kueue.PodSet {
+func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
 
@@ -127,7 +127,7 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

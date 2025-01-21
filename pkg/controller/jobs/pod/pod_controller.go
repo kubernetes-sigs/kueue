@@ -356,7 +356,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets() []kueue.PodSet {
+func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	return []kueue.PodSet{
 		{
 			Name:  kueue.DefaultPodSetName,
@@ -366,7 +366,7 @@ func (p *Pod) PodSets() []kueue.PodSet {
 			},
 			TopologyRequest: jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil),
 		},
-	}
+	}, nil
 }
 
 // IsActive returns true if there are any running pods.
@@ -629,7 +629,10 @@ func constructGroupPodSetsFast(p *Pod, groupTotalCount int) ([]kueue.PodSet, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		podSets := FromObject(&podInGroup).PodSets()
+		podSets, err := FromObject(&podInGroup).PodSets()
+		if err != nil {
+			return nil, err
+		}
 		podSets[0].Name = roleHash
 		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
@@ -660,7 +663,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 
 		if !podRoleFound {
-			podSet := FromObject(&podInGroup).PodSets()
+			podSet, err := FromObject(&podInGroup).PodSets()
+			if err != nil {
+				return nil, err
+			}
 			podSet[0].Name = roleHash
 
 			resultPodSets = append(resultPodSets, podSet[0])
@@ -950,7 +956,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 	// Construct workload for a single pod
 	if !p.isGroup {
-		wl.Spec.PodSets = p.PodSets()
+		var err error
+		wl.Spec.PodSets, err = p.PodSets()
+		if err != nil {
+			return nil, err
+		}
 
 		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.pod.GetUID(), p.GVK())
 		jobUID := string(object.GetUID())

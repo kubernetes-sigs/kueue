@@ -114,15 +114,13 @@ func (aw *AppWrapper) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (aw *AppWrapper) PodSets() []kueue.PodSet {
+func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 	podSets, err := awutils.GetPodSets((*awv1beta2.AppWrapper)(aw))
 	if err != nil {
-		// TODO: https://github.com/kubernetes-sigs/kueue/issues/3969
-		// Kueue will raise an error on zero length PodSet; the Kueue GenericJob API prevents propagating the actual error.
 		ctrl.Log.Error(err, "Error returned from awutils.GetPodSets", "appwrapper", aw)
-		return []kueue.PodSet{}
+		return nil, err
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
