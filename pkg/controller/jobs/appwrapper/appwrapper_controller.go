@@ -39,7 +39,7 @@ import (
 var (
 	gvk = awv1beta2.GroupVersion.WithKind("AppWrapper")
 
-	FrameworkName = "codeflare.dev/appwrapper"
+	FrameworkName = "workload.codeflare.dev/appwrapper"
 
 	NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 

@@ -26,7 +26,7 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
-  - "codeflare.dev/appwrapper"
+  - "workload.codeflare.dev/appwrapper"
   - "pod"
   - "deployment"
   - "statefulset"
