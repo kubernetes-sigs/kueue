@@ -17,6 +17,7 @@ limitations under the License.
 package fairsharing
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -28,10 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -333,3 +336,135 @@ func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
+
+var _ = ginkgo.FDescribe("Infinite Preemption Loop", func() {
+	var (
+		ctx context.Context
+		ns  *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		ctx = context.Background()
+
+		// Create a namespace for the test
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "preemption-loop-test-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		// Cleanup namespace
+		gomega.Expect(k8sClient.Delete(ctx, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("should reproduce the infinite preemption loop", func() {
+		// Step 1: Create ClusterQueues and Cohort
+		cohortName := "testing"
+
+		clusterQueueA := testing.MakeClusterQueue("guaranteed-tenant-a").
+			Cohort(cohortName).
+			ResourceGroup(*testing.MakeFlavorQuotas("default").
+				Resource("cpu", "150m").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+					MaxPriorityThreshold: ptr.To[int32](100),
+				},
+				WithinClusterQueue: kueue.PreemptionPolicyNever,
+			}).Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueueA)).To(gomega.Succeed())
+
+		clusterQueueB := testing.MakeClusterQueue("guaranteed-tenant-b").
+			Cohort(cohortName).
+			ResourceGroup(*testing.MakeFlavorQuotas("default").
+				Resource("cpu", "150m").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+					MaxPriorityThreshold: ptr.To[int32](100),
+				},
+				WithinClusterQueue: kueue.PreemptionPolicyNever,
+			}).Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueueB)).To(gomega.Succeed())
+
+		clusterQueueBestEffort := testing.MakeClusterQueue("best-effort").
+			Cohort(cohortName).
+			ResourceGroup(*testing.MakeFlavorQuotas("default").
+				Resource("cpu", "0m").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy: kueue.BorrowWithinCohortPolicyNever,
+				},
+				WithinClusterQueue: kueue.PreemptionPolicyNever,
+			}).Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueueBestEffort)).To(gomega.Succeed())
+
+		// Step 2: Create LocalQueues
+		localQueueA := testing.MakeLocalQueue("guaranteed-tenant-a", ns.Name).
+			ClusterQueue("guaranteed-tenant-a").Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueueA)).To(gomega.Succeed())
+
+		localQueueB := testing.MakeLocalQueue("guaranteed-tenant-b", ns.Name).
+			ClusterQueue("guaranteed-tenant-b").Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueueB)).To(gomega.Succeed())
+
+		localQueueBestEffort := testing.MakeLocalQueue("best-effort", ns.Name).
+			ClusterQueue("best-effort").Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueueBestEffort)).To(gomega.Succeed())
+
+		// Step 3: Create Deployments
+		// Guaranteed Tenant A Workload 1
+		deploymentA1 := testingdeployment.MakeDeployment("guaranteed-tenant-a-1", ns.Name).
+			Queue("guaranteed-tenant-a").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "250m").
+			PodTemplateSpecPriorityClass("medium").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, deploymentA1)).To(gomega.Succeed())
+
+		// Best Effort Workload
+		deploymentBestEffort := testingdeployment.MakeDeployment("best-effort-1", ns.Name).
+			Queue("best-effort").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "50m").
+			PodTemplateSpecPriorityClass("low").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, deploymentBestEffort)).To(gomega.Succeed())
+
+		// Guaranteed Tenant A Workload 2
+		deploymentA2 := testingdeployment.MakeDeployment("guaranteed-tenant-a-2", ns.Name).
+			Queue("guaranteed-tenant-a").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "50m").
+			PodTemplateSpecPriorityClass("medium").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, deploymentA2)).To(gomega.Succeed())
+
+		// Step 4: Verify Infinite Preemption Loop
+		ginkgo.By("Verifying the infinite preemption loop", func() {
+			// Wait for a few seconds to observe the loop
+			time.Sleep(10 * time.Second)
+
+			// Check the status of the pods
+			pods := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+			// Verify that the best-effort pod is continuously preempted and recreated
+			var bestEffortPodCount int
+			for _, pod := range pods.Items {
+				if pod.Labels["app"] == "best-effort-1" {
+					bestEffortPodCount++
+					gomega.Expect(pod.Status.Phase).To(gomega.Or(gomega.Equal(corev1.PodPending), gomega.Equal(corev1.PodRunning)))
+				}
+			}
+			gomega.Expect(bestEffortPodCount).To(gomega.BeNumerically(">", 1), "Best-effort pod should be recreated multiple times")
+		})
+	})
+})
