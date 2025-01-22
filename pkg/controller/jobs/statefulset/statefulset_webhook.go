@@ -91,6 +91,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
+		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
+			ss.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+		}
 	}
 
 	return nil
@@ -112,9 +115,10 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
-	replicasPath       = field.NewPath("spec", "replicas")
+	labelsPath                 = field.NewPath("metadata", "labels")
+	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
+	replicasPath               = field.NewPath("spec", "replicas")
+	priorityClassNameLabelPath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -134,6 +138,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	if oldStatefulSet.Status.ReadyReplicas > 0 || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
+	)...)
 
 	if jobframework.IsManagedByKueue(newStatefulSet.Object()) {
 		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
