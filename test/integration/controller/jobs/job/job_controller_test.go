@@ -19,7 +19,6 @@ package job
 import (
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -265,23 +264,28 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is finished when job is completed")
-		createdJob.Status.StartTime = ptr.To(metav1.Now())
-		createdJob.Status.CompletionTime = ptr.To(metav1.Now())
-		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
-			batchv1.JobCondition{
-				Type:               batchv1.JobSuccessCriteriaMet,
-				Status:             corev1.ConditionTrue,
-				LastProbeTime:      metav1.Now(),
-				LastTransitionTime: metav1.Now(),
-			},
-			batchv1.JobCondition{
-				Type:               batchv1.JobComplete,
-				Status:             corev1.ConditionTrue,
-				LastProbeTime:      metav1.Now(),
-				LastTransitionTime: metav1.Now(),
-			},
-		)
-		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			now := metav1.Now()
+			createdJob.Status.StartTime = ptr.To(now)
+			createdJob.Status.CompletionTime = ptr.To(now)
+			createdJob.Status.Conditions = append(createdJob.Status.Conditions,
+				batchv1.JobCondition{
+					Type:               batchv1.JobSuccessCriteriaMet,
+					Status:             corev1.ConditionTrue,
+					LastProbeTime:      now,
+					LastTransitionTime: now,
+				},
+				batchv1.JobCondition{
+					Type:               batchv1.JobComplete,
+					Status:             corev1.ConditionTrue,
+					LastProbeTime:      now,
+					LastTransitionTime: now,
+				},
+			)
+			g.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
@@ -563,23 +567,24 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				createdJob := batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					now := metav1.Now()
 					createdJob.Status.Succeeded = 1
-					createdJob.Status.StartTime = ptr.To(metav1.NewTime(time.Now()))
-					createdJob.Status.CompletionTime = ptr.To(metav1.NewTime(time.Now()))
+					createdJob.Status.StartTime = ptr.To(now)
+					createdJob.Status.CompletionTime = ptr.To(now)
 					createdJob.Status.Conditions = []batchv1.JobCondition{
 						{
 							Type:               batchv1.JobComplete,
 							Status:             corev1.ConditionTrue,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
+							LastProbeTime:      now,
+							LastTransitionTime: now,
 							Reason:             "ByTest",
 							Message:            "Job finished successfully",
 						},
 						{
 							Type:               batchv1.JobSuccessCriteriaMet,
 							Status:             corev1.ConditionTrue,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
+							LastProbeTime:      now,
+							LastTransitionTime: now,
 							Reason:             "Reached expected number of succeeded pods",
 						},
 					}
@@ -1319,23 +1324,27 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectReservingActiveWorkloadsMetric(devClusterQ, 1)
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
-		createdProdJob1.Status.StartTime = ptr.To(metav1.Now())
-		createdProdJob1.Status.CompletionTime = ptr.To(metav1.Now())
-		createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
-			batchv1.JobCondition{
-				Type:               batchv1.JobSuccessCriteriaMet,
-				Status:             corev1.ConditionTrue,
-				LastProbeTime:      metav1.Now(),
-				LastTransitionTime: metav1.Now(),
-			},
-			batchv1.JobCondition{
-				Type:               batchv1.JobComplete,
-				Status:             corev1.ConditionTrue,
-				LastProbeTime:      metav1.Now(),
-				LastTransitionTime: metav1.Now(),
-			},
-		)
-		gomega.Expect(k8sClient.Status().Update(ctx, createdProdJob1)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey1, createdProdJob1)).Should(gomega.Succeed())
+			now := metav1.Now()
+			createdProdJob1.Status.StartTime = ptr.To(now)
+			createdProdJob1.Status.CompletionTime = ptr.To(now)
+			createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
+				batchv1.JobCondition{
+					Type:               batchv1.JobSuccessCriteriaMet,
+					Status:             corev1.ConditionTrue,
+					LastProbeTime:      now,
+					LastTransitionTime: now,
+				},
+				batchv1.JobCondition{
+					Type:               batchv1.JobComplete,
+					Status:             corev1.ConditionTrue,
+					LastProbeTime:      now,
+					LastTransitionTime: now,
+				},
+			)
+			g.Expect(k8sClient.Status().Update(ctx, createdProdJob1)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
 			g.Expect(createdProdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
