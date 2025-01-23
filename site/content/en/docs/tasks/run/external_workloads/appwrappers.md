@@ -1,6 +1,5 @@
 ---
 title: "Run An AppWrapper"
-linkTitle: "AppWrappers"
 date: 2025-01-08
 weight: 6
 description: >
