@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
@@ -46,6 +47,42 @@ func TestDefault(t *testing.T) {
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
+				Obj(),
+		},
+		"deployment with queue and priority class": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+		},
+		"deployment with queue, priority class and pod template spec queue, priority class": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("new-test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("new-test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				PodTemplateSpecQueue("new-test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "new-test").
+				Obj(),
+		},
+		"deployment without queue with pod template spec queue and priority class": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 		},
 	}
@@ -149,6 +186,22 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
+		},
+		"update priority-class": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
 				},
 			}.ToAggregate(),
 		},

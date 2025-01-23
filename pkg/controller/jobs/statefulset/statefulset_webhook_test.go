@@ -58,6 +58,24 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				Obj(),
 		},
+		"statefulset with queue and priority class": {
+			enableIntegrations: []string{"pod"},
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Replicas(10).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
+				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
+				PodTemplateSpecPodGroupTotalCountAnnotation(10).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
+				Obj(),
+		},
 		"statefulset without replicas": {
 			enableIntegrations: []string{"pod"},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
@@ -205,6 +223,30 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: statefulsetQueueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in priority class label": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},

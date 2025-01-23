@@ -964,7 +964,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 }
 
 func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, string, int32, error) {
-	if workloadPriorityClass := workloadPriorityClassName(job); len(workloadPriorityClass) > 0 {
+	if workloadPriorityClass := WorkloadPriorityClassName(job.Object()); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, r.client, workloadPriorityClass)
 	}
 	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {

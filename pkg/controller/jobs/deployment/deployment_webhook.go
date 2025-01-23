@@ -65,6 +65,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
 	}
+	if priorityClass := jobframework.WorkloadPriorityClassName(deployment.Object()); priorityClass != "" {
+		deployment.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+	}
 
 	return nil
 }
@@ -106,6 +109,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
 		oldDeployment.Spec.Template.GetLabels()[constants.QueueLabel],
 		podSpecQueueNameLabelPath,
+	)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		oldDeployment.Object(),
+		newDeployment.Object(),
 	)...)
 
 	return warnings, allErrs.ToAggregate()
