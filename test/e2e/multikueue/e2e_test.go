@@ -43,11 +43,14 @@ import (
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -192,6 +195,79 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {
+		ginkgo.It("Should create a pod on worker if admitted", func() {
+			pod := testingpod.MakePod("pod", managerNs.Name).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Request("cpu", "1").
+				Request("memory", "2G").
+				Queue(managerLq.Name).
+				Obj()
+				// Since it requires 2G of memory, this pod can only be admitted in worker 2.
+
+			ginkgo.By("Creating the pod", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, pod)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdLeaderWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
+
+			// the execution should be given to worker2
+			ginkgo.By("Waiting to be admitted in worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:    multiKueueAc.Name,
+						State:   kueue.CheckStatePending,
+						Message: `The workload got reservation on "worker2"`,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+					g.Expect(utilpod.HasGate(createdPod, "kueue.x-k8s.io/admission")).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			finishReason := "PodCompleted"
+			finishPodConditions := []corev1.PodCondition{
+				{
+					Type:   corev1.PodReadyToStartContainers,
+					Status: corev1.ConditionFalse,
+					Reason: "",
+				},
+				{
+					Type:   corev1.PodInitialized,
+					Status: corev1.ConditionTrue,
+					Reason: finishReason},
+				{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionFalse,
+					Reason: finishReason,
+				},
+				{
+					Type:   corev1.ContainersReady,
+					Status: corev1.ConditionFalse,
+					Reason: finishReason},
+				{
+					Type:   corev1.PodScheduled,
+					Status: corev1.ConditionTrue,
+					Reason: "",
+				},
+			}
+			ginkgo.By("Waiting for the pod to get status updates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), &createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
+					g.Expect(createdPod.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should run a job on worker if admitted", func() {
 			if managerK8SVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 				ginkgo.Skip("the managers kubernetes version is less then 1.30")
