@@ -31,6 +31,7 @@ CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
+OCP_IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build -f Dockerfile.rhel
 IMAGE_BUILD_EXTRA_OPTS ?=
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
@@ -52,7 +53,21 @@ ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
+# These are used for OpenShift builds.
+OCP_BASE_IMAGE ?= registry.access.redhat.com/ubi9/ubi-micro:latest
+OCP_BUILDER_IMAGE ?= brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.23
 CGO_ENABLED ?= 1
+
+# Conditional to decide which build to use.
+ifeq ($(USE_OCP),true)
+    IMAGE_BUILD_CMD = $(OCP_IMAGE_BUILD_CMD)
+    BASE_IMAGE = $(OCP_BASE_IMAGE)
+    BUILDER_IMAGE = $(OCP_BUILDER_IMAGE)
+else
+    IMAGE_BUILD_CMD = $(DOCKER_BUILDX_CMD) build
+    BASE_IMAGE = $(BASE_IMAGE)
+    BUILDER_IMAGE = $(BUILDER_IMAGE)
+endif
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.

@@ -27,7 +27,7 @@ spec:
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: /cmd/experimental/kueue-viz/backend/Dockerfile
+    value: /cmd/experimental/kueue-viz/backend/Dockerfile.rhel
   - name: path-context
     value: cmd/experimental/kueue-viz/backend
   pipelineSpec:

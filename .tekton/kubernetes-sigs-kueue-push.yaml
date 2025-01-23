@@ -24,7 +24,7 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/kueue-operator-tenant/kubernetes-sigs-kueue:{{revision}}
   - name: dockerfile
-    value: Dockerfile
+    value: Dockerfile.rhel
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

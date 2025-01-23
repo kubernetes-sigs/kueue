@@ -24,7 +24,7 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/kueue-operator-tenant/kueue-viz-frontend:{{revision}}
   - name: dockerfile
-    value: /cmd/experimental/kueue-viz/frontend/Dockerfile
+    value: /cmd/experimental/kueue-viz/frontend/Dockerfile.rhel
   - name: path-context
     value: cmd/experimental/kueue-viz/frontend
   pipelineSpec:

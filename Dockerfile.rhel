@@ -1,0 +1,23 @@
+ARG BUILDER_IMAGE=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.23
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-micro:latest
+
+# Build the manager binary
+FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
+
+ARG CGO_ENABLED=1
+ARG TARGETARCH
+
+WORKDIR /workspace
+
+# Copy the Go source code
+COPY . .
+
+# Build the manager binary
+RUN make build GO_BUILD_ENV="CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}"
+
+FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
+WORKDIR /
+COPY --from=builder /workspace/bin/manager .
+USER 65532:65532
+
+ENTRYPOINT ["/manager"]
