@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -113,6 +114,29 @@ func TestPodReconciler(t *testing.T) {
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Queue("queue").
+				Group("leaderworkerset-lws-0-97565").
+				GroupTotalCount("1").
+				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podcontroller.RoleHashAnnotation, "7aa6c7b8").
+				Obj(),
+		},
+		"should set default values and priority class when has value": {
+			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Obj(),
+			wantPod: testingjobspod.MakePod("pod", "ns").
+				Label(leaderworkersetv1.SetNameLabelKey, "lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Label(constants.WorkloadPriorityClassLabel, "test").
 				Queue("queue").
 				Group("leaderworkerset-lws-0-97565").
 				GroupTotalCount("1").
