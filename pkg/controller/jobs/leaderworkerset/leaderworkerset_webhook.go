@@ -94,6 +94,7 @@ var _ webhook.CustomValidator = &Webhook{}
 var (
 	labelsPath               = field.NewPath("metadata", "labels")
 	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
+	priorityClassNamePath    = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	specPath                 = field.NewPath("spec")
 	startupPolicyPath        = specPath.Child("startupPolicy")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
@@ -128,6 +129,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
 	)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		newLeaderWorkerSet.Object(),
+		oldLeaderWorkerSet.Object(),
+	)...)
 
 	if jobframework.IsManagedByKueue(newLeaderWorkerSet.Object()) {
 		allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
