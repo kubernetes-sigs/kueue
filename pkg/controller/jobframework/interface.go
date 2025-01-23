@@ -170,8 +170,7 @@ func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
 	return ptr.To(int32(v))
 }
 
-func workloadPriorityClassName(job GenericJob) string {
-	object := job.Object()
+func WorkloadPriorityClassName(object client.Object) string {
 	if workloadPriorityClassLabel := object.GetLabels()[constants.WorkloadPriorityClassLabel]; workloadPriorityClassLabel != "" {
 		return workloadPriorityClassLabel
 	}

@@ -92,6 +92,9 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
+		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
+			ss.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+		}
 	}
 
 	return nil
@@ -113,12 +116,13 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	labelsPath                = field.NewPath("metadata", "labels")
-	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
-	replicasPath              = field.NewPath("spec", "replicas")
-	groupNameLabelPath        = labelsPath.Key(pod.GroupNameLabel)
-	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
-	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
+	labelsPath                 = field.NewPath("metadata", "labels")
+	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
+	replicasPath               = field.NewPath("spec", "replicas")
+	priorityClassNameLabelPath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	groupNameLabelPath         = labelsPath.Key(pod.GroupNameLabel)
+	podSpecLabelPath           = field.NewPath("spec", "template", "metadata", "labels")
+	podSpecQueueNameLabelPath  = podSpecLabelPath.Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -141,6 +145,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newStatefulSet.GetLabels()[pod.GroupNameLabel],
 		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
 		groupNameLabelPath,
+	)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
 	)...)
 
 	if isManagedByKueue(newStatefulSet.Object()) {
