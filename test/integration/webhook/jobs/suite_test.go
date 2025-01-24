@@ -18,7 +18,6 @@ package jobs
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -34,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -42,12 +42,6 @@ var (
 	serverVersionFetcher *kubeversion.ServerVersionFetcher
 	ctx                  context.Context
 	fwk                  *framework.Framework
-	crdPath              = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
-	webhookPath          = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
-	mpiCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "mpi-operator")
-	jobsetCrdPath        = filepath.Join("..", "..", "..", "..", "dep-crds", "jobset-operator")
-	rayCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "ray-operator-crds")
-	kubeflowCrdPath      = filepath.Join("..", "..", "..", "..", "dep-crds", "training-operator-crds")
 )
 
 func TestAPIs(t *testing.T) {
@@ -60,9 +54,14 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     crdPath,
-		DepCRDPaths: []string{jobsetCrdPath, mpiCrdPath, rayCrdPath, kubeflowCrdPath},
-		WebhookPath: webhookPath,
+		CRDPath: util.BaseCrd,
+		DepCRDPaths: []string{
+			util.MpiOperatorCrds,
+			util.JobsetCrds,
+			util.RayOperatorCrds,
+			util.TrainingOperatorCrds,
+		},
+		WebhookPath: util.WebhookCrds,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)

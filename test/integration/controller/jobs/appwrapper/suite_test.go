@@ -18,7 +18,6 @@ package appwrapper
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -39,15 +38,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	cfg               *rest.Config
-	k8sClient         client.Client
-	ctx               context.Context
-	fwk               *framework.Framework
-	crdPath           = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	appwrapperCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "appwrapper-crds")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {
@@ -60,8 +58,8 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     crdPath,
-		DepCRDPaths: []string{appwrapperCrdPath},
+		CRDPath:     util.BaseCrd,
+		DepCRDPaths: []string{util.AppWrapperCrds},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)

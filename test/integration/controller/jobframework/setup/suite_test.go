@@ -18,7 +18,6 @@ package job
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -32,12 +31,10 @@ import (
 )
 
 var (
-	cfg           *rest.Config
-	k8sClient     client.Client
-	ctx           context.Context
-	fwk           *framework.Framework
-	crdPath       = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	jobsetCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "jobset-operator")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {

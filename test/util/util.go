@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -912,4 +914,8 @@ func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
 	sel, err := metav1.LabelSelectorAsSelector(ls)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return sel
+}
+
+func GetProjectBaseDir() string {
+	return filepath.Dir(os.Getenv("PROJECT_DIR"))
 }

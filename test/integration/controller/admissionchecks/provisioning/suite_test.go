@@ -18,7 +18,6 @@ package provisioning
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -35,16 +34,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	depCRDPaths = []string{filepath.Join("..", "..", "..", "..", "..", "dep-crds", "cluster-autoscaler")}
-	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 )
 
 func TestProvisioning(t *testing.T) {
@@ -56,7 +53,13 @@ func TestProvisioning(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{CRDPath: crdPath, DepCRDPaths: depCRDPaths, WebhookPath: webhookPath}
+	fwk = &framework.Framework{
+		CRDPath: util.BaseCrd,
+		DepCRDPaths: []string{
+			util.AutoscalerCrds,
+		},
+		WebhookPath: util.WebhookCrds,
+	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

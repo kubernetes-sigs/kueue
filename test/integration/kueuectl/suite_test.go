@@ -20,7 +20,6 @@ import (
 	"context"
 	"os"
 	"path"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -37,15 +36,14 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "config", "components", "crd", "bases")
-	webhookPath = filepath.Join("..", "..", "..", "config", "components", "webhook")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 
 	kueuectlPath   string
 	kassetsPath    string
@@ -58,7 +56,10 @@ func TestKueuectl(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
+	fwk = &framework.Framework{
+		CRDPath:     util.BaseCrd,
+		WebhookPath: util.WebhookCrds,
+	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 	fwk.StartManager(ctx, cfg, managerSetup)
