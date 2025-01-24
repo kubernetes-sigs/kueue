@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mxjob
+package tfjob
 
 import (
 	"strings"
@@ -33,14 +33,14 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	workloadmxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/mxjob"
+	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	testingmxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mxjob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"
+	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -49,6 +49,7 @@ const (
 	instanceKey       = "cloud.provider.com/instance"
 	priorityClassName = "test-priority-class"
 	priorityValue     = 10
+	jobQueueName      = "test-queue"
 )
 
 var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -66,6 +67,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
+
 	var (
 		ns *corev1.Namespace
 	)
@@ -81,21 +83,21 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile MXJobs", func() {
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(testingmxjob.MakeMXJob(jobName, ns.Name).Obj())}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
+	ginkgo.It("Should reconcile TFJobs", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(testingtfjob.MakeTFJob(jobName, ns.Name).TFReplicaSpecsDefault().Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(&kftraining.TFJob{})}
 
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				RoleName:    kftraining.MXJobReplicaTypeScheduler,
+				RoleName:    kftraining.TFJobReplicaTypeChief,
 				ResourceCPU: "on-demand",
 			},
 			{
-				RoleName:    kftraining.MXJobReplicaTypeServer,
+				RoleName:    kftraining.TFJobReplicaTypePS,
 				ResourceCPU: "spot",
 			},
 			{
-				RoleName:    kftraining.MXJobReplicaTypeWorker,
+				RoleName:    kftraining.TFJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -103,8 +105,8 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 
 	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(testingmxjob.MakeMXJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(testingtfjob.MakeTFJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(&kftraining.TFJob{})}
 		kftesting.ShouldNotReconcileUnmanagedJob(ctx, k8sClient, kfJob, createdJob)
 	})
 })
@@ -141,20 +143,20 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(testingmxjob.MakeMXJob(jobName, ns.Name).Parallelism(2, 2).Obj())}
-			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
+			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(testingtfjob.MakeTFJob(jobName, ns.Name).TFReplicaSpecsDefault().Parallelism(2, 2).Obj())}
+			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(&kftraining.TFJob{})}
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					RoleName:    kftraining.MXJobReplicaTypeScheduler,
+					RoleName:    kftraining.TFJobReplicaTypeChief,
 					ResourceCPU: "default",
 				},
 				{
-					RoleName:    kftraining.MXJobReplicaTypeServer,
+					RoleName:    kftraining.TFJobReplicaTypePS,
 					ResourceCPU: "default",
 				},
 				{
-					RoleName:    kftraining.MXJobReplicaTypeWorker,
+					RoleName:    kftraining.TFJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -167,7 +169,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
-		ginkgo.Entry("Running MXJob", kftesting.PodsReadyTestSpec{
+		ginkgo.Entry("Running TFJob", kftesting.PodsReadyTestSpec{
 			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
@@ -184,7 +186,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 		}),
-		ginkgo.Entry("Running MXJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
+		ginkgo.Entry("Running TFJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
@@ -293,33 +295,34 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(
-			testingmxjob.MakeMXJob(jobName, ns.Name).Queue(localQueue.Name).
-				Request(kftraining.MXJobReplicaTypeScheduler, corev1.ResourceCPU, "3").
-				Request(kftraining.MXJobReplicaTypeServer, corev1.ResourceCPU, "4").
-				Request(kftraining.MXJobReplicaTypeWorker, corev1.ResourceCPU, "4").
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(
+			testingtfjob.MakeTFJob(jobName, ns.Name).Queue(localQueue.Name).
+				TFReplicaSpecsDefault().
+				Request(kftraining.TFJobReplicaTypeChief, corev1.ResourceCPU, "3").
+				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "4").
+				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "4").
 				Obj(),
 		)}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(&kftraining.TFJob{})}
 
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				RoleName:    kftraining.MXJobReplicaTypeScheduler,
+				RoleName:    kftraining.TFJobReplicaTypeChief,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				RoleName:    kftraining.MXJobReplicaTypeServer,
+				RoleName:    kftraining.TFJobReplicaTypePS,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				RoleName:    kftraining.MXJobReplicaTypeWorker,
+				RoleName:    kftraining.TFJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})
 	})
 })
 
-var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TFJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -346,7 +349,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-mxjob-",
+				GenerateName: "tas-tfjob-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -394,47 +397,67 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 	})
 
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
-		mxJob := testingmxjob.MakeMXJob("mxjob", ns.Name).
+		tfJob := testingtfjob.MakeTFJob("tfjob", ns.Name).
+			TFReplicaSpecs(
+				testingtfjob.TFReplicaSpecRequirement{
+					ReplicaType:  kftraining.TFJobReplicaTypeChief,
+					ReplicaCount: 1,
+					Annotations: map[string]string{
+						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+					},
+				},
+				testingtfjob.TFReplicaSpecRequirement{
+					ReplicaType:  kftraining.TFJobReplicaTypePS,
+					ReplicaCount: 1,
+					Annotations: map[string]string{
+						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+					},
+				},
+				testingtfjob.TFReplicaSpecRequirement{
+					ReplicaType:  kftraining.TFJobReplicaTypeWorker,
+					ReplicaCount: 1,
+					Annotations: map[string]string{
+						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+					},
+				},
+			).
 			Queue(localQueue.Name).
-			Request(kftraining.MXJobReplicaTypeScheduler, corev1.ResourceCPU, "100m").
-			Request(kftraining.MXJobReplicaTypeServer, corev1.ResourceCPU, "100m").
-			Request(kftraining.MXJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
-			PodAnnotation(kftraining.MXJobReplicaTypeScheduler, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-			PodAnnotation(kftraining.MXJobReplicaTypeServer, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-			PodAnnotation(kftraining.MXJobReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			Request(kftraining.TFJobReplicaTypeChief, corev1.ResourceCPU, "100m").
+			Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "100m").
+			Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
-		ginkgo.By("creating a MXJob", func() {
-			gomega.Expect(k8sClient.Create(ctx, mxJob)).Should(gomega.Succeed())
+		ginkgo.By("creating a TFJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, tfJob)).Should(gomega.Succeed())
 		})
 
 		wl := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadmxjob.GetWorkloadNameForMXJob(mxJob.Name, mxJob.UID), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: ns.Name}
 
 		ginkgo.By("verify the workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeScheduler)),
+						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
+							Required:      ptr.To(testing.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeServer)),
+						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
+							Required:      ptr.To(testing.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.MXJobReplicaTypeWorker)),
+						Name:  strings.ToLower(string(kftraining.TFJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),
+							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -458,7 +481,7 @@ var _ = ginkgo.Describe("MXJob controller when TopologyAwareScheduling enabled",
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
-				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
 						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},

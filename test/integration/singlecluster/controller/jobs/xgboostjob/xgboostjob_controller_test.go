@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package paddlejob
+package xgboostjob
 
 import (
 	"strings"
@@ -33,14 +33,14 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
+	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
-	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"
+	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -83,17 +83,16 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile PaddleJobs", func() {
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(testingpaddlejob.MakePaddleJob(jobName, ns.Name).PaddleReplicaSpecsDefault().Obj())}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(&kftraining.PaddleJob{})}
-
+	ginkgo.It("Should reconcile XGBoostJobs", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(testingxgboostjob.MakeXGBoostJob(jobName, ns.Name).XGBReplicaSpecsDefault().Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				RoleName:    kftraining.PaddleJobReplicaTypeMaster,
+				RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: "on-demand",
 			},
 			{
-				RoleName:    kftraining.PaddleJobReplicaTypeWorker,
+				RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -101,8 +100,8 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 
 	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(testingpaddlejob.MakePaddleJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(&kftraining.PaddleJob{})}
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(testingxgboostjob.MakeXGBoostJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 		kftesting.ShouldNotReconcileUnmanagedJob(ctx, k8sClient, kfJob, createdJob)
 	})
 })
@@ -124,6 +123,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.StopManager(ctx)
 	})
+
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -138,16 +138,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(testingpaddlejob.MakePaddleJob(jobName, ns.Name).PaddleReplicaSpecsDefault().Parallelism(2).Obj())}
-			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(&kftraining.PaddleJob{})}
-
+			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(testingxgboostjob.MakeXGBoostJob(jobName, ns.Name).XGBReplicaSpecsDefault().Parallelism(2).Obj())}
+			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					RoleName:    kftraining.PaddleJobReplicaTypeMaster,
+					RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 					ResourceCPU: "default",
 				},
 				{
-					RoleName:    kftraining.PaddleJobReplicaTypeWorker,
+					RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -160,7 +159,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
-		ginkgo.Entry("Running PaddleJob", kftesting.PodsReadyTestSpec{
+		ginkgo.Entry("Running XGBoostJob", kftesting.PodsReadyTestSpec{
 			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
@@ -177,7 +176,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 		}),
-		ginkgo.Entry("Running PaddleJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
+		ginkgo.Entry("Running XGBoostJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
@@ -244,7 +243,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 		clusterQueue        *kueue.ClusterQueue
 		localQueue          *kueue.LocalQueue
 	)
-
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 	})
@@ -286,29 +284,28 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(
-			testingpaddlejob.MakePaddleJob(jobName, ns.Name).Queue(localQueue.Name).
-				PaddleReplicaSpecsDefault().
-				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "3").
-				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "4").
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(
+			testingxgboostjob.MakeXGBoostJob(jobName, ns.Name).Queue(localQueue.Name).
+				XGBReplicaSpecsDefault().
+				Request(kftraining.XGBoostJobReplicaTypeMaster, corev1.ResourceCPU, "3").
+				Request(kftraining.XGBoostJobReplicaTypeWorker, corev1.ResourceCPU, "4").
 				Obj(),
 		)}
-		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(&kftraining.PaddleJob{})}
-
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				RoleName:    kftraining.PaddleJobReplicaTypeMaster,
+				RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				RoleName:    kftraining.PaddleJobReplicaTypeWorker,
+				RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})
 	})
 })
 
-var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -335,7 +332,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-paddlejob-",
+				GenerateName: "tas-xgboostjob-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -383,17 +380,17 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 	})
 
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
-		paddleJob := testingpaddlejob.MakePaddleJob("paddlejob", ns.Name).
-			PaddleReplicaSpecs(
-				testingpaddlejob.PaddleReplicaSpecRequirement{
-					ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
+		xgboostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob", ns.Name).
+			XGBReplicaSpecs(
+				testingxgboostjob.XGBReplicaSpecRequirement{
+					ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
 						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
 				},
-				testingpaddlejob.PaddleReplicaSpecRequirement{
-					ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
+				testingxgboostjob.XGBReplicaSpecRequirement{
+					ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
 						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
@@ -401,22 +398,22 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 				},
 			).
 			Queue(localQueue.Name).
-			Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
-			Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
+			Request(kftraining.XGBoostJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
+			Request(kftraining.XGBoostJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
-		ginkgo.By("creating a PaddleJob", func() {
-			gomega.Expect(k8sClient.Create(ctx, paddleJob)).Should(gomega.Succeed())
+		ginkgo.By("creating a XGBoostJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, xgboostJob)).Should(gomega.Succeed())
 		})
 
 		wl := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(xgboostJob.Name, xgboostJob.UID), Namespace: ns.Name}
 
 		ginkgo.By("verify the workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
+						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultRackTopologyLevel),
@@ -424,7 +421,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
+						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),

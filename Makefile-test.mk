@@ -38,8 +38,10 @@ ENVTEST_K8S_VERSION ?= 1.32
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
 INTEGRATION_NPROCS ?= 4
+INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
-INTEGRATION_TARGET ?= ./test/integration/...
+INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
@@ -81,7 +83,10 @@ test: gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run tests.
+test-integration: test-singlecluster-integration test-multikueue-integration
+
+.PHONY: test-singlecluster-integration
+test-singlecluster-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
@@ -89,6 +94,16 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
+
+.PHONY: test-multikueue-integration
+test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for Multikueue suite.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	PROJECT_DIR=$(PROJECT_DIR)/ \
+	KUEUE_BIN=$(PROJECT_DIR)/bin \
+	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
+	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
+	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
