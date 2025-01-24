@@ -114,8 +114,17 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 			})
 		})
 
-		ginkgo.It("shouldn't allow to remove the queue label", func() {
+		ginkgo.It("shouldn't allow to remove the queue label (ReadyReplicas > 0)", func() {
 			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Update status ReadyReplicas = 1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					gomega.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
 			ginkgo.By("Try to remove queue label", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
@@ -127,6 +136,23 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 					g.Expect(createdDeployment.Spec.Template.Labels).Should(gomega.HaveKey(constants.QueueLabel))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow to remove the queue label (ReadyReplicas = 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Try to remove queue label", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+				delete(createdDeployment.Labels, constants.QueueLabel)
+				gomega.Expect(k8sClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Check that queue label deleted from pod template spec", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels).ShouldNot(gomega.HaveKey(constants.QueueLabel))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
