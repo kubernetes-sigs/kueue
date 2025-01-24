@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -56,9 +55,7 @@ func TestScheduler(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{
-		CRDPath: util.BaseCrd,
-	}
+	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

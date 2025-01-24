@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,7 +57,6 @@ import (
 type ManagerSetup func(context.Context, manager.Manager)
 
 type Framework struct {
-	CRDPath               string
 	DepCRDPaths           []string
 	WebhookPath           string
 	APIServerFeatureGates []string
@@ -77,8 +77,9 @@ func (f *Framework) Init() *rest.Config {
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
+		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "bases")
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
+			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing: true,
 		}
 		if len(f.WebhookPath) > 0 {

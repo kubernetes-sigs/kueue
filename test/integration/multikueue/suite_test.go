@@ -91,8 +91,7 @@ func TestMultiKueue(t *testing.T) {
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		CRDPath:     util.BaseCrd,
-		WebhookPath: util.WebhookCrds,
+		WebhookPath: util.WebhookPath,
 		DepCRDPaths: []string{
 			util.JobsetCrds,
 			util.TrainingOperatorCrds,

@@ -59,7 +59,6 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     util.BaseCrd,
 		DepCRDPaths: []string{util.MpiOperatorCrds},
 	}
 
