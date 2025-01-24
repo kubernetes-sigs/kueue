@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
-	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
 )
 
