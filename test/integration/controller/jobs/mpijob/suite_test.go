@@ -18,7 +18,6 @@ package mpijob
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -40,15 +39,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	cfg        *rest.Config
-	k8sClient  client.Client
-	ctx        context.Context
-	fwk        *framework.Framework
-	crdPath    = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	mpiCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {
@@ -61,8 +59,7 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     crdPath,
-		DepCRDPaths: []string{mpiCrdPath},
+		DepCRDPaths: []string{util.MpiOperatorCrds},
 	}
 
 	cfg = fwk.Init()

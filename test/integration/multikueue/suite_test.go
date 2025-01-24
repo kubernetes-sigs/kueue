@@ -19,7 +19,6 @@ package multikueue
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -55,6 +54,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 const (
@@ -91,11 +91,11 @@ func TestMultiKueue(t *testing.T) {
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
-			filepath.Join("..", "..", "..", "dep-crds", "training-operator-crds"),
-			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
+		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{
+			util.JobsetCrds,
+			util.TrainingOperatorCrds,
+			util.MpiOperatorCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}

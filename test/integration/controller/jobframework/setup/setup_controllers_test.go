@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk = &framework.Framework{CRDPath: crdPath}
+		fwk = &framework.Framework{}
 		cfg = fwk.Init()
 		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ginkgo.By("Install the JobSet CRDs", func() {
 			options := envtest.CRDInstallOptions{
-				Paths:              []string{jobsetCrdPath},
+				Paths:              []string{util.JobsetCrds},
 				ErrorIfPathMissing: true,
 				CleanUpAfterUse:    true,
 			}

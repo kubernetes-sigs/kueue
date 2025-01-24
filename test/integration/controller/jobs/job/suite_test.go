@@ -18,7 +18,6 @@ package job
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -46,7 +45,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	crdPath   = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
 )
 
 func TestAPIs(t *testing.T) {
@@ -58,9 +56,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{
-		CRDPath: crdPath,
-	}
+	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

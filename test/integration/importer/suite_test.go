@@ -18,7 +18,6 @@ package importer
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -56,9 +55,7 @@ func TestScheduler(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{
-		CRDPath: filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-	}
+	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })
