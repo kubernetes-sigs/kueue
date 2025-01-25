@@ -18,27 +18,27 @@ package jobframework
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	tools "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	clientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 )
 
 const (
 	baseBackoffWaitForIntegration = 1 * time.Second
 	maxBackoffWaitForIntegration  = 2 * time.Minute
-)
-
-var (
-	errFailedMappingResource = errors.New("restMapper failed mapping resource")
 )
 
 // SetupControllers setups all controllers and webhooks for integrations.
@@ -51,57 +51,71 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	return manager.setupControllers(ctx, mgr, log, opts...)
+	discoveredCRDs := make(chan schema.GroupVersionKind, 10)
+	go watchCRDs(ctx, mgr, log, discoveredCRDs)
+	return manager.setupControllersFromDiscoveredCRDs(ctx, mgr, log, discoveredCRDs, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs <-chan schema.GroupVersionKind, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
-	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
-		return fmt.Errorf("check enabled frameworks list: %w", err)
-	}
+	setupChan := make(chan struct{}, 10)
 
-	for fwkName := range options.EnabledExternalFrameworks {
-		if err := RegisterExternalJobType(fwkName); err != nil {
-			return err
-		}
-	}
-	return m.forEach(func(name string, cb IntegrationCallbacks) error {
-		logger := log.WithValues("jobFrameworkName", name)
-		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
+	go func() {
+		for gvk := range discoveredCRDs {
+			setupChan <- struct{}{}
+			go func(currentGVK schema.GroupVersionKind) {
+				defer func() { <-setupChan }()
 
-		if options.EnabledFrameworks.Has(name) {
-			if cb.CanSupportIntegration != nil {
-				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
-					log.Error(err, "Failed to configure reconcilers")
-					os.Exit(1)
+				var matchedName string
+				var matchedCallbacks *IntegrationCallbacks
+				m.mu.Lock()
+				for name, cb := range m.integrations {
+					if options.EnabledFrameworks.Has(name) {
+						if name == fmt.Sprintf("%s/%s", currentGVK.Group, strings.ToLower(currentGVK.Kind)) ||
+							strings.EqualFold(reflect.TypeOf(cb.JobType).String(), currentGVK.Kind) {
+							matchedName = name
+							matchedCallbacks = &cb
+							break
+						}
+					}
 				}
-			}
-			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
-			if err != nil {
-				return fmt.Errorf("%s: %w: %w", fwkNamePrefix, errFailedMappingResource, err)
-			}
-			if err := restMappingExists(mgr, gvk); err != nil {
-				if !meta.IsNoMatchError(err) {
-					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+				m.mu.Unlock()
+
+				if matchedCallbacks == nil {
+					log.Info("No matching integration found for GVK", "gvk", currentGVK)
+					return
 				}
-				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
-				go waitForAPI(ctx, mgr, log, gvk, func() {
-					log.Info("API now available, starting controller and webhook", "gvk", gvk)
-					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
-						log.Error(err, "Failed to setup controller and webhook for job framework")
+
+				waitForAPI(ctx, mgr, log, currentGVK, func() {
+					log.Info("API available, initializing controller", "gvk", currentGVK)
+					if err := m.setupControllerAndWebhook(
+						mgr,
+						matchedName,
+						fmt.Sprintf("jobFrameworkName %q", currentGVK.Kind),
+						*matchedCallbacks,
+						options,
+						opts...,
+					); err != nil {
+						log.Error(err, "Controller setup failed", "gvk", currentGVK)
 					}
 				})
-			} else {
-				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
-					return err
-				}
+			}(gvk)
+		}
+	}()
+
+	return m.forEach(func(name string, cb IntegrationCallbacks) error {
+		if !options.EnabledFrameworks.Has(name) {
+			return nil
+		}
+
+		if cb.CanSupportIntegration != nil {
+			if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
+				return fmt.Errorf("jobFrameworkName %q: integration not supported: %w", name, err)
 			}
 		}
-		if err := setupNoopWebhook(mgr, cb.JobType); err != nil {
-			return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
-		}
-		return nil
+
+		return setupNoopWebhook(mgr, cb.JobType)
 	})
 }
 
@@ -173,4 +187,60 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 		}
 		return nil
 	})
+}
+
+func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind) {
+	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		log.Error(err, "Failed to create CRD client")
+		close(discoveredCRDs)
+		return
+	}
+
+	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
+	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
+
+	crdInformer.AddEventHandler(tools.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
+			gvk := schema.GroupVersionKind{
+				Group:   crd.Spec.Group,
+				Version: crd.Spec.Versions[0].Name,
+				Kind:    crd.Spec.Names.Kind,
+			}
+
+			for _, condition := range crd.Status.Conditions {
+				if condition.Type == apiextensionsv1.Established &&
+					condition.Status == apiextensionsv1.ConditionTrue {
+					go waitForAPI(ctx, mgr, log, gvk, func() {
+						log.Info("API now available, starting controller", "gvk", gvk)
+						discoveredCRDs <- gvk
+					})
+					break
+				}
+			}
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			newCRD := newObj.(*apiextensionsv1.CustomResourceDefinition)
+			gvk := schema.GroupVersionKind{
+				Group:   newCRD.Spec.Group,
+				Version: newCRD.Spec.Versions[0].Name,
+				Kind:    newCRD.Spec.Names.Kind,
+			}
+
+			for _, condition := range newCRD.Status.Conditions {
+				if condition.Type == apiextensionsv1.Established &&
+					condition.Status == apiextensionsv1.ConditionTrue {
+					go waitForAPI(ctx, mgr, log, gvk, func() {
+						log.Info("API now available, starting controller", "gvk", gvk)
+						discoveredCRDs <- gvk
+					})
+					break
+				}
+			}
+		},
+	})
+
+	factory.Start(ctx.Done())
+	factory.WaitForCacheSync(ctx.Done())
 }
