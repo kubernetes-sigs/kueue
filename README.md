@@ -134,6 +134,10 @@ You can reach the maintainers of this project at:
 - [Slack](https://kubernetes.slack.com/messages/wg-batch)
 - [Mailing List](https://groups.google.com/a/kubernetes.io/g/wg-batch)
 
+### Graphic assets
+
+- [Logos](https://github.com/cncf/artwork/tree/main/projects/kueue)
+
 ### Code of conduct
 
 Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
