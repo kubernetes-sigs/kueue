@@ -200,8 +200,8 @@ github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/kubeflow/mpi-operator v0.6.0
 ## explicit; go 1.23
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/training-operator v1.8.1
-## explicit; go 1.22
+# github.com/kubeflow/training-operator v1.9.0
+## explicit; go 1.23
 github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1
 # github.com/kylelemons/godebug v1.1.0
 ## explicit; go 1.11
