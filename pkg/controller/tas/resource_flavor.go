@@ -154,9 +154,11 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 		return
 	}
 
+	log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
+	log.V(2).Info("Topology delete event")
+
 	flavors := &kueue.ResourceFlavorList{}
 	if err := h.client.List(ctx, flavors, client.MatchingFields{indexer.ResourceFlavorTopologyNameKey: topology.Name}); err != nil {
-		log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
 		log.Error(err, "Could not list resource flavors")
 		return
 	}
@@ -171,6 +173,7 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 			continue
 		}
 		if *flv.Spec.TopologyName == kueue.TopologyReference(topology.Name) {
+			log.V(3).Info("Updating Topology cache for flavor", "flavor", flv.Name)
 			h.cache.AddOrUpdateTopologyForFlavor(topology, &flv)
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: flv.Name}}, nodeBatchPeriod)
 		}
@@ -204,7 +207,10 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			if err := r.client.Get(ctx, types.NamespacedName{Name: string(*flv.Spec.TopologyName)}, &topology); err != nil {
 				return reconcile.Result{}, client.IgnoreNotFound(err)
 			}
+			log.V(3).Info("Adding topology to cache for flavor", "flavorName", flv.Name)
 			r.cache.AddOrUpdateTopologyForFlavor(&topology, flv)
+		} else {
+			log.V(3).Info("Skip topology update to cache as already present for flavor", "flavorName", flv.Name)
 		}
 		// requeue inadmissible workloads as a change to the resource flavor
 		// or the set of nodes can allow admitting a workload which was

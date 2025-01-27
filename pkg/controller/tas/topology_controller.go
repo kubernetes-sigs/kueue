@@ -19,8 +19,10 @@ package tas
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +46,7 @@ const (
 )
 
 type topologyReconciler struct {
+	log                   logr.Logger
 	client                client.Client
 	queues                *queue.Manager
 	cache                 *cache.Cache
@@ -57,6 +60,7 @@ var _ predicate.Predicate = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache) *topologyReconciler {
 	return &topologyReconciler{
+		log:                   ctrl.Log.WithName(TASTopologyController),
 		client:                c,
 		queues:                queues,
 		cache:                 cache,
@@ -86,7 +90,7 @@ func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("name", req.NamespacedName.Name)
+	log := r.log.WithValues("name", req.NamespacedName.Name)
 	log.V(2).Info("Reconcile Topology")
 
 	if !topology.DeletionTimestamp.IsZero() {
@@ -134,11 +138,15 @@ func (r *topologyReconciler) Delete(e event.DeleteEvent) bool {
 	if !isTopology {
 		return true
 	}
+	log := r.log.WithValues("topology", klog.KObj(topology))
+	log.V(2).Info("Topology delete event")
+
 	defer r.queues.NotifyTopologyUpdateWatchers(topology, nil)
 	// Update the cache to account for the deleted topology, before notifying
 	// the listeners.
 	for flName, flCache := range r.tasCache.Clone() {
 		if kueue.TopologyReference(topology.Name) == flCache.TopologyName {
+			log.V(3).Info("Deleting topology from cache for flavor", "flavorName", flName)
 			r.cache.DeleteTopologyForFlavor(flName)
 		}
 	}
