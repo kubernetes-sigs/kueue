@@ -47,7 +47,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		cmpopts.EquateEmpty(),
 	}
 
-	mpiJobBuilder := utiltestingmpijob.MakeMPIJob("mpijob1", TestNamespace)
+	mpiJobBuilder := utiltestingmpijob.MakeMPIJob("mpijob1", TestNamespace).Suspend(false)
 
 	cases := map[string]struct {
 		managersMpiJobs []kfmpi.MPIJob
