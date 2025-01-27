@@ -4,10 +4,10 @@ metadata:
   name: metrics-service
 spec:
   ports:
-  - name: metrics
+  - name: https-metrics
     port: 8443
     protocol: TCP
-    targetPort: metrics
+    targetPort: https-metrics
   selector:
     app.kubernetes.io/name: kueue
     app.kubernetes.io/part-of: kueue

@@ -10,7 +10,7 @@ spec:
       app.kubernetes.io/name: kueue
       app.kubernetes.io/component: controller
   endpoints:
-  - port: metrics
+  - port: https-metrics
     scheme: https
     tlsConfig:
       insecureSkipVerify: true
