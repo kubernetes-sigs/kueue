@@ -333,51 +333,6 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
-			name: "list pods for kubeflow.org/MXjob type",
-			job: &kftraining.MXJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "MXJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "mxjob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
-				},
-			},
-			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mxjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
-			},
-			mapperGVKs: []schema.GroupVersionKind{
-				{
-					Group:   "kubeflow.org",
-					Version: "v1",
-					Kind:    "MXJob",
-				}, {
-					Group:   "",
-					Version: "v1",
-					Kind:    "Pod",
-				},
-			},
-			args: []string{"--for", "mxjob/test-job"},
-			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          <unknown>
-`,
-		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
 			job: &kftraining.PaddleJob{
 				TypeMeta: metav1.TypeMeta{

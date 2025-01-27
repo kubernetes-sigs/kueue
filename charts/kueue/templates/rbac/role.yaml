@@ -168,7 +168,6 @@ rules:
       - kubeflow.org
     resources:
       - mpijobs
-      - mxjobs
       - paddlejobs
       - pytorchjobs
       - tfjobs
@@ -183,8 +182,6 @@ rules:
       - kubeflow.org
     resources:
       - mpijobs/finalizers
-      - mxjobs/finalizers
-      - mxjobs/status
       - paddlejobs/finalizers
       - pytorchjobs/finalizers
       - tfjobs/finalizers

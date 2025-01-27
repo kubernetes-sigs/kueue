@@ -39,8 +39,6 @@ resources:
 - jobset_viewer_role.yaml
 - mpijob_editor_role.yaml
 - mpijob_viewer_role.yaml
-- mxjob_editor_role.yaml
-- mxjob_viewer_role.yaml
 - raycluster_editor_role.yaml
 - raycluster_viewer_role.yaml
 - rayjob_editor_role.yaml

@@ -24,7 +24,6 @@
 /docs/tasks/run_rayjobs          /docs/tasks/run/rayjobs           301
 
 /docs/tasks/run_kubeflow_jobs/run_mpijobs     /docs/tasks/run/kubeflow/mpijobs     301
-/docs/tasks/run_kubeflow_jobs/run_mxjobs      /docs/tasks/run/kubeflow/mxjobs      301
 /docs/tasks/run_kubeflow_jobs/run_paddlejobs  /docs/tasks/run/kubeflow/paddlejobs  301
 /docs/tasks/run_kubeflow_jobs/run_pytorchjobs /docs/tasks/run/kubeflow/pytorchjobs 301
 /docs/tasks/run_kubeflow_jobs/run_tfjobs      /docs/tasks/run/kubeflow/tfjobs      301
