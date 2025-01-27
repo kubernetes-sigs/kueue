@@ -62,6 +62,32 @@ const ClusterQueueDetail = () => {
         </Grid>
       </Grid>
 
+        {/* Fair Sharing Section */}
+      <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
+        Fair Sharing
+      </Typography>
+      {clusterQueue.fairSharing && clusterQueue.fairSharing.length > 0 ? (
+        <TableContainer component={Paper} style={{ marginTop: '20px' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Weight</TableCell>
+                <TableCell>Share</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {clusterQueue.fairSharing.map((item, index) => (
+                <TableRow key={index}>
+                  <TableCell>{item.weight}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ) : (
+        <Typography>No fair sharing details available</Typography>
+      )}
+
       {/* Flavor Fungibility Section */}
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
         Flavor Fungibility
