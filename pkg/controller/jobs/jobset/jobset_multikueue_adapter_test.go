@@ -46,7 +46,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		cmpopts.EquateEmpty(),
 	}
 
-	baseJobSetBuilder := utiltestingjobset.MakeJobSet("jobset1", TestNamespace)
+	baseJobSetBuilder := utiltestingjobset.MakeJobSet("jobset1", TestNamespace).Suspend(false)
 	baseJobSetManagedByKueueBuilder := baseJobSetBuilder.DeepCopy().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
