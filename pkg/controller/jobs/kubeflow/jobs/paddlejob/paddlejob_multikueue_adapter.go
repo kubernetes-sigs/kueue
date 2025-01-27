@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-var _ jobframework.MultiKueueAdapter = kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk)
+var _ jobframework.MultiKueueAdapter = kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject)
 
 func copyJobStatus(dst, src *kftraining.PaddleJob) {
 	dst.Status = src.Status
