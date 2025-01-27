@@ -45,7 +45,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
-- ✔️ Stable release cycle(2-3 months) for new features, bugfixes, cleanups.
+- ✔️ Stable [release](RELEASE.md) cycle (2-3 months).
 - ✔️ [Adopters](https://kueue.sigs.k8s.io/docs/adopters/) running on production.
 
   _Based on community feedback, we continue to simplify and evolve the API to
