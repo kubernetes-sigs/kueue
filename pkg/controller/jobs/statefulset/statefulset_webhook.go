@@ -107,9 +107,11 @@ var (
 	statefulsetReplicasPath       = field.NewPath("spec", "replicas")
 	priorityClassNameLabelPath    = statefulsetLabelsPath.Key(constants.WorkloadPriorityClassLabel)
 	statefulsetGroupNameLabelPath = statefulsetLabelsPath.Key(pod.GroupNameLabel)
-
-	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
+	podSpecQueueNameLabelPath     = field.NewPath("spec", "template", "metadata", "labels").
 					Key(constants.QueueLabel)
+	specPath         = field.NewPath("spec")
+	specTemplatePath = specPath.Child("template")
+	podSpecPath      = specTemplatePath.Child("spec")
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -139,6 +141,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	if isManagedByKueue(newStatefulSet.Object()) {
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodSpec(
+			&newStatefulSet.Spec.Template.Spec,
+			&oldStatefulSet.Spec.Template.Spec,
+			podSpecPath,
+		)...)
+
 		// TODO(#3279): support resizes later
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 			newStatefulSet.Spec.Replicas,
