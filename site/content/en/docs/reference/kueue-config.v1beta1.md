@@ -502,7 +502,6 @@ Possible options:</p>
 <li>&quot;ray.io/rayjob&quot;</li>
 <li>&quot;ray.io/raycluster&quot;</li>
 <li>&quot;jobset.x-k8s.io/jobset&quot;</li>
-<li>&quot;kubeflow.org/mxjob&quot;</li>
 <li>&quot;kubeflow.org/paddlejob&quot;</li>
 <li>&quot;kubeflow.org/pytorchjob&quot;</li>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
