@@ -52,7 +52,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -622,7 +621,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, nil
 		}
 
-		if err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); err != nil {
+		if cj, implements := job.(ComposableJob); implements {
+			err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
+		} else {
+			err = EnsurePrebuiltWorkloadOwnership(ctx, r.client, wl, object)
+		}
+		if err != nil {
 			return nil, err
 		}
 
@@ -726,7 +730,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
-		isEquivalent, err := equivalentToWorkload(ctx, c, job, w)
+		isEquivalent, err := EquivalentToWorkload(ctx, c, job, w)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -740,9 +744,9 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	return match, toDelete, nil
 }
 
-func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) error {
+func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *kueue.Workload, object client.Object) error {
 	if !metav1.IsControlledBy(wl, object) {
-		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
+		if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return err
 		}
 
@@ -750,7 +754,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 			wl.Labels = maps.MergeKeepFirst(map[string]string{controllerconsts.JobUIDLabel: string(object.GetUID())}, wl.Labels)
 		}
 
-		if err := r.client.Update(ctx, wl); err != nil {
+		if err := c.Update(ctx, wl); err != nil {
 			return err
 		}
 	}
@@ -758,7 +762,18 @@ func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl 
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
-	if equivalent, err := equivalentToWorkload(ctx, r.client, job, wl); !equivalent || err != nil {
+	var (
+		equivalent bool
+		err        error
+	)
+
+	if cj, implements := job.(ComposableJob); implements {
+		equivalent, err = cj.EquivalentToWorkload(ctx, r.client, wl)
+	} else {
+		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
+	}
+
+	if !equivalent || err != nil {
 		if err != nil {
 			return false, err
 		}
@@ -805,8 +820,8 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	return runningPodSets
 }
 
-// equivalentToWorkload checks if the job corresponds to the workload
-func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+// EquivalentToWorkload checks if the job corresponds to the workload
+func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.
@@ -840,7 +855,7 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
-	newWl, err := r.constructWorkload(ctx, job, object)
+	newWl, err := r.constructWorkload(ctx, job)
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
@@ -940,9 +955,7 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 }
 
 // constructWorkload will derive a workload from the corresponding job.
-func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-
+func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (*kueue.Workload, error) {
 	if cj, implements := job.(ComposableJob); implements {
 		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy)
 		if err != nil {
@@ -950,26 +963,20 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		}
 		return wl, nil
 	}
+	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy)
+}
+
+func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy []string) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+	object := job.Object()
 
 	podSets, err := job.PodSets()
 	if err != nil {
 		return nil, err
 	}
 
-	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
-			Namespace:   object.GetNamespace(),
-			Labels:      maps.FilterKeys(job.Object().GetLabels(), r.labelKeysToCopy),
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
-		},
-		Spec: kueue.WorkloadSpec{
-			PodSets:                     podSets,
-			QueueName:                   QueueName(job),
-			MaximumExecutionTimeSeconds: MaximumExecutionTimeSeconds(job),
-		},
-	}
+	wl := NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
+
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -984,7 +991,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		)
 	}
 
-	if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
+	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 		return nil, err
 	}
 	return wl, nil
@@ -1082,7 +1089,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 
 	// Create the corresponding workload.
-	wl, err := r.constructWorkload(ctx, job, object)
+	wl, err := r.constructWorkload(ctx, job)
 	if err != nil {
 		return err
 	}

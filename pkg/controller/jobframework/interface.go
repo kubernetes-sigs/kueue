@@ -32,6 +32,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 // GenericJob if the interface which needs to be implemented by all jobs
@@ -135,6 +137,13 @@ type ComposableJob interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
 	// ForEach calls f on each member of the ComposableJob.
 	ForEach(f func(obj runtime.Object))
+	// EnsureWorkloadOwnedByAllMembers ensures that the provided workload is owned by the specified owners.
+	// If the workload is not owned by all the specified owners, it adds them to the owner references.
+	// Returns true if the workload is updated, and an error if any issues occur.
+	EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error
+	// EquivalentToWorkload checks if the provided workload is equivalent to the target workload.
+	// Returns true if they are equivalent and an error if any issues occur.
+	EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error)
 }
 
 // JobWithCustomWorkloadConditions interface should be implemented by generic jobs,
@@ -157,7 +166,11 @@ func QueueNameForObject(object client.Object) string {
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
-	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
+	return MaximumExecutionTimeSecondsForObject(job.Object())
+}
+
+func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
+	strVal, found := object.GetLabels()[constants.MaxExecTimeSecondsLabel]
 	if !found {
 		return nil
 	}
@@ -180,6 +193,23 @@ func WorkloadPriorityClassName(object client.Object) string {
 func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
 	return name, found
+}
+
+func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
+	return &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   obj.GetNamespace(),
+			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy),
+			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+			Annotations: admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations()),
+		},
+		Spec: kueue.WorkloadSpec{
+			QueueName:                   QueueNameForObject(obj),
+			PodSets:                     podSets,
+			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+		},
+	}
 }
 
 // MultiKueueAdapter interface needed for MultiKueue job delegation.

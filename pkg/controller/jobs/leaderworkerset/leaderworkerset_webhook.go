@@ -24,6 +24,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -96,7 +97,6 @@ var (
 	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
 	priorityClassNamePath    = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	specPath                 = field.NewPath("spec")
-	startupPolicyPath        = specPath.Child("startupPolicy")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
 	workerTemplatePath       = leaderWorkerTemplatePath.Child("workerTemplate")
@@ -109,10 +109,6 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateQueueName(lws.Object())
-
-	if jobframework.IsManagedByKueue(lws.Object()) {
-		allErrs = append(allErrs, validateStartupPolicy(lws)...)
-	}
 
 	return nil, allErrs.ToAggregate()
 }
@@ -135,8 +131,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	if jobframework.IsManagedByKueue(newLeaderWorkerSet.Object()) {
-		allErrs = append(allErrs, validateStartupPolicy(newLeaderWorkerSet)...)
-
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
@@ -156,20 +150,9 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string) string {
+func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	// Workload name should be unique by group index.
-	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", lws.Name, groupIndex), lws.UID, gvk)
-}
-
-func validateStartupPolicy(lws *LeaderWorkerSet) field.ErrorList {
-	allErrors := field.ErrorList{}
-	// TODO(#3232): Support LeaderReady StartupPolicy
-	if lws.Spec.StartupPolicy == leaderworkersetv1.LeaderReadyStartupPolicy {
-		allErrors = append(allErrors,
-			field.Invalid(startupPolicyPath, lws.Spec.StartupPolicy, "only the LeaderCreated startup policy is allowed when using the kueue.x-k8s.io/queue-name label or annotation"),
-		)
-	}
-	return allErrors
+	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
 }
 
 func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {

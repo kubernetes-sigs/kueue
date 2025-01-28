@@ -284,6 +284,14 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
+	if w.ObjectMeta.Annotations == nil {
+		w.ObjectMeta.Annotations = make(map[string]string)
+	}
+	w.ObjectMeta.Annotations[k] = v
+	return w
+}
+
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
 	return w
@@ -386,6 +394,11 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 			},
 		},
 	}
+}
+
+func (p *PodSetWrapper) PodSpec(ps corev1.PodSpec) *PodSetWrapper {
+	p.Template.Spec = ps
+	return p
 }
 
 func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {

@@ -61,6 +61,9 @@ type IntegrationCallbacks struct {
 	GVK schema.GroupVersionKind
 	// NewReconciler creates a new reconciler
 	NewReconciler ReconcilerFactory
+	// NewAdditionalReconcilers creates additional reconcilers
+	// (this callback is optional)
+	NewAdditionalReconcilers []ReconcilerFactory
 	// SetupWebhook sets up the framework's webhook with the controllers manager
 	SetupWebhook func(mgr ctrl.Manager, opts ...Option) error
 	// JobType holds an object of the type managed by the integration's webhook
