@@ -17,6 +17,9 @@ limitations under the License.
 package pod
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -55,4 +58,45 @@ func gateIndex(p *corev1.Pod, gateName string) int {
 	return slices.IndexFunc(p.Spec.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
 		return g.Name == gateName
 	})
+}
+
+func GenerateRoleHash(podSpec corev1.PodSpec) (string, error) {
+	shape := map[string]interface{}{
+		"spec": SpecShape(podSpec),
+	}
+
+	shapeJSON, err := json.Marshal(shape)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim hash to 8 characters and return
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
+}
+
+func SpecShape(podSpec corev1.PodSpec) (result map[string]interface{}) {
+	return map[string]interface{}{
+		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"containers":                ContainersShape(podSpec.Containers),
+		"nodeSelector":              podSpec.NodeSelector,
+		"affinity":                  podSpec.Affinity,
+		"tolerations":               podSpec.Tolerations,
+		"runtimeClassName":          podSpec.RuntimeClassName,
+		"priority":                  podSpec.Priority,
+		"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+		"overhead":                  podSpec.Overhead,
+		"resourceClaims":            podSpec.ResourceClaims,
+	}
+}
+
+func ContainersShape(containers []corev1.Container) (result []map[string]interface{}) {
+	for _, c := range containers {
+		result = append(result, map[string]interface{}{
+			"resources": map[string]interface{}{
+				"requests": c.Resources.Requests,
+			},
+			"ports": c.Ports,
+		})
+	}
+	return result
 }

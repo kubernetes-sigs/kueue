@@ -141,9 +141,9 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	if isManagedByKueue(newStatefulSet.Object()) {
-		allErrs = append(allErrs, jobframework.ValidateImmutablePodSpec(
-			&newStatefulSet.Spec.Template.Spec,
-			&oldStatefulSet.Spec.Template.Spec,
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(
+			newStatefulSet.Spec.Template.Spec,
+			oldStatefulSet.Spec.Template.Spec,
 			podSpecPath,
 		)...)
 

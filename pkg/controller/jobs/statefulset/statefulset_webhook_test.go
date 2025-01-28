@@ -377,7 +377,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: podSpecPath.String(),
+					Field: podSpecPath.Child("containers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
 		},
@@ -431,7 +431,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: podSpecPath.String(),
+					Field: podSpecPath.Child("containers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
 		},
