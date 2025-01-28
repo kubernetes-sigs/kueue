@@ -118,11 +118,14 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 var (
 	labelsPath                 = field.NewPath("metadata", "labels")
 	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
-	replicasPath               = field.NewPath("spec", "replicas")
 	priorityClassNameLabelPath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	groupNameLabelPath         = labelsPath.Key(pod.GroupNameLabel)
 	podSpecLabelPath           = field.NewPath("spec", "template", "metadata", "labels")
 	podSpecQueueNameLabelPath  = podSpecLabelPath.Key(constants.QueueLabel)
+	specPath                   = field.NewPath("spec")
+	replicasPath               = specPath.Child("replicas")
+	specTemplatePath           = specPath.Child("template")
+	podSpecPath                = specTemplatePath.Child("spec")
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -152,6 +155,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	if isManagedByKueue(newStatefulSet.Object()) {
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodSpec(
+			&newStatefulSet.Spec.Template.Spec,
+			&oldStatefulSet.Spec.Template.Spec,
+			podSpecPath,
+		)...)
+
 		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
 		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
 
