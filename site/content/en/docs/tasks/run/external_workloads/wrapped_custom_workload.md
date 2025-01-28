@@ -2,7 +2,7 @@
 title: "Run A Wrapped Custom Workload"
 linkTitle: "Custom Workload"
 date: 2025-01-14
-weight: 7
+weight: 1
 description: >
   Use an AppWrapper to Run a Custom Workload on Kueue.
 ---

@@ -1,7 +1,7 @@
 ---
 title: "Run An Argo Workflow"
 date: 2025-01-23
-weight: 7
+weight: 3
 description: >
   Integrate Kueue with Argo Workflows.
 ---

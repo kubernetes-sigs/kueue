@@ -43,8 +43,8 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 - [Submit jobs to MultiKueue](run/multikueue).
-- [Support external workloads](run/external_workloads).
-  Kueue allows one to use existing integrations to support external workloads.
+- [Run external workloads](run/external_workloads).
+  Kueue allows one to use built-in integrations (such as Pods or Jobs) to run external workloads.
 
 ### Serving user
 
@@ -61,9 +61,9 @@ A _platform developer_ integrates Kueue with other software and/or contributes t
 
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](dev/integrate_a_custom_job).
+- [Integrate a custom workload with Kueue using built-in frameworks](dev/external_frameworks).
 - [Enable pprof endpoints](dev/enabling_pprof_endpoints).
 - [Develop a custom AdmissionCheck Controller](dev/develop-acc).
-- [Integration a custom workload with existing frameworks](dev/external_frameworks)
 
 ## Troubleshooting
 
