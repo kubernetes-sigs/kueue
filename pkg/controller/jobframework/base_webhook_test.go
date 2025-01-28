@@ -51,6 +51,7 @@ type testGenericJob struct {
 
 var _ jobframework.GenericJob = (*testGenericJob)(nil)
 var _ jobframework.JobWithCustomValidation = (*testGenericJob)(nil)
+var _ jobframework.JobWithManagedBy = (*testGenericJob)(nil)
 
 func (t *testGenericJob) Object() client.Object {
 	return t.Job
@@ -86,6 +87,20 @@ func (t *testGenericJob) IsActive() bool {
 
 func (t *testGenericJob) PodsReady() bool {
 	panic("not implemented")
+}
+
+func (j *testGenericJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
+}
+
+func (j *testGenericJob) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *testGenericJob) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func (t *testGenericJob) GVK() schema.GroupVersionKind {
@@ -133,6 +148,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
+		multiQueue                 bool
 		job                        *batchv1.Job
 		want                       *batchv1.Job
 	}{
@@ -198,11 +214,42 @@ func TestBaseWebhookDefault(t *testing.T) {
 			want: utiljob.MakeJob("job", "default").
 				Obj(),
 		},
+		"ManagedByDefaulting, targeting multi-queue local queue": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("multi-queue").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("multi-queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			multiQueue: true,
+		},
+		"ManagedByDefaulting, targeting multi-queue local queue but already managaed by someone else": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("multi-queue").
+				ManagedBy("someone-else").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("multi-queue").
+				ManagedBy("someone-else").
+				Obj(),
+			multiQueue: true,
+		},
+		"ManagedByDefaulting, targeting non-multiqueue local queue": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			multiQueue: true,
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiQueue)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
@@ -216,13 +263,35 @@ func TestBaseWebhookDefault(t *testing.T) {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
+			if tc.multiQueue {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multi-queue", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+				cq := *utiltesting.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj()
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				ac := utiltesting.MakeAdmissionCheck("admission-check").
+					ControllerName(kueue.MultiKueueControllerName).
+					Active(metav1.ConditionTrue).
+					Obj()
+				cqCache.AddOrUpdateAdmissionCheck(ac)
+				if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+			}
+
 			w := &jobframework.BaseWebhook{
 				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				FromObject:                 makeTestGenericJob().fromObject,
 				Queues:                     queueManager,
+				Cache:                      cqCache,
 			}
 			if err := w.Default(context.Background(), tc.job); err != nil {
-				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")
+				t.Errorf("set defaults by base webhook")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
