@@ -713,8 +713,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if toUpdate != nil {
-		wl, err := r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
-		return wl, err
+		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
 	}
 
 	return match, nil
