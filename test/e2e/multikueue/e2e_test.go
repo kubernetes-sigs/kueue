@@ -570,15 +570,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", func() {
 			// Since it requires 2 CPU in total, this appwrapper can only be admitted in worker 1.
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
+				Queue(managerLq.Name).
 				Component(testingjob.MakeJob("job-1", managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
 					Image(util.E2eTestSleepImage, []string{"5s"}). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "200m").
+					Request(corev1.ResourceMemory, "200M").
 					SetTypeMeta().Obj()).
-				Suspend(false).
 				Obj()
 
 			ginkgo.By("Creating the appwrapper", func() {
