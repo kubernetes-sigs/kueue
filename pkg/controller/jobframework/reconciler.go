@@ -40,7 +40,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -619,10 +618,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"workload", klog.KObj(wl),
 				"controlledBy", controlledBy,
 			)
-			return nil, nil
-		}
-
-		if controllerutil.HasControllerReference(wl) && !metav1.IsControlledBy(wl, object) {
 			return nil, nil
 		}
 
