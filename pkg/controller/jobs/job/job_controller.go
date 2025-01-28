@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -144,6 +145,7 @@ type Job batchv1.Job
 var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
+var _ jobframework.JobWithManagedBy = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -313,6 +315,21 @@ func (j *Job) Finished() (message string, success, finished bool) {
 func (j *Job) PodsReady() bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	return j.Status.Succeeded+ready >= j.podsCount()
+}
+
+func (j *Job) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
+		features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
+}
+
+func (j *Job) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *Job) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func (j *Job) podsCount() int32 {
