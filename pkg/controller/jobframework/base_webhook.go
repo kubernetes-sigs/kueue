@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -36,6 +37,7 @@ type BaseWebhook struct {
 	ManagedJobsNamespaceSelector labels.Selector
 	FromObject                   func(runtime.Object) GenericJob
 	Queues                       *queue.Manager
+	Cache                        *cache.Cache
 }
 
 func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
@@ -47,6 +49,7 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 			FromObject:                   fromObject,
 			Queues:                       options.Queues,
+			Cache:                        options.Cache,
 		}
 		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
@@ -64,7 +67,11 @@ func (w *BaseWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
 	ApplyDefaultLocalQueue(job.Object(), w.Queues.DefaultLocalQueueExist)
-	return ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector)
+	if err := ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	ApplyDefaultForManagedBy(job, w.Queues, w.Cache, log)
+	return nil
 }
 
 var _ admission.CustomValidator = &BaseWebhook{}

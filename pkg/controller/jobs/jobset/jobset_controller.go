@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -81,6 +82,7 @@ type JobSet jobsetapi.JobSet
 
 var _ jobframework.GenericJob = (*JobSet)(nil)
 var _ jobframework.JobWithReclaimablePods = (*JobSet)(nil)
+var _ jobframework.JobWithManagedBy = (*JobSet)(nil)
 
 func fromObject(obj runtime.Object) *JobSet {
 	return (*JobSet)(obj.(*jobsetapi.JobSet))
@@ -203,6 +205,20 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 		}
 	}
 	return ret, nil
+}
+
+func (j *JobSet) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == jobsetapi.JobSetControllerName)
+}
+
+func (j *JobSet) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *JobSet) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {

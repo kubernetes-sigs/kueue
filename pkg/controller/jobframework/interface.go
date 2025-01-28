@@ -144,6 +144,17 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithManagedBy interface should be implemented by generic jobs
+// that implement the managedBy protocol for Multi-Kueue
+type JobWithManagedBy interface {
+	// CanDefaultManagedBy returns true of ManagedBy() would return nil or the default controller for the framework
+	CanDefaultManagedBy() bool
+	// ManagedBy returns the name of the controller that is managing the Job
+	ManagedBy() *string
+	// SetManagedBy sets the field in the spec that contains the name of the managing controller
+	SetManagedBy(*string)
+}
+
 func QueueName(job GenericJob) string {
 	return QueueNameForObject(job.Object())
 }
