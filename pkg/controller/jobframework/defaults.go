@@ -118,5 +118,4 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *queue.Manager, cache *cach
 			}
 		}
 	}
-
 }
