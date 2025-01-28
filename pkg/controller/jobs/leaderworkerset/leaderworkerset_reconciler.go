@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -36,7 +35,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -129,23 +127,7 @@ func (r *Reconciler) createPrebuildWorkload(ctx context.Context, lws *leaderwork
 }
 
 func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, index int32) *kueue.Workload {
-	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)),
-			Namespace:   lws.Namespace,
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(lws.GetAnnotations()),
-		},
-		Spec: kueue.WorkloadSpec{
-			QueueName:                   jobframework.QueueNameForObject(lws),
-			PodSets:                     r.podSets(lws),
-			MaximumExecutionTimeSeconds: jobframework.MaximumExecutionTimeSecondsForObject(lws),
-		},
-	}
-
-	wl.Annotations[podcontroller.IsGroupWorkloadAnnotationKey] = podcontroller.IsGroupWorkloadAnnotationValue
-
-	return wl
+	return podcontroller.NewGroupWorkload(GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), lws, r.podSets(lws), r.labelKeysToCopy)
 }
 
 func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.PodSet {

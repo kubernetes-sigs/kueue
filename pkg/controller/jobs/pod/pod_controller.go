@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -47,10 +46,8 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -358,7 +355,11 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 
 // PodSets will build workload podSets corresponding to the job.
 func (p *Pod) PodSets() ([]kueue.PodSet, error) {
-	return constructPodSets(&p.pod), nil
+	if !p.isGroup {
+		return constructPodSets(&p.pod), nil
+	} else {
+		return p.constructGroupPodSets()
+	}
 }
 
 // IsActive returns true if there are any running pods.
@@ -946,52 +947,8 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 }
 
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
-	object := p.Object()
-	log := ctrl.LoggerFrom(ctx)
-
-	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        p.workloadName(),
-			Namespace:   p.pod.GetNamespace(),
-			Labels:      map[string]string{},
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(p.pod.GetAnnotations()),
-		},
-		Spec: kueue.WorkloadSpec{
-			QueueName:                   jobframework.QueueName(p),
-			MaximumExecutionTimeSeconds: jobframework.MaximumExecutionTimeSeconds(p),
-		},
-	}
-
-	// Construct workload for a single pod
 	if !p.isGroup {
-		var err error
-		wl.Spec.PodSets, err = p.PodSets()
-		if err != nil {
-			return nil, err
-		}
-
-		jobUID := string(object.GetUID())
-		if errs := validation.IsValidLabelValue(jobUID); len(errs) == 0 {
-			wl.Labels[controllerconsts.JobUIDLabel] = jobUID
-		} else {
-			log.V(2).Info(
-				"Validation of the owner job UID label has failed. Creating workload without the label.",
-				"ValidationErrors", errs,
-				"LabelValue", jobUID,
-			)
-		}
-
-		// add the controller ref
-		if err := controllerutil.SetControllerReference(object, wl, c.Scheme()); err != nil {
-			return nil, err
-		}
-		labelsToCopy, err := p.getWorkloadLabels(labelKeysToCopy)
-		if err != nil {
-			return nil, err
-		}
-		wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
-		return wl, nil
+		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy)
 	}
 
 	if err := p.finalizePods(ctx, c, p.notRunnableNorSucceededPods()); err != nil {
@@ -999,11 +956,6 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	activePods := p.runnableOrSucceededPods()
-
-	if wl.Annotations == nil {
-		wl.Annotations = make(map[string]string)
-	}
-	wl.Annotations[IsGroupWorkloadAnnotationKey] = IsGroupWorkloadAnnotationValue
 
 	err := p.validatePodGroupMetadata(r, activePods)
 	if err != nil {
@@ -1025,18 +977,18 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	// Construct workload for a pod group
-	wl.Spec.PodSets, err = p.constructGroupPodSets()
+	podSets, err := p.PodSets()
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(object, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
+			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
 		}
 		return nil, err
 	}
-
-	if len(wl.Spec.PodSets) > 8 {
+	if len(podSets) > 8 {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
+
+	wl := NewGroupWorkload(p.workloadName(), p.Object(), podSets, nil)
 
 	for _, pod := range p.list.Items {
 		if err := controllerutil.SetOwnerReference(&pod, wl, c.Scheme()); err != nil {
@@ -1359,6 +1311,13 @@ func IsPodOwnerManagedByKueue(p *Pod) bool {
 
 func GetWorkloadNameForPod(podName string, podUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, podUID, gvk)
+}
+
+func NewGroupWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
+	wl := jobframework.NewWorkload(name, obj, podSets, labelKeysToCopy)
+	wl.Annotations[IsGroupWorkloadAnnotationKey] = IsGroupWorkloadAnnotationValue
+
+	return wl
 }
 
 func isGated(pod *corev1.Pod) bool {
