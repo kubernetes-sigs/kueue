@@ -83,10 +83,7 @@ test: gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: test-singlecluster-integration test-multikueue-integration
-
-.PHONY: test-singlecluster-integration
-test-singlecluster-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
+test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
