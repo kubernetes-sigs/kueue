@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				Spec: *createdWorkload.Spec.DeepCopy(),
 			}
 			gomega.Expect(ctrl.SetControllerReference(createdJobSet, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
-			secondWl.Spec.PodSets[0].Count += 1
+			secondWl.Spec.PodSets[0].Count++
 			gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			gomega.Eventually(func(g gomega.Gomega) {

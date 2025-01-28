@@ -152,7 +152,7 @@ func (r ResourceNode) calculateLendable() map[corev1.ResourceName]int64 {
 }
 
 func updateClusterQueueResourceNode(cq *clusterQueue) {
-	cq.AllocatableResourceGeneration += 1
+	cq.AllocatableResourceGeneration++
 	cq.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cq.resourceNode.Quotas))
 	for fr, quota := range cq.resourceNode.Quotas {
 		cq.resourceNode.SubtreeQuota[fr] = quota.Nominal

@@ -3784,7 +3784,7 @@ func TestResourcesToReserve(t *testing.T) {
 				admission := utiltesting.MakeAdmission("cq").Assignment(fr.Resource, fr.Flavor, quantity.String())
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
 				cqCache.AddOrUpdateWorkload(wl)
-				i += 1
+				i++
 			}
 			snapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {

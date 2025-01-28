@@ -913,7 +913,7 @@ func TestDominantResourceShare(t *testing.T) {
 
 				cache.AddOrUpdateWorkload(wl)
 				snapshot.AddWorkload(workload.NewInfo(wl))
-				i += 1
+				i++
 			}
 
 			drVal, drNameCache := dominantResourceShare(cache.hm.ClusterQueues["cq"], tc.flvResQ, 1)
