@@ -56,6 +56,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | `fullnameOverride`                                     | override the resource name                             | ``                                          |
 | `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
+| `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
