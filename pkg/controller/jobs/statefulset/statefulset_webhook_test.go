@@ -494,7 +494,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change resources in init container": {
+		"attempt to change resources in init container": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Template(corev1.PodTemplateSpec{
