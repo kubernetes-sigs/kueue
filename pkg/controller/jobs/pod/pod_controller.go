@@ -19,8 +19,6 @@ package pod
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -563,29 +561,7 @@ func getRoleHash(p corev1.Pod) (string, error) {
 	if roleHash, ok := p.Annotations[RoleHashAnnotation]; ok {
 		return roleHash, nil
 	}
-
-	shape := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"initContainers":            containersShape(p.Spec.InitContainers),
-			"containers":                containersShape(p.Spec.Containers),
-			"nodeSelector":              p.Spec.NodeSelector,
-			"affinity":                  p.Spec.Affinity,
-			"tolerations":               p.Spec.Tolerations,
-			"runtimeClassName":          p.Spec.RuntimeClassName,
-			"priority":                  p.Spec.Priority,
-			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
-			"overhead":                  p.Spec.Overhead,
-			"resourceClaims":            p.Spec.ResourceClaims,
-		},
-	}
-
-	shapeJSON, err := json.Marshal(shape)
-	if err != nil {
-		return "", err
-	}
-
-	// Trim hash to 8 characters and return
-	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
+	return utilpod.GenerateRoleHash(p.Spec)
 }
 
 // Load loads all pods in the group
