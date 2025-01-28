@@ -24,12 +24,11 @@ Make sure the following conditions are met:
 
 ### Configure API Priority and Fairness:
 
-To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply one of the manifests, depending on your Kubernetes version:
+To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply manifests:
 
-{{< tabpane lang="shell" persist=disabled >}}
-{{< tab header="Kubernetes 1.29 or newer" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml {{< /tab >}}
-{{< tab header="Kubernetes 1.28" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf-1-28.yaml {{< /tab >}}
-{{< /tabpane >}}
+```shell
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml
+```
 
 ### Directly accessing the Visibility API
 

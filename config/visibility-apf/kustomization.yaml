@@ -11,4 +11,4 @@ labels:
       control-plane: controller-manager
 
 resources:
-  - ../../components/visibility-apf/
+  - ../components/visibility-apf/

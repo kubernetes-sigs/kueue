@@ -350,7 +350,6 @@ done
 
 # Replace flowcontrol version on visibility-apf directory
 for output_file in "${DEST_VISIBILITY_APF_DIR}"/*.yaml; do
-  $YQ -N -i '.apiVersion = "flowcontrol.apiserver.k8s.io/{{ and (eq .Capabilities.KubeVersion.Major \"1\") (eq .Capabilities.KubeVersion.Minor \"28\") | ternary \"v1beta3\" \"v1\" }}"' "$output_file"
   $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"

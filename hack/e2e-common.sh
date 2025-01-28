@@ -143,11 +143,7 @@ function cluster_kind_load_image {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    if [ "${KIND_VERSION%.*}" = "1.28" ]; then
-        kubectl apply --server-side -k test/e2e/config/1_28
-    else
-        kubectl apply --server-side -k test/e2e/config/default
-    fi
+    kubectl apply --server-side -k test/e2e/config/default
 }
 
 #$1 - cluster name
