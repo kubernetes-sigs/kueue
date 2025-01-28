@@ -24,6 +24,7 @@ import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -143,4 +144,29 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 		return apivalidation.ValidateImmutableField(newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], maxExecTimeLabelPath)
 	}
 	return nil
+}
+
+// ValidateImmutablePodSpec function is used for serving workloads to ensure no changes are allowed
+// to the PodSpec except for the image field in containers.
+func ValidateImmutablePodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+	// handle updateable fields by munging those fields prior to deep equal comparison.
+	mungedPodSpec := newPodSpec.DeepCopy()
+
+	// munge spec.containers[*].image
+	newContainers := make([]corev1.Container, 0, len(newPodSpec.Containers))
+	for i, container := range mungedPodSpec.Containers {
+		container.Image = oldPodSpec.Containers[i].Image
+		newContainers = append(newContainers, container)
+	}
+	mungedPodSpec.Containers = newContainers
+
+	// munge spec.initContainers[*].image
+	newInitContainers := make([]corev1.Container, 0, len(newPodSpec.InitContainers))
+	for ix, container := range mungedPodSpec.InitContainers {
+		container.Image = oldPodSpec.InitContainers[ix].Image
+		newInitContainers = append(newInitContainers, container)
+	}
+	mungedPodSpec.InitContainers = newInitContainers
+
+	return apivalidation.ValidateImmutableField(mungedPodSpec, oldPodSpec, fieldPath)
 }
