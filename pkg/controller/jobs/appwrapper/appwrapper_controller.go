@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -92,6 +93,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 type AppWrapper awv1beta2.AppWrapper
 
 var _ jobframework.GenericJob = (*AppWrapper)(nil)
+var _ jobframework.JobWithManagedBy = (*AppWrapper)(nil)
 
 func fromObject(o runtime.Object) *AppWrapper {
 	return (*AppWrapper)(o.(*awv1beta2.AppWrapper))
@@ -155,6 +157,20 @@ func (aw *AppWrapper) Finished() (message string, success, finished bool) {
 
 func (aw *AppWrapper) PodsReady() bool {
 	return meta.IsStatusConditionTrue(aw.Status.Conditions, string(awv1beta2.PodsReady))
+}
+
+func (j *AppWrapper) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == awv1beta2.AppWrapperControllerName)
+}
+
+func (j *AppWrapper) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *AppWrapper) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func GetWorkloadNameForAppWrapper(jobName string, jobUID types.UID) string {

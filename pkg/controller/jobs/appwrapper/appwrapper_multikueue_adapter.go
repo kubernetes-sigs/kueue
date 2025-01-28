@@ -116,7 +116,6 @@ func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, awControllerName), nil
 	}
 	return true, "", nil
-
 }
 
 var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
