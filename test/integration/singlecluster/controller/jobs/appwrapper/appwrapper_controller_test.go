@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 				Spec: *createdWorkload.Spec.DeepCopy(),
 			}
 			gomega.Expect(ctrl.SetControllerReference(createdAppWrapper, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
-			secondWl.Spec.PodSets[0].Count += 1
+			secondWl.Spec.PodSets[0].Count++
 			gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			gomega.Eventually(func(g gomega.Gomega) {

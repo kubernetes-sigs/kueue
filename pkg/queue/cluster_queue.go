@@ -295,7 +295,7 @@ func (c *ClusterQueue) Pending() int {
 func (c *ClusterQueue) PendingActive() int {
 	result := c.heap.Len()
 	if c.inflight != nil {
-		result += 1
+		result++
 	}
 	return result
 }

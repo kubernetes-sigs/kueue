@@ -104,7 +104,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		Spec: *createdWorkload.Spec.DeepCopy(),
 	}
 	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
-	secondWl.Spec.PodSets[0].Count += 1
+	secondWl.Spec.PodSets[0].Count++
 
 	gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 	gomega.Eventually(func(g gomega.Gomega) {

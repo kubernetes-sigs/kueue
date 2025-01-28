@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			Spec: *createdWorkload.Spec.DeepCopy(),
 		}
 		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
-		secondWl.Spec.PodSets[0].Count += 1
+		secondWl.Spec.PodSets[0].Count++
 
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {

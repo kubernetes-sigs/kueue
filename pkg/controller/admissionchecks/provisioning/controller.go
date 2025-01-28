@@ -254,13 +254,13 @@ func (c *Controller) syncOwnedProvisionRequest(
 					remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
-						attempt += 1
+						attempt++
 					} else if requeAfter == nil || remainingTime < *requeAfter {
 						requeAfter = &remainingTime
 					}
 				} else {
 					shouldCreatePr = true
-					attempt += 1
+					attempt++
 				}
 			}
 		} else {
