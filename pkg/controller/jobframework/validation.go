@@ -52,7 +52,8 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
-		corev1.SchemeGroupVersion.WithKind("Pod").String())
+		corev1.SchemeGroupVersion.WithKind("Pod").String(),
+		rayv1.SchemeGroupVersion.WithKind("RayCluster").String())
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation

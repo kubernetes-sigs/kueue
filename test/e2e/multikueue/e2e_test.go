@@ -44,6 +44,7 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,6 +53,7 @@ import (
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -574,14 +576,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a RayJob on worker if admitted", func() {
-			var found bool
-			E2eKuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
-			gomega.Expect(found).To(gomega.BeTrue())
-			if runtime.GOOS == "darwin" {
-				E2eKuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
-				gomega.Expect(found).To(gomega.BeTrue())
-			}
-
+			kuberayTestImage := getKuberayTestImage()
 			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
 				Suspend(true).
@@ -590,8 +585,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
-				Image(rayv1.HeadNode, E2eKuberayTestImage, []string{}).
-				Image(rayv1.WorkerNode, E2eKuberayTestImage, []string{}).
+				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 				Obj()
 
 			ginkgo.By("Creating the RayJob", func() {
@@ -621,6 +616,57 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should run a RayCluster on worker if admitted", func() {
+			kuberayTestImage := getKuberayTestImage()
+			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
+			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+				Suspend(true).
+				Queue(managerLq.Name).
+				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				Obj()
+
+			ginkgo.By("Creating the RayCluster", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, raycluster)).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
+			// the execution should be given to the worker1
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
+
+			ginkgo.By("Checking the RayCluster is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdRayCluster := &rayv1.RayCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the RayCluster to suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedCluster := &rayv1.RayCluster{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(raycluster), updatedCluster)).To(gomega.Succeed())
+					updatedCluster.Spec.Suspend = ptr.To(true)
+					g.Expect(k8sWorker1Client.Update(ctx, updatedCluster)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the RayCluster got suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdRayCluster := &rayv1.RayCluster{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+					// Suspended RayCluster manifests with removed pods
+					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(0)))
+					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -730,4 +776,18 @@ func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedNam
 		Reason:  kueue.WorkloadFinishedReasonSucceeded,
 		Message: finishReasonMessage,
 	}, util.IgnoreConditionTimestampsAndObservedGeneration))
+}
+
+func getKuberayTestImage() string {
+	var (
+		kuberayTestImage string
+		found            bool
+	)
+	if runtime.GOOS == "darwin" {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
+	} else {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
+	}
+	gomega.Expect(found).To(gomega.BeTrue())
+	return kuberayTestImage
 }
