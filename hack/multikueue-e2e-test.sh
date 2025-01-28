@@ -94,7 +94,7 @@ function kind_load {
     # Only install the CRDs and not the controller to be able to
     # have Kubeflow Jobs admitted without execution in the manager cluster.
     kubectl config use-context "kind-${MANAGER_KIND_CLUSTER_NAME}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST_MANAGER}"
+    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_MANAGER}"
 
     # WORKERS
     install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"

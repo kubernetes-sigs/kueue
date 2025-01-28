@@ -43,13 +43,11 @@ func ValidateV1MpiJobSpec(c *MPIJobSpec) error {
 
 		for _, container := range value.Template.Spec.Containers {
 			if container.Image == "" {
-				msg := fmt.Sprintf("MPIReplicaSpec is not valid: Image is undefined in the container of %v", rType)
-				return fmt.Errorf(msg)
+				return fmt.Errorf("MPIReplicaSpec is not valid: Image is undefined in the container of %v", rType)
 			}
 
 			if container.Name == "" {
-				msg := fmt.Sprintf("MPIReplicaSpec is not valid: ImageName is undefined in the container of %v", rType)
-				return fmt.Errorf(msg)
+				return fmt.Errorf("MPIReplicaSpec is not valid: ImageName is undefined in the container of %v", rType)
 			}
 		}
 		if rType == MPIJobReplicaTypeLauncher {

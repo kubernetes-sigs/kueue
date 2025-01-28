@@ -23,7 +23,7 @@ func addXGBoostJobDefaultingFuncs(scheme *runtime.Scheme) error {
 	return RegisterDefaults(scheme)
 }
 
-// setXGBoostJobDefaultPort sets the default ports for mxnet container.
+// setXGBoostJobDefaultPort sets the default ports for xgboost container.
 func setXGBoostJobDefaultPort(spec *corev1.PodSpec) {
 	index := getDefaultContainerIndex(spec, XGBoostJobDefaultContainerName)
 	if ok := hasDefaultPort(spec, index, XGBoostJobDefaultPortName); !ok {
@@ -49,7 +49,7 @@ func SetDefaults_XGBoostJob(xgboostJob *XGBoostJob) {
 		xgboostJob.Spec.RunPolicy.CleanPodPolicy = CleanPodPolicyPointer(CleanPodPolicyNone)
 	}
 
-	// Update the key of MXReplicaSpecs to camel case.
+	// Update the key of XGBoostReplicaSpecs to camel case.
 	setXGBoostJobTypeNamesToCamelCase(xgboostJob)
 
 	for _, spec := range xgboostJob.Spec.XGBReplicaSpecs {
@@ -57,7 +57,7 @@ func SetDefaults_XGBoostJob(xgboostJob *XGBoostJob) {
 		setDefaultReplicas(spec, 1)
 		// Set default restartPolicy
 		setDefaultRestartPolicy(spec, XGBoostJobDefaultRestartPolicy)
-		// Set default port to mxnet container.
+		// Set default port to xgboost container.
 		setXGBoostJobDefaultPort(&spec.Template.Spec)
 	}
 }

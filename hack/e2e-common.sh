@@ -164,7 +164,7 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST_WORKER}"
+    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_WORKER}"
 }
 
 #$1 - cluster name
