@@ -30,10 +30,10 @@ import (
 )
 
 const (
-	// E2eTestSleepImageOld is the image used for testing rolling update.
-	E2eTestSleepImageOld = "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b"
-	// E2eTestSleepImage is the image used for testing.
-	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+	// E2eTestBusyBoxImageOld is the image used for testing rolling update.
+	E2eTestBusyBoxImageOld = "busybox:1.36@sha256:71b79694b71639e633452f57fd9de40595d524de308349218d9a6a144b40be02"
+	// E2eTestBusyBoxImage is the image used for testing.
+	E2eTestBusyBoxImage = "busybox:1.37@sha256:a5d0ce49aa801d475da48f8cb163c354ab95cab073cd3c138bd458fc8257fbf1"
 	// E2eTTestCurlImage is the image used for testing with curl execution.
 	E2eTTestCurlImage = "curlimages/curl:8.11.0@sha256:6324a8b41a7f9d80db93c7cf65f025411f55956c6b248037738df3bfca32410c"
 )
