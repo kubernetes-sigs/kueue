@@ -107,20 +107,9 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	return ptr.To(int(uintValue)), nil
 }
 
-func GenerateShape(podSpec corev1.PodSpec) (string, error) {
+func GenerateRoleHash(podSpec corev1.PodSpec) (string, error) {
 	shape := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"initContainers":            containersShape(podSpec.InitContainers),
-			"containers":                containersShape(podSpec.Containers),
-			"nodeSelector":              podSpec.NodeSelector,
-			"affinity":                  podSpec.Affinity,
-			"tolerations":               podSpec.Tolerations,
-			"runtimeClassName":          podSpec.RuntimeClassName,
-			"priority":                  podSpec.Priority,
-			"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
-			"overhead":                  podSpec.Overhead,
-			"resourceClaims":            podSpec.ResourceClaims,
-		},
+		"spec": SpecShape(podSpec),
 	}
 
 	shapeJSON, err := json.Marshal(shape)
@@ -132,7 +121,22 @@ func GenerateShape(podSpec corev1.PodSpec) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
 }
 
-func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
+func SpecShape(podSpec corev1.PodSpec) (result map[string]interface{}) {
+	return map[string]interface{}{
+		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"containers":                ContainersShape(podSpec.Containers),
+		"nodeSelector":              podSpec.NodeSelector,
+		"affinity":                  podSpec.Affinity,
+		"tolerations":               podSpec.Tolerations,
+		"runtimeClassName":          podSpec.RuntimeClassName,
+		"priority":                  podSpec.Priority,
+		"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+		"overhead":                  podSpec.Overhead,
+		"resourceClaims":            podSpec.ResourceClaims,
+	}
+}
+
+func ContainersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
 		result = append(result, map[string]interface{}{
 			"resources": map[string]interface{}{
