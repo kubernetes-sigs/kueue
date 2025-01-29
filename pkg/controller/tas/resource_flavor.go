@@ -151,7 +151,10 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			if err := r.client.Get(ctx, types.NamespacedName{Name: string(*flv.Spec.TopologyName)}, &topology); err != nil {
 				return reconcile.Result{}, client.IgnoreNotFound(err)
 			}
+			log.V(3).Info("Adding topology to cache for flavor", "flavorName", flv.Name)
 			r.cache.AddOrUpdateTopologyForFlavor(&topology, flv)
+		} else {
+			log.V(3).Info("Skip topology update to cache as already present for flavor", "flavorName", flv.Name)
 		}
 		// requeue inadmissible workloads as a change to the resource flavor
 		// or the set of nodes can allow admitting a workload which was

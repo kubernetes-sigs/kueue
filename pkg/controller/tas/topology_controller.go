@@ -19,6 +19,7 @@ package tas
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -46,6 +47,7 @@ const (
 )
 
 type topologyReconciler struct {
+	log                   logr.Logger
 	client                client.Client
 	queues                *queue.Manager
 	cache                 *cache.Cache
@@ -59,6 +61,7 @@ var _ predicate.Predicate = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache) *topologyReconciler {
 	return &topologyReconciler{
+		log:                   ctrl.Log.WithName(TASTopologyController),
 		client:                c,
 		queues:                queues,
 		cache:                 cache,
@@ -88,7 +91,7 @@ func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("name", req.NamespacedName.Name)
+	log := r.log.WithValues("name", req.NamespacedName.Name)
 	log.V(2).Info("Reconcile Topology")
 
 	if !topology.DeletionTimestamp.IsZero() {
@@ -129,11 +132,13 @@ func (r *topologyReconciler) Create(e event.CreateEvent) bool {
 		return true
 	}
 
+	log := r.log.WithValues("topology", klog.KObj(topology))
+	log.V(2).Info("Topology update event")
+
 	ctx := context.Background()
 
 	flavors := &kueue.ResourceFlavorList{}
 	if err := r.client.List(ctx, flavors, client.MatchingFields{indexer.ResourceFlavorTopologyNameKey: topology.Name}); err != nil {
-		log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
 		log.Error(err, "Could not list resource flavors")
 		return true
 	}
@@ -147,6 +152,7 @@ func (r *topologyReconciler) Create(e event.CreateEvent) bool {
 			continue
 		}
 		if *flv.Spec.TopologyName == kueue.TopologyReference(topology.Name) {
+			log.V(3).Info("Updating Topology cache for flavor", "flavor", flv.Name)
 			r.cache.AddOrUpdateTopologyForFlavor(topology, &flv)
 		}
 	}
@@ -163,11 +169,15 @@ func (r *topologyReconciler) Delete(e event.DeleteEvent) bool {
 	if !isTopology {
 		return true
 	}
+	log := r.log.WithValues("topology", klog.KObj(topology))
+	log.V(2).Info("Topology delete event")
+
 	defer r.queues.NotifyTopologyUpdateWatchers(topology, nil)
 	// Update the cache to account for the deleted topology, before notifying
 	// the listeners.
 	for flName, flCache := range r.tasCache.Clone() {
 		if kueue.TopologyReference(topology.Name) == flCache.TopologyName {
+			log.V(3).Info("Deleting topology from cache for flavor", "flavorName", flName)
 			r.cache.DeleteTopologyForFlavor(flName)
 		}
 	}
