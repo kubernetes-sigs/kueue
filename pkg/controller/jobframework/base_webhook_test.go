@@ -214,28 +214,28 @@ func TestBaseWebhookDefault(t *testing.T) {
 			want: utiljob.MakeJob("job", "default").
 				Obj(),
 		},
-		"ManagedByDefaulting, targeting multi-queue local queue": {
+		"ManagedByDefaulting, targeting multikueue local queue": {
 			job: utiljob.MakeJob("job", "default").
-				Queue("multi-queue").
+				Queue("multikueue").
 				Obj(),
 			want: utiljob.MakeJob("job", "default").
-				Queue("multi-queue").
+				Queue("multikueue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			multiQueue: true,
 		},
-		"ManagedByDefaulting, targeting multi-queue local queue but already managaed by someone else": {
+		"ManagedByDefaulting, targeting multikueue local queue but already managaed by someone else": {
 			job: utiljob.MakeJob("job", "default").
-				Queue("multi-queue").
+				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
 			want: utiljob.MakeJob("job", "default").
-				Queue("multi-queue").
+				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
 			multiQueue: true,
 		},
-		"ManagedByDefaulting, targeting non-multiqueue local queue": {
+		"ManagedByDefaulting, targeting non-multikueue local queue": {
 			job: utiljob.MakeJob("job", "default").
 				Queue("queue").
 				Obj(),
@@ -264,7 +264,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				}
 			}
 			if tc.multiQueue {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multi-queue", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
