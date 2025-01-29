@@ -20,11 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -649,68 +647,4 @@ func (c *clusterQueue) fairWeight() *resource.Quantity {
 
 func (c *clusterQueue) resourceGroups() []ResourceGroup {
 	return c.ResourceGroups
-}
-
-// DominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
-// of usage above nominal quota to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.
-// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-// The function also returns the resource name that yielded this value.
-// Also for a weight of zero, this will return 9223372036854775807.
-func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
-	return dominantResourceShare(c, nil)
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq)
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	without := maps.Clone(wlReq)
-	for fr, q := range without {
-		without[fr] = -q
-	}
-	return dominantResourceShare(c, without)
-}
-
-type dominantResourceShareNode interface {
-	fairWeight() *resource.Quantity
-	hierarchicalResourceNode
-}
-
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	if !node.HasParent() {
-		return 0, ""
-	}
-	if node.fairWeight().IsZero() {
-		return math.MaxInt, ""
-	}
-
-	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
-	for fr, quota := range node.getResourceNode().SubtreeQuota {
-		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
-		if amountBorrowed > 0 {
-			borrowing[fr.Resource] += amountBorrowed
-		}
-	}
-	if len(borrowing) == 0 {
-		return 0, ""
-	}
-
-	var drs int64 = -1
-	var dRes corev1.ResourceName
-
-	lendable := node.parentHRN().getResourceNode().calculateLendable()
-	for rName, b := range borrowing {
-		if lr := lendable[rName]; lr > 0 {
-			ratio := b * 1000 / lr
-			// Use alphabetical order to get a deterministic resource name.
-			if ratio > drs || (ratio == drs && rName < dRes) {
-				drs = ratio
-				dRes = rName
-			}
-		}
-	}
-	dws := drs * 1000 / node.fairWeight().MilliValue()
-	return int(dws), dRes
 }
