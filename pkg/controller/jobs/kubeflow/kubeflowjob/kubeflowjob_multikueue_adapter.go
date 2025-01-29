@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -44,6 +45,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	copyStatus func(dst, src PtrT)
 	emptyList  func() client.ObjectList
 	gvk        schema.GroupVersionKind
+	fromObject func(runtime.Object) *KubeflowJob
 }
 
 type fullInterface interface {
@@ -56,12 +58,14 @@ func NewMKAdapter[PtrT objAsPtr[T], T any](
 	copyStatus func(dst, src PtrT),
 	emptyList func() client.ObjectList,
 	gvk schema.GroupVersionKind,
+	fromObject func(runtime.Object) *KubeflowJob,
 ) fullInterface {
 	return &adapter[PtrT, T]{
 		copySpec:   copySpec,
 		copyStatus: copyStatus,
 		emptyList:  emptyList,
 		gvk:        gvk,
+		fromObject: fromObject,
 	}
 }
 
@@ -83,6 +87,8 @@ func (a adapter[PtrT, T]) SyncJob(
 	remoteClient client.Client,
 	key types.NamespacedName,
 	workloadName, origin string) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	localJob := PtrT(new(T))
 	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
@@ -96,6 +102,12 @@ func (a adapter[PtrT, T]) SyncJob(
 	}
 
 	if err == nil {
+		if a.fromObject(localJob).IsSuspended() {
+			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+			log.V(2).Info("Skipping the sync since the local job is still suspended")
+			return nil
+		}
+
 		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			// if the remote exists, just copy the status
 			a.copyStatus(localJob, remoteJob)
