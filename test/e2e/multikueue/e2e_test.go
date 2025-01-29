@@ -577,7 +577,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Image(util.E2eTestSleepImage, []string{"5s"}). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "200M").
 					SetTypeMeta().Obj()).
 				Obj()
 
