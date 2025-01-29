@@ -1,5 +1,6 @@
 ---
 title: "Run An Argo Workflow"
+linkTitle: "Argo Workflow"
 date: 2025-01-23
 weight: 3
 description: >
