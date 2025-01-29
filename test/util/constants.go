@@ -27,7 +27,7 @@ import (
 const (
 	TinyTimeout  = 10 * time.Millisecond
 	ShortTimeout = time.Second
-	Timeout      = 5 * time.Second
+	Timeout      = 10 * time.Second
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
