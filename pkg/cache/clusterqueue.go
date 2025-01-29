@@ -96,12 +96,6 @@ func (c *clusterQueue) GetName() string {
 	return c.Name
 }
 
-// implement dominantResourceShareNode interface
-
-func (c *clusterQueue) parentResources() ResourceNode {
-	return c.Parent().resourceNode
-}
-
 // implements hierarchicalResourceNode interface.
 
 func (c *clusterQueue) getResourceNode() ResourceNode {
@@ -647,18 +641,10 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 }
 
 // The methods below implement several interfaces. See
-// dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
+// dominantResourceShareNode and resourceGroupNode
 
 func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
-}
-
-func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
-	return c.resourceNode.Usage[fr]
-}
-
-func (c *clusterQueue) QuotaFor(fr resources.FlavorResource) ResourceQuota {
-	return c.resourceNode.Quotas[fr]
 }
 
 func (c *clusterQueue) resourceGroups() []ResourceGroup {
@@ -672,26 +658,27 @@ func (c *clusterQueue) resourceGroups() []ResourceGroup {
 // The function also returns the resource name that yielded this value.
 // Also for a weight of zero, this will return 9223372036854775807.
 func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
-	return dominantResourceShare(c, nil, 0)
+	return dominantResourceShare(c, nil)
 }
 
 func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq, 1)
+	return dominantResourceShare(c, wlReq)
 }
 
 func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq, -1)
+	without := maps.Clone(wlReq)
+	for fr, q := range without {
+		without[fr] = -q
+	}
+	return dominantResourceShare(c, without)
 }
 
 type dominantResourceShareNode interface {
-	HasParent() bool
-	parentResources() ResourceNode
 	fairWeight() *resource.Quantity
-
-	netQuotaNode
+	hierarchicalResourceNode
 }
 
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
+func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
 	if !node.HasParent() {
 		return 0, ""
 	}
@@ -699,11 +686,11 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 		return math.MaxInt, ""
 	}
 
-	borrowing := make(map[corev1.ResourceName]int64)
-	for fr, quota := range remainingQuota(node) {
-		b := m*wlReq[fr] - quota
-		if b > 0 {
-			borrowing[fr.Resource] += b
+	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
+	for fr, quota := range node.getResourceNode().SubtreeQuota {
+		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
+		if amountBorrowed > 0 {
+			borrowing[fr.Resource] += amountBorrowed
 		}
 	}
 	if len(borrowing) == 0 {
@@ -713,7 +700,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	var drs int64 = -1
 	var dRes corev1.ResourceName
 
-	lendable := node.parentResources().calculateLendable()
+	lendable := node.parentHRN().getResourceNode().calculateLendable()
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr > 0 {
 			ratio := b * 1000 / lr

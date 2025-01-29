@@ -916,7 +916,7 @@ func TestDominantResourceShare(t *testing.T) {
 				i++
 			}
 
-			drVal, drNameCache := dominantResourceShare(cache.hm.ClusterQueues["cq"], tc.flvResQ, 1)
+			drVal, drNameCache := dominantResourceShare(cache.hm.ClusterQueues["cq"], tc.flvResQ)
 			if drVal != tc.wantDRValue {
 				t.Errorf("cache.DominantResourceShare(_) returned value %d, want %d", drVal, tc.wantDRValue)
 			}

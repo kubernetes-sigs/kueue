@@ -94,7 +94,7 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.usageFor(fr)+val > c.QuotaFor(fr).Nominal
+	return c.ResourceNode.Usage[fr]+val > c.QuotaFor(fr).Nominal
 }
 
 // Available returns the current capacity available, before preempting
@@ -113,22 +113,14 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 }
 
 // The methods below implement several interfaces. See
-// dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
+// dominantResourceShareNode and resourceGroupNode.
 
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
 
-func (c *ClusterQueueSnapshot) usageFor(fr resources.FlavorResource) int64 {
-	return c.ResourceNode.Usage[fr]
-}
-
 func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
 	return c.ResourceGroups
-}
-
-func (c *ClusterQueueSnapshot) parentResources() ResourceNode {
-	return c.Parent().ResourceNode
 }
 
 func (c *ClusterQueueSnapshot) GetName() string {

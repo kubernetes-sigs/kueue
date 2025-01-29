@@ -679,7 +679,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cq, nil, 0)
+		weightedShare, _ := dominantResourceShare(cq, nil)
 		stats.WeightedShare = int64(weightedShare)
 	}
 
@@ -696,7 +696,7 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 			}
 			for rName := range rg.CoveredResources {
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-				rQuota := cq.QuotaFor(fr)
+				rQuota := cq.resourceNode.Quotas[fr]
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,

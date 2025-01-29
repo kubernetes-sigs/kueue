@@ -95,22 +95,5 @@ func flavorResources(r resourceGroupNode) []resources.FlavorResource {
 			}
 		}
 	}
-
 	return frs
-}
-
-type netQuotaNode interface {
-	usageFor(resources.FlavorResource) int64
-	QuotaFor(resources.FlavorResource) ResourceQuota
-	resourceGroups() []ResourceGroup
-}
-
-// remainingQuota computes the remaining quota for each FlavorResource. A
-// negative value implies that the node is borrowing.
-func remainingQuota(node netQuotaNode) resources.FlavorResourceQuantities {
-	remainingQuota := make(resources.FlavorResourceQuantities)
-	for _, fr := range flavorResources(node) {
-		remainingQuota[fr] += node.QuotaFor(fr).Nominal - node.usageFor(fr)
-	}
-	return remainingQuota
 }
