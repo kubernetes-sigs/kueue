@@ -35,16 +35,16 @@ batch user is a researcher, AI/ML engineer, data scientist, among others.
 
 As a batch user, you can learn how to:
 - [Run a Kueue managed batch/Job](run/jobs).
-- [Run a Kueue managed Flux MiniCluster](run/flux_miniclusters).
 - [Run a Kueue managed Kubeflow Job](run/kubeflow).
   Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob and PaddleJob.
 - [Run a Kueue managed KubeRay RayJob](run/rayjobs).
 - [Run a Kueue managed KubeRay RayCluster](run/rayclusters).
-- [Run a Kueue managed AppWrapper](run/appwrappers).
 - [Submit Kueue jobs from Python](run/python_jobs).
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 - [Submit jobs to MultiKueue](run/multikueue).
+- [Run external workloads](run/external_workloads).
+  Kueue allows one to use built-in integrations (such as Pods or Jobs) to run external workloads.
 
 ### Serving user
 
@@ -61,6 +61,7 @@ A _platform developer_ integrates Kueue with other software and/or contributes t
 
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](dev/integrate_a_custom_job).
+- [Integrate a custom workload with Kueue using built-in frameworks](dev/external_frameworks).
 - [Enable pprof endpoints](dev/enabling_pprof_endpoints).
 - [Develop a custom AdmissionCheck Controller](dev/develop-acc).
 

@@ -2,7 +2,7 @@
 title: "Run A Flux MiniCluster"
 linkTitle: "Flux MiniClusters"
 date: 2022-02-14
-weight: 6
+weight: 2
 description: >
   Run a Kueue scheduled Flux MiniCluster.
 ---
