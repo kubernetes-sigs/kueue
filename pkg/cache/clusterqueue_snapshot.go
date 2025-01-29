@@ -114,19 +114,14 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 	return potentialAvailable(c, fr)
 }
 
-// The methods below implement several interfaces. See
-// dominantResourceShareNode and resourceGroupNode.
+func (c *ClusterQueueSnapshot) GetName() string {
+	return c.Name
+}
+
+// Implements dominantResourceShareNode interface.
 
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
-}
-
-func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
-	return c.ResourceGroups
-}
-
-func (c *ClusterQueueSnapshot) GetName() string {
-	return c.Name
 }
 
 // The methods below implement hierarchicalResourceNode interface.

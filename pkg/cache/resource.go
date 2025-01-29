@@ -73,27 +73,3 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 	}
 	return quotas
 }
-
-type resourceGroupNode interface {
-	resourceGroups() []ResourceGroup
-}
-
-func flavorResourceCount(rgs []ResourceGroup) int {
-	count := 0
-	for _, rg := range rgs {
-		count += len(rg.Flavors) * len(rg.CoveredResources)
-	}
-	return count
-}
-
-func flavorResources(r resourceGroupNode) []resources.FlavorResource {
-	frs := make([]resources.FlavorResource, 0, flavorResourceCount(r.resourceGroups()))
-	for _, rg := range r.resourceGroups() {
-		for _, f := range rg.Flavors {
-			for r := range rg.CoveredResources {
-				frs = append(frs, resources.FlavorResource{Flavor: f, Resource: r})
-			}
-		}
-	}
-	return frs
-}

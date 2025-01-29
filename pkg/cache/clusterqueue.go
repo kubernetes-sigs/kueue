@@ -638,13 +638,8 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
 }
 
-// The methods below implement several interfaces. See
-// dominantResourceShareNode and resourceGroupNode
+// Implements dominantResourceShareNode interface.
 
 func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
-}
-
-func (c *clusterQueue) resourceGroups() []ResourceGroup {
-	return c.ResourceGroups
 }
