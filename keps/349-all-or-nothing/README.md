@@ -24,6 +24,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -91,6 +92,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 unsuspended by Kueue
 - a timeout on getting the physical resources assigned by a Job since
 unsuspended by Kueue
+- a timeout on replacing a failed pod
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -101,8 +103,7 @@ know that this has succeeded?
 
 - guarantee that two jobs would not schedule pods concurrently. Example
 scenarios in which two jobs may still concurrently schedule their pods:
-  - when succeeded pods are replaced with new because job's parallelism is less than its completions;
-  - when a failed pod gets replaced
+  - when succeeded pods are replaced with new because job's parallelism is less than its completions.
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
@@ -114,8 +115,9 @@ and make progress.
 We introduce a mechanism to ensure jobs get their physical resources
 assigned by avoiding concurrent scheduling of their pods. More precisely, we
 block admission of new workloads until the first batch of pods for the
-unsuspended job is scheduled. This behavior can be opted-in at the level of
-the Kueue configuration.
+unsuspended job is scheduled. Additionally we limit recovery time if any of
+Pods fails during runtime. If the Pod doesn't recover in time, the Workload will be requeued.
+This behavior can be opted-in at the level of the Kueue configuration.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -146,6 +148,11 @@ the configured cluster queue quota and when the Jobs don't specify priorities
 My use case can be supported by enabling `waitForPodsReady` in the Kueue
 configuration.
 
+#### Story 2
+
+As a Kueue administrator I want to ensure that a Workload will be evicted after
+configured timeout if a pod fails during its execution and the replacement Pod can't be scheduled.
+
 ### Notes/Constraints/Caveats (Optional)
 
 <!--
@@ -161,8 +168,20 @@ If a workload fails to schedule its pods it could block admission of other
 workloads indefinitely.
 
 To mitigate this issue we introduce a timeout on reaching the `PodsReady`
-condition by a workload since its job start (see:
-[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
+condition by a workload since its job start, and a timeout on reaching the `PodsReady` condition since its pod has failed
+ (see:[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
+
+There's a risk that a Pod will fail and recover in an infinite loop, with each recovery happening within the configured time. In this case, the Workload won't get requeued.
+
+To mitigate this risk, users can do a number of things. First, users should use job types that specify
+[`backoffLimit`](https://kubernetes.io/docs/concepts/workloads/controllers/job/#handling-pod-and-container-failures).
+An admin can enforce such a requirement by a customized webhook or [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
+Additionally, a user can specify [`maximumExecutionTime`](https://github.com/kubernetes-sigs/kueue/tree/main/keps/3125-maximum-execution-time)
+to prevent a Workload from running indefinitely.
+
+Another possible mitigation for this would to partially disable the timeout.
+
+All of the above mitigation will be documented on Kueue website.
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -225,6 +244,16 @@ type WaitForPodsReady struct {
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
+
+	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
+	// Such a transition may happen when a Pod failed and the replacement Pod
+	// is awaited to be scheduled.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+	// If not set, there is no timeout.
+	// +optional
+	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
 
 type RequeuingStrategy struct {
@@ -282,9 +311,12 @@ const (
 ### PodsReady workload condition
 
 We introduce a new workload condition, called `PodsReady`, to indicate
-if the workload's startup requirements are satisfied. More precisely, we add
-the condition when `job.status.ready + job.status.succeeded` is greater or equal
+if the workload's startup requirements are satisfied. More precisely, for a batch/v1 Job we add
+the condition when `job.status.ready + len(job.status.uncountedTerimnatedPods.succeeded) + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
+
+Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
+This applies only for batch/v1 Job, since Kueue doesn't count active pods for other Job types, and delegate it to third-party Job types operators.
 
 Note that, we don't take failed pods into account when verifying if the
 `PodsReady` condition should be added. However, a buggy admitted workload is
@@ -313,12 +345,65 @@ condition, so the corresponding job is unsuspended without further waiting.
 
 ### Timeout on reaching the PodsReady condition
 
-We introduce a timeout, defined in the `waitForPodsReady.timeoutSeconds` field, on reaching the `PodsReady` condition since the job
-is unsuspended (the time of unsuspending a job is marked by the Job's
-`job.status.startTime` field). When the timeout is exceeded, the Kueue's Job
+
+We introduce two timeouts defined in the `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout` fields.
+
+First one applies before the job has started. It tracks the time between job getting unsuspended for the first time (the time of unsuspending a job is marked by the Job's
+`job.status.startTime` field) and reaching the `PodsReady=true` condition (marked by condition's `.lastTransitionTime`).
+
+```mermaid
+flowchart TD;
+	start@{ shape: f-circ};
+	id1(Suspended=true);
+	id2("PodsReady=false
+	waits for .timeoutSeconds");
+	id3(PodsReady=true);
+	id4("Suspended=true (Requeued)");
+
+	start--Workload gets admitted-->id1;
+	id1 --> id2;
+
+	id2 --"Doesn't exceed the timeout" --> id3
+	id2 --"Exceeds the timeout" --> id4
+```
+
+
+Second one applies when the job has already started and some pod failed while the job is running. It tracks the time between changing `PodsReady` condition to `false` and reaching the
+`PodsReady=true` condition once again.
+
+```mermaid
+flowchart TD;
+	start@{ shape: f-circ};
+	id1(Suspended=true);
+	id2("PodsReady=false(1st)");
+	id3(PodsReady=true);
+	id4("PodsReady=false(2nd)
+	waits for
+	.recoveryTimeout");
+	id5("Suspended=true (Requeued)");
+
+
+	start--Workload gets admitted-->id1;
+	id1 --> id2;
+
+	id2 --"Job started" --> id3
+	id3 --"Pod failed"--> id4
+	id4 --"Pod recovered"--> id3
+	id4 --"timeout	exceeded"--> id5
+```
+
+We introduce new `WorkloadWaitForPodsStart` and `WorkloadWaitForPodsRecovery` reasons to distinguish the reasons of setting the `PodsReady=false` condition.
+`WorkloadWaitForPodsStart` will be set before the job started and is replacement for the old `PodsReady` reason. 
+`WorkloadWaitForPodsRecovery` will be set after the job started.
+
+When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
-ClusterQueue's `inadmissibleWorkloads` list. The timeout is enforced only when
-`waitForPodsReady` is enabled.
+ClusterQueue's `inadmissibleWorkloads` list. It also updates Workload's `.requeueState` field.
+When `.requeueState.count` surpasses `waitForPodsReady.requeuingBackoffLimitCount` workloads gets
+deactivated and won't be requeued.
+
+Both timeouts apply only when `waitForPodsReady` is enabled.
+
 
 ### Test Plan
 
@@ -380,7 +465,8 @@ extending the production code to implement this enhancement.
 The following scenarios will be covered with integration tests when `waitForPodsReady` is enabled:
 - no workloads are admitted if there is already an admitted workload which is not in the `PodsReady` condition
 - a workload gets admitted if all other admitted workloads are in the `PodsReady` condition
-- a workload which exceeds the `waitForPodsReady.timeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.timeout` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.recoveryTimeout` timeout is suspended and put into the `inadmissibleWorkloads` list
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
