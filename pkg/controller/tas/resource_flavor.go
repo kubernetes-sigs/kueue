@@ -155,7 +155,7 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("topology", klog.KObj(topology))
-	log.V(2).Info("Topology delete event")
+	log.V(2).Info("Topology create event")
 
 	flavors := &kueue.ResourceFlavorList{}
 	if err := h.client.List(ctx, flavors, client.MatchingFields{indexer.ResourceFlavorTopologyNameKey: topology.Name}); err != nil {
