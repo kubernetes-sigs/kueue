@@ -133,7 +133,7 @@ func (r *topologyReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	log := r.log.WithValues("topology", klog.KObj(topology))
-	log.V(2).Info("Topology update event")
+	log.V(2).Info("Topology create event")
 
 	ctx := context.Background()
 
