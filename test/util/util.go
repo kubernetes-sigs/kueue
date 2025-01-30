@@ -195,6 +195,14 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 	return nil
 }
 
+func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *corev1.Namespace) {
+	pods := corev1.PodList{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+		g.Expect(pods.Items).Should(gomega.BeEmpty())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err

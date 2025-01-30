@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
