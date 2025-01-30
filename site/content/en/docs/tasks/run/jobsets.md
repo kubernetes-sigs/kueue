@@ -69,67 +69,13 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
 
 ## Example JobSet
 
-The JobSet looks like the following:
-
-```yaml
-# jobset-sample.yaml
-apiVersion: jobset.x-k8s.io/v1alpha2
-kind: JobSet
-metadata:
-  generateName: sleep-job-
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-spec:
-  network:
-    enableDNSHostnames: false
-    subdomain: some-subdomain
-  replicatedJobs:
-    - name: workers
-      replicas: 2
-      template:
-        spec:
-          parallelism: 4
-          completions: 4
-          backoffLimit: 0
-          template:
-            spec:
-              containers:
-                - name: sleep
-                  image: busybox
-                  resources:
-                    requests:
-                      cpu: 1
-                      memory: "200Mi"
-                  command:
-                    - sleep
-                  args:
-                    - 100s
-    - name: driver
-      template:
-        spec:
-          parallelism: 1
-          completions: 1
-          backoffLimit: 0
-          template:
-            spec:
-              containers:
-                - name: sleep
-                  image: busybox
-                  resources:
-                    requests:
-                      cpu: 2
-                      memory: "200Mi"
-                  command:
-                    - sleep
-                  args:
-                    - 100s
-```
+{{< include "examples/jobs/sample-jobset.yaml" "yaml" >}}
 
 You can run this JobSet with the following commands:
 
 ```sh
 # To monitor the queue and admission of the jobs, you can run this example multiple times:
-kubectl create -f jobset-sample.yaml
+kubectl create -f sample-jobset.yaml
 ```
 
 ## Multikueue
