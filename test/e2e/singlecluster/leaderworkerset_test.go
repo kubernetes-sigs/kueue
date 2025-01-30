@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -82,9 +81,14 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 	})
 
 	ginkgo.When("LeaderWorkerSet created", func() {
+		leaderContainerBase := testing.MakeContainer().
+			WithName("c").
+			WithResourceReq(corev1.ResourceCPU, "150m").
+			WithBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion)
+
 		ginkgo.It("should admit group with leader only", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
 				Request(corev1.ResourceCPU, "100m").
@@ -142,7 +146,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should admit group with leader and workers", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				Request(corev1.ResourceCPU, "100m").
@@ -196,7 +200,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should admit group with multiple leaders and workers that fits", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").
@@ -258,7 +262,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should allow to scale up", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				Request(corev1.ResourceCPU, "100m").
@@ -347,7 +351,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should allow to scale down", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").
@@ -439,7 +443,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should admit group with multiple leaders and workers that fits and have different resource needs (LeaderCreatedStartupPolicy)", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").
@@ -447,16 +451,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{
-								Name:  "c",
-								Args:  []string{"10m"},
-								Image: util.E2eTestSleepImage,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("150m"),
-									},
-								},
-							},
+							*leaderContainerBase.DeepCopy(),
 						},
 						NodeSelector: map[string]string{},
 					},
@@ -518,7 +513,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should admit group with multiple leaders and workers that fits and have different resource needs (LeaderReadyStartupPolicy)", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").
@@ -527,16 +522,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{
-								Name:  "c",
-								Args:  []string{"10m"},
-								Image: util.E2eTestSleepImage,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("150m"),
-									},
-								},
-							},
+							*leaderContainerBase.DeepCopy(),
 						},
 						NodeSelector: map[string]string{},
 					},
@@ -597,8 +583,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 		})
 
 		ginkgo.It("should allow to update the PodTemplate in LeaderWorkerSet", func() {
+			leaderContainerOldImage := leaderContainerBase.DeepCopy()
+			leaderContainerOldImage.Image = util.E2eTestBusyBoxImageOld
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestSleepImageOld, []string{"10m"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").
@@ -606,16 +594,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{
-								Name:  "c",
-								Args:  []string{"10m"},
-								Image: util.E2eTestSleepImageOld,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("150m"),
-									},
-								},
-							},
+							*leaderContainerOldImage,
 						},
 						NodeSelector: map[string]string{},
 					},
@@ -647,9 +626,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers).Should(gomega.HaveLen(1))
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers[0].Image = util.E2eTestSleepImage
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers[0].Image = util.E2eTestBusyBoxImage
 					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers).Should(gomega.HaveLen(1))
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.E2eTestSleepImage
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.E2eTestBusyBoxImage
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -662,7 +641,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					}))).To(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(6))
 					for _, p := range pods.Items {
-						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestSleepImage))
+						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestBusyBoxImage))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

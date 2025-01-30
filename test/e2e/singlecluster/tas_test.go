@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -201,8 +201,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj2",
@@ -212,10 +210,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 				).
+				ContainerBehavior(0, 0, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
+				ContainerBehavior(1, 0, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Request("rj1", "cpu", "200m").
 				Request("rj1", "memory", "20Mi").
 				Request("rj2", "cpu", "200m").
@@ -327,7 +325,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a single Pod via TAS", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
@@ -386,7 +384,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Pod group via TAS", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").

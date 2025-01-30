@@ -961,3 +961,47 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 func GetProjectBaseDir() string {
 	return filepath.Dir(os.Getenv("PROJECT_DIR"))
 }
+
+const (
+	BehaviorWaitForDeletion           = "waitForDeletion"           // 10m and exit 0
+	BehaviorWaitForDeletionFailOnExit = "waitForDeletionFailOnExit" // 10m and exit 1
+	BehaviorWaitLong                  = "waitLong"                  // 1m
+	BehaviorWaitShort                 = "waitShort"                 // 5s
+	BehaviorWaitFast                  = "waitFast"                  // 100ms
+	BehaviorWaitSuperFast             = "waitSuperFast"             // 1ms
+)
+
+func waitAndExit(c *corev1.Container, exitCode string) *corev1.Container {
+	c.Args = []string{fmt.Sprintf(`sleep 10m & PID=$!; _term() { kill $PID; echo "Caught SIGTERM signal!"; }; trap _term SIGTERM; wait $PID; exit %s`, exitCode)}
+	return c
+}
+
+func waitUSleep(c *corev1.Container, us string) *corev1.Container {
+	c.Args = []string{fmt.Sprintf("usleep %s; exit 0", us)}
+	return c
+}
+
+func waitSleep(c *corev1.Container, s string) *corev1.Container {
+	c.Args = []string{fmt.Sprintf("sleep %s; exit 0", s)}
+	return c
+}
+
+func SetContainerBehavior(c *corev1.Container, behavior string) *corev1.Container {
+	c.Image = E2eTestBusyBoxImage
+	c.Command = []string{"sh", "-c"}
+
+	switch behavior {
+	case BehaviorWaitForDeletion:
+		return waitAndExit(c, "0")
+	case BehaviorWaitForDeletionFailOnExit:
+		return waitAndExit(c, "1")
+	case BehaviorWaitLong:
+		return waitSleep(c, "1m")
+	case BehaviorWaitShort:
+		return waitSleep(c, "5s")
+	case BehaviorWaitFast:
+		return waitUSleep(c, "100")
+	default:
+		return waitUSleep(c, "1")
+	}
+}

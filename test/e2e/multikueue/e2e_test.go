@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	ginkgo.When("Creating a multikueue admission check", func() {
 		ginkgo.It("Should create a pod on worker if admitted", func() {
 			pod := testingpod.MakePod("pod", managerNs.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Request("cpu", "1").
 				Request("memory", "2G").
 				Queue(managerLq.Name).
@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request("cpu", "1").
 				Request("memory", "2G").
 				// Give it the time to be observed Active in the live status update step.
-				Image(util.E2eTestSleepImage, []string{"5s"}).
+				ContainerBehavior(util.SetContainerBehavior, util.BehaviorWaitShort).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
@@ -365,11 +365,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestSleepImage,
-						// Give it the time to be observed Active in the live status update step.
-						Args: []string{"5s"},
 					},
 				).
+				ContainerBehavior(0, 0, util.SetContainerBehavior, util.BehaviorWaitShort). // Give it the time to be observed Active in the live status update step.
 				Request("replicated-job-1", "cpu", "500m").
 				Request("replicated-job-1", "memory", "200M").
 				Obj()
@@ -471,8 +469,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestSleepImage, []string{"1ms"}).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(kftraining.PyTorchJobReplicaTypeMaster, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
+				ContainerBehavior(kftraining.PyTorchJobReplicaTypeWorker, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
@@ -534,8 +532,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestSleepImage, []string{"1ms"}).
-				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
+				ContainerBehavior(kfmpi.MPIReplicaTypeLauncher, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
+				ContainerBehavior(kfmpi.MPIReplicaTypeWorker, util.SetContainerBehavior, util.BehaviorWaitSuperFast).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
