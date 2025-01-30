@@ -16,7 +16,8 @@ RUN dnf upgrade -y && dnf install -y \
 # Install Go
 ENV PATH=/usr/local/go/bin:$PATH
 
-COPY --from=golang /usr/lib/golang /usr/local/go
+ARG GOLANG_DIR=/usr/lib/golang
+COPY --from=golang ${GOLANG_DIR} /usr/local/go
 
 WORKDIR /workspace
 
