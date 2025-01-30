@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -544,6 +545,40 @@ func podGroupName(p corev1.Pod) string {
 	return p.GetLabels()[podconstants.GroupNameLabel]
 }
 
+// podGroupRole returns a value of PodGroupRoleLabel for the pod object.
+// Returns an empty string if there's no such label.
+func podGroupRole(p corev1.Pod) kueue.PodSetReference {
+	role := p.GetLabels()[podconstants.PodGroupRoleLabelKey]
+	if role == "" {
+		return kueue.DefaultPodSetName
+	}
+	return kueue.NewPodSetReference(role)
+}
+
+func (p *Pod) podGroupSets() ([]kueue.PodSet, error) {
+	if podGroupName(p.pod) == "" {
+		return nil, fmt.Errorf("pod doesn't have a '%s' label", podconstants.GroupNameLabel)
+	}
+
+	podGroupSetsAnnotionRaw, ok := p.pod.GetAnnotations()[podconstants.PodGroupSetsAnnotationKey]
+	if !ok {
+		return nil, fmt.Errorf("failed to extract '%s' annotation", podconstants.PodGroupSetsAnnotationKey)
+	}
+
+	var podSets []kueue.PodSet
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(podGroupSetsAnnotionRaw), len(podGroupSetsAnnotionRaw))
+	if err := decoder.Decode(&podSets); err != nil {
+		return nil, fmt.Errorf("failed to parse '%s' annotation: %w", podconstants.PodGroupSetsAnnotationKey, err)
+	}
+	for i := range podSets {
+		if podSets[i].Name == podGroupRole(p.pod) {
+			podSets[i].Template.Spec = *p.pod.Spec.DeepCopy()
+			podSets[i].TopologyRequest = jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil)
+		}
+	}
+	return podSets, nil
+}
+
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
@@ -613,9 +648,19 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		return false, err
 	}
 
+	// If a pod have 'kueue.x-k8s.io/pod-group-sets' annotation in a pod group,
+	// storing the pod as p.pod
+	targetPodIndex := 0
+	for i, pod := range p.list.Items {
+		if _, usePodGroupSet := pod.GetAnnotations()[podconstants.PodGroupSetsAnnotationKey]; usePodGroupSet {
+			targetPodIndex = i
+			break
+		}
+	}
+
 	if len(p.list.Items) > 0 {
 		p.isFound = true
-		p.pod = p.list.Items[0]
+		p.pod = p.list.Items[targetPodIndex]
 		key.Name = p.pod.Name
 	}
 
@@ -625,12 +670,21 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 }
 
 func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
-	if _, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]; useFastAdmission {
+	_, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]
+	_, usePodGroupSets := p.pod.GetAnnotations()[podconstants.PodGroupSetsAnnotationKey]
+	if useFastAdmission || usePodGroupSets {
 		tc, err := p.groupTotalCount()
 		if err != nil {
 			return nil, err
 		}
-		return constructGroupPodSetsFast(p.list.Items, tc)
+
+		if usePodGroupSets {
+			return constructGroupPodSetsFromPodGroupSets(p, tc)
+		}
+
+		if useFastAdmission {
+			return constructGroupPodSetsFast(p.list.Items, tc)
+		}
 	}
 	return constructGroupPodSets(p.list.Items)
 }
@@ -643,7 +697,7 @@ func constructPodSets(p *corev1.Pod) []kueue.PodSet {
 
 func constructPodSet(p *corev1.Pod) kueue.PodSet {
 	podSet := kueue.PodSet{
-		Name:  kueue.DefaultPodSetName,
+		Name:  podGroupRole(*p),
 		Count: 1,
 		Template: corev1.PodTemplateSpec{
 			Spec: *p.Spec.DeepCopy(),
@@ -675,6 +729,49 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	}
 
 	return nil, errors.New("failed to find a runnable pod in the group")
+}
+
+func constructGroupPodSetsFromPodGroupSets(p *Pod, groupTotalCount int) ([]kueue.PodSet, error) {
+	resultPodSets, err := p.podGroupSets()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range resultPodSets {
+		roleHash, err := getRoleHash(corev1.Pod{Spec: resultPodSets[i].Template.Spec})
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to calculate pod role hash for name=%s in '%s' annotation: %w",
+				resultPodSets[i].Name, podconstants.PodGroupSetsAnnotationKey,
+				err,
+			)
+		}
+		resultPodSets[i].Name = kueue.NewPodSetReference(roleHash)
+	}
+
+	if len(resultPodSets) == 0 {
+		return nil, errors.New("failed to find a runnable pod in the group")
+	}
+
+	if len(resultPodSets) == 1 {
+		resultPodSets[0].Count = int32(groupTotalCount)
+		return resultPodSets, nil
+	}
+
+	// If this pod group consists of multiple pod group sets
+	// validate groupTotalCount matches sum of Count in pod group sets
+	totalCountInPodGroupSets := int32(0)
+	for _, ps := range resultPodSets {
+		totalCountInPodGroupSets += ps.Count
+	}
+	if totalCountInPodGroupSets != int32(groupTotalCount) {
+		return nil, fmt.Errorf(
+			"total count of '%s' annotation does not match to '%s' annotation",
+			podconstants.PodGroupSetsAnnotationKey, podconstants.GroupTotalCountAnnotation,
+		)
+	}
+
+	return resultPodSets, nil
 }
 
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
@@ -728,8 +825,9 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 
 	originalQueue := jobframework.QueueName(p)
 	_, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]
+	_, usePodGroupSets := p.pod.GetAnnotations()[podconstants.PodGroupSetsAnnotationKey]
 
-	if !useFastAdmission && len(activePods) < groupTotalCount {
+	if !useFastAdmission && !usePodGroupSets && len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
 		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
 		return jobframework.UnretryableError(errMsg)

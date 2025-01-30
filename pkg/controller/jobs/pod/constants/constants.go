@@ -35,4 +35,6 @@ const (
 	RetriableInGroupAnnotationValue   = "false"
 	IsGroupWorkloadAnnotationKey      = "kueue.x-k8s.io/is-group-workload"
 	IsGroupWorkloadAnnotationValue    = "true"
+	PodGroupSetsAnnotationKey         = "kueue.x-k8s.io/pod-group-sets"
+	PodGroupRoleLabelKey              = "kueue.x-k8s.io/pod-group-role"
 )

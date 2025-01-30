@@ -469,6 +469,11 @@ func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *PodSetWrapper {
+	p.Template.Spec.RestartPolicy = restartPolicy
+	return p
+}
+
 func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Image = image
 	return p

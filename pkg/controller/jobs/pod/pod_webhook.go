@@ -54,6 +54,7 @@ var (
 	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	podGroupSetsAnnotationPath     = annotationsPath.Key(podconstants.PodGroupSetsAnnotationKey)
 
 	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
 )
@@ -164,6 +165,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
+		// excluding Pods managed by Plain Pods (e.g. driver generated pods)
 		if owner := metav1.GetControllerOf(pod.Object()); owner != nil {
 			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
 				// ReplicaSet is an implementation detail; skip over it to the user-facing framework
@@ -303,7 +305,7 @@ func warningForPodManagedLabel(p *Pod) string {
 func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
+	gtcStr, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
 	if podGroupName(p.pod) == "" {
 		if gtcExists {
@@ -323,11 +325,37 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 		}
 	}
 
-	if _, err := p.groupTotalCount(); gtcExists && err != nil {
+	gtc, err := p.groupTotalCount()
+	if gtcExists && err != nil {
 		return append(allErrs, field.Invalid(
 			groupTotalCountAnnotationPath,
-			gtc,
+			gtcStr,
 			err.Error(),
+		))
+	}
+
+	pgsStr, pgsExists := p.pod.GetAnnotations()[podconstants.PodGroupSetsAnnotationKey]
+	if !pgsExists {
+		return allErrs
+	}
+
+	podGroupSets, err := p.podGroupSets()
+	if err != nil {
+		return append(allErrs, field.Invalid(
+			podGroupSetsAnnotationPath,
+			pgsStr,
+			err.Error(),
+		))
+	}
+	totalCount := int32(0)
+	for _, podGroupSet := range podGroupSets {
+		totalCount += podGroupSet.Count
+	}
+	if totalCount != int32(gtc) {
+		return append(allErrs, field.Invalid(
+			podGroupSetsAnnotationPath,
+			pgsStr,
+			fmt.Sprintf("sum of count mismatched to '%s' annotation", podconstants.GroupTotalCountAnnotation),
 		))
 	}
 
