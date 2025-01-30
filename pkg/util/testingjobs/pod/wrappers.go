@@ -137,6 +137,14 @@ func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueuealpha.PodGroupPodIndexLabel, index)
 }
 
+func (p *PodWrapper) PodGroupRole(podGroupRole string) *PodWrapper {
+	return p.Label("kueue.x-k8s.io/pod-group-role", podGroupRole)
+}
+
+func (p *PodWrapper) PodGroupSets(podGroupSets string) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/pod-group-sets", podGroupSets)
+}
+
 // Label sets the label of the Pod
 func (p *PodWrapper) Label(k, v string) *PodWrapper {
 	if p.Labels == nil {
