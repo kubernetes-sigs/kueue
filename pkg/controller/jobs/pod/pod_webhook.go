@@ -56,6 +56,7 @@ const (
 	SuspendedByParentAnnotation  = "kueue.x-k8s.io/pod-suspending-parent"
 	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
 	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
+	StandalonePodAnnotation      = "kueue.x-k8s.io/standalone"
 )
 
 var (
@@ -170,7 +171,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
-		if owner := metav1.GetControllerOf(pod.Object()); owner != nil {
+		// unless it is specified to be a standAlone pod, then we process it regardless of its ownerRef
+		_, standAlone := pod.pod.GetAnnotations()[StandalonePodAnnotation]
+		if owner := metav1.GetControllerOf(pod.Object()); owner != nil && !standAlone {
 			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
 				// ReplicaSet is an implementation detail; skip over it to the user-facing framework
 				rs := &appsv1.ReplicaSet{}
