@@ -1315,6 +1315,7 @@ type ContainerWrapper struct{ corev1.Container }
 func MakeContainer() *ContainerWrapper {
 	return &ContainerWrapper{
 		corev1.Container{
+			Name: "c",
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{},
 			},
@@ -1335,6 +1336,15 @@ func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, qua
 	c.Container.Resources.Requests = requests
 
 	return c
+}
+
+func (c *ContainerWrapper) WithName(name string) *ContainerWrapper {
+	c.Name = name
+	return c
+}
+
+func (c *ContainerWrapper) WithBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *ContainerWrapper {
+	return &ContainerWrapper{*behaviorFunc(c.Obj(), behavior)}
 }
 
 // AsSidecar makes the container a sidecar when used as an Init Container.

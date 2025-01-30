@@ -188,9 +188,8 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(lab
 	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
-func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
-	ss.Spec.Template.Spec.Containers[0].Image = image
-	ss.Spec.Template.Spec.Containers[0].Args = args
+func (ss *StatefulSetWrapper) ContainerBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0] = *behaviorFunc(&ss.Spec.Template.Spec.Containers[0], behavior)
 	return ss
 }
 

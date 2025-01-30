@@ -192,6 +192,11 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) ContainerBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *JobWrapper {
+	j.Spec.Template.Spec.Containers[0] = *behaviorFunc(&j.Spec.Template.Spec.Containers[0], behavior)
+	return j
+}
+
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
 	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{

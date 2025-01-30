@@ -218,6 +218,11 @@ func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) ContainerBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *PodWrapper {
+	p.Spec.Containers[0] = *behaviorFunc(&p.Spec.Containers[0], behavior)
+	return p
+}
+
 // Limit adds a resource limit to the default container.
 func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)

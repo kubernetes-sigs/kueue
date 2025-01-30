@@ -91,10 +91,8 @@ func (d *DeploymentWrapper) Name(n string) *DeploymentWrapper {
 	return d
 }
 
-// Image sets an image to the default container.
-func (d *DeploymentWrapper) Image(image string, args []string) *DeploymentWrapper {
-	d.Spec.Template.Spec.Containers[0].Image = image
-	d.Spec.Template.Spec.Containers[0].Args = args
+func (d *DeploymentWrapper) ContainerBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *DeploymentWrapper {
+	d.Spec.Template.Spec.Containers[0] = *behaviorFunc(&d.Spec.Template.Spec.Containers[0], behavior)
 	return d
 }
 
