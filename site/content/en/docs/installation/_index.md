@@ -161,7 +161,7 @@ To install the latest development version of Kueue in your cluster, run the
 following command:
 
 ```shell
-kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
+kubectl apply --server-side -k "github.com/kubernetes-sigs/tree/main/kueue/config/default?ref=main"
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -171,7 +171,7 @@ The controller runs in the `kueue-system` namespace.
 To uninstall Kueue, run the following command:
 
 ```shell
-kubectl delete -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
+kubectl delete -k "github.com/kubernetes-sigs/kueue/tree/main/config/default?ref=main"
 ```
 
 ## Build and install from source
