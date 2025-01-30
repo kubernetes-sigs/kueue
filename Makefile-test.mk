@@ -103,14 +103,20 @@ test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl gin
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true
+
+SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
+CUSTOMCONFIGS-E2E_TARGETS := $(addprefix run-test-e2e-customconfigs-,$(E2E_KIND_VERSION:kindest/node:v%=%))
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top $(SINGLECLUSTER-E2E_TARGETS) $(CUSTOMCONFIGS-E2E_TARGETS)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e
 test-tas-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-customconfigs
+test-e2e-customconfigs: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
 MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSIONS})
@@ -119,8 +125,8 @@ test-e2e-all: ginkgo ginkgo-top $(E2E_TARGETS) $(MULTIKUEUE-E2E_TARGETS)
 
 FORCE:
 
-run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
-run-test-e2e-%: FORCE
+run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
+run-test-e2e-singlecluster-%: FORCE
 	@echo Running e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -151,6 +157,14 @@ run-test-tas-e2e-%: FORCE
 		./hack/e2e-test.sh
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
+run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
+run-test-e2e-customconfigs-%: FORCE
+	@echo Running customconfigs e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="customconfigs" \
+		./hack/e2e-test.sh
+	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
 .PHONY: performance-scheduler-runner

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,6 +47,7 @@ var (
 	IgnoreConditionTimestampsAndObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 	IgnoreObjectMetaResourceVersion                = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
+	IgnoreDeploymentConditionTimestampsAndMessage  = cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message")
 )
 
 var (

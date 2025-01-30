@@ -961,3 +961,13 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 func GetProjectBaseDir() string {
 	return filepath.Dir(os.Getenv("PROJECT_DIR"))
 }
+
+func FindDeploymentCondition(deployment *appsv1.Deployment, deploymentType appsv1.DeploymentConditionType) *appsv1.DeploymentCondition {
+	for i := range deployment.Status.Conditions {
+		c := deployment.Status.Conditions[i]
+		if c.Type == deploymentType {
+			return &c
+		}
+	}
+	return nil
+}
