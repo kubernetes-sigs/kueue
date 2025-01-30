@@ -671,6 +671,13 @@ func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 	return q
 }
 
+// GeneratedName sets the prefix for the server to generate unique name.
+// No name should be given in the MakeClusterQueue for the GeneratedName to work.
+func (q *LocalQueueWrapper) GeneratedName(name string) *LocalQueueWrapper {
+	q.ObjectMeta.GenerateName = name
+	return q
+}
+
 type CohortWrapper struct {
 	kueuealpha.Cohort
 }
@@ -735,6 +742,13 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
 	}
 	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
+	return c
+}
+
+// GeneratedName sets the prefix for the server to generate unique name.
+// No name should be given in the MakeClusterQueue for the GeneratedName to work.
+func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
+	c.ObjectMeta.GenerateName = name
 	return c
 }
 
