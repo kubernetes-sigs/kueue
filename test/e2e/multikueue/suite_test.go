@@ -273,7 +273,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
 	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
 
-	// there should not be a kubeflow operator in manager cluster
+	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
 
