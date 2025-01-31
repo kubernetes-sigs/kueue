@@ -18,6 +18,7 @@ package paddlejob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +50,7 @@ func TestMultikueueAdapter(t *testing.T) {
 	}
 
 	paddleJobBuilder := kfutiltesting.MakePaddleJob("paddlejob1", TestNamespace).Queue("queue").Suspend(false)
+	paddleJobManagedByKueueBuilder := paddleJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersPaddleJobs []kftraining.PaddleJob
@@ -116,6 +118,42 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			managersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

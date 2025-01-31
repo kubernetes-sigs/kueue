@@ -18,6 +18,7 @@ package tfjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +50,7 @@ func TestMultikueueAdapter(t *testing.T) {
 	}
 
 	tfJobBuilder := kfutiltesting.MakeTFJob("tfjob1", TestNamespace).Queue("queue").Suspend(false)
+	tfJobManagedByKueueBuilder := tfJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersTFJobs []kftraining.TFJob
@@ -115,6 +117,42 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			managersTFJobs: []kftraining.TFJob{
+				*tfJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersTFJobs: []kftraining.TFJob{
+				*tfJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

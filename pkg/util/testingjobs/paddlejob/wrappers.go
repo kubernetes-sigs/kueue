@@ -215,3 +215,9 @@ func (j *PaddleJobWrapper) StatusConditions(conditions ...kftraining.JobConditio
 	j.Status.Conditions = conditions
 	return j
 }
+
+// ManagedBy adds a managedby.
+func (j *PaddleJobWrapper) ManagedBy(c string) *PaddleJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}

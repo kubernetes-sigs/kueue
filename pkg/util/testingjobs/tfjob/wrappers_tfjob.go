@@ -211,3 +211,9 @@ func (j *TFJobWrapper) Image(replicaType kftraining.ReplicaType, image string, a
 	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
+
+// ManagedBy adds a managedby.
+func (j *TFJobWrapper) ManagedBy(c string) *TFJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}

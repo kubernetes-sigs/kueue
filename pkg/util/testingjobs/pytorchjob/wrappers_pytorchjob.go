@@ -232,3 +232,9 @@ func (j *PyTorchJobWrapper) SetTypeMeta() *PyTorchJobWrapper {
 	j.Kind = kftraining.PyTorchJobKind
 	return j
 }
+
+// ManagedBy adds a managedby.
+func (j *PyTorchJobWrapper) ManagedBy(c string) *PyTorchJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}
