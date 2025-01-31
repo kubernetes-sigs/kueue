@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -94,7 +96,7 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.usageFor(fr)+val > c.QuotaFor(fr).Nominal
+	return c.ResourceNode.Usage[fr]+val > c.QuotaFor(fr).Nominal
 }
 
 // Available returns the current capacity available, before preempting
@@ -112,27 +114,14 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 	return potentialAvailable(c, fr)
 }
 
-// The methods below implement several interfaces. See
-// dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
+func (c *ClusterQueueSnapshot) GetName() string {
+	return c.Name
+}
+
+// Implements dominantResourceShareNode interface.
 
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
-}
-
-func (c *ClusterQueueSnapshot) usageFor(fr resources.FlavorResource) int64 {
-	return c.ResourceNode.Usage[fr]
-}
-
-func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
-	return c.ResourceGroups
-}
-
-func (c *ClusterQueueSnapshot) parentResources() ResourceNode {
-	return c.Parent().ResourceNode
-}
-
-func (c *ClusterQueueSnapshot) GetName() string {
-	return c.Name
 }
 
 // The methods below implement hierarchicalResourceNode interface.
@@ -143,4 +132,20 @@ func (c *ClusterQueueSnapshot) getResourceNode() ResourceNode {
 
 func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
+}
+
+func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
+	return dominantResourceShare(c, nil)
+}
+
+func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
+	return dominantResourceShare(c, wlReq)
+}
+
+func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
+	without := maps.Clone(wlReq)
+	for fr, q := range without {
+		without[fr] = -q
+	}
+	return dominantResourceShare(c, without)
 }

@@ -381,10 +381,10 @@ func TestAvailable(t *testing.T) {
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				for _, cq := range snapshot.ClusterQueues {
-					numFrs := flavorResourceCount(cq.ResourceGroups)
+					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
-					for _, fr := range flavorResources(cq) {
+					for fr := range cq.ResourceNode.Quotas {
 						gotAvailable[cq.Name][fr] = cq.Available(fr)
 						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
@@ -406,10 +406,10 @@ func TestAvailable(t *testing.T) {
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				for _, cq := range snapshot.ClusterQueues {
-					numFrs := flavorResourceCount(cq.ResourceGroups)
+					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
-					for _, fr := range flavorResources(cq) {
+					for fr := range cq.ResourceNode.Quotas {
 						gotAvailable[cq.Name][fr] = cq.Available(fr)
 						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
@@ -430,10 +430,10 @@ func TestAvailable(t *testing.T) {
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				for _, cq := range snapshot.ClusterQueues {
-					numFrs := flavorResourceCount(cq.ResourceGroups)
+					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
-					for _, fr := range flavorResources(cq) {
+					for fr := range cq.ResourceNode.Quotas {
 						gotAvailable[cq.Name][fr] = cq.Available(fr)
 						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
