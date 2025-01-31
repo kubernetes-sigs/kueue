@@ -1203,6 +1203,20 @@ func TestReconcile(t *testing.T) {
 			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs:            []kueue.ProvisioningRequestConfig{{ObjectMeta: metav1.ObjectMeta{Name: "config1"}}},
 			wantReconcileError: errInvalidProvisioningRequest,
+			wantWorkloads: map[string]*kueue.Workload{
+				"wl": utiltesting.MakeWorkload("wl", TestNamespace).
+					Annotations(map[string]string{
+						"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
+						"invalid-provreq-prefix/Foo1":              "Bar1",
+						"another-invalid-provreq-prefix/Foo2":      "Bar2"}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStatePending,
+						Message: "Error creating ProvisioningRequest \"wl-check1-1\": invalid ProvisioningRequest error",
+					}).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
@@ -1219,16 +1233,16 @@ func TestReconcile(t *testing.T) {
 			for _, gate := range tc.enableGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
 			}
-			builder, ctx := getClientBuilder()
-			builder = builder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
+			interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
 			if tc.wantReconcileError != nil {
-				builder = builder.WithInterceptorFuncs(
-					interceptor.Funcs{
-						Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-							return tc.wantReconcileError
-						}})
+				interceptorFuncs.Create = func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					return tc.wantReconcileError
+				}
 			}
+
+			builder, ctx := getClientBuilder()
+			builder = builder.WithInterceptorFuncs(interceptorFuncs)
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
 			builder = builder.WithLists(
