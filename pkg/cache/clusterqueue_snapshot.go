@@ -134,12 +134,6 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-// DominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
-// of usage above nominal quota to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.
-// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-// The function also returns the resource name that yielded this value.
-// Also for a weight of zero, this will return 9223372036854775807.
 func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
 	return dominantResourceShare(c, nil)
 }

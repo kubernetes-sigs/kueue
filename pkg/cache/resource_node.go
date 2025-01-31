@@ -26,6 +26,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
+// ResourceNode is the shared representation of Quotas and Usage, used
+// by ClusterQueues and Cohorts.
 type ResourceNode struct {
 	// Quotas are the ResourceQuotas specified for the current
 	// node.
@@ -68,6 +70,9 @@ func (r ResourceNode) guaranteedQuota(fr resources.FlavorResource) int64 {
 	return 0
 }
 
+// hierarchicalResourceNode abstracts over ClusterQueues and Cohorts,
+// by providing access to the contained ResourceNode, with the ability
+// to navigate to the parent node.
 type hierarchicalResourceNode interface {
 	getResourceNode() ResourceNode
 

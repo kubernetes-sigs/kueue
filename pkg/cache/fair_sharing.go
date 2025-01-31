@@ -25,11 +25,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
+// dominantResourceShareNode is a node in the Cohort tree on which we
+// can compute its dominantResourceShare.
 type dominantResourceShareNode interface {
+	// see FairSharing.Weight in the API.
 	fairWeight() *resource.Quantity
 	hierarchicalResourceNode
 }
 
+// dominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
+// of usage above nominal quota to the lendable resources in the cohort, among all the resources
+// provided by the ClusterQueue, and divided by the weight.
+// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+// The function also returns the resource name that yielded this value.
+// Also for a weight of zero, this will return 9223372036854775807.
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
 	if !node.HasParent() {
 		return 0, ""
