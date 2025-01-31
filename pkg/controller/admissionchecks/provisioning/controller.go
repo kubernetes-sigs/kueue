@@ -522,7 +522,7 @@ func (c *Controller) syncCheckStates(
 	updated := false
 	for check, prc := range checkConfig {
 		checkState := *checksMap[check]
-		//nolint:gocritic
+		//nolint:gocritic // ignore ifElseChain
 		if prc == nil {
 			// the check is not active
 			updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated

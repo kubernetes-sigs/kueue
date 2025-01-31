@@ -379,7 +379,7 @@ func TestUpdateConfig(t *testing.T) {
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New[string]("batch/job"))
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
-			//nolint:fatcontext
+			//nolint:fatcontext // false positive
 			reconciler.rootContext = ctx
 
 			if len(tc.remoteClients) > 0 {
