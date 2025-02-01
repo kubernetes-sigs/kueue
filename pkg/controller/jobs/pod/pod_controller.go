@@ -137,7 +137,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func NewJob() jobframework.GenericJob {
-	return &Pod{}
+	return NewPod(WithClock(realClock))
 }
 
 func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
@@ -168,10 +168,45 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 )
 
+type options struct {
+	excessPodExpectations *expectations.Store
+	clock                 clock.Clock
+}
+
+type PodOption func(*options)
+
+func WithExcessPodExpectations(store *expectations.Store) PodOption {
+	return func(o *options) {
+		o.excessPodExpectations = store
+	}
+}
+
+func WithClock(c clock.Clock) PodOption {
+	return func(o *options) {
+		o.clock = c
+	}
+}
+
+var defaultOptions = options{
+	clock: realClock,
+}
+
+func NewPod(opts ...PodOption) *Pod {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	return &Pod{
+		excessPodExpectations: options.excessPodExpectations,
+		clock:                 options.clock,
+	}
+}
+
 func FromObject(o runtime.Object) *Pod {
-	out := Pod{}
+	out := NewPod()
 	out.pod = *o.(*corev1.Pod)
-	return &out
+	return out
 }
 
 // Object returns the job instance.
@@ -207,13 +242,6 @@ func (p *Pod) isUnretriableGroup() bool {
 
 	p.unretriableGroup = ptr.To(false)
 	return false
-}
-
-func (p *Pod) getClock() clock.Clock {
-	if p.clock != nil {
-		return p.clock
-	}
-	return realClock
 }
 
 // IsSuspended returns whether the job is suspended or not.
@@ -455,7 +483,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 						Type:   ConditionTypeTerminationTarget,
 						Status: corev1.ConditionTrue,
 						LastTransitionTime: metav1.Time{
-							Time: p.getClock().Now(),
+							Time: p.clock.Now(),
 						},
 						Reason:  string(stopReason),
 						Message: eventMsg,
@@ -1159,7 +1187,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		}
 
 		if finalizeablePodsCount := min(len(roleInactivePods), len(roleInactivePods)+len(roleActivePods)-int(ps.Count)); finalizeablePodsCount > 0 {
-			sortInactivePods(p.getClock(), roleInactivePods)
+			sortInactivePods(p.clock, roleInactivePods)
 			replacedInactivePods = append(replacedInactivePods, roleInactivePods[len(roleInactivePods)-finalizeablePodsCount:]...)
 			keptPods = append(keptPods, roleInactivePods[:len(roleInactivePods)-finalizeablePodsCount]...)
 		} else {
@@ -1334,7 +1362,7 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 
 	if updated {
 		replCond.ObservedGeneration = wl.Generation
-		replCond.LastTransitionTime = metav1.NewTime(p.getClock().Now())
+		replCond.LastTransitionTime = metav1.NewTime(p.clock.Now())
 	}
 
 	return replCond, updated
