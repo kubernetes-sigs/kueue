@@ -120,7 +120,7 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, &Pod{excessPodExpectations: r.expectationsStore, clock: realClock})
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(realClock)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
