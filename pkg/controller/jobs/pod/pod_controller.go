@@ -137,7 +137,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func NewJob() jobframework.GenericJob {
-	return NewPod(WithClock(realClock))
+	return NewPod()
 }
 
 func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
