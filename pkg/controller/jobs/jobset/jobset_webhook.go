@@ -122,7 +122,7 @@ func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) field.ErrorList 
 	var allErrs field.ErrorList
 	for i := range jobSet.Spec.ReplicatedJobs {
 		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
 	}
 	return allErrs
 }
