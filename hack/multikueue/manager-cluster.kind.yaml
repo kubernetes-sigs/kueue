@@ -8,11 +8,16 @@ nodes:
     apiVersion: kubeadm.k8s.io/v1beta3
     scheduler:
       extraArgs:
-        v: "2"
+        v: "3"
     controllerManager:
       extraArgs:
-        v: "2"
+        v: "3"
     apiServer:
       extraArgs:
         enable-aggregator-routing: "true"
-        v: "2"
+        v: "3"
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        v: "3"
