@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.2
 
 require (
-	github.com/gohugoio/hugo v0.142.0
+	github.com/gohugoio/hugo v0.143.0
 	github.com/golangci/golangci-lint v1.63.4
 	github.com/mikefarah/yq/v4 v4.45.1
 	github.com/onsi/ginkgo/v2 v2.22.2
