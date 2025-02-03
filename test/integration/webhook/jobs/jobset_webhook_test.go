@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -52,6 +53,24 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
 			job := testingjob.MakeJobSet("jobset", ns.Name).Queue("indexed_job").Obj()
+			err := k8sClient.Create(ctx, job)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeForbiddenError())
+		})
+
+		ginkgo.It("shouldn't create JobSet if both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations are set", func() {
+			job := testingjob.MakeJobSet("jobset", ns.Name).
+				Queue("indexed_job").
+				ReplicatedJobs(
+					testingjob.ReplicatedJobRequirements{
+						Name: "leader",
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+						},
+					},
+				).
+				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
