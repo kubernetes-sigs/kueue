@@ -73,12 +73,12 @@ func TestValidateCreate(t *testing.T) {
 			name: "valid topology request",
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
@@ -87,12 +87,12 @@ func TestValidateCreate(t *testing.T) {
 			name: "invalid topology request",
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
@@ -124,12 +124,12 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name: "set valid topology request",
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
-				Name:        "worker",
-				Annotations: map[string]string{},
+				Name:           "worker",
+				PodAnnotations: map[string]string{},
 			}).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
@@ -137,12 +137,12 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name: "attempt to set invalid topology request",
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
-				Name:        "worker",
-				Annotations: map[string]string{},
+				Name:           "worker",
+				PodAnnotations: map[string]string{},
 			}).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
