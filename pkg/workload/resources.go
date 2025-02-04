@@ -58,15 +58,15 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 
 func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
 	// get the list of limit ranges
-	var list corev1.LimitRangeList
-	if err := cl.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
+	var limitRanges corev1.LimitRangeList
+	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
 		return err
 	}
 
-	if len(list.Items) == 0 {
+	if len(limitRanges.Items) == 0 {
 		return nil
 	}
-	summary := limitrange.Summarize(list.Items...)
+	summary := limitrange.Summarize(limitRanges.Items...)
 	containerLimits, found := summary[corev1.LimitTypeContainer]
 	if !found {
 		return nil
@@ -127,16 +127,16 @@ func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 func ValidateResources(wi *Info) error {
 	podsetsPath := field.NewPath("podSets")
 	// requests should be less than limits.
-	allReasons := []string{}
+	var allReasons []string
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]
 		psPath := podsetsPath.Child(ps.Name)
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
-			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
+			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
 					psPath.Child("initContainers").Index(i).String(),
-					strings.Join(list, ", ")))
+					strings.Join(resNames, ", ")))
 			}
 		}
 
@@ -160,17 +160,17 @@ func ValidateResources(wi *Info) error {
 func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) error {
 	podsetsPath := field.NewPath("podSets")
 	// get the range summary from the namespace.
-	list := corev1.LimitRangeList{}
-	if err := c.List(ctx, &list, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
+	limitRanges := corev1.LimitRangeList{}
+	if err := c.List(ctx, &limitRanges, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
 		return err
 	}
-	if len(list.Items) == 0 {
+	if len(limitRanges.Items) == 0 {
 		return nil
 	}
-	summary := limitrange.Summarize(list.Items...)
+	summary := limitrange.Summarize(limitRanges.Items...)
 
 	// verify
-	allReasons := []string{}
+	var allReasons []string
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]
 		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
