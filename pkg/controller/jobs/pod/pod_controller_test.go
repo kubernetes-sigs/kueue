@@ -5681,6 +5681,7 @@ func TestGetWorkloadNameForPod(t *testing.T) {
 
 func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.T) {
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	connRefusedErrMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	var triggerUpdateErr, triggerDeleteErr bool
@@ -5768,7 +5769,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-	reconciler := NewReconciler(kClient, recorder)
+	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
 	reconcileRequest := reconcileRequestForPod(&pods[0])
 
 	// Reconcile for the first time. It'll try  to remove the finalizers but fail
