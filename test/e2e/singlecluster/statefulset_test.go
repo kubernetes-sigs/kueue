@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -61,7 +62,13 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		rf = testing.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+		err := k8sClient.Create(ctx, rf)
+		if err != nil && errors.IsAlreadyExists(err) {
+			gomega.Expect(k8sClient.Delete(ctx, rf)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+		} else {
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		}
 
 		cq = testing.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -73,10 +80,22 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		err = k8sClient.Create(ctx, cq)
+		if err != nil && errors.IsAlreadyExists(err) {
+			gomega.Expect(k8sClient.Delete(ctx, cq)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		} else {
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		}
 
 		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		err = k8sClient.Create(ctx, lq)
+		if err != nil && errors.IsAlreadyExists(err) {
+			gomega.Expect(k8sClient.Delete(ctx, lq)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		} else {
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
