@@ -21,6 +21,11 @@ linters-settings:
       - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
       - dot # Dot section: contains all dot imports.
     skip-generated: true # Skip generated files.
+  nolintlint:
+    # Require nolint directives to mention the specific linter being suppressed.
+    require-specific: true
+    # Require an explanation after each nolint directive.
+    require-explanation: true
   perfsprint:
     int-conversion: false
     errorf: true
@@ -48,6 +53,7 @@ linters:
     - govet
     - loggercheck
     - misspell
+    - nolintlint
     - perfsprint
     - revive
     - unconvert
