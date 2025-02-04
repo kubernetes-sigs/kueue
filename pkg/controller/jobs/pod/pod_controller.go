@@ -810,19 +810,21 @@ func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 // - the time the pod was declared Failed
 // - the deletion time
 func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
-	if !p.DeletionTimestamp.IsZero() {
-		return p.DeletionTimestamp.Time
-	}
-	lastTransition := clock.Now()
+	now := clock.Now()
+	lastTransition := metav1.NewTime(now)
 	for _, c := range p.Status.Conditions {
 		if c.Type == corev1.ContainersReady {
 			if c.Status == corev1.ConditionFalse && c.Reason == string(corev1.PodFailed) {
-				lastTransition = c.LastTransitionTime.Time
+				lastTransition = c.LastTransitionTime
 			}
 			break
 		}
 	}
-	return lastTransition
+	deletionTime := ptr.Deref(p.DeletionTimestamp, metav1.NewTime(now))
+	if lastTransition.Before(&deletionTime) {
+		return lastTransition.Time
+	}
+	return deletionTime.Time
 }
 
 // sortInactivePods sorts the provided pods slice based on:
