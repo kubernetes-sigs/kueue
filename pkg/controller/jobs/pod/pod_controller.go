@@ -554,7 +554,7 @@ func getRoleHash(p corev1.Pod) (string, error) {
 	if roleHash, ok := p.Annotations[RoleHashAnnotation]; ok {
 		return roleHash, nil
 	}
-	return utilpod.GenerateRoleHash(p.Spec)
+	return utilpod.GenerateRoleHash(&p.Spec)
 }
 
 // Load loads all pods in the group

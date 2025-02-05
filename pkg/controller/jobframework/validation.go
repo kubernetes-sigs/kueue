@@ -165,7 +165,7 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 
 // ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
 // to the PodSpec except fields that required for role-hash generation.
-func ValidateImmutablePodGroupPodSpec(newPodSpec corev1.PodSpec, oldPodSpec corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
