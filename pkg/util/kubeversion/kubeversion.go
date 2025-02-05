@@ -45,12 +45,6 @@ var defaultOptions = Options{
 	Interval: fetchServerVersionInterval,
 }
 
-func WithInterval(interval time.Duration) Option {
-	return func(o *Options) {
-		o.Interval = interval
-	}
-}
-
 func NewServerVersionFetcher(dc discovery.DiscoveryInterface, opts ...Option) *ServerVersionFetcher {
 	options := defaultOptions
 	for _, opt := range opts {
