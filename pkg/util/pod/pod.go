@@ -17,6 +17,8 @@ limitations under the License.
 package pod
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -103,4 +105,45 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
 	}
 	return ptr.To(int(uintValue)), nil
+}
+
+func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
+	shape := map[string]interface{}{
+		"spec": SpecShape(podSpec),
+	}
+
+	shapeJSON, err := json.Marshal(shape)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim hash to 8 characters and return
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
+}
+
+func SpecShape(podSpec *corev1.PodSpec) (result map[string]interface{}) {
+	return map[string]interface{}{
+		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"containers":                ContainersShape(podSpec.Containers),
+		"nodeSelector":              podSpec.NodeSelector,
+		"affinity":                  podSpec.Affinity,
+		"tolerations":               podSpec.Tolerations,
+		"runtimeClassName":          podSpec.RuntimeClassName,
+		"priority":                  podSpec.Priority,
+		"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+		"overhead":                  podSpec.Overhead,
+		"resourceClaims":            podSpec.ResourceClaims,
+	}
+}
+
+func ContainersShape(containers []corev1.Container) (result []map[string]interface{}) {
+	for _, c := range containers {
+		result = append(result, map[string]interface{}{
+			"resources": map[string]interface{}{
+				"requests": c.Resources.Requests,
+			},
+			"ports": c.Ports,
+		})
+	}
+	return result
 }

@@ -24,6 +24,7 @@ import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -32,6 +33,8 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -143,4 +146,43 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 		return apivalidation.ValidateImmutableField(newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], maxExecTimeLabelPath)
 	}
 	return nil
+}
+
+// ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
+// to the PodSpec except fields that required for role-hash generation.
+func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+}
+
+func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interface{}, fieldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	fields := sets.New[string]()
+	fields.Insert(utilmaps.Keys(newShape)...)
+	fields.Insert(utilmaps.Keys(oldShape)...)
+
+	for _, fieldName := range fields.UnsortedList() {
+		childFieldPath := fieldPath.Child(fieldName)
+
+		switch newValue := newShape[fieldName].(type) {
+		case []map[string]interface{}:
+			oldValue := oldShape[fieldName].([]map[string]interface{})
+
+			if len(newValue) != len(oldValue) {
+				allErrs = append(allErrs, apivalidation.ValidateImmutableField(newValue, oldValue, childFieldPath)...)
+				continue
+			}
+
+			for i := range newValue {
+				allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue[i], oldValue[i], childFieldPath.Index(i))...)
+			}
+		case map[string]interface{}:
+			oldValue := oldShape[fieldName].(map[string]interface{})
+			allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue, oldValue, childFieldPath)...)
+		default:
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newShape[fieldName], oldShape[fieldName], childFieldPath)...)
+		}
+	}
+
+	return allErrs
 }
