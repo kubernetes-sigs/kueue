@@ -409,11 +409,11 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: leaderTemplatePath.Child("spec").String(),
+					Field: leaderTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
 				},
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: workerTemplatePath.Child("spec").String(),
+					Field: workerTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
 		},
@@ -511,11 +511,11 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: leaderTemplatePath.Child("spec").String(),
+					Field: leaderTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
 				},
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: workerTemplatePath.Child("spec").String(),
+					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
 		},
