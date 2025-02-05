@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -28,6 +29,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -48,6 +50,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -270,6 +273,116 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
+		ginkgo.It("Should create pods on worker if the deployment is admitted", func() {
+			var kubernetesClients = map[string]client.Client{
+				"worker1": k8sWorker1Client,
+				"worker2": k8sWorker2Client,
+			}
+
+			deployment := testingdeployment.MakeDeployment("deployment", managerNs.Name).
+				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Replicas(3).
+				Queue(managerLq.Name).
+				Obj()
+
+			ginkgo.By("Creating the deployment", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, deployment)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdDeployment := &appsv1.Deployment{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for replicas ready", func() {
+				createdDeployment := &appsv1.Deployment{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Ensure Pod Workloads are created and Pods are Running on the worker cluster", func() {
+				ensurePodWorkloadsRunning(deployment, *managerNs, multiKueueAc, kubernetesClients)
+			})
+
+			deploymentConditions := []appsv1.DeploymentCondition{
+				{
+					Type:    appsv1.DeploymentAvailable,
+					Status:  corev1.ConditionTrue,
+					Reason:  "MinimumReplicasAvailable",
+					Message: "Deployment has minimum availability.",
+				},
+				{
+					Type:   appsv1.DeploymentProgressing,
+					Status: corev1.ConditionTrue,
+					Reason: "NewReplicaSetAvailable",
+				},
+			}
+
+			ginkgo.By("Waiting for the deployment to get status updates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdDeployment := appsv1.Deployment{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), &createdDeployment)).To(gomega.Succeed())
+					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdDeployment.Status.Replicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdDeployment.Status.UpdatedReplicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdDeployment.Status.Conditions).To(gomega.BeComparableTo(deploymentConditions, cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message"))) // Ignoring message as it is required to gather the pod replica set
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Increasing the replica count on the deployment", func() {
+				createdDeployment := &appsv1.Deployment{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+					createdDeployment.Spec.Replicas = ptr.To[int32](4)
+					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Wait for replicas ready", func() {
+					createdDeployment := &appsv1.Deployment{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+						g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.By("Ensure Pod Workloads are created and Pods are Running on the worker cluster", func() {
+				ensurePodWorkloadsRunning(deployment, *managerNs, multiKueueAc, kubernetesClients)
+			})
+
+			ginkgo.By("Decreasing the replica count on the deployment", func() {
+				createdDeployment := &appsv1.Deployment{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+					createdDeployment.Spec.Replicas = ptr.To[int32](2)
+					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Wait for replicas ready", func() {
+					createdDeployment := &appsv1.Deployment{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
+						g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.By("Ensure Pod Workloads are created and Pods are Running on the worker cluster", func() {
+				ensurePodWorkloadsRunning(deployment, *managerNs, multiKueueAc, kubernetesClients)
+			})
+
+			ginkgo.By("Deleting the deployment all pods should be deleted", func() {
+				gomega.Expect(k8sManagerClient.Delete(ctx, deployment)).Should(gomega.Succeed())
+				for _, workerClient := range kubernetesClients {
+					pods := &corev1.PodList{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(workerClient.List(ctx, pods, client.InNamespace(managerNs.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+						g.Expect(pods.Items).To(gomega.BeEmpty())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+		})
 		ginkgo.It("Should run a job on worker if admitted", func() {
 			if managerK8SVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 				ginkgo.Skip("the managers kubernetes version is less then 1.30")
@@ -790,4 +903,40 @@ func getKuberayTestImage() string {
 	}
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
+}
+
+func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.Namespace, multiKueueAc *kueue.AdmissionCheck, kubernetesClients map[string]client.Client) {
+	// Given the unpredictable nature of where the deployment pods run this function gathers the workload of a Pod first
+	// it then gets the Pod's assigned cluster from the admission check message and uses the appropriate client to ensure the Pod is running
+	pods := &corev1.PodList{}
+	gomega.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Namespace),
+		client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+
+	for _, pod := range pods.Items { // We want to test that all deployment pods have workloads.
+		createdLeaderWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
+		gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+
+		// By checking the assigned cluster we can discern which client to use
+		admissionCheckMessage := workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name).Message
+		workerCluster := kubernetesClients[GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)]
+
+		// Worker pods should be in "Running" phase
+		gomega.Eventually(func(g gomega.Gomega) {
+			createdPod := &corev1.Pod{}
+			g.Expect(workerCluster.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, createdPod)).To(gomega.Succeed())
+			g.Expect(createdPod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+}
+
+func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
+	regex := regexp.MustCompile(`"([^"]*)"`)
+	// Find the match
+	match := regex.FindStringSubmatch(message)
+	if len(match) > 1 {
+		workerName := match[1]
+		return workerName
+	}
+	return ""
 }
