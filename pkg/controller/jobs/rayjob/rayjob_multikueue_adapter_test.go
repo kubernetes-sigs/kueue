@@ -51,7 +51,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		managersRayJobs []rayv1.RayJob
 		workerRayJobs   []rayv1.RayJob
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
 		wantManagersRayJobs []rayv1.RayJob
@@ -61,7 +61,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -86,7 +86,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -110,7 +110,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
 			},
 		},
@@ -128,7 +128,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

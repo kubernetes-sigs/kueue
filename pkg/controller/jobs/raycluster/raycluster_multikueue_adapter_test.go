@@ -52,7 +52,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		managersRayClusters []rayv1.RayCluster
 		workerRayClusters   []rayv1.RayCluster
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError               error
 		wantManagersRayClusters []rayv1.RayCluster
@@ -62,7 +62,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.DeepCopy(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -87,7 +87,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -111,7 +111,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
 			},
 		},
@@ -129,7 +129,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

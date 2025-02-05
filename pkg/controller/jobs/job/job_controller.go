@@ -65,7 +65,7 @@ func init() {
 		SetupWebhook:           SetupWebhook,
 		JobType:                &batchv1.Job{},
 		IsManagingObjectsOwner: isJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
