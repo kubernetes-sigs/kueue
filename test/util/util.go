@@ -276,10 +276,6 @@ func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
-	return filterWorkloads(ctx, k8sClient, workload.HasQuotaReservation, wls...)
-}
-
 func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
 	return filterWorkloads(ctx, k8sClient, func(wl *kueue.Workload) bool {
 		return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)

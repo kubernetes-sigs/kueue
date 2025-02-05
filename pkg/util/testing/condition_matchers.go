@@ -26,12 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func HaveCondition(condition string) types.GomegaMatcher {
-	return &conditionMatcher{
-		condition: condition,
-	}
-}
-
 func HaveConditionStatus(condition string, status metav1.ConditionStatus) types.GomegaMatcher {
 	return &conditionMatcher{
 		condition: condition,

@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -123,13 +122,6 @@ func WithQueueVisibilityUpdateInterval(interval time.Duration) ClusterQueueRecon
 func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.QueueVisibilityClusterQueuesMaxCount = value
-	}
-}
-
-// func WithClock(_ testing.TB, c clock.Clock) ClusterQueueReconcilerOption {}
-func WithClock(_ testing.TB, c clock.Clock) ClusterQueueReconcilerOption {
-	return func(o *ClusterQueueReconcilerOptions) {
-		o.clock = c
 	}
 }
 
