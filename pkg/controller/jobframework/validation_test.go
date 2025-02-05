@@ -33,13 +33,13 @@ var (
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
-		newPodSpec corev1.PodSpec
-		oldPodSpec corev1.PodSpec
+		newPodSpec *corev1.PodSpec
+		oldPodSpec *corev1.PodSpec
 		wantErr    field.ErrorList
 	}{
 		"add container": {
-			oldPodSpec: corev1.PodSpec{},
-			newPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
+			oldPodSpec: &corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -48,8 +48,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"remove container": {
-			oldPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
-			newPodSpec: corev1.PodSpec{},
+			oldPodSpec: &corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
+			newPodSpec: &corev1.PodSpec{},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -58,11 +58,11 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change image on container": {
-			oldPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "other"}}},
-			newPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
+			oldPodSpec: &corev1.PodSpec{Containers: []corev1.Container{{Image: "other"}}},
+			newPodSpec: &corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
 		},
 		"change request on container": {
-			oldPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{
 				Containers: []corev1.Container{
 					{
 						Resources: corev1.ResourceRequirements{
@@ -73,7 +73,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					},
 				},
 			},
-			newPodSpec: corev1.PodSpec{
+			newPodSpec: &corev1.PodSpec{
 				Containers: []corev1.Container{
 					{
 						Resources: corev1.ResourceRequirements{
@@ -92,8 +92,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"add init container": {
-			oldPodSpec: corev1.PodSpec{},
-			newPodSpec: corev1.PodSpec{InitContainers: []corev1.Container{{Image: "busybox"}}},
+			oldPodSpec: &corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{InitContainers: []corev1.Container{{Image: "busybox"}}},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -102,8 +102,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"remove init container": {
-			oldPodSpec: corev1.PodSpec{InitContainers: []corev1.Container{{Image: "busybox"}}},
-			newPodSpec: corev1.PodSpec{},
+			oldPodSpec: &corev1.PodSpec{InitContainers: []corev1.Container{{Image: "busybox"}}},
+			newPodSpec: &corev1.PodSpec{},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -112,7 +112,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change request on init container": {
-			oldPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					{
 						Resources: corev1.ResourceRequirements{
@@ -123,7 +123,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					},
 				},
 			},
-			newPodSpec: corev1.PodSpec{
+			newPodSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					{
 						Resources: corev1.ResourceRequirements{
@@ -140,8 +140,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change nodeTemplate": {
-			oldPodSpec: corev1.PodSpec{},
-			newPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{
 				NodeSelector: map[string]string{"key": "value"},
 			},
 			wantErr: field.ErrorList{
@@ -152,8 +152,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"add toleration": {
-			oldPodSpec: corev1.PodSpec{},
-			newPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{
 				Tolerations: []corev1.Toleration{{
 					Key:      "example.com/gpu",
 					Value:    "present",
@@ -168,14 +168,14 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change toleration": {
-			oldPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{
 				Tolerations: []corev1.Toleration{{
 					Key:      "example.com/gpu",
 					Value:    "present",
 					Operator: corev1.TolerationOpEqual,
 				}},
 			},
-			newPodSpec: corev1.PodSpec{
+			newPodSpec: &corev1.PodSpec{
 				Tolerations: []corev1.Toleration{{
 					Key:      "example.com/gpu",
 					Value:    "new",
@@ -190,14 +190,14 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"delete toleration": {
-			oldPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{
 				Tolerations: []corev1.Toleration{{
 					Key:      "example.com/gpu",
 					Value:    "present",
 					Operator: corev1.TolerationOpEqual,
 				}},
 			},
-			newPodSpec: corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -206,10 +206,10 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change runtimeClassName": {
-			oldPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{
 				RuntimeClassName: ptr.To("new"),
 			},
-			newPodSpec: corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -218,8 +218,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 			},
 		},
 		"change priority": {
-			oldPodSpec: corev1.PodSpec{},
-			newPodSpec: corev1.PodSpec{
+			oldPodSpec: &corev1.PodSpec{},
+			newPodSpec: &corev1.PodSpec{
 				Priority: ptr.To[int32](1),
 			},
 			wantErr: field.ErrorList{
