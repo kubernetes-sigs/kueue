@@ -35,7 +35,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
 		newPodSpec corev1.PodSpec
 		oldPodSpec corev1.PodSpec
-		wantErr    error
+		wantErr    field.ErrorList
 	}{
 		"add container": {
 			oldPodSpec: corev1.PodSpec{},
@@ -45,7 +45,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("containers").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"remove container": {
 			oldPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "busybox"}}},
@@ -55,7 +55,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("containers").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change image on container": {
 			oldPodSpec: corev1.PodSpec{Containers: []corev1.Container{{Image: "other"}}},
@@ -89,7 +89,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("containers").Index(0).Child("resources", "requests").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"add init container": {
 			oldPodSpec: corev1.PodSpec{},
@@ -99,7 +99,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("initContainers").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"remove init container": {
 			oldPodSpec: corev1.PodSpec{InitContainers: []corev1.Container{{Image: "busybox"}}},
@@ -109,7 +109,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("initContainers").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change request on init container": {
 			oldPodSpec: corev1.PodSpec{
@@ -137,7 +137,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("initContainers").Index(0).Child("resources", "requests").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change nodeTemplate": {
 			oldPodSpec: corev1.PodSpec{},
@@ -149,7 +149,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("nodeSelector").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"add toleration": {
 			oldPodSpec: corev1.PodSpec{},
@@ -165,7 +165,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("tolerations").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change toleration": {
 			oldPodSpec: corev1.PodSpec{
@@ -187,7 +187,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("tolerations").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"delete toleration": {
 			oldPodSpec: corev1.PodSpec{
@@ -203,7 +203,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("tolerations").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change runtimeClassName": {
 			oldPodSpec: corev1.PodSpec{
@@ -215,7 +215,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("runtimeClassName").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 		"change priority": {
 			oldPodSpec: corev1.PodSpec{},
@@ -227,14 +227,14 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: testPath.Child("priority").String(),
 				},
-			}.ToAggregate(),
+			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			gotErr := ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, testPath)
-			if diff := cmp.Diff(tc.wantErr, gotErr.ToAggregate(), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
