@@ -71,13 +71,13 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	return nil
 }
 
-func ServerSupportsProvisioningRequest(mgr manager.Manager) bool {
+func ServerSupportsProvisioningRequest(mgr manager.Manager) error {
 	gvk, err := apiutil.GVKForObject(&autoscaling.ProvisioningRequest{}, mgr.GetScheme())
 	if err != nil {
-		return false
+		return err
 	}
 	if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-		return false
+		return err
 	}
-	return true
+	return nil
 }
