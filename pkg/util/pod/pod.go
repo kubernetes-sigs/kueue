@@ -60,7 +60,7 @@ func gateIndex(p *corev1.Pod, gateName string) int {
 	})
 }
 
-func GenerateRoleHash(podSpec corev1.PodSpec) (string, error) {
+func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
 	shape := map[string]interface{}{
 		"spec": SpecShape(podSpec),
 	}
@@ -74,7 +74,7 @@ func GenerateRoleHash(podSpec corev1.PodSpec) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
 }
 
-func SpecShape(podSpec corev1.PodSpec) (result map[string]interface{}) {
+func SpecShape(podSpec *corev1.PodSpec) (result map[string]interface{}) {
 	return map[string]interface{}{
 		"initContainers":            ContainersShape(podSpec.InitContainers),
 		"containers":                ContainersShape(podSpec.Containers),
