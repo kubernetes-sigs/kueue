@@ -110,19 +110,6 @@ func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOpt
 
 var _ admission.CustomDefaulter = &PodWebhook{}
 
-func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
-	for _, c := range containers {
-		result = append(result, map[string]interface{}{
-			"resources": map[string]interface{}{
-				"requests": c.Resources.Requests,
-			},
-			"ports": c.Ports,
-		})
-	}
-
-	return result
-}
-
 // addRoleHash calculates the role hash and adds it to the pod's annotations
 func (p *Pod) addRoleHash() error {
 	if p.pod.Annotations == nil {
