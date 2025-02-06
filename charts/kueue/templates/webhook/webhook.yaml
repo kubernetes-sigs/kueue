@@ -17,6 +17,25 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-workload-codeflare-dev-v1beta2-appwrapper
+    failurePolicy: Fail
+    name: mappwrapper.kb.io
+    rules:
+      - apiGroups:
+          - workload.codeflare.dev
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+        resources:
+          - appwrappers
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -368,6 +387,26 @@ metadata:
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-workload-codeflare-dev-v1beta2-appwrapper
+    failurePolicy: Fail
+    name: vappwrapper.kb.io
+    rules:
+      - apiGroups:
+          - workload.codeflare.dev
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - appwrappers
+    sideEffects: None
   - admissionReviewVersions:
       - v1
     clientConfig:

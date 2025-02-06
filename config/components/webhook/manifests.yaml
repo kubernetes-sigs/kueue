@@ -10,6 +10,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-workload-codeflare-dev-v1beta2-appwrapper
+  failurePolicy: Fail
+  name: mappwrapper.kb.io
+  rules:
+  - apiGroups:
+    - workload.codeflare.dev
+    apiVersions:
+    - v1beta2
+    operations:
+    - CREATE
+    resources:
+    - appwrappers
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate--v1-pod
   failurePolicy: Fail
   name: mpod.kb.io
@@ -317,6 +336,26 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: validating-webhook-configuration
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-workload-codeflare-dev-v1beta2-appwrapper
+  failurePolicy: Fail
+  name: vappwrapper.kb.io
+  rules:
+  - apiGroups:
+    - workload.codeflare.dev
+    apiVersions:
+    - v1beta2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - appwrappers
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:
