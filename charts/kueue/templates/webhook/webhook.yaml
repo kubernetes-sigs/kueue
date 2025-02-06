@@ -273,8 +273,19 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-statefulset
+    {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     name: mstatefulset.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
     rules:
       - apiGroups:
           - apps
@@ -629,8 +640,19 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-statefulset
+    {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     name: vstatefulset.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
     rules:
       - apiGroups:
           - apps
