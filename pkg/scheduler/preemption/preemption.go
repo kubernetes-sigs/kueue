@@ -157,16 +157,15 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
 		return minimalPreemptions(preemptionCtx, candidates, true, nil)
 	}
 
-	borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(preemptionCtx)
 	if p.enableFairSharing {
-		return p.fairPreemptions(preemptionCtx, candidates, thresholdPrio)
+		return p.fairPreemptions(preemptionCtx, candidates)
 	}
 	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
 	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
 	// have lower priority, and so they will not preempt the preemptor when
 	// requeued.
-	if borrowWithinCohort {
+	if borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(preemptionCtx); borrowWithinCohort {
 		if !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx) {
 			// It can only preempt workloads from another CQ if they are strictly under allowBorrowingBelowPriority.
 			candidates = candidatesFromCQOrUnderThreshold(candidates, preemptionCtx.preemptor.ClusterQueue, *thresholdPrio)
@@ -357,9 +356,9 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 	return strategies
 }
 
-func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*Target {
+func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
@@ -391,15 +390,11 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 		}
 
 		for i, candWl := range candCQ.workloads {
-			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
 			newCandShareVal := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
 			strategy := p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal)
-			if belowThreshold || strategy {
+			if strategy {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				reason := kueue.InCohortFairSharingReason
-				if !strategy {
-					reason = kueue.InCohortReclaimWhileBorrowingReason
-				}
 
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
