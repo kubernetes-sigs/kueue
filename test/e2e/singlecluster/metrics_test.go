@@ -195,28 +195,28 @@ var _ = ginkgo.Describe("Metrics", func() {
 			})
 
 			deletedMetrics := [][]string{
-				{"kueue_pending_workloads"},
-				{"kueue_reserving_active_workloads"},
-				{"kueue_admitted_active_workloads"},
-				{"kueue_quota_reserved_workloads_total"},
-				{"kueue_quota_reserved_wait_time_seconds"},
-				{"kueue_admitted_workloads_total"},
-				{"kueue_admission_wait_time_seconds"},
-				{"kueue_cluster_queue_resource_usage"},
-				{"kueue_cluster_queue_status"},
-				{"kueue_cluster_queue_resource_reservation"},
-				{"kueue_cluster_queue_nominal_quota"},
-				{"kueue_cluster_queue_borrowing_limit"},
-				{"kueue_cluster_queue_lending_limit"},
+				{"kueue_pending_workloads", clusterQueue.Name},
+				{"kueue_reserving_active_workloads", clusterQueue.Name},
+				{"kueue_admitted_active_workloads", clusterQueue.Name},
+				{"kueue_quota_reserved_workloads_total", clusterQueue.Name},
+				{"kueue_quota_reserved_wait_time_seconds", clusterQueue.Name},
+				{"kueue_admitted_workloads_total", clusterQueue.Name},
+				{"kueue_admission_wait_time_seconds", clusterQueue.Name},
+				{"kueue_cluster_queue_resource_usage", clusterQueue.Name},
+				{"kueue_cluster_queue_status", clusterQueue.Name},
+				{"kueue_cluster_queue_resource_reservation", clusterQueue.Name},
+				{"kueue_cluster_queue_nominal_quota", clusterQueue.Name},
+				{"kueue_cluster_queue_borrowing_limit", clusterQueue.Name},
+				{"kueue_cluster_queue_lending_limit", clusterQueue.Name},
 
 				// LocalQueueMetrics
-				{"kueue_local_queue_reserving_active_workloads"},
-				{"kueue_local_queue_admitted_active_workloads"},
-				{"kueue_local_queue_quota_reserved_workloads_total"},
-				{"kueue_local_queue_quota_reserved_wait_time_seconds"},
-				{"kueue_local_queue_admitted_workloads_total"},
-				{"kueue_local_queue_admission_wait_time_seconds"},
-				{"kueue_local_queue_status"},
+				{"kueue_local_queue_reserving_active_workloads", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
@@ -312,7 +312,8 @@ var _ = ginkgo.Describe("Metrics", func() {
 						State: v1beta1.CheckStateReady,
 					}, realClock)
 					g.Expect(k8sClient.Status().
-						Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
+						Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).
+						Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
