@@ -174,14 +174,6 @@ status:
       Memory: 600Mi
 ```
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="Note" color="primary" %}}
-
-Populating the `status.resourceRequests` field of pending workloads is a Beta feature that is enabled by default.
-
-You can disable it by setting the `WorkloadResourceRequestsSummary` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
-
 ### Does my ClusterQueue have the resource requests that the job requires?
 
 When you submit a job that has a resource request, for example:

@@ -478,7 +478,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("The transformed resources should be used as request values", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, true)
 			var wl2 *kueue.Workload
 			ginkgo.By("Create and wait for workload admission", func() {
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
@@ -576,61 +575,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 		})
 
-		ginkgo.It("The transformed resources should be used as request values but resourceRequests is not created", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, false)
-			var wl2 *kueue.Workload
-			ginkgo.By("Create and wait for workload admission", func() {
-				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
-					Request(pseudoCPU, "1").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
-			})
-
-			ginkgo.By("Check queue resource consumption", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-						PendingWorkloads:   0,
-						ReservingWorkloads: 1,
-						FlavorsReservation: []kueue.FlavorUsage{{
-							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-							Resources: []kueue.ResourceUsage{{
-								Name:  corev1.ResourceCPU,
-								Total: resource.MustParse("2"), // conversionBaseFactor is 2
-							}},
-						}},
-					}, ignoreCqCondition, ignoreInClusterQueueStatus))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Check podSets spec", func() {
-				wlRead := kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
-			})
-
-			ginkgo.By("Create a pending workload and validate resourceRequests is not created", func() {
-				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
-					Request(pseudoCPU, "2").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
-
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-				wl2Read := kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &wl2Read)).To(gomega.Succeed())
-				gomega.Expect(wl2Read.Status.ResourceRequests).To(gomega.BeNil())
-			})
-		})
-
 		ginkgo.It("When the feature is disabled, the resources are not transformed", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, false)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, true)
 			ginkgo.By("Create inadmissable workload", func() {
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 				wl = testing.MakeWorkload("one", ns.Name).
