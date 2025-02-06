@@ -53,7 +53,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		managersJobSets []jobsetapi.JobSet
 		workerJobSets   []jobsetapi.JobSet
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
 		wantManagersJobSets []jobsetapi.JobSet
@@ -64,7 +64,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersJobSets: []jobsetapi.JobSet{
 				*baseJobSetManagedByKueueBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -100,7 +100,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -158,12 +158,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 					).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace})
 			},
 		},
 		"missing jobset is not considered managed": {
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -174,7 +174,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -189,7 +189,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersJobSets: []jobsetapi.JobSet{
 				*baseJobSetManagedByKueueBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
@@ -213,7 +213,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

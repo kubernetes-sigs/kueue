@@ -53,7 +53,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		managersMpiJobs []kfmpi.MPIJob
 		workerMpiJobs   []kfmpi.MPIJob
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
 		wantManagersMpiJobs []kfmpi.MPIJob
@@ -63,7 +63,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -88,7 +88,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -112,7 +112,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace})
 			},
 		},
@@ -122,7 +122,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					ManagedBy("some-other-controller").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -141,7 +141,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					ManagedBy(kueue.MultiKueueControllerName).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
@@ -154,7 +154,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"missing job is not considered managed": {
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -175,7 +175,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

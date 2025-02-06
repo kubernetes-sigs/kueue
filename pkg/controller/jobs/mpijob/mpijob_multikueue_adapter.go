@@ -37,11 +37,11 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
-type multikueueAdapter struct{}
+type multiKueueAdapter struct{}
 
-var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	localJob := kfmpi.MPIJob{}
@@ -88,18 +88,18 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := kfmpi.MPIJob{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
+func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	job := kfmpi.MPIJob{}
 	err := c.Get(ctx, key, &job)
 	if err != nil {
@@ -112,17 +112,17 @@ func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 	return true, "", nil
 }
 
-func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
+func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
-func (*multikueueAdapter) GetEmptyList() client.ObjectList {
+func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &kfmpi.MPIJobList{}
 }
 
-func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isJob := o.(*kfmpi.MPIJob)
 	if !isJob {
 		return types.NamespacedName{}, errors.New("not a mpijob")

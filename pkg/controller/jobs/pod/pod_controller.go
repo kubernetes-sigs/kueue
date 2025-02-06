@@ -96,7 +96,7 @@ func init() {
 		NewReconciler:     NewReconciler,
 		SetupWebhook:      SetupWebhook,
 		JobType:           &corev1.Pod{},
-		MultiKueueAdapter: &multikueueAdapter{},
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 

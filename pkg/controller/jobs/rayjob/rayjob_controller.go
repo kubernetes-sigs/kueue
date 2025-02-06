@@ -56,7 +56,7 @@ func init() {
 		JobType:                &rayv1.RayJob{},
 		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 

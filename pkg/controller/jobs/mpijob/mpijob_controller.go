@@ -52,7 +52,7 @@ func init() {
 		JobType:                &kfmpi.MPIJob{},
 		AddToScheme:            kfmpi.AddToScheme,
 		IsManagingObjectsOwner: isMPIJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
