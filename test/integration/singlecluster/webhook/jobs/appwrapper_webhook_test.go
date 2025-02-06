@@ -31,65 +31,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AppWrapper Webhook With manageJobsWithoutQueueName enabled", ginkgo.Ordered, func() {
-	var ns *corev1.Namespace
-	var unmanagedNamespace *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		unmanagedNamespace = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "unmanaged-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerSetup(
-			appwrapper.SetupAppWrapperWebhook,
-			jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding(unmanagedNamespace.Name)),
-		))
-	})
-	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "aw-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterAll(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNamespace)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.It("Should suspend an AppWrapper even no queue name specified", func() {
-		appwrapper := testingaw.MakeAppWrapper("aw-without-queue-name", ns.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, appwrapper)).Should(gomega.Succeed())
-
-		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
-		createdAppWrapper := &awv1beta2.AppWrapper{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
-			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("Should not suspend an AppWrapper with no queue name specified in an unmanaged namespace", func() {
-		appwrapper := testingaw.MakeAppWrapper("aw-without-queue-name", unmanagedNamespace.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, appwrapper)).Should(gomega.Succeed())
-
-		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
-		createdAppWrapper := &awv1beta2.AppWrapper{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
-			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-})
-
-var _ = ginkgo.Describe("AppWrapper Webhook with manageJobsWithoutQueueName disabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("AppWrapper Webhook", ginkgo.Ordered, func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
@@ -118,18 +60,6 @@ var _ = ginkgo.Describe("AppWrapper Webhook with manageJobsWithoutQueueName disa
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
 			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("should not suspend an AppWrapper when no queue name specified", func() {
-		appwrapper := testingaw.MakeAppWrapper("aw-without-queue-name", ns.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, appwrapper)).Should(gomega.Succeed())
-
-		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
-		createdAppWrapper := &awv1beta2.AppWrapper{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
-			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
