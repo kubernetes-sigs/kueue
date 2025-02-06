@@ -28,6 +28,14 @@ patches:
           values:
             - kube-system
             - kueue-system
+    - name: mstatefulset.kb.io
+      namespaceSelector:
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kueue-system
 - patch: |-
     apiVersion: admissionregistration.k8s.io/v1
     kind: ValidatingWebhookConfiguration
@@ -50,3 +58,11 @@ patches:
           values:
           - kube-system
           - kueue-system
+    - name: vstatefulset.kb.io
+      namespaceSelector:
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kueue-system
