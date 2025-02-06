@@ -52,7 +52,9 @@ patches:
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
 # 'CERTMANAGER' needs to be enabled to use ca injection
-# - path: webhookcainjection_patch.yaml
+# - path: mutating_webhookcainjection_patch.yaml
+# - path: validating_webhookcainjection_patch.yaml
+
 
 # the following config is for teaching kustomize how to do var substitution
 # vars:
