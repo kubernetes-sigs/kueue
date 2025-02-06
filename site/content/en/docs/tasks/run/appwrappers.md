@@ -21,7 +21,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.11.0 version or newer and AppWrapper v1.0.1 or newer.
+1. Make sure you are using Kueue v0.11.0 version or newer and AppWrapper v1.0.2 or newer.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -29,7 +29,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 Standalone configuration of the AppWrapper controller. This disables the AppWrapper controller's instance of Kueue's
 GenericJob Reconciller. One way to do this is by doing
 ```
-kustomize build "https://github.com/project-codeflare/appwrapper/config/standalone?ref=v1.0.1"
+kustomize build "https://github.com/project-codeflare/appwrapper/config/standalone?ref=v1.0.2"
 ```
 A future release of AppWrapper will change its default configuration to disable its copy of the GenericJob Reconciller.
 
