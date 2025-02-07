@@ -359,15 +359,14 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 	}
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
-	nominatedCQ := preemptionCtx.snapshot.ClusterQueues[preemptionCtx.preemptor.ClusterQueue]
-	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(requests)
+	newNominatedShareValue, _ := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 	var targets []*Target
 	fits := false
 	var retryCandidates []*workload.Info
 	for cqHeap.Len() > 0 && !fits {
 		candCQ := cqHeap.Pop()
 
-		if candCQ.cq == nominatedCQ {
+		if candCQ.cq == preemptionCtx.preemptorCQ {
 			candWl := candCQ.workloads[0]
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
@@ -378,7 +377,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(requests)
+			newNominatedShareValue, _ = preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
 				candCQ.share, _ = candCQ.cq.DominantResourceShare()
