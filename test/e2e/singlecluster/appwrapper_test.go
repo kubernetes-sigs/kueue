@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Suspend(false).
-				Image(util.E2eTestSleepImage, []string{"10ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				SetTypeMeta().Obj()).
 			Queue(localQueueName).
 			Obj()
