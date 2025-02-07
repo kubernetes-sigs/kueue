@@ -42,11 +42,11 @@ func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQ
 		return false
 	}
 	for _, candidate := range p.preemptor.getTargets(&preemptionCtx{
-		log:               log,
-		wl:                wl,
-		snapshot:          p.snapshot,
-		frsNeedPreemption: sets.New(fr),
-		quantities:        resources.FlavorResourceQuantities{fr: quantity},
+		log:                    log,
+		preemptor:              wl,
+		snapshot:               p.snapshot,
+		frsNeedPreemption:      sets.New(fr),
+		requestsNeedPreemption: resources.FlavorResourceQuantities{fr: quantity},
 	}) {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 			return false
