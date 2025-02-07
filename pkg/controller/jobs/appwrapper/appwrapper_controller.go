@@ -62,7 +62,7 @@ func init() {
 		SetupIndexes:           SetupIndexes,
 		AddToScheme:            awv1beta2.AddToScheme,
 		IsManagingObjectsOwner: isAppWrapper,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 

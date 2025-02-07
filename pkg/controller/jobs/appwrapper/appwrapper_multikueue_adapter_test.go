@@ -56,7 +56,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		managersAppWrappers []awv1beta2.AppWrapper
 		workerAppWrappers   []awv1beta2.AppWrapper
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError               error
 		wantManagersAppWrappers []awv1beta2.AppWrapper
@@ -67,7 +67,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -92,7 +92,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -121,7 +121,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -146,12 +146,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace})
 			},
 		},
 		"missing appwrapper is not considered managed": {
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -162,7 +162,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -177,7 +177,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
@@ -201,7 +201,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
