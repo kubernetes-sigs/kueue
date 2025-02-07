@@ -83,9 +83,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
 			ServiceAccountName(serviceAccountName).
-			Image(util.E2eTTestCurlImage, []string{
-				"sleep", "5m",
-			}).
+			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, curlPod)).Should(gomega.Succeed())
 
