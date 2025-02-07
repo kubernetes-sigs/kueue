@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,6 +43,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -902,4 +906,34 @@ func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
 	sel, err := metav1.LabelSelectorAsSelector(ls)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return sel
+}
+
+func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns, pod, container string, command []string) ([]byte, []byte, error) {
+	var out, outErr bytes.Buffer
+
+	req := client.Post().
+		Resource("pods").
+		Namespace(ns).
+		Name(pod).
+		SubResource("exec").
+		VersionedParams(
+			&corev1.PodExecOptions{
+				Container: container,
+				Command:   command,
+				Stdout:    true,
+				Stderr:    true,
+			},
+			scheme.ParameterCodec,
+		)
+
+	executor, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr}); err != nil {
+		return nil, nil, err
+	}
+
+	return out.Bytes(), outErr.Bytes(), nil
 }
