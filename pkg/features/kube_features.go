@@ -126,6 +126,9 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
 	// alpha: v0.9
 	// beta: v0.10
+	// stable: v0.11
+	//
+	// remove in v0.13
 	//
 	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
 	// to improve observability
@@ -194,7 +197,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.GA},
 	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
 	ConfigurableResourceTransformations: {Default: true, PreRelease: featuregate.Beta},
-	WorkloadResourceRequestsSummary:     {Default: true, PreRelease: featuregate.Beta},
+	WorkloadResourceRequestsSummary:     {Default: true, PreRelease: featuregate.GA},
 	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
 	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
 	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
