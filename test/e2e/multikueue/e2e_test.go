@@ -606,7 +606,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: "AppWrapper completed successfully",
+						Message: "AppWrapper finished successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
