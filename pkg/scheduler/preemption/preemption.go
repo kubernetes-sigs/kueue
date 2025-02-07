@@ -63,6 +63,15 @@ type Preemptor struct {
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
 }
 
+type preemptionCtx struct {
+	log               logr.Logger
+	preemptor         workload.Info
+	preemptorCQ       *cache.ClusterQueueSnapshot
+	snapshot          *cache.Snapshot
+	requests          resources.FlavorResourceQuantities
+	frsNeedPreemption sets.Set[resources.FlavorResource]
+}
+
 func New(
 	cl client.Client,
 	workloadOrdering workload.Ordering,
@@ -114,21 +123,24 @@ type Target struct {
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
-	frsNeedPreemption := flavorResourcesNeedPreemption(assignment)
-	requests := assignment.TotalRequestsFor(&wl)
-	return p.getTargets(log, wl, requests, frsNeedPreemption, snapshot)
+	return p.getTargets(&preemptionCtx{
+		log:               log,
+		preemptor:         wl,
+		preemptorCQ:       snapshot.ClusterQueues[wl.ClusterQueue],
+		snapshot:          snapshot,
+		requests:          assignment.TotalRequestsFor(&wl),
+		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
+	})
 }
 
-func (p *Preemptor) getTargets(log logr.Logger, wl workload.Info, requests resources.FlavorResourceQuantities,
-	frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot) []*Target {
-	cq := snapshot.ClusterQueues[wl.ClusterQueue]
-	candidates := p.findCandidates(wl.Obj, cq, frsNeedPreemption)
+func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
+	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, p.clock.Now()))
+	sort.Slice(candidates, candidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
 
-	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
+	sameQueueCandidates := candidatesOnlyFromQueue(candidates, preemptionCtx.preemptorCQ.Name)
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -138,12 +150,12 @@ func (p *Preemptor) getTargets(log logr.Logger, wl workload.Info, requests resou
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		return minimalPreemptions(log, requests, cq, snapshot, frsNeedPreemption, candidates, true, nil)
+		return minimalPreemptions(preemptionCtx, candidates, true, nil)
 	}
 
-	borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(cq, wl.Obj)
+	borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(preemptionCtx)
 	if p.enableFairSharing {
-		return p.fairPreemptions(log, wl, requests, snapshot, frsNeedPreemption, candidates, thresholdPrio)
+		return p.fairPreemptions(preemptionCtx, candidates, thresholdPrio)
 	}
 	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
@@ -151,33 +163,33 @@ func (p *Preemptor) getTargets(log logr.Logger, wl workload.Info, requests resou
 	// have lower priority, and so they will not preempt the preemptor when
 	// requeued.
 	if borrowWithinCohort {
-		if !queueUnderNominalInResourcesNeedingPreemption(frsNeedPreemption, cq) {
+		if !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx) {
 			// It can only preempt workloads from another CQ if they are strictly under allowBorrowingBelowPriority.
-			candidates = candidatesFromCQOrUnderThreshold(candidates, wl.ClusterQueue, *thresholdPrio)
+			candidates = candidatesFromCQOrUnderThreshold(candidates, preemptionCtx.preemptor.ClusterQueue, *thresholdPrio)
 		}
-		return minimalPreemptions(log, requests, cq, snapshot, frsNeedPreemption, candidates, true, thresholdPrio)
+		return minimalPreemptions(preemptionCtx, candidates, true, thresholdPrio)
 	}
 
 	// Only try preemptions in the cohort, without borrowing, if the target clusterqueue is still
 	// under nominal quota for all resources.
-	if queueUnderNominalInResourcesNeedingPreemption(frsNeedPreemption, cq) {
-		if targets := minimalPreemptions(log, requests, cq, snapshot, frsNeedPreemption, candidates, false, nil); len(targets) > 0 {
+	if queueUnderNominalInResourcesNeedingPreemption(preemptionCtx) {
+		if targets := minimalPreemptions(preemptionCtx, candidates, false, nil); len(targets) > 0 {
 			return targets
 		}
 	}
 
 	// Final attempt. This time only candidates from the same queue, but
 	// with borrowing.
-	return minimalPreemptions(log, requests, cq, snapshot, frsNeedPreemption, sameQueueCandidates, true, nil)
+	return minimalPreemptions(preemptionCtx, sameQueueCandidates, true, nil)
 }
 
 // canBorrowWithinCohort returns whether the behavior is enabled for the ClusterQueue and the threshold priority to use.
-func canBorrowWithinCohort(cq *cache.ClusterQueueSnapshot, wl *kueue.Workload) (bool, *int32) {
-	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
+func canBorrowWithinCohort(preemptionCtx *preemptionCtx) (bool, *int32) {
+	borrowWithinCohort := preemptionCtx.preemptorCQ.Preemption.BorrowWithinCohort
 	if borrowWithinCohort == nil || borrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyNever {
 		return false, nil
 	}
-	threshold := priority.Priority(wl)
+	threshold := priority.Priority(preemptionCtx.preemptor.Obj)
 	if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < threshold {
 		threshold = *borrowWithinCohort.MaxPriorityThreshold + 1
 	}
@@ -235,18 +247,18 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(log logr.Logger, requests resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, frsNeedPreemption sets.Set[resources.FlavorResource], candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*Target {
-	if logV := log.V(5); logV.Enabled() {
-		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", frsNeedPreemption, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+func minimalPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*Target {
+	if logV := preemptionCtx.log.V(5); logV.Enabled() {
+		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
 	}
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*Target
 	fits := false
 	for _, candWl := range candidates {
-		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
+		candCQ := preemptionCtx.snapshot.ClusterQueues[candWl.ClusterQueue]
 		reason := kueue.InClusterQueueReason
-		if cq != candCQ {
-			if !cqIsBorrowing(candCQ, frsNeedPreemption) {
+		if preemptionCtx.preemptorCQ != candCQ {
+			if !cqIsBorrowing(candCQ, preemptionCtx.frsNeedPreemption) {
 				continue
 			}
 			reason = kueue.InCohortReclamationReason
@@ -270,35 +282,35 @@ func minimalPreemptions(log logr.Logger, requests resources.FlavorResourceQuanti
 				}
 			}
 		}
-		snapshot.RemoveWorkload(candWl)
+		preemptionCtx.snapshot.RemoveWorkload(candWl)
 		targets = append(targets, &Target{
 			WorkloadInfo: candWl,
 			Reason:       reason,
 		})
-		if workloadFits(requests, cq, allowBorrowing) {
+		if workloadFits(preemptionCtx, allowBorrowing) {
 			fits = true
 			break
 		}
 	}
 	if !fits {
-		restoreSnapshot(snapshot, targets)
+		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
-	targets = fillBackWorkloads(targets, requests, cq, snapshot, allowBorrowing)
-	restoreSnapshot(snapshot, targets)
+	targets = fillBackWorkloads(preemptionCtx, targets, allowBorrowing)
+	restoreSnapshot(preemptionCtx.snapshot, targets)
 	return targets
 }
 
-func fillBackWorkloads(targets []*Target, requests resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*Target {
+func fillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
-		snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(requests, cq, allowBorrowing) {
+		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
+		if workloadFits(preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
 		} else {
-			snapshot.RemoveWorkload(targets[i].WorkloadInfo)
+			preemptionCtx.snapshot.RemoveWorkload(targets[i].WorkloadInfo)
 		}
 	}
 	return targets
@@ -341,31 +353,31 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 	return strategies
 }
 
-func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests resources.FlavorResourceQuantities, snapshot *cache.Snapshot, frsNeedPreemption sets.Set[resources.FlavorResource], candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*Target {
-	if logV := log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", frsNeedPreemption, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*Target {
+	if logV := preemptionCtx.log.V(5); logV.Enabled() {
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
 	}
-	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
-	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
-	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(requests)
+	requests := preemptionCtx.requests
+	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
+	newNominatedShareValue, _ := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 	var targets []*Target
 	fits := false
 	var retryCandidates []*workload.Info
 	for cqHeap.Len() > 0 && !fits {
 		candCQ := cqHeap.Pop()
 
-		if candCQ.cq == nominatedCQ {
+		if candCQ.cq == preemptionCtx.preemptorCQ {
 			candWl := candCQ.workloads[0]
-			snapshot.RemoveWorkload(candWl)
+			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InClusterQueueReason,
 			})
-			if workloadFits(requests, nominatedCQ, true) {
+			if workloadFits(preemptionCtx, true) {
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(requests)
+			newNominatedShareValue, _ = preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
 				candCQ.share, _ = candCQ.cq.DominantResourceShare()
@@ -379,7 +391,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
 			strategy := p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal)
 			if belowThreshold || strategy {
-				snapshot.RemoveWorkload(candWl)
+				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				reason := kueue.InCohortFairSharingReason
 				if !strategy {
 					reason = kueue.InCohortReclaimWhileBorrowingReason
@@ -389,12 +401,12 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 					WorkloadInfo: candWl,
 					Reason:       reason,
 				})
-				if workloadFits(requests, nominatedCQ, true) {
+				if workloadFits(preemptionCtx, true) {
 					fits = true
 					break
 				}
 				candCQ.workloads = candCQ.workloads[i+1:]
-				if len(candCQ.workloads) > 0 && cqIsBorrowing(candCQ.cq, frsNeedPreemption) {
+				if len(candCQ.workloads) > 0 && cqIsBorrowing(candCQ.cq, preemptionCtx.frsNeedPreemption) {
 					candCQ.share = newCandShareVal
 					cqHeap.PushIfNotPresent(candCQ)
 				}
@@ -407,7 +419,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 	}
 	if !fits && len(p.fsStrategies) > 1 {
 		// Try next strategy if the previous strategy wasn't enough
-		cqHeap = cqHeapFromCandidates(retryCandidates, true, snapshot)
+		cqHeap = cqHeapFromCandidates(retryCandidates, true, preemptionCtx.snapshot)
 
 		for cqHeap.Len() > 0 && !fits {
 			candCQ := cqHeap.Pop()
@@ -416,12 +428,12 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
 				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 				candWl := candCQ.workloads[0]
-				snapshot.RemoveWorkload(candWl)
+				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
 					Reason:       kueue.InCohortFairSharingReason,
 				})
-				if workloadFits(requests, nominatedCQ, true) {
+				if workloadFits(preemptionCtx, true) {
 					fits = true
 				}
 				// No requeueing because there doesn't seem to be an scenario where
@@ -430,11 +442,11 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 		}
 	}
 	if !fits {
-		restoreSnapshot(snapshot, targets)
+		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
-	targets = fillBackWorkloads(targets, requests, nominatedCQ, snapshot, true)
-	restoreSnapshot(snapshot, targets)
+	targets = fillBackWorkloads(preemptionCtx, targets, true)
+	restoreSnapshot(preemptionCtx.snapshot, targets)
 	return targets
 }
 
@@ -558,21 +570,21 @@ func workloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-func workloadFits(requests resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
-	for fr, v := range requests {
-		if !allowBorrowing && cq.BorrowingWith(fr, v) {
+func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+	for fr, v := range preemptionCtx.requests {
+		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		if v > cq.Available(fr) {
+		if v > preemptionCtx.preemptorCQ.Available(fr) {
 			return false
 		}
 	}
 	return true
 }
 
-func queueUnderNominalInResourcesNeedingPreemption(frsNeedPreemption sets.Set[resources.FlavorResource], cq *cache.ClusterQueueSnapshot) bool {
-	for fr := range frsNeedPreemption {
-		if cq.ResourceNode.Usage[fr] >= cq.QuotaFor(fr).Nominal {
+func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
+	for fr := range preemptionCtx.frsNeedPreemption {
+		if preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] >= preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal {
 			return false
 		}
 	}
