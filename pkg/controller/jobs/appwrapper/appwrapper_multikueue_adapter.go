@@ -89,12 +89,10 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
-	aw := awv1beta2.AppWrapper{}
-	err := remoteClient.Get(ctx, key, &aw)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, &aw))
+	aw := &awv1beta2.AppWrapper{}
+	aw.SetName(key.Name)
+	aw.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, aw))
 }
 
 func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
