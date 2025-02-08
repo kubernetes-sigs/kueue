@@ -103,6 +103,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended rayjob": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+		},
 		"remote rayjob is deleted": {
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().

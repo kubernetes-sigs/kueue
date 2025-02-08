@@ -107,6 +107,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended PaddleJob": {
+			managersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerPaddleJobs: []kftraining.PaddleJob{
+				*paddleJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
 		"remote PaddleJob is deleted": {
 			workerPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().

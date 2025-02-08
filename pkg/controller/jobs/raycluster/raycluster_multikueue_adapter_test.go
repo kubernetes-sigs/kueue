@@ -104,6 +104,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended raycluster": {
+			managersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
+					Obj(),
+			},
+		},
 		"remote raycluster is deleted": {
 			workerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().

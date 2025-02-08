@@ -62,7 +62,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantManagersJobs []batchv1.Job
 		wantWorkerJobs   []batchv1.Job
 	}{
-
 		"sync creates missing remote job": {
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Obj(),
@@ -103,6 +102,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Active(2).
+					Obj(),
+			},
+		},
+		"skip to sync intermediate status from remote suspended job": {
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					Active(2).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
 					Active(2).
 					Obj(),
 			},
@@ -225,7 +255,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().Obj(),
 			},
 		},
-
 		"job managedBy multikueue": {
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Obj(),

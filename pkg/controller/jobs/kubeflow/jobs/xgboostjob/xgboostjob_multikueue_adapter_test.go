@@ -106,6 +106,38 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended XgBoostJob": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
 		"remote XgBoostJob is deleted": {
 			workerXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().
