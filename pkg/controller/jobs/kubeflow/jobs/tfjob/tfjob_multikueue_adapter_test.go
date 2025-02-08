@@ -106,6 +106,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended tfjob": {
+			managersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
 		"remote tfjob is deleted": {
 			workerTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().

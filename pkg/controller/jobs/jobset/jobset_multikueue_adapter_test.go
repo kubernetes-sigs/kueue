@@ -139,6 +139,60 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended jobset": {
+			managersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.DeepCopy().
+					Suspend(true).
+					Obj(),
+			},
+			workerJobSets: []jobsetapi.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobsStatus(
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.DeepCopy().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerJobSets: []jobsetapi.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobsStatus(
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobsetapi.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
+					Obj(),
+			},
+		},
 		"remote jobset is deleted": {
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.DeepCopy().

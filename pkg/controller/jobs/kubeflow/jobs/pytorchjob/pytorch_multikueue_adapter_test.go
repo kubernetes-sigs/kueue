@@ -106,6 +106,37 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended pytorchjob": {
+			managersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
 		"remote pytorchjob is deleted": {
 			workerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
