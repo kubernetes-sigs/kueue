@@ -1,0 +1,24 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kueue-viz-ingress
+  namespace: kueue-system
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: Prefix
+            path: /kueue-viz-backend
+            backend:
+              service:
+                name: kueue-viz-backend
+                port:
+                  number: 8080
+          - pathType: Prefix
+            path: /kueue-viz-frontend
+            backend:
+              service:
+                name: kueue-viz-frontend
+                port:
+                  number: 8080

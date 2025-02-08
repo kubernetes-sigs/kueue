@@ -66,6 +66,8 @@ E2E_TEST_SLEEP_IMAGE_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE%%@*}
 export E2E_TEST_CURL_IMAGE=curlimages/curl:8.11.0@sha256:6324a8b41a7f9d80db93c7cf65f025411f55956c6b248037738df3bfca32410c
 E2E_TEST_CURL_IMAGE_WITHOUT_SHA=${E2E_TEST_CURL_IMAGE%%@*}
 
+DEFAULT_E2E_CONFIG_PATH=${ROOT_DIR}/test/e2e/config/default
+E2E_CONFIG_PATH=${E2E_CONFIG_PATH:-${DEFAULT_E2E_CONFIG_PATH}}
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -143,7 +145,7 @@ function cluster_kind_load_image {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k test/e2e/config/default
+    kubectl apply --server-side -k "${E2E_CONFIG_PATH}"
 }
 
 #$1 - cluster name
@@ -190,6 +192,7 @@ function install_kuberay {
     kubectl create -k "${KUBERAY_MANIFEST}"
 }
 
+#$1 - cluster name
 function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl config use-context "kind-${1}"

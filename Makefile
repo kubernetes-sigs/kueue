@@ -362,6 +362,11 @@ kueue-viz-image: VIZ_PLATFORMS=linux/amd64
 kueue-viz-image: PUSH=--load
 kueue-viz-image: kueue-viz-image-build
 
+# Build an amd64 image that can be used for Kind E2E tests.
+.PHONY: kind-kueue-viz-image-build
+kind-image-build: PLATFORMS=linux/amd64
+kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
+kind-image-build: kind kueue-viz-image
 
 .PHONY: kueuectl
 kueuectl:
