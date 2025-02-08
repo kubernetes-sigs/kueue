@@ -323,7 +323,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1. delete all remote workloads when finished or the local wl has no reservation
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
-		errs := []error{}
+		var errs []error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
