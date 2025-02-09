@@ -264,14 +264,14 @@ func TestResourceFlavorCmd(t *testing.T) {
 		},
 		"should create resource flavor with node labels": {
 			rfName: "rf",
-			args:   []string{"--node-labels", "beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux"},
+			args:   []string{"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux"},
 			wantRf: &v1beta1.ResourceFlavor{
 				TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
 				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
 				Spec: v1beta1.ResourceFlavorSpec{
 					NodeLabels: map[string]string{
-						"beta.kubernetes.io/arch": "arm64",
-						"beta.kubernetes.io/os":   "linux",
+						"kubernetes.io/arch": "arm64",
+						"kubernetes.io/os":   "linux",
 					},
 				},
 			},
