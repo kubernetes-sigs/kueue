@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -128,7 +129,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	}
 	for _, pod := range pods {
 		// skip unscheduled or terminal pods as they don't use any capacity
-		if len(pod.Spec.NodeName) == 0 || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		if len(pod.Spec.NodeName) == 0 || utilpod.IsTerminated(&pod) {
 			continue
 		}
 		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {

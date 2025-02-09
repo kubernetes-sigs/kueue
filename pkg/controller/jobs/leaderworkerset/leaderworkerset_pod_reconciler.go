@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type PodReconciler struct {
@@ -70,7 +71,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling LeaderWorkerSet Pod")
 
-	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+	if utilpod.IsTerminated(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer)
 			if removed {

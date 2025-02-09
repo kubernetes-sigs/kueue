@@ -142,3 +142,7 @@ func ContainersShape(containers []corev1.Container) (result []map[string]interfa
 	}
 	return result
 }
+
+func IsTerminated(p *corev1.Pod) bool {
+	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
