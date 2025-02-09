@@ -135,15 +135,15 @@ func TestReclaimablePods(t *testing.T) {
 		want   []kueue.ReclaimablePod
 	}{
 		"no status": {
-			jobSet: baseWrapper.DeepCopy().Obj(),
+			jobSet: baseWrapper.Clone().Obj(),
 			want:   nil,
 		},
 		"empty jobs status": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus().Obj(),
+			jobSet: baseWrapper.Clone().JobsStatus().Obj(),
 			want:   nil,
 		},
 		"single job done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+			jobSet: baseWrapper.Clone().JobsStatus(jobset.ReplicatedJobStatus{
 				Name:      "replicated-job-1",
 				Succeeded: 1,
 			}).Obj(),
@@ -153,7 +153,7 @@ func TestReclaimablePods(t *testing.T) {
 			}},
 		},
 		"single job partial done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+			jobSet: baseWrapper.Clone().JobsStatus(jobset.ReplicatedJobStatus{
 				Name:      "replicated-job-2",
 				Succeeded: 1,
 			}).Obj(),
@@ -163,7 +163,7 @@ func TestReclaimablePods(t *testing.T) {
 			}},
 		},
 		"all done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(
+			jobSet: baseWrapper.Clone().JobsStatus(
 				jobset.ReplicatedJobStatus{
 					Name:      "replicated-job-1",
 					Succeeded: 1,
@@ -208,7 +208,7 @@ func TestPodSets(t *testing.T) {
 		wantPodSets func(jobSet *JobSet) []kueue.PodSet
 	}{
 		"no annotations": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1},
 					testingjobset.ReplicatedJobRequirements{Name: "job2", Replicas: 3, Parallelism: 2, Completions: 3},
@@ -230,7 +230,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with required topology annotation": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "job1",
@@ -265,7 +265,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with preferred topology annotation": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1},
 					testingjobset.ReplicatedJobRequirements{
