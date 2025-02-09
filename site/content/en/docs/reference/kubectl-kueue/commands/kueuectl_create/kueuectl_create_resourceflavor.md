@@ -28,7 +28,7 @@ kueuectl create resourceflavor NAME [--node-labels KEY=VALUE] [--node-taints KEY
   
   # Create a resource flavor with labels
   kueuectl create resourceflavor my-resource-flavor \
-  --node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
+  --node-labels kubernetes.io/arch=arm64,kubernetes.io/os=linux
   
   # Create a resource flavor with node taints
   kueuectl create resourceflavor my-resource-flavor \

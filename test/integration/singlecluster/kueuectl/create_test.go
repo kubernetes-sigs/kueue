@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				kueuectl.SetErr(outErr)
 
 				kueuectl.SetArgs([]string{"create", "resourceflavor", rfName,
-					"--node-labels", "beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux",
+					"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux",
 					"--node-taints", "key1=value1:NoSchedule,key2=value2:NoSchedule",
 					"--tolerations", "key1=value1:NoSchedule,key2:NoSchedule",
 				})
@@ -495,8 +495,8 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rfName, Namespace: ns.Name}, &resourceFlavor)).To(gomega.Succeed())
 					g.Expect(resourceFlavor.Name).Should(gomega.Equal(rfName))
 					g.Expect(resourceFlavor.Spec.NodeLabels).Should(gomega.Equal(map[string]string{
-						"beta.kubernetes.io/arch": "arm64",
-						"beta.kubernetes.io/os":   "linux",
+						"kubernetes.io/arch": "arm64",
+						"kubernetes.io/os":   "linux",
 					}))
 					g.Expect(resourceFlavor.Spec.NodeTaints).Should(gomega.ContainElements(
 						corev1.Taint{
