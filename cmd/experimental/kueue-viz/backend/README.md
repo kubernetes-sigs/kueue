@@ -44,7 +44,6 @@ KUEUE_VIZ_PORT=8181 ./kueue_ws_app
 | Environment variables | Description              | Default value |
 | --------------------- | ------------------------ | ------------- |
 | `KUEUE_VIZ_PORT`      | Default application port | 8080          |
-| `KUEUE_VIZ_LOG`       | Default logging level    | INFO          |
 
 ## Endpoints
 
