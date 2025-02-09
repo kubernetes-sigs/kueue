@@ -956,6 +956,32 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
+		"no assignment as node is unschedulable": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Ready().
+					Unschedulable().
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:      1,
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
+		},
 		"skip node which has untolerated taint": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").

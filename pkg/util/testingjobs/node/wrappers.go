@@ -91,3 +91,9 @@ func (n *NodeWrapper) NotReady() *NodeWrapper {
 	})
 	return n
 }
+
+// Unschedulable sets the Node to an unschedulable state.
+func (n *NodeWrapper) Unschedulable() *NodeWrapper {
+	n.Spec.Unschedulable = true
+	return n
+}
