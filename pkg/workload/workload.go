@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -44,7 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -378,7 +378,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
+		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		if features.Enabled(features.ConfigurableResourceTransformations) {
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
