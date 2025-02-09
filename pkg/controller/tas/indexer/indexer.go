@@ -31,6 +31,7 @@ import (
 const (
 	WorkloadNameKey               = "metadata.workload"
 	ReadyNode                     = "metadata.ready"
+	SchedulableNode               = "spec.schedulable"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
 )
 
@@ -59,6 +60,14 @@ func indexReadyNode(o client.Object) []string {
 	return []string{"true"}
 }
 
+func indexSchedulableNode(o client.Object) []string {
+	node, ok := o.(*corev1.Node)
+	if !ok || node.Spec.Unschedulable {
+		return nil
+	}
+	return []string{"true"}
+}
+
 func indexResourceFlavorTopologyName(o client.Object) []string {
 	flavor, ok := o.(*kueue.ResourceFlavor)
 	if !ok || flavor.Spec.TopologyName == nil {
@@ -74,6 +83,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &corev1.Node{}, ReadyNode, indexReadyNode); err != nil {
 		return fmt.Errorf("setting index node ready: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Node{}, SchedulableNode, indexSchedulableNode); err != nil {
+		return fmt.Errorf("setting index node schedulable: %w", err)
 	}
 
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {
