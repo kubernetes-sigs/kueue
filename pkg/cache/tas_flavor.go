@@ -92,7 +92,10 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	}
 	requiredLabelKeys := client.HasLabels{}
 	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
-	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{indexer.ReadyNode: "true"})
+	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{
+		indexer.ReadyNode:       "true",
+		indexer.SchedulableNode: "true",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
