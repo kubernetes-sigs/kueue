@@ -18,17 +18,17 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/client-go/applyconfigurations/core/v1"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // ResourceFlavorSpecApplyConfiguration represents a declarative configuration of the ResourceFlavorSpec type for use
 // with apply.
 type ResourceFlavorSpecApplyConfiguration struct {
-	NodeLabels   map[string]string          `json:"nodeLabels,omitempty"`
-	NodeTaints   []v1.Taint                 `json:"nodeTaints,omitempty"`
-	Tolerations  []v1.Toleration            `json:"tolerations,omitempty"`
-	TopologyName *v1beta1.TopologyReference `json:"topologyName,omitempty"`
+	NodeLabels   map[string]string                 `json:"nodeLabels,omitempty"`
+	NodeTaints   []v1.TaintApplyConfiguration      `json:"nodeTaints,omitempty"`
+	Tolerations  []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
+	TopologyName *v1beta1.TopologyReference        `json:"topologyName,omitempty"`
 }
 
 // ResourceFlavorSpecApplyConfiguration constructs a declarative configuration of the ResourceFlavorSpec type for use with
@@ -54,9 +54,12 @@ func (b *ResourceFlavorSpecApplyConfiguration) WithNodeLabels(entries map[string
 // WithNodeTaints adds the given value to the NodeTaints field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the NodeTaints field.
-func (b *ResourceFlavorSpecApplyConfiguration) WithNodeTaints(values ...v1.Taint) *ResourceFlavorSpecApplyConfiguration {
+func (b *ResourceFlavorSpecApplyConfiguration) WithNodeTaints(values ...*v1.TaintApplyConfiguration) *ResourceFlavorSpecApplyConfiguration {
 	for i := range values {
-		b.NodeTaints = append(b.NodeTaints, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithNodeTaints")
+		}
+		b.NodeTaints = append(b.NodeTaints, *values[i])
 	}
 	return b
 }
@@ -64,9 +67,12 @@ func (b *ResourceFlavorSpecApplyConfiguration) WithNodeTaints(values ...v1.Taint
 // WithTolerations adds the given value to the Tolerations field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Tolerations field.
-func (b *ResourceFlavorSpecApplyConfiguration) WithTolerations(values ...v1.Toleration) *ResourceFlavorSpecApplyConfiguration {
+func (b *ResourceFlavorSpecApplyConfiguration) WithTolerations(values ...*v1.TolerationApplyConfiguration) *ResourceFlavorSpecApplyConfiguration {
 	for i := range values {
-		b.Tolerations = append(b.Tolerations, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithTolerations")
+		}
+		b.Tolerations = append(b.Tolerations, *values[i])
 	}
 	return b
 }
