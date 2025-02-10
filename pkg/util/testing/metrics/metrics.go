@@ -17,8 +17,6 @@ limitations under the License.
 package metrics
 
 import (
-	"sort"
-
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
@@ -32,8 +30,7 @@ type MetricDataPoint struct {
 }
 
 func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
-	keys := maps.Keys(a.Labels)
-	sort.Strings(keys)
+	keys := maps.SortedKeys(b.Labels)
 	for _, k := range keys {
 		vb, found := b.Labels[k]
 		if !found {

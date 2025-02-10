@@ -69,22 +69,9 @@ func Contains[K, V comparable, A ~map[K]V, B ~map[K]V](a A, b B) bool {
 	return true
 }
 
-// Keys returns a slice containing the m keys
-func Keys[K comparable, V any, M ~map[K]V](m M) []K {
-	if m == nil {
-		return nil
-	}
-	ret := make([]K, 0, len(m))
-
-	for k := range m {
-		ret = append(ret, k)
-	}
-	return ret
-}
-
 // SortedKeys returns a slice containing the sorted m keys
 func SortedKeys[K cmp.Ordered, V any, M ~map[K]V](m M) []K {
-	ret := Keys(m)
+	ret := slices.Collect(maps.Keys(m))
 	slices.Sort(ret)
 	return ret
 }
