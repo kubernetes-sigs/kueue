@@ -49,6 +49,7 @@ import (
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestWorkloadCmd(t *testing.T) {
@@ -674,13 +675,9 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 				corev1.SchemeGroupVersion.WithKind("Pod"),
 			},
 			job: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "pod-test",
-						Namespace: "default",
-						UID:       types.UID("pod-test-uid-1"),
-					},
-				},
+				testingpod.MakePod("pod-test", metav1.NamespaceDefault).
+					UID("pod-test-uid-1").
+					Obj(),
 			},
 			wantOut: `NAME   JOB TYPE   JOB NAME     LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
 wl2    pod        pod-test-1   lq2          cq2            PENDING                                   3h
