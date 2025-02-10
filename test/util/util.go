@@ -120,10 +120,10 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := DeleteAllPodsInNamespace(ctx, c, ns); err != nil {
+	if err := deleteAllPodsInNamespace(ctx, c, ns, 2); err != nil {
 		return err
 	}
-	if err := DeleteWorkloadsInNamespace(ctx, c, ns); err != nil {
+	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
 		return err
 	}
 	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
@@ -177,21 +177,23 @@ func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *c
 }
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllPodsInNamespace(ctx, c, ns, 2)
+}
+
+func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
 	if err := client.IgnoreNotFound(c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))); err != nil {
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
-
-	gomega.Eventually(func(g gomega.Gomega) {
-		lst := corev1.PodList{}
-		g.Expect(client.IgnoreNotFound(c.List(ctx, &lst, client.InNamespace(ns.Name)))).
+	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+		pods := corev1.PodList{}
+		g.Expect(client.IgnoreNotFound(c.List(ctx, &pods, client.InNamespace(ns.Name)))).
 			Should(gomega.Succeed(), "listing Pods with a finalizer in namespace %q", ns.Name)
-		for _, p := range lst.Items {
+		for _, p := range pods.Items {
 			if controllerutil.RemoveFinalizer(&p, pod.PodFinalizer) {
 				g.Expect(client.IgnoreNotFound(c.Update(ctx, &p))).Should(gomega.Succeed(), "removing finalizer")
 			}
 		}
 	}, LongTimeout, Interval).Should(gomega.Succeed())
-
 	return nil
 }
 
@@ -204,20 +206,22 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 }
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteWorkloadsInNamespace(ctx, c, ns, 2)
+}
+
+func deleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
 	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-
-	gomega.Eventually(func(g gomega.Gomega) {
-		lst := kueue.WorkloadList{}
-		g.Expect(c.List(ctx, &lst, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-		for _, wl := range lst.Items {
+	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+		workloads := kueue.WorkloadList{}
+		g.Expect(c.List(ctx, &workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+		for _, wl := range workloads.Items {
 			if controllerutil.RemoveFinalizer(&wl, kueue.ResourceInUseFinalizerName) {
 				g.Expect(client.IgnoreNotFound(c.Update(ctx, &wl))).Should(gomega.Succeed())
 			}
 		}
 	}, LongTimeout, Interval).Should(gomega.Succeed())
-
 	return nil
 }
 
@@ -812,9 +816,9 @@ readCh:
 	for !gotObjs.Equal(objs) {
 		select {
 		case evt, ok := <-eventWatcher.ResultChan():
-			gomega.Expect(ok).To(gomega.BeTrue())
+			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
 			event, ok := evt.Object.(*corev1.Event)
-			gomega.Expect(ok).To(gomega.BeTrue())
+			gomega.ExpectWithOffset(1, ok).To(gomega.BeTrue())
 			if filter(event) {
 				objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
 				gotObjs.Insert(objKey)
@@ -828,7 +832,7 @@ readCh:
 
 func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload) {
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
-	gomega.Eventually(func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptedWl), preemptedWl)).To(gomega.Succeed())
 		g.Expect(preemptedWl.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
 			Type:    kueue.WorkloadPreempted,
@@ -909,7 +913,7 @@ func CreateNodes(ctx context.Context, c client.Client, nodes []corev1.Node) {
 }
 
 func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
-	unmanaged = append(unmanaged, "kube-system", "kueue_system")
+	unmanaged = append(unmanaged, "kube-system", "kueue-system")
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -920,7 +924,7 @@ func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
 		},
 	}
 	sel, err := metav1.LabelSelectorAsSelector(ls)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	return sel
 }
 
