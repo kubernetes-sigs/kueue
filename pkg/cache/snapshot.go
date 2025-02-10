@@ -66,7 +66,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
-			"workloads", utilmaps.Keys(cq.Workloads),
+			"workloads", maps.Keys(cq.Workloads),
 		)
 	}
 	for name, cohort := range s.Cohorts {

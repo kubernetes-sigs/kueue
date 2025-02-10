@@ -45,7 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -816,7 +815,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 		}
 	}
 	if allFlavors {
-		return sets.New(utilmaps.Keys(admissionChecks)...)
+		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
 	}
 
 	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
