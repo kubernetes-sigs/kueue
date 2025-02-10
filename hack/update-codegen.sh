@@ -42,10 +42,22 @@ kube::codegen::gen_openapi \
   --update-report \
   "${KUEUE_ROOT}/apis/visibility"
 
+externals=(
+  "k8s.io/api/core/v1.PodTemplateSpec:k8s.io/client-go/applyconfigurations/core/v1"
+  "k8s.io/api/core/v1.Taint:k8s.io/client-go/applyconfigurations/core/v1"
+  "k8s.io/api/core/v1.Toleration:k8s.io/client-go/applyconfigurations/core/v1"
+)
+
+apply_config_externals="${externals[0]}"
+for external in "${externals[@]:1}"; do
+  apply_config_externals="${apply_config_externals},${external}"
+done
+
 kube::codegen::gen_client \
   --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
   --output-dir "${KUEUE_ROOT}/client-go" \
   --output-pkg "${KUEUE_PKG}/client-go" \
   --with-watch \
   --with-applyconfig \
+  --applyconfig-externals "${apply_config_externals}" \
   "${KUEUE_ROOT}/apis"
