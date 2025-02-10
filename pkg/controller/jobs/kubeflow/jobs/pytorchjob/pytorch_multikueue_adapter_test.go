@@ -18,6 +18,7 @@ package pytorchjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +50,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 
 	pyTorchJobBuilder := kfutiltesting.MakePyTorchJob("pytorchjob1", TestNamespace).Queue("queue").Suspend(false)
+	pyTorchJobManagedByKueueBuilder := pyTorchJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersPyTorchJobs []kftraining.PyTorchJob
@@ -146,6 +148,42 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			managersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

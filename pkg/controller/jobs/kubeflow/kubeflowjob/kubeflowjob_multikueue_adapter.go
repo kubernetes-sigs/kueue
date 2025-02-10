@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -77,7 +78,19 @@ func (a adapter[PtrT, T]) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (a adapter[PtrT, T]) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
+func (a adapter[PtrT, T]) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	kJobObj := PtrT(new(T))
+	err := c.Get(ctx, key, kJobObj)
+	if err != nil {
+		return false, "", err
+	}
+
+	kJob := a.fromObject(kJobObj)
+	jobControllerName := ptr.Deref(kJob.KFJobControl.RunPolicy().ManagedBy, "")
+	if jobControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	}
+
 	return true, "", nil
 }
 
@@ -126,6 +139,9 @@ func (a adapter[PtrT, T]) SyncJob(
 	labels[constants.PrebuiltWorkloadLabel] = workloadName
 	labels[kueue.MultiKueueOriginLabel] = origin
 	remoteJob.SetLabels(labels)
+
+	// clearing the managedBy enables the controller to take over
+	a.fromObject(remoteJob).SetManagedBy(nil)
 
 	return remoteClient.Create(ctx, remoteJob)
 }

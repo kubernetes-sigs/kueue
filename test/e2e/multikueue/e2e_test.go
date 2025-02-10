@@ -567,6 +567,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", func() {
 			// Since it requires 1600M of memory, this job can only be admitted in worker 2.
 			pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob1", managerNs.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(managerLq.Name).
 				PyTorchReplicaSpecs(
 					testingpytorchjob.PyTorchReplicaSpecRequirement{

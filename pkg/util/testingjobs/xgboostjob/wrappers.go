@@ -215,3 +215,9 @@ func (j *XGBoostJobWrapper) StatusConditions(conditions ...kftraining.JobConditi
 	j.Status.Conditions = conditions
 	return j
 }
+
+// ManagedBy adds a managedby.
+func (j *XGBoostJobWrapper) ManagedBy(c string) *XGBoostJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}

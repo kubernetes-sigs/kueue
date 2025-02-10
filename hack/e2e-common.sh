@@ -33,9 +33,8 @@ if [[ -n ${JOBSET_VERSION:-} ]]; then
 fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
-    export KUBEFLOW_MANIFEST_MANAGER=${ROOT_DIR}/test/e2e/config/multikueue/manager
-    export KUBEFLOW_MANIFEST_WORKER=${ROOT_DIR}/test/e2e/config/multikueue/worker
-    KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST_WORKER" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
+    export KUBEFLOW_MANIFEST=${ROOT_DIR}/test/e2e/config/multikueue
+    KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
     export KUBEFLOW_IMAGE_VERSION
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
@@ -164,7 +163,7 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_WORKER}"
+    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST}"
 }
 
 #$1 - cluster name

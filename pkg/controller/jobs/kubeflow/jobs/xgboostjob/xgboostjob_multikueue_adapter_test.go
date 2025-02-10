@@ -18,6 +18,7 @@ package xgboostjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +50,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 
 	xgboostJobBuilder := kfutiltesting.MakeXGBoostJob("xgboostjob1", TestNamespace).Queue("queue").Suspend(false)
+	xgboostJobManagedByKueueBuilder := xgboostJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersXGBoostJobs []kftraining.XGBoostJob
@@ -147,6 +149,42 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -39,6 +40,7 @@ type KubeflowJob struct {
 var _ jobframework.GenericJob = (*KubeflowJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*KubeflowJob)(nil)
 var _ jobframework.JobWithCustomValidation = (*KubeflowJob)(nil)
+var _ jobframework.JobWithManagedBy = (*KubeflowJob)(nil)
 
 func (j *KubeflowJob) Object() client.Object {
 	return j.KFJobControl.Object()
@@ -195,4 +197,18 @@ func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) field.ErrorLis
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {
 	return ptr.Deref(replicaSpecs[replicaType].Replicas, 1)
+}
+
+func (j *KubeflowJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.KFJobControl.RunPolicy().ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == kftraining.KubeflowJobsController)
+}
+
+func (j *KubeflowJob) ManagedBy() *string {
+	return j.KFJobControl.RunPolicy().ManagedBy
+}
+
+func (j *KubeflowJob) SetManagedBy(managedBy *string) {
+	j.KFJobControl.RunPolicy().ManagedBy = managedBy
 }
