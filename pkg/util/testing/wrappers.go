@@ -1284,6 +1284,16 @@ func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, qua
 	return c
 }
 
+// WithResourceLimit appends a resource limit to the container.
+func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
+	limits := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Limits, corev1.ResourceList{
+		resourceName: resource.MustParse(quantity),
+	})
+	c.Container.Resources.Limits = limits
+
+	return c
+}
+
 // AsSidecar makes the container a sidecar when used as an Init Container.
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
