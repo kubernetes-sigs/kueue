@@ -237,8 +237,8 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 
 	// setup provision admission check controller indexes
 	if features.Enabled(features.ProvisioningACC) {
-		if !provisioning.ServerSupportsProvisioningRequest(mgr) {
-			setupLog.Error(nil, "Provisioning Requests are not supported, skipped admission check controller setup")
+		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+			setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 			setupLog.Error(err, "Could not setup provisioning indexer")
 			os.Exit(1)
@@ -276,17 +276,20 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	// setup provision admission check controller
-	if features.Enabled(features.ProvisioningACC) && provisioning.ServerSupportsProvisioningRequest(mgr) {
-		// A info message is added in setupIndexes if autoscaling is not supported by the cluster
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
-		if err != nil {
-			setupLog.Error(err, "Could not create the provisioning controller")
-			os.Exit(1)
-		}
+	if features.Enabled(features.ProvisioningACC) {
+		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+			setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+		} else {
+			ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+			if err != nil {
+				setupLog.Error(err, "Could not create the provisioning controller")
+				os.Exit(1)
+			}
 
-		if err := ctrl.SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "Could not setup provisioning controller")
-			os.Exit(1)
+			if err := ctrl.SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "Could not setup provisioning controller")
+				os.Exit(1)
+			}
 		}
 	}
 
