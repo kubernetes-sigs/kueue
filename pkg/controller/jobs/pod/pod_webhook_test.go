@@ -50,7 +50,7 @@ func TestDefault(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-ns",
 			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "test-ns",
+				corev1.LabelMetadataName: "test-ns",
 			},
 		},
 	}
@@ -58,7 +58,7 @@ func TestDefault(t *testing.T) {
 	defaultNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system"},
 			},

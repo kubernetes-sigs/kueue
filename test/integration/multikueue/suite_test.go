@@ -223,7 +223,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	nsSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system", "kueue-system"},
 			},

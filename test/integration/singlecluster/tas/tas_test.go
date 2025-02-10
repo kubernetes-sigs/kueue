@@ -1054,7 +1054,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.BeforeEach(func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("cpu-node").
-						Label("node.kubernetes.io/instance-type", "cpu-node").
+						Label(corev1.LabelInstanceTypeStable, "cpu-node").
 						Label(testing.DefaultRackTopologyLevel, "cpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("5"),
@@ -1062,7 +1062,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 					*testingnode.MakeNode("gpu-node").
-						Label("node.kubernetes.io/instance-type", "gpu-node").
+						Label(corev1.LabelInstanceTypeStable, "gpu-node").
 						Label(testing.DefaultRackTopologyLevel, "gpu-rack").
 						StatusAllocatable(corev1.ResourceList{
 							gpuResName: resource.MustParse("4"),
@@ -1078,13 +1078,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
 				tasGPUFlavor = testing.MakeResourceFlavor("tas-gpu-flavor").
-					NodeLabel("node.kubernetes.io/instance-type", "gpu-node").
+					NodeLabel(corev1.LabelInstanceTypeStable, "gpu-node").
 					TopologyName("default").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasGPUFlavor)).Should(gomega.Succeed())
 
 				tasCPUFlavor = testing.MakeResourceFlavor("tas-cpu-flavor").
-					NodeLabel("node.kubernetes.io/instance-type", "cpu-node").
+					NodeLabel(corev1.LabelInstanceTypeStable, "cpu-node").
 					TopologyName("default").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasCPUFlavor)).Should(gomega.Succeed())
@@ -1119,13 +1119,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						Queue(localQueue.Name).Obj()
 					ps1 := *testing.MakePodSet("manager", 1).NodeSelector(
-						map[string]string{"node.kubernetes.io/instance-type": "cpu-node"},
+						map[string]string{corev1.LabelInstanceTypeStable: "cpu-node"},
 					).Request(corev1.ResourceCPU, "5").Obj()
 					ps1.TopologyRequest = &kueue.PodSetTopologyRequest{
 						Required: ptr.To(testing.DefaultRackTopologyLevel),
 					}
 					ps2 := *testing.MakePodSet("worker", 2).NodeSelector(
-						map[string]string{"node.kubernetes.io/instance-type": "gpu-node"},
+						map[string]string{corev1.LabelInstanceTypeStable: "gpu-node"},
 					).Request(gpuResName, "2").Obj()
 					ps2.TopologyRequest = &kueue.PodSetTopologyRequest{
 						Required: ptr.To(testing.DefaultRackTopologyLevel),

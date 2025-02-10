@@ -4582,7 +4582,7 @@ func TestScheduleForTAS(t *testing.T) {
 					AssignmentWithIndex(0, corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCountWithIndex(0, 1).
 					TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
-						Levels: []string{"kubernetes.io/hostname"},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
 							{
 								Count: 1,
@@ -4595,7 +4595,7 @@ func TestScheduleForTAS(t *testing.T) {
 					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "15000m").
 					AssignmentPodCountWithIndex(1, 15).
 					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-						Levels: []string{"kubernetes.io/hostname"},
+						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
 							{
 								Count: 7,

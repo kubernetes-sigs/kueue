@@ -270,8 +270,8 @@ func TestResourceFlavorCmd(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
 				Spec: v1beta1.ResourceFlavorSpec{
 					NodeLabels: map[string]string{
-						"kubernetes.io/arch": "arm64",
-						"kubernetes.io/os":   "linux",
+						corev1.LabelArchStable: "arm64",
+						corev1.LabelOSStable:   "linux",
 					},
 				},
 			},

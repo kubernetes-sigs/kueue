@@ -52,7 +52,7 @@ func TestValidate(t *testing.T) {
 	systemNamespacesSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system", "kueue-system"},
 			},
@@ -280,7 +280,7 @@ func TestValidate(t *testing.T) {
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"kubernetes.io/metadata.name": "kube-system",
+								corev1.LabelMetadataName: "kube-system",
 							},
 						},
 					},
@@ -298,7 +298,7 @@ func TestValidate(t *testing.T) {
 				QueueVisibility: defaultQueueVisibility,
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"kubernetes.io/metadata.name": "kube-system",
+						corev1.LabelMetadataName: "kube-system",
 					},
 				},
 				Integrations: defaultIntegrations,
@@ -320,7 +320,7 @@ func TestValidate(t *testing.T) {
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
 								{
-									Key:      "kubernetes.io/metadata.name",
+									Key:      corev1.LabelMetadataName,
 									Operator: metav1.LabelSelectorOpIn,
 									Values:   []string{"kube-system"},
 								},
@@ -342,7 +342,7 @@ func TestValidate(t *testing.T) {
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
-							Key:      "kubernetes.io/metadata.name",
+							Key:      corev1.LabelMetadataName,
 							Operator: metav1.LabelSelectorOpIn,
 							Values:   []string{"kube-system"},
 						},
@@ -367,7 +367,7 @@ func TestValidate(t *testing.T) {
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
 								{
-									Key:      "kubernetes.io/metadata.name",
+									Key:      corev1.LabelMetadataName,
 									Operator: metav1.LabelSelectorOpNotIn,
 									Values:   []string{"kube-system", "kueue-system"},
 								},
@@ -384,7 +384,7 @@ func TestValidate(t *testing.T) {
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
-							Key:      "kubernetes.io/metadata.name",
+							Key:      corev1.LabelMetadataName,
 							Operator: metav1.LabelSelectorOpNotIn,
 							Values:   []string{"kube-system", "kueue-system"},
 						},

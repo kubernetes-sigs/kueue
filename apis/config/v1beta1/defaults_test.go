@@ -65,7 +65,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "kubernetes.io/metadata.name",
+						Key:      corev1.LabelMetadataName,
 						Operator: metav1.LabelSelectorOpNotIn,
 						Values:   []string{"kube-system", "kueue-system"},
 					},
@@ -83,7 +83,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system", "kueue-system"},
 			},
@@ -96,7 +96,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "kubernetes.io/metadata.name",
+						Key:      corev1.LabelMetadataName,
 						Operator: metav1.LabelSelectorOpNotIn,
 						Values:   []string{"kube-system", overwriteNamespace},
 					},
@@ -109,7 +109,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	overwriteNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system", overwriteNamespace},
 			},
