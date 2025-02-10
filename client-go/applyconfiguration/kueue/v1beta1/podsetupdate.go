@@ -18,17 +18,17 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/client-go/applyconfigurations/core/v1"
 )
 
 // PodSetUpdateApplyConfiguration represents a declarative configuration of the PodSetUpdate type for use
 // with apply.
 type PodSetUpdateApplyConfiguration struct {
-	Name         *string           `json:"name,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Annotations  map[string]string `json:"annotations,omitempty"`
-	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
-	Tolerations  []v1.Toleration   `json:"tolerations,omitempty"`
+	Name         *string                           `json:"name,omitempty"`
+	Labels       map[string]string                 `json:"labels,omitempty"`
+	Annotations  map[string]string                 `json:"annotations,omitempty"`
+	NodeSelector map[string]string                 `json:"nodeSelector,omitempty"`
+	Tolerations  []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
 }
 
 // PodSetUpdateApplyConfiguration constructs a declarative configuration of the PodSetUpdate type for use with
@@ -90,9 +90,12 @@ func (b *PodSetUpdateApplyConfiguration) WithNodeSelector(entries map[string]str
 // WithTolerations adds the given value to the Tolerations field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Tolerations field.
-func (b *PodSetUpdateApplyConfiguration) WithTolerations(values ...v1.Toleration) *PodSetUpdateApplyConfiguration {
+func (b *PodSetUpdateApplyConfiguration) WithTolerations(values ...*v1.TolerationApplyConfiguration) *PodSetUpdateApplyConfiguration {
 	for i := range values {
-		b.Tolerations = append(b.Tolerations, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithTolerations")
+		}
+		b.Tolerations = append(b.Tolerations, *values[i])
 	}
 	return b
 }
