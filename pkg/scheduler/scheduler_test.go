@@ -4053,7 +4053,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					EventType: "Warning",
 					Reason:    "Pending",
-					Message:   "failed to assign flavors to pod set one: no flavor assigned",
+					Message:   `couldn't assign flavors to pod set one: Flavor "tas-default" does not contain the requested level`,
 				},
 			},
 		},
