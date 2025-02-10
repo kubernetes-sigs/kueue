@@ -80,6 +80,9 @@ type AppWrapperPodSetInfo struct {
 	// Tolerations to be added to the PodSpecTemplate
 	//+optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// SchedulingGates to be added to the PodSpecTemplate
+	//+optional
+	SchedulingGates []corev1.PodSchedulingGate `json:"schedulingGates,omitempty"`
 }
 
 // AppWrapperStatus defines the observed state of the appwrapper
