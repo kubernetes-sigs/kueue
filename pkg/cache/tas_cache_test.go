@@ -1090,6 +1090,46 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
+		"no assignment as node is unschedulable": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "b1-r1-x1",
+						Labels: map[string]string{
+							"zone":       "zone-a",
+							tasHostLabel: "x1",
+						},
+					},
+					Spec: corev1.NodeSpec{
+						Unschedulable: true,
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:      1,
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
