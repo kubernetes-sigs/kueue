@@ -93,4 +93,3 @@ func Pick[E any, S ~[]E](s S, keep func(*E) bool) S {
 	}
 	return ret
 }
-

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -66,7 +67,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
-			"workloads", maps.Keys(cq.Workloads),
+			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
 		)
 	}
 	for name, cohort := range s.Cohorts {

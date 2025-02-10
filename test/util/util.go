@@ -24,8 +24,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
