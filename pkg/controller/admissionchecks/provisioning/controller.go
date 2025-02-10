@@ -306,8 +306,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// it's a not found, so create it
 					_, err := c.createPodTemplate(ctx, wl, ptName, ps, psa)
 					if err != nil {
-						msg := api.TruncateEventMessage(fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err))
-						c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", msg)
+						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
+						c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 						return nil, c.handleError(ctx, wl, ac, msg, err)
 					}
 				}
@@ -325,8 +325,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
-				msg := api.TruncateEventMessage(fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err))
-				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", msg)
+				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, c.handleError(ctx, wl, ac, msg, err)
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
