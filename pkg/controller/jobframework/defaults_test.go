@@ -34,20 +34,20 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	managedNamespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "managed-ns",
-			Labels: map[string]string{"kubernetes.io/metadata.name": "managed-ns"},
+			Labels: map[string]string{corev1.LabelMetadataName: "managed-ns"},
 		},
 	}
 	unmanagedNamespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "unmanaged-ns",
-			Labels: map[string]string{"kubernetes.io/metadata.name": "unmanaged-ns"},
+			Labels: map[string]string{corev1.LabelMetadataName: "unmanaged-ns"},
 		},
 	}
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).Queue("default").Obj()
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{unmanagedNamespace.Name},
 			},

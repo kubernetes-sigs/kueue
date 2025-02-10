@@ -250,7 +250,7 @@ func TestReconciler(t *testing.T) {
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -261,7 +261,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				Label(constants.ManagedByKueueLabel, "true").
-				NodeSelector("kubernetes.io/arch", "arm64").
+				NodeSelector(corev1.LabelArchStable, "arm64").
 				KueueFinalizer().
 				Obj()},
 			workloads: []kueue.Workload{
@@ -984,7 +984,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -1012,7 +1012,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					NodeSelector("kubernetes.io/arch", "arm64").
+					NodeSelector(corev1.LabelArchStable, "arm64").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1021,7 +1021,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					NodeSelector("kubernetes.io/arch", "arm64").
+					NodeSelector(corev1.LabelArchStable, "arm64").
 					Obj(),
 			},
 			workloads: []kueue.Workload{

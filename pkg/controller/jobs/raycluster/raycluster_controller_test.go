@@ -259,13 +259,13 @@ func TestReconciler(t *testing.T) {
 	}{
 		"when workload is admitted, cluster is unsuspended": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			job: *baseJobWrapper.Clone().
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test", "ns").
@@ -393,11 +393,11 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is admitted but workload's conditions is Evicted, suspend it and restore node selector": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
-				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
@@ -530,14 +530,14 @@ func TestReconciler(t *testing.T) {
 		},
 		"RayCluster with NumOfHosts > 1": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			job: *baseJobWrapper.Clone().
 				WithNumOfHosts("workers-group-0", 2).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				WithNumOfHosts("workers-group-0", 2).
 				Obj(),
 			workloads: []kueue.Workload{

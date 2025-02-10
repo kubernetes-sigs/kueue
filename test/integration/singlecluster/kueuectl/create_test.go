@@ -495,8 +495,8 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rfName, Namespace: ns.Name}, &resourceFlavor)).To(gomega.Succeed())
 					g.Expect(resourceFlavor.Name).Should(gomega.Equal(rfName))
 					g.Expect(resourceFlavor.Spec.NodeLabels).Should(gomega.Equal(map[string]string{
-						"kubernetes.io/arch": "arm64",
-						"kubernetes.io/os":   "linux",
+						corev1.LabelArchStable: "arm64",
+						corev1.LabelOSStable:   "linux",
 					}))
 					g.Expect(resourceFlavor.Spec.NodeTaints).Should(gomega.ContainElements(
 						corev1.Taint{

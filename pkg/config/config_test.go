@@ -377,7 +377,7 @@ webhook:
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "kubernetes.io/metadata.name",
+						Key:      corev1.LabelMetadataName,
 						Operator: metav1.LabelSelectorOpNotIn,
 						Values:   []string{"kube-system", "kueue-system"},
 					},
@@ -390,7 +390,7 @@ webhook:
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{"kube-system", "kueue-system"},
 			},
@@ -475,7 +475,7 @@ webhook:
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
 								{
-									Key:      "kubernetes.io/metadata.name",
+									Key:      corev1.LabelMetadataName,
 									Operator: metav1.LabelSelectorOpNotIn,
 									Values:   []string{"kube-system", "kueue-tenant-a"},
 								},
@@ -489,7 +489,7 @@ webhook:
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
-							Key:      "kubernetes.io/metadata.name",
+							Key:      corev1.LabelMetadataName,
 							Operator: metav1.LabelSelectorOpNotIn,
 							Values:   []string{"kube-system", "kueue-tenant-a"},
 						},
@@ -755,7 +755,7 @@ webhook:
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
 								{
-									Key:      "kubernetes.io/metadata.name",
+									Key:      corev1.LabelMetadataName,
 									Operator: metav1.LabelSelectorOpNotIn,
 									Values:   []string{"kube-system", "kueue-system"},
 								},
@@ -849,7 +849,7 @@ webhook:
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
 								{
-									Key:      "kubernetes.io/metadata.name",
+									Key:      corev1.LabelMetadataName,
 									Operator: metav1.LabelSelectorOpNotIn,
 									Values:   []string{"kube-system", "kueue-system", "prohibited-namespace"},
 								},
@@ -1057,7 +1057,7 @@ func TestEncode(t *testing.T) {
 				"manageJobsWithoutQueueName": false,
 				"managedJobsNamespaceSelector": map[string]any{
 					"matchExpressions": []any{map[string]any{
-						"key":      "kubernetes.io/metadata.name",
+						"key":      corev1.LabelMetadataName,
 						"operator": "NotIn",
 						"values":   []any{"kube-system", "kueue-system"},
 					}},
@@ -1067,7 +1067,7 @@ func TestEncode(t *testing.T) {
 					"podOptions": map[string]any{
 						"namespaceSelector": map[string]any{
 							"matchExpressions": []any{map[string]any{
-								"key":      "kubernetes.io/metadata.name",
+								"key":      corev1.LabelMetadataName,
 								"operator": "NotIn",
 								"values":   []any{"kube-system", "kueue-system"},
 							}},

@@ -366,7 +366,7 @@ func TestReconciler(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "ns",
 			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "ns",
+				corev1.LabelMetadataName: "ns",
 			},
 		},
 	}
