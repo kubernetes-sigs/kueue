@@ -111,6 +111,11 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	return j
 }
 
+func (j *JobSetWrapper) ContainerBehavior(rpIndex, cIndex int, behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *JobSetWrapper {
+	j.Spec.ReplicatedJobs[rpIndex].Template.Spec.Template.Spec.Containers[cIndex] = *behaviorFunc(&j.Spec.ReplicatedJobs[rpIndex].Template.Spec.Template.Spec.Containers[cIndex], behavior)
+	return j
+}
+
 // Annotations sets annotations to the JobSet.
 func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrapper {
 	j.ObjectMeta.Annotations = annotations

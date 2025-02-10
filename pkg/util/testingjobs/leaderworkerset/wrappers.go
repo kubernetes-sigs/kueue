@@ -167,9 +167,8 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupFastAdmissionAnnotati
 	return w.WorkerTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
 }
 
-func (w *LeaderWorkerSetWrapper) Image(image string, args []string) *LeaderWorkerSetWrapper {
-	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = image
-	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Args = args
+func (w *LeaderWorkerSetWrapper) ContainerBehavior(behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0] = *behaviorFunc(&w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0], behavior)
 	return w
 }
 

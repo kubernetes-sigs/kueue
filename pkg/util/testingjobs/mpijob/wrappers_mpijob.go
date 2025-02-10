@@ -49,8 +49,6 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 }
 
 type MPIJobReplicaSpecRequirement struct {
-	Image         string
-	Args          []string
 	ReplicaType   kfmpi.MPIReplicaType
 	ReplicaCount  int32
 	Annotations   map[string]string
@@ -60,8 +58,6 @@ type MPIJobReplicaSpecRequirement struct {
 func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequirement) *MPIJobWrapper {
 	j = j.GenericLauncherAndWorker()
 	for _, rs := range replicaSpecs {
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Image = rs.Image
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Args = rs.Args
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
 
@@ -225,9 +221,8 @@ func (j *MPIJobWrapper) StatusConditions(c kfmpi.JobCondition) *MPIJobWrapper {
 	return j
 }
 
-func (j *MPIJobWrapper) Image(replicaType kfmpi.MPIReplicaType, image string, args []string) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
+func (j *MPIJobWrapper) ContainerBehavior(replicaType kfmpi.MPIReplicaType, behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0] = *behaviorFunc(&j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0], behavior)
 	return j
 }
 

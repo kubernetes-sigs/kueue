@@ -98,8 +98,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 				Queue(localQueue.Name).
 				PyTorchReplicaSpecs(
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 						ReplicaCount:  masterReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
@@ -108,8 +106,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						},
 					},
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
@@ -118,6 +114,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						},
 					},
 				).
+				ContainerBehavior(kftraining.PyTorchJobReplicaTypeMaster, util.SetContainerBehavior, util.BehaviorWaitLong).
+				ContainerBehavior(kftraining.PyTorchJobReplicaTypeWorker, util.SetContainerBehavior, util.BehaviorWaitLong).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
 				Limit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").

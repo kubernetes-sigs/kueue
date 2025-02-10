@@ -100,13 +100,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
-						Image:       util.E2eTestSleepImage,
-						Args:        []string{"60s"},
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				).
+				ContainerBehavior(0, 0, util.SetContainerBehavior, util.BehaviorWaitLong).
 				Request("replicated-job-1", extraResource, "1").
 				Limit("replicated-job-1", extraResource, "1").
 				Obj()

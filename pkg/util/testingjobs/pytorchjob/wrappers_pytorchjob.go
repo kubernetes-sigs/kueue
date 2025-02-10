@@ -48,8 +48,6 @@ func MakePyTorchJob(name, ns string) *PyTorchJobWrapper {
 }
 
 type PyTorchReplicaSpecRequirement struct {
-	Image         string
-	Args          []string
 	ReplicaType   kftraining.ReplicaType
 	Name          string
 	ReplicaCount  int32
@@ -64,8 +62,6 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecs(replicaSpecs ...PyTorchReplicaSp
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "pytorch"
-		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Image = rs.Image
-		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Args = rs.Args
 
 		if rs.Annotations != nil {
 			j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
@@ -221,9 +217,8 @@ func (j *PyTorchJobWrapper) StatusConditions(c kftraining.JobCondition) *PyTorch
 	return j
 }
 
-func (j *PyTorchJobWrapper) Image(replicaType kftraining.ReplicaType, image string, args []string) *PyTorchJobWrapper {
-	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
-	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
+func (j *PyTorchJobWrapper) ContainerBehavior(replicaType kftraining.ReplicaType, behaviorFunc func(*corev1.Container, string) *corev1.Container, behavior string) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0] = *behaviorFunc(&j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0], behavior)
 	return j
 }
 
