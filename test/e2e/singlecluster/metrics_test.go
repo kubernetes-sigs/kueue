@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -34,7 +33,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -155,8 +153,6 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			metrics := [][]string{
-				{"controller_runtime_reconcile_total"},
-
 				{"kueue_admission_attempts_total"},
 				{"kueue_admission_attempt_duration_seconds"},
 				{"kueue_pending_workloads", clusterQueue.Name},
@@ -588,27 +584,12 @@ func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
 	return metricsOutput, err
 }
 
-func outputContainsMetric(output []string, metric []string) bool {
-	for _, line := range output {
-		if utilstrings.StringContainsSubstrings(line, metric...) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
-		outputByLine := strings.Split(string(metricsOutput), "\n")
-
-		for _, metric := range metrics {
-			g.Expect(outputContainsMetric(outputByLine, metric)).
-				To(gomega.BeTrue(), "Metric %s was not found in output %s", metric[0], string(metricsOutput))
-		}
+		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
 	}, util.Timeout).Should(gomega.Succeed())
 }
 
@@ -617,11 +598,6 @@ func expectMetricsNotToBeAvailable(curlPodName, curlContainerName string, metric
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
-		outputByLine := strings.Split(string(metricsOutput), "\n")
-
-		for _, metric := range metrics {
-			g.Expect(outputContainsMetric(outputByLine, metric)).
-				To(gomega.BeFalse(), "Metric %s was found in output %s", metric[0], string(metricsOutput))
-		}
+		g.Expect(string(metricsOutput)).Should(utiltesting.ExcludeMetrics(metrics))
 	}, util.Timeout).Should(gomega.Succeed())
 }
