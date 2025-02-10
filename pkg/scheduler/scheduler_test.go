@@ -4797,6 +4797,51 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 		},
+		"TAS workload gets scheduled as trimmed by partial admission": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 5).
+						SetMinimumCount(1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
