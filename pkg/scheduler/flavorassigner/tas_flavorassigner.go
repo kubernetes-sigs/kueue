@@ -36,6 +36,8 @@ func assignTopology(log logr.Logger,
 	switch {
 	case psAssignment.Status.IsError():
 		log.V(2).Info("There is no resource quota assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
+	case len(psAssignment.Flavors) == 0:
+		log.V(2).Info("There is no flavor assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
 	case len(cq.TASFlavors) == 0:
 		if psAssignment.Status == nil {
 			psAssignment.Status = &Status{}
