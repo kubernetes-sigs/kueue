@@ -5400,7 +5400,6 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantErr:         jobframework.ErrPrebuildWorkloadNotFound,
 		},
 	}
 

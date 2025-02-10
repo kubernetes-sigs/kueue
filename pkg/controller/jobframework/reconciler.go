@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -423,7 +424,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(3).Info("The workload is nil, handle job with no workload")
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
-			if apierrors.IsAlreadyExists(err) {
+			if errors.Is(err, ErrPrebuildWorkloadNotFound) {
+				log.V(2).Info("WARNING: Prebuilt workload not found, waiting")
+				return ctrl.Result{RequeueAfter: time.Second}, nil
+			} else if apierrors.IsAlreadyExists(err) {
 				log.V(3).Info("Handling job with no workload found an existing workload")
 				return ctrl.Result{Requeue: true}, nil
 			}
