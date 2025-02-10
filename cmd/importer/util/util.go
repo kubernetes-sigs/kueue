@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -222,7 +223,7 @@ func PushPods(ctx context.Context, c client.Client, namespaces []string, ch chan
 			}
 
 			for _, p := range lst.Items {
-				if p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded {
+				if utilpod.IsTerminated(&p) {
 					log.V(2).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
 				} else {
 					ch <- p

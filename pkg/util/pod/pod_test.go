@@ -26,6 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestHasGate(t *testing.T) {
@@ -284,6 +286,42 @@ func TestReadUIntFromLabel(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIsTerminated(t *testing.T) {
+	basePod := testingpod.MakePod("", "")
+
+	cases := map[string]struct {
+		pod            *corev1.Pod
+		wantTerminated bool
+	}{
+		"pod is failed": {
+			pod: basePod.Clone().
+				StatusPhase(corev1.PodFailed).
+				Obj(),
+			wantTerminated: true,
+		},
+		"pod is succeeded": {
+			pod: basePod.Clone().
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
+			wantTerminated: true,
+		},
+		"pod is running": {
+			pod: basePod.Clone().
+				StatusPhase(corev1.PodRunning).
+				Obj(),
+			wantTerminated: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsTerminated(tc.pod)
+			if tc.wantTerminated != got {
+				t.Errorf("Unexpected Pod terminal\nwant: %v\ngot: %v\n", tc.wantTerminated, got)
 			}
 		})
 	}

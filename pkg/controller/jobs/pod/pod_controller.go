@@ -210,12 +210,8 @@ func (p *Pod) Object() client.Object {
 	return &p.pod
 }
 
-func isPodTerminated(p *corev1.Pod) bool {
-	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
-}
-
 func podSuspended(p *corev1.Pod) bool {
-	return isPodTerminated(p) || isGated(p)
+	return utilpod.IsTerminated(p) || isGated(p)
 }
 
 func isUnretriablePod(pod corev1.Pod) bool {
@@ -347,18 +343,10 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 	success = true
 
 	if !p.isGroup {
-		ph := p.pod.Status.Phase
-		finished = ph == corev1.PodSucceeded || ph == corev1.PodFailed
-
-		if ph == corev1.PodFailed {
+		if finished = utilpod.IsTerminated(&p.pod); finished {
 			message = p.pod.Status.Message
-			success = false
+			success = p.pod.Status.Phase == corev1.PodSucceeded
 		}
-
-		if ph == corev1.PodSucceeded {
-			message = p.pod.Status.Message
-		}
-
 		return message, success, finished
 	}
 	isActive := false
@@ -375,7 +363,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 			succeededCount++
 		}
 
-		if !isPodTerminated(&pod) {
+		if !utilpod.IsTerminated(&pod) {
 			isActive = true
 		}
 	}

@@ -92,7 +92,7 @@ func TestReconcile(t *testing.T) {
 			if utilpod.HasGate(&pod, kueuealpha.TopologySchedulingGate) {
 				continue
 			}
-			if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+			if utilpod.IsTerminated(&pod) {
 				continue
 			}
 			key := mapToJSON(t, pod.Spec.NodeSelector)

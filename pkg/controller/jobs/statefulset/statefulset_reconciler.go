@@ -115,7 +115,7 @@ func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 }
 
 func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod)
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {

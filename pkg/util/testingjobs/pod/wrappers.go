@@ -31,7 +31,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 // PodWrapper wraps a Pod.
@@ -167,7 +166,9 @@ func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
 
 // Gate adds kueue scheduling gate to the Pod by the gate name
 func (p *PodWrapper) Gate(gateName string) *PodWrapper {
-	utilpod.Gate(&p.Pod, gateName)
+	p.Pod.Spec.SchedulingGates = append(p.Pod.Spec.SchedulingGates, corev1.PodSchedulingGate{
+		Name: gateName,
+	})
 	return p
 }
 
