@@ -21,8 +21,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
-	"k8s.io/utils/field"
 
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
