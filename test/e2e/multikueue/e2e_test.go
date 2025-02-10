@@ -896,7 +896,7 @@ func getKuberayTestImage() string {
 		kuberayTestImage string
 		found            bool
 	)
-	if runtime.GOOS == "darwin" {
+	if runtime.GOARCH == "arm64" {
 		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
 	} else {
 		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
