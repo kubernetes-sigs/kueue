@@ -1,0 +1,6 @@
+resources:
+  - clusterrole.yaml
+  - cluster-role-binding.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

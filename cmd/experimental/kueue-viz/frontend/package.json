@@ -6,7 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "SKIP_PREFLIGHT_CHECK=true react-scripts start",
-    "build": "SKIP_PREFLIGHT_CHECK=true react-scripts build"
+    "build": "SKIP_PREFLIGHT_CHECK=true react-scripts build",
+    "e2e-cy": "cypress run"
   },
   "dependencies": {
     "@emotion/react": "^11.0.0",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
+    "cypress": "^14.0.2",
     "react-inject-env": "^2.1.0"
   },
   "browserslist": {

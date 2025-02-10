@@ -1,0 +1,26 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: viz-backend
+  namespace: system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: kueue-viz-backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: viz-frontend
+  namespace: system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: kueue-viz-frontend
