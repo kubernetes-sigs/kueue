@@ -320,7 +320,7 @@ func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, f
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
-	ac.Message = msg
+	ac.Message = api.TruncateConditionMessage(msg)
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *ac)
 
