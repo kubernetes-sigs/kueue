@@ -64,6 +64,7 @@ var (
 	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
 
@@ -291,6 +292,7 @@ func validateCommon(pod *Pod) field.ErrorList {
 	allErrs := validateManagedLabel(pod)
 	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
 	allErrs = append(allErrs, validateTopologyRequest(pod)...)
+	allErrs = append(allErrs, validatePrebuiltWorkloadName(pod)...)
 	return allErrs
 }
 
@@ -360,4 +362,14 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 	}
 
 	return field.ErrorList{}
+}
+
+func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
+	allErrs := field.ErrorList{}
+	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
+	groupName := podGroupName(pod.pod)
+	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
+		allErrs = append(allErrs, field.Invalid(prebuiltWorkloadLabelPath, prebuiltWorkloadLabelPath, "prebuilt workload and pod group should be equal"))
+	}
+	return allErrs
 }
