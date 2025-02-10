@@ -85,7 +85,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 				ss.Spec.Template.Labels = make(map[string]string, 2)
 			}
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
+			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name, ss.Spec.Replicas)
 			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
@@ -152,23 +152,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 			&oldStatefulSet.Spec.Template.Spec,
 			podSpecPath,
 		)...)
-
-		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
-		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
-
-		// Allow only scale down to zero and scale up from zero.
-		// TODO(#3279): Support custom resizes later
-		if newReplicas != 0 && oldReplicas != 0 {
-			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-				newStatefulSet.Spec.Replicas,
-				oldStatefulSet.Spec.Replicas,
-				replicasPath,
-			)...)
-		}
-
-		if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-			allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
-		}
 	}
 
 	return warnings, allErrs.ToAggregate()
@@ -178,7 +161,8 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string) string {
+func GetWorkloadName(statefulSetName string, replicas *int32) string {
+	ownerName := fmt.Sprintf("%s-%d", statefulSetName, ptr.Deref(replicas, 1))
 	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, "", gvk)
 }

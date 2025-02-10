@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -72,6 +71,11 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 	}}
 }
 
+// Clone returns deep copy of the StatefulSetWrapper.
+func (ss *StatefulSetWrapper) Clone() *StatefulSetWrapper {
+	return &StatefulSetWrapper{StatefulSet: *ss.DeepCopy()}
+}
+
 // Obj returns the inner StatefulSet.
 func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 	return &ss.StatefulSet
@@ -105,6 +109,12 @@ func (ss *StatefulSetWrapper) WithOwnerReference(ownerReference metav1.OwnerRefe
 // Template sets the template of the StatefulSet.
 func (ss *StatefulSetWrapper) Template(template corev1.PodTemplateSpec) *StatefulSetWrapper {
 	ss.Spec.Template = template
+	return ss
+}
+
+// Namespace updated the name of the StatefulSet
+func (ss *StatefulSetWrapper) Namespace(n string) *StatefulSetWrapper {
+	ss.ObjectMeta.Namespace = n
 	return ss
 }
 
@@ -165,11 +175,10 @@ func (ss *StatefulSetWrapper) UpdateRevision(updateRevision string) *StatefulSet
 	return ss
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
-	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
-) *StatefulSetWrapper {
-	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, gvk)
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(ownerName string, ownerUID types.UID) *StatefulSetWrapper {
+	gvk := appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+	group := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, gvk)
+	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, group)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
