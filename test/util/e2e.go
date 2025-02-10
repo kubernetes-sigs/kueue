@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -21,7 +22,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	"sigs.k8s.io/yaml"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
@@ -112,6 +115,36 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 	return visibilityClient
 }
 
+func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	deployment := &appsv1.Deployment{}
+	var deploymentCondition *appsv1.DeploymentCondition
+	expectedDeploymentCondition := &appsv1.DeploymentCondition{
+		Type:   appsv1.DeploymentProgressing,
+		Status: corev1.ConditionTrue,
+		Reason: "NewReplicaSetAvailable",
+	}
+
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		deploymentCondition = FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
+		g.Expect(deploymentCondition).To(gomega.BeComparableTo(expectedDeploymentCondition, IgnoreDeploymentConditionTimestampsAndMessage))
+	}, Timeout, Interval).Should(gomega.Succeed())
+	beforeUpdateTime := deploymentCondition.LastUpdateTime
+
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		deployment.Spec.Template.ObjectMeta.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+		g.Expect(k8sClient.Update(ctx, deployment)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		deploymentCondition := FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
+		g.Expect(deploymentCondition).To(gomega.BeComparableTo(expectedDeploymentCondition, IgnoreDeploymentConditionTimestampsAndMessage))
+		afterUpdateTime := deploymentCondition.LastUpdateTime
+		g.Expect(afterUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+}
+
 func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
 	deployment := &appsv1.Deployment{}
 	pods := &corev1.PodList{}
@@ -170,4 +203,32 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kroKey := types.NamespacedName{Namespace: "ray-system", Name: "kuberay-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kroKey)
+}
+
+func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
+	var kueueCfg configapi.Configuration
+	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-manager-config"}
+	configMap := &corev1.ConfigMap{}
+
+	gomega.Expect(k8sClient.Get(ctx, kcmKey, configMap)).To(gomega.Succeed())
+	gomega.Expect(yaml.Unmarshal([]byte(configMap.Data["controller_manager_config.yaml"]), &kueueCfg)).To(gomega.Succeed())
+	return &kueueCfg
+}
+
+func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
+	configMap := &corev1.ConfigMap{}
+	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-manager-config"}
+	config, err := yaml.Marshal(kueueCfg)
+
+	gomega.Expect(err).ToNot(gomega.HaveOccurred())
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, kcmKey, configMap)).To(gomega.Succeed())
+		configMap.Data["controller_manager_config.yaml"] = string(config)
+		g.Expect(k8sClient.Update(ctx, configMap)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func RestartKueueController(ctx context.Context, k8sClient client.Client) {
+	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-controller-manager"}
+	rolloutOperatorDeployment(ctx, k8sClient, kcmKey)
 }
