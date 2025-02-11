@@ -1096,17 +1096,21 @@ func TestFindTopologyAssignment(t *testing.T) {
 				SinglePodRequests: tc.requests,
 				Count:             tc.count,
 			}
-			gotAssignment, reason := snapshot.findTopologyAssignment(tasInput, nil)
-			if gotAssignment != nil {
+			flavorTASRequests := []TASPodSetRequests{tasInput}
+			wantResult := make(TASAssignmentsResult)
+			wantMainPodSetResult := tasPodSetAssignmentResult{
+				FailureReason: tc.wantReason,
+			}
+			if tc.wantAssignment != nil {
 				sort.Slice(tc.wantAssignment.Domains, func(i, j int) bool {
 					return utiltas.DomainID(tc.wantAssignment.Domains[i].Values) < utiltas.DomainID(tc.wantAssignment.Domains[j].Values)
 				})
+				wantMainPodSetResult.TopologyAssignment = tc.wantAssignment
 			}
-			if diff := cmp.Diff(tc.wantAssignment, gotAssignment); diff != "" {
+			wantResult["main"] = wantMainPodSetResult
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
-			}
-			if diff := cmp.Diff(tc.wantReason, reason); diff != "" {
-				t.Errorf("unexpected error (-want,+got): %s", diff)
 			}
 		})
 	}
