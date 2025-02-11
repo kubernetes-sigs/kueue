@@ -17,11 +17,14 @@ limitations under the License.
 package metrics
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
-	"sigs.k8s.io/kueue/pkg/util/maps"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 type MetricDataPoint struct {
@@ -30,7 +33,8 @@ type MetricDataPoint struct {
 }
 
 func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
-	keys := maps.SortedKeys(b.Labels)
+	keys := slices.Collect(maps.Keys(a.Labels))
+	slices.Sort(keys)
 	for _, k := range keys {
 		vb, found := b.Labels[k]
 		if !found {
@@ -72,8 +76,8 @@ func CollectFilteredGaugeVec(v prometheus.Collector, labels map[string]string) [
 		// check if matches
 		dtoMetric := dto.Metric{}
 		if m.Write(&dtoMetric) == nil {
-			metricLabelsMap := slices.ToMap(dtoMetric.Label, func(i int) (string, string) { return *dtoMetric.Label[i].Name, *dtoMetric.Label[i].Value })
-			if maps.Contains(metricLabelsMap, labels) {
+			metricLabelsMap := utilslices.ToMap(dtoMetric.Label, func(i int) (string, string) { return *dtoMetric.Label[i].Name, *dtoMetric.Label[i].Value })
+			if utilmaps.Contains(metricLabelsMap, labels) {
 				dp := MetricDataPoint{
 					Labels: metricLabelsMap,
 				}

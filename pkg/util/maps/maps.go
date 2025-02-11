@@ -17,10 +17,8 @@ limitations under the License.
 package maps
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
-	"slices"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -67,13 +65,6 @@ func Contains[K, V comparable, A ~map[K]V, B ~map[K]V](a A, b B) bool {
 		}
 	}
 	return true
-}
-
-// SortedKeys returns a slice containing the sorted m keys
-func SortedKeys[K cmp.Ordered, V any, M ~map[K]V](m M) []K {
-	ret := slices.Collect(maps.Keys(m))
-	slices.Sort(ret)
-	return ret
 }
 
 // FilterKeys returns a sub-map containing only keys from the given list
