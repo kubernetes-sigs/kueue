@@ -7,7 +7,6 @@ steps:
   - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240718-5ef92b5c36'
     entrypoint: make
     args:
-      - -j3
       - image-push
       - debug-image-push
       - importer-image-push
