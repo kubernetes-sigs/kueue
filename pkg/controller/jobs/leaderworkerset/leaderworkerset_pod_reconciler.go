@@ -54,7 +54,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Setting up Pod reconciler for LeaderWorkerSet")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
-		Named("leaderworkerset-pod").
+		Named("leaderworkerset_pod").
 		WithEventFilter(r).
 		Complete(r)
 }

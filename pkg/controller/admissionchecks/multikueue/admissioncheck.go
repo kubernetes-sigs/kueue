@@ -177,7 +177,7 @@ func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconcil
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue-admissioncheck").
+		Named("multikueue_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
