@@ -73,7 +73,7 @@ func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.
 
 func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
 	return TASTopologyController, ctrl.NewControllerManagedBy(mgr).
-		Named(TASTopologyController).
+		Named("tas_topology_controller").
 		For(&kueuealpha.Topology{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&kueue.ResourceFlavor{}, r.resourceFlavorHandler).

@@ -822,7 +822,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
-		Named("provisioning-workload").
+		Named("provisioning_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
@@ -841,7 +841,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("provisioning-admissioncheck").
+		Named("provisioning_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
 		Complete(acReconciler)
