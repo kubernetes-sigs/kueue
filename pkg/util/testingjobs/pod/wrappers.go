@@ -116,6 +116,12 @@ func (p *PodWrapper) Name(n string) *PodWrapper {
 	return p
 }
 
+// Namespace updates the namespace of the Pod.
+func (p *PodWrapper) Namespace(n string) *PodWrapper {
+	p.ObjectMeta.Namespace = n
+	return p
+}
+
 // Group updates the pod.GroupNameLabel of the Pod
 func (p *PodWrapper) Group(g string) *PodWrapper {
 	return p.Label("kueue.x-k8s.io/pod-group-name", g)
@@ -165,10 +171,12 @@ func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
 }
 
 // Gate adds kueue scheduling gate to the Pod by the gate name
-func (p *PodWrapper) Gate(gateName string) *PodWrapper {
-	p.Pod.Spec.SchedulingGates = append(p.Pod.Spec.SchedulingGates, corev1.PodSchedulingGate{
-		Name: gateName,
-	})
+func (p *PodWrapper) Gate(gateNames ...string) *PodWrapper {
+	for _, gate := range gateNames {
+		p.Pod.Spec.SchedulingGates = append(p.Pod.Spec.SchedulingGates, corev1.PodSchedulingGate{
+			Name: gate,
+		})
+	}
 	return p
 }
 
