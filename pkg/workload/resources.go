@@ -34,6 +34,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
+var (
+	podSetsPath = field.NewPath("spec").Child("podSets")
+)
+
 // We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
@@ -125,17 +129,16 @@ func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 // ValidateResources validates that requested resources are less or equal
 // to limits.
 func ValidateResources(wi *Info) error {
-	podsetsPath := field.NewPath("podSets")
 	// requests should be less than limits.
 	var allReasons []string
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]
-		psPath := podsetsPath.Child(ps.Name)
+		podSpecPath := podSetsPath.Index(i).Child("template").Child("spec")
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
 			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
-					psPath.Child("initContainers").Index(i).String(),
+					podSpecPath.Child("initContainers").Index(i).String(),
 					strings.Join(resNames, ", ")))
 			}
 		}
@@ -144,7 +147,7 @@ func ValidateResources(wi *Info) error {
 			c := ps.Template.Spec.Containers[i]
 			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
-					psPath.Child("containers").Index(i).String(),
+					podSpecPath.Child("containers").Index(i).String(),
 					strings.Join(list, ", ")))
 			}
 		}
@@ -158,7 +161,6 @@ func ValidateResources(wi *Info) error {
 // ValidateLimitRange validates that the requested resources fit into the namespace defined
 // limitRanges.
 func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) error {
-	podsetsPath := field.NewPath("podSets")
 	// get the range summary from the namespace.
 	limitRanges := corev1.LimitRangeList{}
 	if err := c.List(ctx, &limitRanges, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
@@ -173,7 +175,8 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) error {
 	var allReasons []string
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]
-		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
+		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec,
+			podSetsPath.Index(i).Child("template").Child("spec"))...)
 	}
 	if len(allReasons) > 0 {
 		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))
