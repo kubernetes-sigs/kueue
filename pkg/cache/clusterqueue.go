@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
