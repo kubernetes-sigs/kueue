@@ -7,6 +7,11 @@
 
 <img width="300px" src="https://user-images.githubusercontent.com/209884/67159116-64d94b80-f37b-11e9-9b28-f8379636a43c.png"></img>
 
+## This library has **NO** relation to the go-yaml/yaml library
+
+This library is developed from scratch to replace [`go-yaml/yaml`](https://github.com/go-yaml/yaml).
+If you're looking for a better YAML library, this one should be helpful.
+
 # Why a new library?
 
 As of this writing, there already exists a de facto standard library for YAML processing for Go: [https://github.com/go-yaml/yaml](https://github.com/go-yaml/yaml). However we feel that some features are lacking, namely:
