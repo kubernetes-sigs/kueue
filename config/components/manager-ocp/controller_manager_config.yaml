@@ -1,0 +1,62 @@
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8080
+  enableClusterQueueResources: true
+webhook:
+  port: 9443
+leaderElection:
+  leaderElect: true
+  resourceName: c1f6bfd2.kueue.x-k8s.io
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 5
+    LocalQueue.kueue.x-k8s.io: 1
+    Cohort.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 1
+    ResourceFlavor.kueue.x-k8s.io: 1
+clientConnection:
+  qps: 50
+  burst: 100
+manageJobsWithoutQueueName: false
+internalCertManagement:
+  enable: false
+integrations:
+  frameworks:
+  - "batch/job"
+#  - "jobset.x-k8s.io/jobset"
+#  - "kubeflow.org/mpijob"
+#  - "ray.io/rayjob"
+#  - "ray.io/raycluster"
+#  - "kubeflow.org/paddlejob"
+#  - "kubeflow.org/pytorchjob"
+#  - "kubeflow.org/tfjob"
+#  - "kubeflow.org/xgboostjob"
+#  - "workload.codeflare.dev/appwrapper"
+#  - "pod"
+#  - "deployment" # requires enabling pod integration
+#  - "statefulset" # requires enabling pod integration
+#  - "leaderworkerset.x-k8s.io/leaderworkerset" # requires enabling pod integration
+#  externalFrameworks:
+#  - "Foo.v1.example.com"
+#  podOptions:
+#    namespaceSelector:
+#      matchExpressions:
+#        - key: kubernetes.io/metadata.name
+#          operator: NotIn
+#          values: [ kube-system, kueue-system ]
+#fairSharing:
+#  enable: true
+#  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+#resources:
+#  excludeResourcePrefixes: []
+#  transformations:
+#  - input: nvidia.com/mig-4g.5gb
+#    strategy: Replace | Retain
+#    outputs:
+#      example.com/accelerator-memory: 5Gi
+#      example.com/accelerator-gpc: 4
