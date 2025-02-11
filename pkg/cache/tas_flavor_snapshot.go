@@ -365,11 +365,10 @@ func findBestFitDomainIdx(domains []*domain, count int32) int {
 	bestFitIdx := sort.Search(len(domains), func(i int) bool {
 		return domains[i].state < count
 	})
-
-	if bestFitIdx-1 < len(domains) && bestFitIdx-1 >= 0 {
-		return bestFitIdx - 1
+	if bestFitIdx == 0 {
+		return 0
 	}
-	return 0 // Return the first element if no match found
+	return bestFitIdx - 1
 }
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {

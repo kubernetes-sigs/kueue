@@ -520,6 +520,19 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      4,
 			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
 		},
+		"rack required; too many pods to fit in any rack; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:      4,
+			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
+			bestFit:    true,
+		},
 		"block required; single Pod fits in a block": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
