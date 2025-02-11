@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -28,55 +27,56 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func assignTopology(log logr.Logger,
-	psAssignment *PodSetAssignment,
-	cq *cache.ClusterQueueSnapshot,
-	psResources workload.PodSetResources,
-	podSet *kueue.PodSet) {
-	switch {
-	case psAssignment.Status.IsError():
-		log.V(2).Info("There is no resource quota assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
-	case len(psAssignment.Flavors) == 0:
-		log.V(2).Info("There is no flavor assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
-	case len(cq.TASFlavors) == 0:
-		if psAssignment.Status == nil {
-			psAssignment.Status = &Status{}
+// TopologyRequestsFor - returns the TopologyRequests of the workload
+func (a *Assignment) TopologyRequestsFor(wl *workload.Info,
+	requests []workload.PodSetResources,
+	cq *cache.ClusterQueueSnapshot) map[kueue.ResourceFlavorReference][]cache.TASPodSetRequests {
+	tasRequests := make(map[kueue.ResourceFlavorReference][]cache.TASPodSetRequests)
+	for i, podSet := range wl.Obj.Spec.PodSets {
+		if podSet.TopologyRequest != nil {
+			psAssignment := a.podSetByName(podSet.Name)
+			if psAssignment.Status.IsError() {
+				// There is no resource quota assignment for the PodSet - no need to check TAS.
+				continue
+			}
+			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, i)
+			if err != nil {
+				psAssignment.error(err)
+			} else if psTASRequest != nil {
+				tasRequests[psTASRequest.Flavor] = append(tasRequests[psTASRequest.Flavor], *psTASRequest)
+			}
 		}
-		psAssignment.Status.append("Workload requires Topology, but there is no TAS cache information")
-		psAssignment.Flavors = nil
+	}
+	return tasRequests
+}
+
+func podSetTopologyRequest(psAssignment *PodSetAssignment,
+	wl *workload.Info,
+	cq *cache.ClusterQueueSnapshot,
+	podSetIndex int) (*cache.TASPodSetRequests, error) {
+	switch {
+	case len(cq.TASFlavors) == 0:
+		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	default:
+		psResources := wl.TotalRequests[podSetIndex]
 		singlePodRequests := psResources.Requests.Clone()
 		singlePodRequests.Divide(int64(psResources.Count))
 		podCount := psAssignment.Count
 		tasFlvr, err := onlyFlavor(psAssignment.Flavors)
 		if err != nil {
-			if psAssignment.Status == nil {
-				psAssignment.Status = &Status{}
-			}
-			psAssignment.Status.err = err
-			psAssignment.Flavors = nil
-			return
+			return nil, err
 		}
 		snapshot := cq.TASFlavors[*tasFlvr]
 		if snapshot == nil {
-			if psAssignment.Status == nil {
-				psAssignment.Status = &Status{}
-			}
-			psAssignment.Status.append("Workload requires Topology, but there is no TAS cache information for the assigned flavor")
-			psAssignment.Flavors = nil
-			return
+			return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 		}
-		var reason string
-		psAssignment.TopologyAssignment, reason = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
-			singlePodRequests, podCount, podSet.Template.Spec.Tolerations)
-		if psAssignment.TopologyAssignment == nil {
-			if psAssignment.Status == nil {
-				psAssignment.Status = &Status{}
-			}
-			psAssignment.Status.append(reason)
-			psAssignment.Flavors = nil
-		}
-		log.Info("TAS PodSet assignment", "tasAssignment", psAssignment.TopologyAssignment)
+		podSet := &wl.Obj.Spec.PodSets[podSetIndex]
+		return &cache.TASPodSetRequests{
+			Count:             podCount,
+			SinglePodRequests: singlePodRequests,
+			PodSet:            podSet,
+			Flavor:            *tasFlvr,
+		}, nil
 	}
 }
 

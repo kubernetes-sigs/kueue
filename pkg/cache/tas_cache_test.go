@@ -1083,7 +1083,20 @@ func TestFindTopologyAssignment(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to build the snapshot: %v", err)
 			}
-			gotAssignment, reason := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count, tc.tolerations)
+			tasInput := TASPodSetRequests{
+				PodSet: &kueue.PodSet{
+					Name:            "main",
+					TopologyRequest: &tc.request,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Tolerations: tc.tolerations,
+						},
+					},
+				},
+				SinglePodRequests: tc.requests,
+				Count:             tc.count,
+			}
+			gotAssignment, reason := snapshot.findTopologyAssignment(tasInput, nil)
 			if gotAssignment != nil {
 				sort.Slice(tc.wantAssignment.Domains, func(i, j int) bool {
 					return utiltas.DomainID(tc.wantAssignment.Domains[i].Values) < utiltas.DomainID(tc.wantAssignment.Domains[j].Values)
