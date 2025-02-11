@@ -49,7 +49,7 @@ func (r Requests) Divide(f int64) {
 	}
 }
 
-func (r Requests) Multiply(f int64) {
+func (r Requests) Mul(f int64) {
 	for k := range r {
 		r[k] *= f
 	}

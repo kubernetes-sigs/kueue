@@ -232,39 +232,46 @@ type TASPodSetRequests struct {
 }
 
 type FailureInfo struct {
+	// PodSetName indicates the name of the PodSet for which computing the
+	// TAS assignment failed.
 	PodSetName string
-	Reason     string
+
+	// Reason indicates the reason why computing the TAS assignment failed.
+	Reason string
 }
 
-type TASAssignmentsResult map[string]TASPodSetAssignmentResult
+// the key in this map is PodSet name
+type TASAssignmentsResult map[string]tasPodSetAssignmentResult
 
 func (r TASAssignmentsResult) Failure() *FailureInfo {
 	for psName, psAssignment := range r {
-		if psAssignment.Reason != "" {
-			return &FailureInfo{PodSetName: psName, Reason: psAssignment.Reason}
+		if psAssignment.FailureReason != "" {
+			return &FailureInfo{PodSetName: psName, Reason: psAssignment.FailureReason}
 		}
 	}
 	return nil
 }
 
-type TASPodSetAssignmentResult struct {
+type tasPodSetAssignmentResult struct {
 	TopologyAssignment *kueue.TopologyAssignment
-	Reason             string
+	FailureReason      string
 }
 
-func (s *TASFlavorSnapshot) FindTopologyAssignments(tasPodSetRequests []TASPodSetRequests) TASAssignmentsResult {
-	result := make(map[string]TASPodSetAssignmentResult)
+type FlavorTASRequests []TASPodSetRequests
+
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests) TASAssignmentsResult {
+	result := make(map[string]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
-	for _, tr := range tasPodSetRequests {
+	for _, tr := range flavorTASRequests {
 		assignment, reason := s.findTopologyAssignment(tr, assumedUsage)
-		result[tr.PodSet.Name] = TASPodSetAssignmentResult{TopologyAssignment: assignment, Reason: reason}
+		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 		if reason != "" {
 			return result
 		}
 		for _, domain := range assignment.Domains {
 			domainID := utiltas.DomainID(domain.Values)
 			assumedDomainUsage := tr.SinglePodRequests.Clone()
-			assumedDomainUsage.Multiply(int64(domain.Count))
+			assumedDomainUsage.Mul(int64(domain.Count))
 			if assumedUsage[domainID] == nil {
 				assumedUsage[domainID] = resources.Requests{}
 			}
