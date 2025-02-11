@@ -68,9 +68,13 @@ type domain struct {
 // leafDomain extends the domain with information for the lowest-level domain.
 type leafDomain struct {
 	domain
-	// freeCapacity stores the free capacity per domain, only for the
-	// lowest level of topology
+	// freeCapacity represents the total node capacity minus the non-TAS usage,
+	// coming from Pods which are not managed by workloads admitted by TAS
+	// (typically static Pods, DaemonSets, or Deployments).
 	freeCapacity resources.Requests
+
+	// tasUsage represents the usage associated with TAS workloads.
+	tasUsage resources.Requests
 
 	// nodeTaints contains the list of taints for the node, only applies for
 	// lowest level of topology, if the lowest level is node
@@ -199,17 +203,25 @@ func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capac
 	s.leaves[domainID].freeCapacity.Add(capacity)
 }
 
-func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	// The usage for non-TAS pods is only accounted for "TAS" nodes  - with at
+	// least one TAS pod, and so the addCapacity function to initialize
+	// freeCapacity is already called.
+	s.leaves[domainID].freeCapacity.Sub(usage)
+}
+
+func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.Info("skip accounting for usage in domain", "domain", domainID, "usage", usage)
+		s.log.Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
 		return
 	}
-	// If the leaf domain exists the freeCapacity is already initialized by
-	// the addCapacity function
-	s.leaves[domainID].freeCapacity.Sub(usage)
+	if s.leaves[domainID].tasUsage == nil {
+		s.leaves[domainID].tasUsage = resources.Requests{}
+	}
+	s.leaves[domainID].tasUsage.Add(usage)
 }
 
 // Algorithm overview:
@@ -348,7 +360,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 		for resName, resValue := range singlePodRequest {
 			usage[resName] = resValue * int64(domain.state)
 		}
-		s.addUsage(domain.id, usage)
+		s.addTASUsage(domain.id, usage)
 	}
 	return assignment
 }
@@ -404,7 +416,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests, toleration
 			s.log.V(2).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			continue
 		}
-		leaf.state = requests.CountIn(leaf.freeCapacity)
+		remainingCapacity := leaf.freeCapacity.Clone()
+		remainingCapacity.Sub(leaf.tasUsage)
+		leaf.state = requests.CountIn(remainingCapacity)
 	}
 	for _, root := range s.roots {
 		root.state = s.fillInCountsHelper(root)
