@@ -57,6 +57,15 @@ func (a *Assignment) Borrows() bool {
 	return a.Borrowing
 }
 
+func (a *Assignment) podSetByName(psName string) *PodSetAssignment {
+	for index := range a.PodSets {
+		if a.PodSets[index].Name == psName {
+			return &a.PodSets[index]
+		}
+	}
+	return nil
+}
+
 // RepresentativeMode calculates the representative mode for the assignment as
 // the worst assignment mode among all the pod sets.
 func (a *Assignment) RepresentativeMode() FlavorAssignmentMode {
@@ -194,6 +203,20 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		}
 	}
 	return mode
+}
+
+func (psa *PodSetAssignment) reason(reason string) {
+	if psa.Status == nil {
+		psa.Status = &Status{}
+	}
+	psa.Status.reasons = append(psa.Status.reasons, reason)
+}
+
+func (psa *PodSetAssignment) error(err error) {
+	if psa.Status == nil {
+		psa.Status = &Status{}
+	}
+	psa.Status.err = err
 }
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
@@ -363,15 +386,35 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 			psAssignment.append(flavors, status)
 		}
-		if features.Enabled(features.TopologyAwareScheduling) {
-			if a.wl.Obj.Spec.PodSets[i].TopologyRequest != nil {
-				assignTopology(log, &psAssignment, a.cq, a.wl.TotalRequests[i], &a.wl.Obj.Spec.PodSets[i])
-			}
-		}
 
 		assignment.append(podSet.Requests, &psAssignment)
 		if psAssignment.Status.IsError() || (len(podSet.Requests) > 0 && len(psAssignment.Flavors) == 0) {
 			return assignment
+		}
+	}
+	if assignment.RepresentativeMode() == NoFit {
+		return assignment
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		tasRequests := assignment.TopologyRequestsFor(a.wl, requests, a.cq)
+		if assignment.RepresentativeMode() == Fit {
+			result := a.cq.FindTopologyAssignments(tasRequests)
+			if failure := result.Failure(); failure != nil {
+				// There is at least one PodSet which does not fit
+				psAssignment := assignment.podSetByName(failure.PodSetName)
+				psAssignment.reason(failure.Reason)
+				// clear flavors to make the PodSet assignment as NoFit
+				psAssignment.Flavors = nil
+				// clear the representative mode as
+				assignment.representativeMode = nil
+			} else {
+				// All PodSets fit, we just update the TopologyAssignments
+				for psName, psResult := range result {
+					psAssignment := assignment.podSetByName(psName)
+					psAssignment.TopologyAssignment = psResult.TopologyAssignment
+				}
+			}
 		}
 	}
 	return assignment

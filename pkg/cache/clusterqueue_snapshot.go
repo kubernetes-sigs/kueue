@@ -149,3 +149,17 @@ func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.Flav
 	}
 	return dominantResourceShare(c, without)
 }
+
+func (c *ClusterQueueSnapshot) FindTopologyAssignments(
+	tasRequestsByFlavor map[kueue.ResourceFlavorReference][]TASPodSetRequests) TASAssignmentsResult {
+	result := make(TASAssignmentsResult)
+	for tasFlavor, tasRequestsForFlavor := range tasRequestsByFlavor {
+		if tasFlavorCache := c.TASFlavors[tasFlavor]; tasFlavorCache != nil {
+			flvResult := tasFlavorCache.FindTopologyAssignments(tasRequestsForFlavor)
+			for psName, psAssignment := range flvResult {
+				result[psName] = psAssignment
+			}
+		}
+	}
+	return result
+}
