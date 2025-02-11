@@ -7,6 +7,7 @@ steps:
   - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240718-5ef92b5c36'
     entrypoint: make
     args:
+      - -j3
       - image-push
       - debug-image-push
       - importer-image-push
@@ -27,4 +28,4 @@ substitutions:
   _PULL_BASE_REF: 'main'
 options:
   substitution_option: ALLOW_LOOSE
-  machineType: 'N1_HIGHCPU_8'
+  machineType: 'E2_HIGHCPU_32'
