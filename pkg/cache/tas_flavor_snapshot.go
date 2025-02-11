@@ -19,6 +19,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -27,8 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -290,7 +289,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
-	levelDomains := utilmaps.Values(domains)
+	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
 	if topDomain.state < count {
@@ -356,7 +355,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
 	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
 	slices.SortFunc(domains, func(a, b *domain) int {
-		return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
+		return slices.Compare(a.levelValues, b.levelValues)
 	})
 	levelIdx := 0
 	// assign only hostname values if topology defines it
@@ -380,7 +379,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 	slices.SortFunc(result, func(a, b *domain) int {
 		switch {
 		case a.state == b.state:
-			return utilslices.OrderStringSlices(a.levelValues, b.levelValues)
+			return slices.Compare(a.levelValues, b.levelValues)
 		case a.state > b.state:
 			return -1
 		default:
