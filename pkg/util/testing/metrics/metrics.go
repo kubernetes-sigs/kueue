@@ -33,9 +33,7 @@ type MetricDataPoint struct {
 }
 
 func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
-	keys := slices.Collect(maps.Keys(a.Labels))
-	slices.Sort(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(a.Labels)) {
 		vb, found := b.Labels[k]
 		if !found {
 			return false
