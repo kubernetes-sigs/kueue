@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -221,6 +222,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		tolerations    []corev1.Toleration
 		wantAssignment *kueue.TopologyAssignment
 		wantReason     string
+		bestFit        bool
 	}{
 		"minimize the number of used racks before optimizing the number of nodes": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
@@ -433,6 +435,78 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+		},
+		"rack required; multiple Pods fit in a rack; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 3,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultTwoLevels,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 3,
+						Values: []string{
+							"b1",
+							"r2",
+						},
+					},
+				},
+			},
+			bestFit: true,
+		},
+		"rack required; multiple Pods fit in every rack; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultTwoLevels,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r1",
+						},
+					},
+				},
+			},
+			bestFit: true,
+		},
+		"rack required; multiple Pods fit in some racks; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 2,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultTwoLevels,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"b2",
+							"r2",
+						},
+					},
+				},
+			},
+			bestFit: true,
 		},
 		"rack required; too many pods to fit in any rack": {
 			nodes: defaultNodes,
@@ -1063,6 +1137,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
+			features.SetFeatureGateDuringTest(t, features.BestFitTAS, tc.bestFit)
 
 			initialObjects := make([]client.Object, 0)
 			for i := range tc.nodes {

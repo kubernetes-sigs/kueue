@@ -28,6 +28,7 @@ import (
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -356,6 +357,25 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	return nil
 }
 
+// findBestFitDomain binsearches a sorted array of domains and finds a domain
+// with the lowest value of state, higher or equal than count.
+// If such a domain doesn't exist, it returns the first element of the array
+func findBestFitDomain(domains []*domain, count int32) *domain {
+	left, right := 0, len(domains)-1
+	result := domains[0]
+
+	for left <= right {
+		mid := left + (right-left)/2
+		if domains[mid].state <= count {
+			result = domains[mid]
+			right = mid - 1 // Search for an even lower state
+		} else {
+			left = mid + 1
+		}
+	}
+	return result
+}
+
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
@@ -364,6 +384,9 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
+	if features.Enabled(features.BestFitTAS) {
+		topDomain = findBestFitDomain(sortedDomain, count)
+	}
 	if topDomain.state < count {
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)

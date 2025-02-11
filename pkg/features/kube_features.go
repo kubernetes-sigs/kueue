@@ -145,6 +145,12 @@ const (
 	//
 	// Enable to set default LocalQueue.
 	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
+
+	// owner: @pbundyra
+	// alpha: v0.11
+	//
+	// Enable to set use BestFit algorithm for TAS
+	BestFitTAS featuregate.Feature = "BestFitTAS"
 )
 
 func init() {
