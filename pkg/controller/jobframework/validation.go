@@ -18,6 +18,8 @@ package jobframework
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -35,7 +37,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -173,8 +174,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 	var allErrs field.ErrorList
 
 	fields := sets.New[string]()
-	fields.Insert(utilmaps.Keys(newShape)...)
-	fields.Insert(utilmaps.Keys(oldShape)...)
+	fields.Insert(slices.Collect(maps.Keys(newShape))...)
+	fields.Insert(slices.Collect(maps.Keys(oldShape))...)
 
 	for _, fieldName := range fields.UnsortedList() {
 		childFieldPath := fieldPath.Child(fieldName)

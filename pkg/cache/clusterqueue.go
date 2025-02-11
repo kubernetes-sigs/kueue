@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -268,7 +267,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
-			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
+			for _, controller := range slices.Sorted(maps.Keys(c.multipleSingleInstanceControllersChecks)) {
 				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}

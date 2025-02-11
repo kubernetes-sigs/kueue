@@ -62,29 +62,6 @@ func Map[From any, To any, S ~[]From](s S, mapFunc func(*From) To) []To {
 	return ret
 }
 
-func OrderStringSlices(a, b []string) int {
-	minLen := len(a)
-	if len(b) < minLen {
-		minLen = len(b)
-	}
-
-	for i := 0; i < minLen; i++ {
-		if a[i] < b[i] {
-			return -1 // a is lexicographically smaller
-		} else if a[i] > b[i] {
-			return 1 // a is lexicographically greater
-		}
-	}
-
-	// If all compared elements are equal, the shorter array is smaller
-	if len(a) < len(b) {
-		return -1
-	} else if len(a) > len(b) {
-		return 1
-	}
-	return 0 // Arrays are lexicographically equalN
-}
-
 // CmpNoOrder returns true if the two provided slices have the same elements
 // regardless of their order.
 func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
@@ -115,34 +92,4 @@ func Pick[E any, S ~[]E](s S, keep func(*E) bool) S {
 		}
 	}
 	return ret
-}
-
-// IndexFunc returns the first index i satisfying f(s[i]),
-// or -1 if none do.
-func IndexFunc[S ~[]E, E any](s S, f func(E) bool) int {
-	for i := range s {
-		if f(s[i]) {
-			return i
-		}
-	}
-	return -1
-}
-
-// DeleteFunc removes any elements from s for which del returns true,
-// returning the modified slice.
-// DeleteFunc zeroes the elements between the new length and the original length.
-func DeleteFunc[S ~[]E, E any](s S, del func(E) bool) S {
-	i := IndexFunc(s, del)
-	if i == -1 {
-		return s
-	}
-	// Don't start copying elements until we find one to delete.
-	for j := i + 1; j < len(s); j++ {
-		if v := s[j]; !del(v) {
-			s[i] = v
-			i++
-		}
-	}
-	clear(s[i:]) // zero/nil out the obsolete elements, for GC
-	return s[:i]
 }
