@@ -610,10 +610,7 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for _, integration := range tc.integrations {
-				jobframework.EnableIntegration(integration)
-			}
-
+			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.integrations...))
 			ctx := context.Background()
 
 			wh := &Webhook{}
