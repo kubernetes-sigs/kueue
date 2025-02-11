@@ -25,7 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -52,7 +52,8 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
+	errCouldNotAdmitWL    = "Could not admit Workload and assign flavors in apiserver"
+	errInvalidWLResources = "resource validation failed"
 )
 
 var (
@@ -373,7 +374,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
 		} else if err := workload.ValidateResources(&w); err != nil {
-			e.inadmissibleMsg = err.Error()
+			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errInvalidWLResources, err.ToAggregate())
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else {
@@ -508,7 +509,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.ForgetWorkload(newWorkload)
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
