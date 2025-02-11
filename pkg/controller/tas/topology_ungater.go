@@ -93,7 +93,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 		expectationsStore: r.expectationsStore,
 	}
 	return TASTopologyUngater, ctrl.NewControllerManagedBy(mgr).
-		Named(TASTopologyUngater).
+		Named("tas_topology_ungater").
 		For(&kueue.Workload{}).
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
