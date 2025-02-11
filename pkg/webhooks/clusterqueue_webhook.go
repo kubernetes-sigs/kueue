@@ -40,13 +40,19 @@ const (
 	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
 )
 
-type ClusterQueueWebhook struct{}
+type ClusterQueueWebhook struct {
+	fairSharingEnabled bool
+}
 
-func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
+func setupWebhookForClusterQueue(mgr ctrl.Manager, cfg WebhookConfiguration) error {
+	webhook := ClusterQueueWebhook{
+		fairSharingEnabled: cfg.FairSharingEnabled,
+	}
+
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		WithDefaulter(&ClusterQueueWebhook{}).
-		WithValidator(&ClusterQueueWebhook{}).
+		WithDefaulter(&webhook).
+		WithValidator(&webhook).
 		Complete()
 }
 
@@ -74,7 +80,7 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 	cq := obj.(*kueue.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating create")
-	allErrs := ValidateClusterQueue(cq)
+	allErrs := w.validateClusterQueue(cq)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -84,7 +90,7 @@ func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj
 
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update")
-	allErrs := ValidateClusterQueueUpdate(newCQ)
+	allErrs := w.validateClusterQueue(newCQ)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -93,7 +99,7 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ runtime.Object
 	return nil, nil
 }
 
-func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
+func (w *ClusterQueueWebhook) validateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
@@ -106,7 +112,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
-		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
+		allErrs = append(allErrs, w.validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
 	if cq.Spec.FairSharing != nil {
 		allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
@@ -114,16 +120,15 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
-	return ValidateClusterQueue(newObj)
-}
-
-func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
+func (w *ClusterQueueWebhook) validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever &&
 		preemption.BorrowWithinCohort != nil &&
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
+	}
+	if w.fairSharingEnabled && preemption.BorrowWithinCohort != nil && preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		allErrs = append(allErrs, field.Invalid(path, preemption.BorrowWithinCohort, "FairSharing incompatible with borrowWithinCohort"))
 	}
 	return allErrs
 }

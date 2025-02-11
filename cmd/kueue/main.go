@@ -317,7 +317,8 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr,
+		webhooks.WebhookConfiguration{FairSharingEnabled: cfg.FairSharing.Enable}); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}

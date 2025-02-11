@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				jobframework.EnableIntegration(workloadrayjob.FrameworkName)
 
-				failedWebhook, err := webhooks.Setup(mgr)
+				failedWebhook, err := webhooks.Setup(mgr, webhooks.WebhookConfiguration{})
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
