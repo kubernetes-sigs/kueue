@@ -79,7 +79,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cf
 		tasCache: cache.TASCache(),
 	}
 	return TASResourceFlavorController, ctrl.NewControllerManagedBy(mgr).
-		Named(TASResourceFlavorController).
+		Named("tas_resource_flavor_controller").
 		For(&kueue.ResourceFlavor{}).
 		Watches(&corev1.Node{}, &nodeHandler).
 		Watches(&kueuealpha.Topology{}, r.tHandler).
