@@ -648,6 +648,12 @@ For a given PodSet Kueue:
   level. Kueue starts the search from the specified level, but if the PodSet
   does not fit, then it tries higher levels in the hierarchy.
 
+Kueue can operate in two modes when it comes to choosing the best domain if there is more than one capable of accommodating all the pods:
+- `LargestFit` - Kueue chooses the domain that has the most resources, providing better nodes utilization
+- `BestFit` - Kueue chooses the domain with the least resource that is capable of accommodating all the pods to mitigate resource fragmentation
+
+By default Kueue uses the `LargestFit` algorithm. To use `BestFit` algorithm, a user needs to set the feature gate `BestFitTAS` to `true`
+
 ### Enforcing the assignment
 
 When the workload has the PodSet assignments and is about to start we modify the

@@ -31,6 +31,7 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: TopologyAwareScheduling
+  - name: BestFitTAS
 disable-supported: true
 
 # The following PRR answers are required at beta release
