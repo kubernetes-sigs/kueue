@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -360,20 +361,15 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 // findBestFitDomain binsearches a sorted array of domains and finds a domain
 // with the lowest value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns the first element of the array
-func findBestFitDomain(domains []*domain, count int32) *domain {
-	left, right := 0, len(domains)-1
-	result := domains[0]
+func findBestFitDomainIdx(domains []*domain, count int32) int {
+	bestFitIdx := sort.Search(len(domains), func(i int) bool {
+		return domains[i].state < count
+	})
 
-	for left <= right {
-		mid := left + (right-left)/2
-		if domains[mid].state <= count {
-			result = domains[mid]
-			right = mid - 1 // Search for an even lower state
-		} else {
-			left = mid + 1
-		}
+	if bestFitIdx-1 < len(domains) && bestFitIdx-1 >= 0 {
+		return bestFitIdx - 1
 	}
-	return result
+	return 0 // Return the first element if no match found
 }
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
@@ -385,7 +381,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
 	if features.Enabled(features.BestFitTAS) {
-		topDomain = findBestFitDomain(sortedDomain, count)
+		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
 		if required {
@@ -411,14 +407,24 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
-	for _, domain := range domains {
-		if domain.state >= remainingCount {
-			domain.state = remainingCount
-			result = append(result, domain)
+	for i, domain := range domains {
+		// bestDomain is either domain with the most capacity or one that has the least capacity accommodating all pods
+		bestDomain := domain
+		if features.Enabled(features.BestFitTAS) {
+			bestFitIdx := findBestFitDomainIdx(domains[i:], remainingCount)
+			// if bestFitDomain is different than the one with the most capacity, assign it
+			if bestFitIdx > 0 {
+				bestDomain = domains[i+bestFitIdx]
+			}
+		}
+
+		if bestDomain.state >= remainingCount {
+			bestDomain.state = remainingCount
+			result = append(result, bestDomain)
 			return result
 		}
-		remainingCount -= domain.state
-		result = append(result, domain)
+		remainingCount -= bestDomain.state
+		result = append(result, bestDomain)
 	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingCount,

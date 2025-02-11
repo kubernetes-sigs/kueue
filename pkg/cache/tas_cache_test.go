@@ -546,6 +546,67 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
+		"block required; single Pod fits in a block and a single rack; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: []string{
+					tasBlockLabel,
+					tasRackLabel,
+				},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"b2",
+							"r1",
+						},
+					},
+				},
+			},
+			bestFit: true,
+		},
+		"block required; single Pod fits in a block spread across two racks; choose BestFit": {
+			nodes: defaultNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+			},
+			levels: defaultTwoLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: []string{
+					tasBlockLabel,
+					tasRackLabel,
+				},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 3,
+						Values: []string{
+							"b1",
+							"r2",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"b1",
+							"r1",
+						},
+					},
+				},
+			},
+			bestFit: true,
+		},
 		"block required; Pods fit in a block spread across two racks": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
@@ -1135,6 +1196,10 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
+		if name != "block required; single Pod fits in a block and a single rack; choose BestFit" {
+			continue
+		}
+
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			features.SetFeatureGateDuringTest(t, features.BestFitTAS, tc.bestFit)
