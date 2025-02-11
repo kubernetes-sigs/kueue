@@ -478,7 +478,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue-workload").
+		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		WithEventFilter(w).
