@@ -234,7 +234,7 @@ spec:
 +       - --feature-gates=PartialAdmission=true
 ```
 
-The currently supported features are:
+### Feature gates for alpha and beta features
 
 | Feature                               | Default | Stage      | Since | Until |
 |---------------------------------------|---------|------------|-------|-------|
@@ -247,7 +247,6 @@ The currently supported features are:
 | `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
 | `QueueVisibility`                     | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
 | `VisibilityOnDemand`                  | `false` | Alpha      | 0.6   |  0.8  |
 | `VisibilityOnDemand`                  | `true`  | Beta       | 0.9   |       |
 | `PrioritySortingWithinCohort`         | `true`  | Beta       | 0.6   |       |
@@ -260,11 +259,24 @@ The currently supported features are:
 | `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.9   |
 | `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.10  |
-| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
-| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
 | `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
+
+### Feature gates for graduated or deprecated features
+
+| Feature                               | Default | Stage      | Since | Until |
+|---------------------------------------|---------|------------|-------|-------|
+| `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
+| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
+| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   |       |
+| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   |       |
+| `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
+| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |
+| `MultiplePreemptions`                 | `true`  | GA         | 0.10  |       |
+| `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.10  |
+| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.11  |
+| `WorkloadResourceRequestsSummary`     | `true`  | GA         | 0.11  |       |
 
 ## What's next
 
