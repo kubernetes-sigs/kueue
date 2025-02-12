@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -386,17 +387,13 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
-	result := make([]*domain, len(domains))
-	copy(result, domains)
+	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		switch {
-		case a.state == b.state:
+		if a.state == b.state {
 			return slices.Compare(a.levelValues, b.levelValues)
-		case a.state > b.state:
-			return -1
-		default:
-			return 1
 		}
+		// descending order.
+		return cmp.Compare(b.state, a.state)
 	})
 	return result
 }
