@@ -148,7 +148,7 @@ const (
 
 	// owner: @pbundyra
 	// alpha: v0.11
-	// deprecated: v0.11
+	// Deprecated: v0.11
 	//
 	// Enable to set use LargestFit algorithm for TAS
 	LargestFitTAS featuregate.Feature = "LargestFitTAS"
