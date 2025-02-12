@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
@@ -72,6 +73,7 @@ var cmpDump = []cmp.Option{
 func TestSchedule(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
+	ignoreEventMessageCmpOpts := []cmp.Option{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
 
 	resourceFlavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
@@ -267,6 +269,8 @@ func TestSchedule(t *testing.T) {
 		wantPreempted sets.Set[string]
 		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
+		// eventCmpOpts are the cmp options to compare recorded events.
+		eventCmpOpts []cmp.Option
 
 		wantSkippedPreemptions map[string]int
 	}{
@@ -342,6 +346,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
@@ -386,6 +391,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"sales/foo"},
+			eventCmpOpts:  ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
@@ -2180,6 +2186,34 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 		},
+		"container resource requests exceed limits": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "200m").
+						Limit(corev1.ResourceCPU, "100m").
+						Obj()).
+					Obj(),
+			},
+			wantLeft: map[string][]string{
+				"sales": {"sales/new"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "sales", Name: "new"},
+					Reason:    "Pending",
+					EventType: corev1.EventTypeWarning,
+					Message: fmt.Sprintf("%s: %s",
+						errInvalidWLResources,
+						field.Invalid(
+							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
+							[]string{corev1.ResourceCPU.String()}, workload.RequestsMustNotExceedLimitMessage,
+						).Error(),
+					),
+				},
+			},
+		},
 		"not enough resources with fair sharing enabled": {
 			enableFairSharing: true,
 			workloads: []kueue.Workload{
@@ -2624,7 +2658,7 @@ func TestSchedule(t *testing.T) {
 			}
 
 			if len(tc.wantEvents) > 0 {
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 			}
