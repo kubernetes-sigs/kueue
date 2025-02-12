@@ -147,8 +147,7 @@ const (
 	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
 
 	// owner: @pbundyra
-	// alpha: v0.11
-	// Deprecated: v0.11
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable to set use LargestFit algorithm for TAS
 	LargestFitTAS featuregate.Feature = "LargestFitTAS"
