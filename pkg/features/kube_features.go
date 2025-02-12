@@ -149,8 +149,8 @@ const (
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// Enable to set use LargestFit algorithm for TAS
-	LargestFitTAS featuregate.Feature = "LargestFitTAS"
+	// Enable to set use LeastAlloactedFit algorithm for TAS
+	LeastAllocatedTAS featuregate.Feature = "LeastAllocatedTAS"
 )
 
 func init() {
@@ -231,7 +231,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	LargestFitTAS: {
+	LeastAllocatedTAS: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

@@ -358,18 +358,18 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	return nil
 }
 
-// findBestFitDomain binsearches a sorted array of domains and finds a domain
+// findMostAllocatedDomain binsearches a sorted array of domains and finds a domain
 // with the lowest value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns the first element of the array
-func findBestFitDomainIdx(domains []*domain, count int32) int {
-	bestFitIdx := sort.Search(len(domains), func(i int) bool {
+func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
+	mostAllocatedIdx := sort.Search(len(domains), func(i int) bool {
 		return domains[i].state < count
 	})
-	if bestFitIdx == 0 {
+	if mostAllocatedIdx == 0 {
 		// there is no domain that can accommodate all pods so we return the largest one
 		return 0
 	}
-	return bestFitIdx - 1
+	return mostAllocatedIdx - 1
 }
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
@@ -380,8 +380,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
-	if !features.Enabled(features.LargestFitTAS) {
-		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
+	if !features.Enabled(features.LeastAllocatedTAS) {
+		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
 		if required {
@@ -408,9 +408,9 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
-		if !features.Enabled(features.LargestFitTAS) {
-			bestFitIdx := findBestFitDomainIdx(domains[i:], remainingCount)
-			domain = domains[i+bestFitIdx]
+		if !features.Enabled(features.LeastAllocatedTAS) {
+			mostAllocatedIdx := findMostAllocatedDomainIdx(domains[i:], remainingCount)
+			domain = domains[i+mostAllocatedIdx]
 		}
 
 		if domain.state >= remainingCount {
