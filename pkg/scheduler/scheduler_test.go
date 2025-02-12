@@ -4527,7 +4527,7 @@ func TestScheduleForTAS(t *testing.T) {
 							{
 								Count: 1,
 								Values: []string{
-									"x1",
+									"y1",
 								},
 							},
 						},
@@ -4538,13 +4538,13 @@ func TestScheduleForTAS(t *testing.T) {
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
 							{
-								Count: 7,
+								Count: 8,
 								Values: []string{
 									"x1",
 								},
 							},
 							{
-								Count: 8,
+								Count: 7,
 								Values: []string{
 									"y1",
 								},
@@ -4621,7 +4621,7 @@ func TestScheduleForTAS(t *testing.T) {
 							{
 								Count: 1,
 								Values: []string{
-									"x1",
+									"y1",
 								},
 							},
 						},
@@ -4632,13 +4632,13 @@ func TestScheduleForTAS(t *testing.T) {
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
 							{
-								Count: 7,
+								Count: 8,
 								Values: []string{
 									"x1",
 								},
 							},
 							{
-								Count: 8,
+								Count: 7,
 								Values: []string{
 									"y1",
 								},
