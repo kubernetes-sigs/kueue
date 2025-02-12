@@ -222,9 +222,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 		tolerations    []corev1.Toleration
 		wantAssignment *kueue.TopologyAssignment
 		wantReason     string
-		bestFit        bool
+		largestFit     bool
 	}{
-		"minimize the number of used racks before optimizing the number of nodes": {
+		"minimize the number of used racks before optimizing the number of nodes; LargestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
 			// Solution by optimizing the number of nodes: [r1,r2]: [x1,x2]
 			//
@@ -327,8 +327,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"block required; 4 pods fit into one host each": {
+		"block required; 4 pods fit into one host each; LargestFit": {
 			nodes: binaryTreesNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -367,8 +368,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"host required; single Pod fits in the host": {
+		"host required; single Pod fits in the host; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -389,8 +391,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"rack required; single Pod fits in a rack": {
+		"rack required; single Pod fits in a rack; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -412,8 +415,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"rack required; multiple Pods fits in a rack": {
+		"rack required; multiple Pods fits in a rack; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -435,8 +439,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"rack required; multiple Pods fit in a rack; choose BestFit": {
+		"rack required; multiple Pods fit in a rack; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -458,9 +463,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			bestFit: true,
+			largestFit: false,
 		},
-		"rack required; multiple Pods fit in every rack; choose BestFit": {
+		"rack required; multiple Pods fit in every rack; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -476,15 +481,15 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"b1",
+							"b2",
 							"r1",
 						},
 					},
 				},
 			},
-			bestFit: true,
+			largestFit: false,
 		},
-		"rack required; multiple Pods fit in some racks; choose BestFit": {
+		"rack required; multiple Pods fit in some racks; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -506,9 +511,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			bestFit: true,
+			largestFit: false,
 		},
-		"rack required; too many pods to fit in any rack": {
+		"rack required; too many pods to fit in any rack; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -519,8 +524,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      4,
 			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
+			largestFit: true,
 		},
-		"rack required; too many pods to fit in any rack; choose BestFit": {
+		"rack required; too many pods to fit in any rack; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -531,9 +537,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      4,
 			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
-			bestFit:    true,
+			largestFit: false,
 		},
-		"block required; single Pod fits in a block": {
+		"block required; single Pod fits in a block; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -558,8 +564,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"block required; single Pod fits in a block and a single rack; choose BestFit": {
+		"block required; single Pod fits in a block and a single rack; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -584,9 +591,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			bestFit: true,
+			largestFit: false,
 		},
-		"block required; single Pod fits in a block spread across two racks; choose BestFit": {
+		"block required; single Pod fits in a block spread across two racks; BestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -618,9 +625,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			bestFit: true,
+			largestFit: false,
 		},
-		"block required; Pods fit in a block spread across two racks": {
+		"block required; Pods fit in a block spread across two racks; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -649,8 +656,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"block required; single Pod which cannot be split": {
+		"block required; single Pod which cannot be split; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -661,8 +669,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			largestFit: true,
 		},
-		"block required; too many Pods to fit requested": {
+		"block required; too many Pods to fit requested; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -673,8 +682,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      5,
 			wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)`,
+			largestFit: true,
 		},
-		"rack required; single Pod requiring memory": {
+		"rack required; single Pod requiring memory; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -696,8 +706,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"rack preferred; but only block can accommodate the workload": {
+		"rack preferred; but only block can accommodate the workload; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
@@ -726,8 +737,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"rack preferred; but only multiple blocks can accommodate the workload": {
+		"rack preferred; but only multiple blocks can accommodate the workload; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
@@ -763,8 +775,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"block preferred; but only multiple blocks can accommodate the workload": {
+		"block preferred; but only multiple blocks can accommodate the workload; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
@@ -800,8 +813,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"block preferred; but the workload cannot be accommodate in entire topology": {
+		"block preferred; but the workload cannot be accommodate in entire topology; LargestFit": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
@@ -812,8 +826,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      10,
 			wantReason: `topology "default" allows to fit only 7 out of 10 pod(s)`,
+			largestFit: true,
 		},
-		"only nodes with matching labels are considered; no matching node": {
+		"only nodes with matching labels are considered; no matching node; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label("zone", "zone-a").
@@ -836,8 +851,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
+			largestFit: true,
 		},
-		"only nodes with matching labels are considered; matching node is found": {
+		"only nodes with matching labels are considered; matching node is found; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label("zone", "zone-a").
@@ -871,8 +887,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"only nodes with matching levels are considered; no host label on node": {
+		"only nodes with matching levels are considered; no host label on node; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -894,8 +911,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: "no topology domains at level: cloud.com/topology-rack",
+			largestFit: true,
 		},
-		"don't consider unscheduled Pods when computing capacity": {
+		"don't consider unscheduled Pods when computing capacity; LargestFit": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -931,8 +949,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"don't consider terminal pods when computing the capacity": {
+		"don't consider terminal pods when computing the capacity; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -972,8 +991,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"include usage from pending scheduled non-TAS pods, blocked assignment": {
+		"include usage from pending scheduled non-TAS pods, blocked assignment; LargestFit": {
 			// there is not enough free capacity on the only node x1
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -1000,8 +1020,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			largestFit: true,
 		},
-		"include usage from running non-TAS pods, blocked assignment": {
+		"include usage from running non-TAS pods, blocked assignment; LargestFit": {
 			// there is not enough free capacity on the only node x1
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -1028,8 +1049,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			largestFit: true,
 		},
-		"include usage from running non-TAS pods, found free capacity on another node": {
+		"include usage from running non-TAS pods, found free capacity on another node; LargestFit": {
 			// there is not enough free capacity on the node x1 as the
 			// assignments lends on the free x2
 			nodes: []corev1.Node{
@@ -1074,8 +1096,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
-		"no assignment as node is not ready": {
+		"no assignment as node is not ready; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label("zone", "zone-a").
@@ -1103,8 +1126,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
+			largestFit: true,
 		},
-		"no assignment as node is unschedulable": {
+		"no assignment as node is unschedulable; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label("zone", "zone-a").
@@ -1129,8 +1153,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: "no topology domains at level: kubernetes.io/hostname",
+			largestFit: true,
 		},
-		"skip node which has untolerated taint": {
+		"skip node which has untolerated taint; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label("zone", "zone-a").
@@ -1159,8 +1184,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:      1,
 			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			largestFit: true,
 		},
-		"allow to schedule on node with tolerated taint": {
+		"allow to schedule on node with tolerated taint; LargestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label("zone", "zone-a").
@@ -1206,16 +1232,13 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+			largestFit: true,
 		},
 	}
 	for name, tc := range cases {
-		if name != "block required; single Pod fits in a block and a single rack; choose BestFit" {
-			continue
-		}
-
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			features.SetFeatureGateDuringTest(t, features.BestFitTAS, tc.bestFit)
+			features.SetFeatureGateDuringTest(t, features.LargestFitTAS, tc.largestFit)
 
 			initialObjects := make([]client.Object, 0)
 			for i := range tc.nodes {

@@ -148,9 +148,10 @@ const (
 
 	// owner: @pbundyra
 	// alpha: v0.11
+	// deprecated: v0.11
 	//
-	// Enable to set use BestFit algorithm for TAS
-	BestFitTAS featuregate.Feature = "BestFitTAS"
+	// Enable to set use LargestFit algorithm for TAS
+	LargestFitTAS featuregate.Feature = "LargestFitTAS"
 )
 
 func init() {

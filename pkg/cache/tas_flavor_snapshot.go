@@ -379,7 +379,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
-	if features.Enabled(features.BestFitTAS) {
+	if !features.Enabled(features.LargestFitTAS) {
 		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
@@ -409,7 +409,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	for i, domain := range domains {
 		// bestDomain is either domain with the most capacity or one that has the least capacity accommodating all pods
 		bestDomain := domain
-		if features.Enabled(features.BestFitTAS) {
+		if !features.Enabled(features.LargestFitTAS) {
 			bestFitIdx := findBestFitDomainIdx(domains[i:], remainingCount)
 			// if bestFitDomain is different than the one with the most capacity, assign it
 			if bestFitIdx > 0 {

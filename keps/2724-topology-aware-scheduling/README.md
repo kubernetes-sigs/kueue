@@ -649,10 +649,10 @@ For a given PodSet Kueue:
   does not fit, then it tries higher levels in the hierarchy.
 
 Kueue can operate in two modes when it comes to choosing the best domain if there is more than one capable of accommodating all the pods:
-- `LargestFit` - Kueue chooses the domain that has the most resources, providing better nodes utilization
 - `BestFit` - Kueue chooses the domain with the least resource that is capable of accommodating all the pods to mitigate resource fragmentation
+- `LargestFit` - Kueue chooses the domain that has the most resources, providing better nodes utilization
 
-By default Kueue uses the `LargestFit` algorithm. To use `BestFit` algorithm, a user needs to set the feature gate `BestFitTAS` to `true`
+By default Kueue uses the `BestFit` algorithm. To use `LargestFit` algorithm, a user needs to set the feature gate `LargestFitTAS` to `true`
 
 ### Enforcing the assignment
 
