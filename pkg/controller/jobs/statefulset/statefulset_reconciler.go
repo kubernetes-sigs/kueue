@@ -73,6 +73,11 @@ func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Req
 		return err
 	}
 
+	// If no Pods are found, there's nothing to do.
+	if len(podList.Items) == 0 {
+		return nil
+	}
+
 	sts := &appsv1.StatefulSet{}
 	err := r.client.Get(ctx, req.NamespacedName, sts)
 	if client.IgnoreNotFound(err) != nil {
