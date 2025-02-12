@@ -443,14 +443,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								{
 									Count: 1,
 									Values: []string{
-										"b1",
+										"b2",
 										"r1",
 									},
 								},
 								{
 									Count: 1,
 									Values: []string{
-										"b1",
+										"b2",
 										"r2",
 									},
 								},
@@ -485,8 +485,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								{
 									Count: 1,
 									Values: []string{
-										"b2",
-										"r1",
+										"b1",
+										"r2",
 									},
 								},
 							},
@@ -520,8 +520,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								{
 									Count: 1,
 									Values: []string{
-										"b2",
-										"r2",
+										"b1",
+										"r1",
 									},
 								},
 							},
@@ -561,8 +561,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								{
 									Count: 1,
 									Values: []string{
-										"b2",
-										"r2",
+										"b1",
+										"r1",
 									},
 								},
 							},
@@ -642,8 +642,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 							Domains: []kueue.TopologyDomainAssignment{
-								{Count: 1, Values: []string{"b1", "r1"}},
-								{Count: 1, Values: []string{"b1", "r2"}},
+								{Count: 1, Values: []string{"b2", "r1"}},
+								{Count: 1, Values: []string{"b2", "r2"}},
 							},
 						},
 					))
@@ -711,8 +711,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
 							Domains: []kueue.TopologyDomainAssignment{
-								{Count: 1, Values: []string{"b1", "r1"}},
-								{Count: 1, Values: []string{"b1", "r2"}},
+								{Count: 1, Values: []string{"b2", "r1"}},
+								{Count: 1, Values: []string{"b2", "r2"}},
 							},
 						},
 					))
