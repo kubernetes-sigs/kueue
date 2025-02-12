@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 
@@ -42,24 +44,26 @@ import (
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
-func TestIsParentJobManaged(t *testing.T) {
+func TestIsAncestorJobManaged(t *testing.T) {
+	grandparentJobName := "test-job-grandparent"
 	parentJobName := "test-job-parent"
 	childJobName := "test-job-child"
 	jobNamespace := "default"
 	cases := map[string]struct {
-		parentJob   client.Object
-		job         client.Object
-		wantManaged bool
-		wantErr     error
+		grandparentJob client.Object
+		parentJob      client.Object
+		job            client.Object
+		wantManaged    bool
+		wantErr        error
 	}{
-		"child job has ownerReference with unknown workload owner": {
+		"child job has ownerReference with unmanaged workload owner": {
 			parentJob: testingjob.MakeJob(parentJobName, jobNamespace).
 				UID(parentJobName).
 				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("CronJob")).
 				Obj(),
-			wantErr: ErrUnknownWorkloadOwner,
+			wantManaged: false,
 		},
 		"child job has ownerReference with known non-existing workload owner": {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
@@ -85,17 +89,47 @@ func TestIsParentJobManaged(t *testing.T) {
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 		},
+		"child job has managed parent and grandparent and grandparent has a queue-name label": {
+			grandparentJob: testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
+				UID(grandparentJobName).
+				Queue("test-q").
+				Obj(),
+			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+				UID(parentJobName).
+				OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+				Obj(),
+			job: testingjob.MakeJob(childJobName, jobNamespace).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+				Obj(),
+			wantManaged: true,
+		},
+		"child job has managed parent and grandparent and grandparent doesn't have a queue-name label": {
+			grandparentJob: testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
+				UID(grandparentJobName).
+				Obj(),
+			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+				UID(parentJobName).
+				OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+				Obj(),
+			job: testingjob.MakeJob(childJobName, jobNamespace).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+				Obj(),
+			wantManaged: false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob"))
-			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme)
+			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"))
+			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
+			if tc.grandparentJob != nil {
+				builder = builder.WithObjects(tc.grandparentJob)
+			}
 			if tc.parentJob != nil {
 				builder = builder.WithObjects(tc.parentJob)
 			}
 			cl := builder.Build()
 			r := NewReconciler(cl, nil)
-			got, gotErr := r.IsParentJobManaged(context.Background(), tc.job, jobNamespace)
+			got, gotErr := r.IsAncestorJobManaged(context.Background(), tc.job, jobNamespace)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from isParentManaged want: %v,got: %v", tc.wantManaged, got)
 			}

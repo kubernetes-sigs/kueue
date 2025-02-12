@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -83,6 +84,12 @@ func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 // Name updates the name of the AppWrapper
 func (aw *AppWrapperWrapper) Name(n string) *AppWrapperWrapper {
 	aw.ObjectMeta.Name = n
+	return aw
+}
+
+// UID updates the uid of the job.
+func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
+	aw.ObjectMeta.UID = types.UID(uid)
 	return aw
 }
 
