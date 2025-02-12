@@ -366,6 +366,7 @@ func findBestFitDomainIdx(domains []*domain, count int32) int {
 		return domains[i].state < count
 	})
 	if bestFitIdx == 0 {
+		// there is no domain that can accommodate all pods so we return the largest one
 		return 0
 	}
 	return bestFitIdx - 1
@@ -407,23 +408,18 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
-		// bestDomain is either domain with the most capacity or one that has the least capacity accommodating all pods
-		bestDomain := domain
 		if !features.Enabled(features.LargestFitTAS) {
 			bestFitIdx := findBestFitDomainIdx(domains[i:], remainingCount)
-			// if bestFitDomain is different than the one with the most capacity, assign it
-			if bestFitIdx > 0 {
-				bestDomain = domains[i+bestFitIdx]
-			}
+			domain = domains[i+bestFitIdx]
 		}
 
-		if bestDomain.state >= remainingCount {
-			bestDomain.state = remainingCount
-			result = append(result, bestDomain)
+		if domain.state >= remainingCount {
+			domain.state = remainingCount
+			result = append(result, domain)
 			return result
 		}
-		remainingCount -= bestDomain.state
-		result = append(result, bestDomain)
+		remainingCount -= domain.state
+		result = append(result, domain)
 	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingCount,
