@@ -1271,7 +1271,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			features.SetFeatureGateDuringTest(t, features.LeastAllocatedTAS, false)
+			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			features.SetFeatureGateDuringTest(t, features.LeastAllocatedTAS, tc.leastAllocated)
 
 			initialObjects := make([]client.Object, 0)
 			for i := range tc.nodes {

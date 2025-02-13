@@ -759,6 +759,7 @@ Consider the following improvements and implement if feasible:
  is running
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
+- drop `LeastAllocatedTAS` feature gate
 
 ## Implementation History
 
