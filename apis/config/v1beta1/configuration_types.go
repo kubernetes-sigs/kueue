@@ -48,7 +48,8 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
+	// ManagedJobsNamespaceSelector can be used to selectively exempt namespaces from both
+	// ManagedJobsWithoutQueueName and Pod-based integrations (pod, deployment, statefulset, etc).
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
 	// InternalCertManagement is configuration for internalCertManagement
@@ -339,6 +340,9 @@ type Integrations struct {
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
+	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
+	// instead.
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the

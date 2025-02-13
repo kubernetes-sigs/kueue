@@ -158,28 +158,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		}
 	}
 
-	if cfg.Integrations.PodOptions == nil {
-		cfg.Integrations.PodOptions = &PodIntegrationOptions{}
-	}
-
-	if cfg.Integrations.PodOptions.NamespaceSelector == nil {
-		matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
-
-		cfg.Integrations.PodOptions.NamespaceSelector = &metav1.LabelSelector{
-			MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      corev1.LabelMetadataName,
-					Operator: metav1.LabelSelectorOpNotIn,
-					Values:   matchExpressionsValues,
-				},
-			},
-		}
-	}
-
-	if cfg.Integrations.PodOptions.PodSelector == nil {
-		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
-	}
-
 	if cfg.ManagedJobsNamespaceSelector == nil {
 		matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
 
