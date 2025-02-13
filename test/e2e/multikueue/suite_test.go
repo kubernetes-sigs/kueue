@@ -27,6 +27,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -97,6 +98,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+			policyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
+			policyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
@@ -280,11 +283,14 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
 
+	util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
+	util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
+	util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
+
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 
 	ginkgo.GinkgoLogr.Info("Kueue and all integration operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
-
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)

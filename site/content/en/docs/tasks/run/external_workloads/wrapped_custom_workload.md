@@ -17,7 +17,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.11.0 version or newer and AppWrapper v1.0.0 or newer.
+1. Make sure you are using Kueue v0.11.0 version or newer and AppWrapper v1.0.2 or newer.
 
 2. Follow the steps in [Run AppWrappers](/docs/tasks/run/appwrappers/#before-you-begin)
 to learn how to enable and configure the `workload.codeflare.dev/appwrapper` integration.
