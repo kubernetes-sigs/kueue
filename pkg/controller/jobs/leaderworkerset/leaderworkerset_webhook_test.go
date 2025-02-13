@@ -24,10 +24,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -150,6 +152,58 @@ func TestValidateCreate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
+		},
+		"valid topology request": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj(),
+		},
+		"invalid topology request": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
 		},
@@ -516,6 +570,66 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
+				},
+			}.ToAggregate(),
+		},
+		"set valid topology request": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"set invalid topology request": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
 		},
