@@ -51,8 +51,7 @@ var (
 	integrationsPath                  = field.NewPath("integrations")
 	integrationsFrameworksPath        = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                    = integrationsPath.Child("podOptions")
-	namespaceSelectorPath             = podOptionsPath.Child("namespaceSelector")
+	podOptionsNamespaceSelectorPath   = integrationsPath.Child("podOptions").Child("namespaceSelector")
 	managedJobsNamespaceSelectorPath  = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath              = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -209,29 +208,32 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	if c.Integrations.PodOptions == nil {
-		return field.ErrorList{field.Required(podOptionsPath, "cannot be empty when pod integration is enabled")}
+	var namespaceSelector *metav1.LabelSelector = nil
+	namespaceSelectorPath := managedJobsNamespaceSelectorPath
+	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
+		namespaceSelector = c.Integrations.PodOptions.NamespaceSelector
+		namespaceSelectorPath = podOptionsNamespaceSelectorPath
+	} else if c.ManagedJobsNamespaceSelector != nil {
+		namespaceSelector = c.ManagedJobsNamespaceSelector
+	} else {
+		return field.ErrorList{field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled")}
 	}
-	if c.Integrations.PodOptions.NamespaceSelector == nil {
-		return field.ErrorList{field.Required(namespaceSelectorPath, "a namespace selector is required")}
-	}
-
 	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
 
 	if c.Namespace != nil && *c.Namespace != "" {
 		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
 	}
 
-	allErrs = append(allErrs, validation.ValidateLabelSelector(c.Integrations.PodOptions.NamespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
+	allErrs = append(allErrs, validation.ValidateLabelSelector(namespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
 
-	selector, err := metav1.LabelSelectorAsSelector(c.Integrations.PodOptions.NamespaceSelector)
+	selector, err := metav1.LabelSelectorAsSelector(namespaceSelector)
 	if err != nil {
 		return allErrs
 	}
 
 	for _, pn := range prohibitedNamespaces {
 		if selector.Matches(pn) {
-			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, c.Integrations.PodOptions.NamespaceSelector,
+			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, namespaceSelector,
 				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
 		}
 	}
