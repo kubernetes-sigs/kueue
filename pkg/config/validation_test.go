@@ -208,7 +208,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -219,11 +219,11 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions",
+					Field: "managedJobsNamespaceSelector",
 				},
 			},
 		},
-		"nil PodIntegrationOptions.NamespaceSelector without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions.NamespaceSelector and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -236,7 +236,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions.namespaceSelector",
+					Field: "managedJobsNamespaceSelector",
 				},
 			},
 		},
