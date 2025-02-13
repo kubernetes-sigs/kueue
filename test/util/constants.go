@@ -46,3 +46,9 @@ var (
 	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 	IgnoreObjectMetaResourceVersion                = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
 )
+
+var (
+	BehaviorWaitForDeletion           = []string{"netexec"}
+	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+	BehaviorExitFast                  = []string{"entrypoint-tester"}
+)

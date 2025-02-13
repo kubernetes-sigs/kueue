@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	// E2eTestSleepImage is the image used for testing.
-	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+	// E2eTestAgnHostImage is the image used for testing.
+	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
@@ -126,3 +126,4 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
 }
+
