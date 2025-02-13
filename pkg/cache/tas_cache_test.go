@@ -370,6 +370,20 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			leastAllocated: true,
 		},
+		"rack required; 3 pods fit into one host each; MostAllocated": {
+			nodes: binaryTreesNodes,
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:          3,
+			wantAssignment: nil,
+			wantReason:     `topology "default" allows to fit only 2 out of 3 pod(s)`,
+			leastAllocated: false,
+		},
 		"host required; single Pod fits in the host; LeastAllocated": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
@@ -481,7 +495,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"b2",
+							"b1",
 							"r1",
 						},
 					},

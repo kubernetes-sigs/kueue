@@ -358,18 +358,32 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	return nil
 }
 
-// findMostAllocatedDomain binsearches a sorted array of domains and finds a domain
-// with the lowest value of state, higher or equal than count.
+// findMostAllocatedDomain binsearches a sorted array of domains and finds the first
+// domain with the lowest value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns the first element of the array
 func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
-	mostAllocatedIdx := sort.Search(len(domains), func(i int) bool {
+	smallestFittingIdx := sort.Search(len(domains), func(i int) bool {
 		return domains[i].state < count
 	})
-	if mostAllocatedIdx == 0 {
-		// there is no domain that can accommodate all pods so we return the largest one
+	if smallestFittingIdx == 0 {
+		// all domains have state < count, so we return the largest one
 		return 0
 	}
-	return mostAllocatedIdx - 1
+	// find first occurrence of the element
+	smallestFittingState := domains[smallestFittingIdx-1].state
+	left, right := 0, len(domains)-1
+	for left <= right {
+		mid := left + (right-left)/2
+		if domains[mid].state == smallestFittingState {
+			smallestFittingIdx = mid
+			right = mid - 1
+		} else if domains[mid].state > smallestFittingState {
+			left = mid + 1
+		} else {
+			right = mid - 1
+		}
+	}
+	return smallestFittingIdx
 }
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
