@@ -61,18 +61,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
-		PodOptions: &PodIntegrationOptions{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      corev1.LabelMetadataName,
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"kube-system", "kueue-system"},
-					},
-				},
-			},
-			PodSelector: &metav1.LabelSelector{},
-		},
 	}
 	defaultQueueVisibility := &QueueVisibility{
 		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
@@ -92,18 +80,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 
 	overwriteNamespaceIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
-		PodOptions: &PodIntegrationOptions{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      corev1.LabelMetadataName,
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"kube-system", overwriteNamespace},
-					},
-				},
-			},
-			PodSelector: &metav1.LabelSelector{},
-		},
 	}
 
 	overwriteNamespaceSelector := &metav1.LabelSelector{
@@ -497,7 +473,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
-					PodOptions: defaultIntegrations.PodOptions,
 				},
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,

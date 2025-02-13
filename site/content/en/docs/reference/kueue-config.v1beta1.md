@@ -119,7 +119,8 @@ unsuspended, they will start immediately.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName</p>
+   <p>ManagedJobsNamespaceSelector can be used to selectively exempt namespaces from both
+ManagedJobsWithoutQueueName and Pod-based integrations (pod, deployment, statefulset, etc).</p>
 </td>
 </tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
@@ -526,7 +527,10 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 <a href="#PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects</p>
+   <p>PodOptions defines kueue controller behaviour for pod objects
+Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+(https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
+instead.</p>
 </td>
 </tr>
 <tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>

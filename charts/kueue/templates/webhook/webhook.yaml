@@ -1,4 +1,5 @@
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
+{{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
@@ -44,8 +45,8 @@ webhooks:
     {{- end }}
     name: mpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -78,12 +79,16 @@ webhooks:
     {{- end }}
     name: mdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -300,12 +305,16 @@ webhooks:
     {{- end }}
     name: mstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -421,8 +430,8 @@ webhooks:
     {{- end }}
     name: vpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -456,12 +465,16 @@ webhooks:
     {{- end }}
     name: vdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -687,12 +700,16 @@ webhooks:
     {{- end }}
     name: vstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - apps
