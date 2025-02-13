@@ -357,8 +357,8 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	return nil
 }
 
-// findMostAllocatedDomainIdx binsearches a sorted array of domains and finds index of
-// the first domain with the lowest value of state, higher or equal than count.
+// findMostAllocatedDomainIdx finds an index of the first domain with the lowest
+// value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns 0 as it's an index of the domain with the
 // most available resources
 func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
@@ -366,7 +366,8 @@ func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
 	for i, domain := range domains {
 		if domain.state < count {
 			break
-		} else if domain.state != domains[mostAllocatedFitIdx].state {
+		}
+		if domain.state != domains[mostAllocatedFitIdx].state {
 			mostAllocatedFitIdx = i
 		}
 	}
