@@ -166,7 +166,7 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 		},
 		TopologyRequest: jobframework.PodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
-			nil,
+			ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
 			nil,
 			nil,
 		),

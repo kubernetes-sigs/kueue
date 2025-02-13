@@ -99,7 +99,9 @@ var (
 	specPath                 = field.NewPath("spec")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
+	leaderTemplateMetaPath   = leaderTemplatePath.Child("metadata")
 	workerTemplatePath       = leaderWorkerTemplatePath.Child("workerTemplate")
+	workerTemplateMetaPath   = workerTemplatePath.Child("metadata")
 )
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
@@ -108,7 +110,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating create")
 
-	allErrs := jobframework.ValidateQueueName(lws.Object())
+	allErrs := validateCreate(lws)
 
 	return nil, allErrs.ToAggregate()
 }
@@ -120,11 +122,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := apivalidation.ValidateImmutableField(
+	allErrs := validateCreate(newLeaderWorkerSet)
+
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
-	)
+	)...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		newLeaderWorkerSet.Object(),
 		oldLeaderWorkerSet.Object(),
@@ -153,6 +157,22 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	// Workload name should be unique by group index.
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
+}
+
+func validateCreate(lws *LeaderWorkerSet) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
+	allErrs = append(allErrs, validateTopologyRequest(lws)...)
+	return allErrs
+}
+
+func validateTopologyRequest(lws *LeaderWorkerSet) field.ErrorList {
+	var allErrs field.ErrorList
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+	}
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	return allErrs
 }
 
 func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
