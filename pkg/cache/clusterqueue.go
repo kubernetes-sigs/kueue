@@ -282,10 +282,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported for cohorts")
 			}
-			if c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported for preemption within cluster queue")
-			}
 			if len(c.multiKueueAdmissionChecks) > 0 {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with MultiKueue admission check")
@@ -321,7 +317,6 @@ func (c *clusterQueue) isTASViolated() bool {
 		}
 	}
 	return c.HasParent() ||
-		c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever ||
 		len(c.multiKueueAdmissionChecks) > 0 ||
 		len(c.provisioningAdmissionChecks) > 0
 }

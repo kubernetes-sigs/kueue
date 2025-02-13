@@ -183,6 +183,7 @@ type PodSetAssignment struct {
 	Requests corev1.ResourceList
 	Count    int32
 
+	TASMode            *FlavorAssignmentMode
 	TopologyAssignment *kueue.TopologyAssignment
 }
 
@@ -200,6 +201,9 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		if flvAssignment.Mode < mode {
 			mode = flvAssignment.Mode
 		}
+	}
+	if psa.TASMode != nil && *psa.TASMode < mode {
+		mode = *psa.TASMode
 	}
 	return mode
 }
@@ -395,22 +399,36 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		return assignment
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == Fit {
+	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, requests, a.cq)
-		result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests)
-		if failure := result.Failure(); failure != nil {
-			// There is at least one PodSet which does not fit
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-			psAssignment.reason(failure.Reason)
-			// clear flavors to make the PodSet assignment as NoFit
-			psAssignment.Flavors = nil
-			// update the representative mode accordingly
-			assignment.representativeMode = ptr.To(NoFit)
-		} else {
-			// All PodSets fit, we just update the TopologyAssignments
-			for psName, psResult := range result {
-				psAssignment := assignment.podSetAssignmentByName(psName)
-				psAssignment.TopologyAssignment = psResult.TopologyAssignment
+		if assignment.RepresentativeMode() == Fit {
+			if assignment.RepresentativeMode() == Fit {
+				result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, false)
+				if failure := result.Failure(); failure != nil {
+					// There is at least one PodSet which does not fit
+					psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+					psAssignment.reason(failure.Reason)
+					// clear flavors to make the PodSet assignment as NoFit
+					psAssignment.TASMode = ptr.To(Preempt)
+					// clear the representative mode as
+					assignment.representativeMode = ptr.To(Preempt)
+				} else {
+					// All PodSets fit, we just update the TopologyAssignments
+					for psName, psResult := range result {
+						psAssignment := assignment.podSetAssignmentByName(psName)
+						psAssignment.TopologyAssignment = psResult.TopologyAssignment
+					}
+				}
+			}
+		}
+		if assignment.RepresentativeMode() == Preempt {
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
+			if failure := result.Failure(); failure != nil {
+				// There is at least one PodSet which does not fit even if
+				// all workloads are preempted.
+				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+				psAssignment.TASMode = ptr.To(NoFit)
+				assignment.representativeMode = ptr.To(NoFit)
 			}
 		}
 	}

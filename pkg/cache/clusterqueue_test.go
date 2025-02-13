@@ -679,8 +679,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported for preemption within cluster queue.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name: "TAS do not support MultiKueue AdmissionCheck",
