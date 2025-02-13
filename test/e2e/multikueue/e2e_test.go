@@ -28,6 +28,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -41,6 +42,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
@@ -50,6 +52,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -561,6 +564,67 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Message: "jobset completed successfully",
 					},
 					util.IgnoreConditionTimestampsAndObservedGeneration)))
+			})
+		})
+
+		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", func() {
+			// Since it requires 2 CPU in total, this appwrapper can only be admitted in worker 1.
+			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
+				Queue(managerLq.Name).
+				Component(testingjob.MakeJob("job-1", managerNs.Name).
+					SetTypeMeta().
+					Suspend(false).
+					Image(util.E2eTestSleepImage, []string{"5s"}). // Give it the time to be observed Active in the live status update step.
+					Parallelism(2).
+					Request(corev1.ResourceCPU, "1").
+					SetTypeMeta().Obj()).
+				Obj()
+
+			ginkgo.By("Creating the appwrapper", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, aw)).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
+
+			// the execution should be given to worker 1
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
+
+			ginkgo.By("Waiting for the appwrapper to get status updates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdAppWrapper := &awv1beta2.AppWrapper{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the appwrapper to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "AppWrapper finished successfully",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters and the appwrapper is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerAppWrapper := &awv1beta2.AppWrapper{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(aw), workerAppWrapper)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(aw), workerAppWrapper)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				createdAppWrapper := &awv1beta2.AppWrapper{}
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+				gomega.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
+				gomega.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
 			})
 		})
 

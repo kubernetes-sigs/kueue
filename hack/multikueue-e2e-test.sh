@@ -81,6 +81,11 @@ function kind_load {
     install_jobset "$WORKER1_KIND_CLUSTER_NAME"
     install_jobset "$WORKER2_KIND_CLUSTER_NAME"
 
+    # APPWRAPPER SETUP
+    install_appwrapper "$MANAGER_KIND_CLUSTER_NAME"
+    install_appwrapper "$WORKER1_KIND_CLUSTER_NAME"
+    install_appwrapper "$WORKER2_KIND_CLUSTER_NAME"
+
     # KUBEFLOW SETUP
     # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
     # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930

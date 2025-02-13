@@ -55,6 +55,11 @@ func (aw *AppWrapperWrapper) Obj() *awv1beta2.AppWrapper {
 	return &aw.AppWrapper
 }
 
+// DeepCopy returns a DeepCopy of aw.
+func (aw *AppWrapperWrapper) DeepCopy() *AppWrapperWrapper {
+	return &AppWrapperWrapper{AppWrapper: *aw.AppWrapper.DeepCopy()}
+}
+
 // Label sets a label of the AppWrapper
 func (aw *AppWrapperWrapper) Label(k, v string) *AppWrapperWrapper {
 	if aw.Labels == nil {
@@ -135,5 +140,11 @@ func (aw *AppWrapperWrapper) SetCondition(condition metav1.Condition) *AppWrappe
 // SetPhase sets the status phase of the AppWrapeer.
 func (aw *AppWrapperWrapper) SetPhase(phase awv1beta2.AppWrapperPhase) *AppWrapperWrapper {
 	aw.AppWrapper.Status.Phase = phase
+	return aw
+}
+
+// ManagedBy adds a managedby.
+func (aw *AppWrapperWrapper) ManagedBy(c string) *AppWrapperWrapper {
+	aw.AppWrapper.Spec.ManagedBy = &c
 	return aw
 }
