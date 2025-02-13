@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -363,26 +362,12 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 // If such a domain doesn't exist, it returns 0 as it's an index of the domain with the
 // most available resources
 func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
-	mostAllocatedFitIdx := sort.Search(len(domains), func(i int) bool {
-		return domains[i].state < count
-	})
-	if mostAllocatedFitIdx == 0 {
-		// all domains have state < count, so we return the largest one
-		return 0
-	}
-	// find the first occurrence of the most allocated domain
-	mostAllocatedFitState := domains[mostAllocatedFitIdx-1].state
-	left, right := 0, len(domains)-1
-	for left <= right {
-		mid := left + (right-left)/2
-		switch {
-		case domains[mid].state == mostAllocatedFitState:
-			mostAllocatedFitIdx = mid
-			right = mid - 1
-		case domains[mid].state > mostAllocatedFitState:
-			left = mid + 1
-		default:
-			right = mid - 1
+	mostAllocatedFitIdx := 0
+	for i, domain := range domains {
+		if domain.state < count {
+			break
+		} else if domain.state != domains[mostAllocatedFitIdx].state {
+			mostAllocatedFitIdx = i
 		}
 	}
 	return mostAllocatedFitIdx
