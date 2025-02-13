@@ -125,6 +125,9 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 		ctrl.Log.Error(err, "Error returned from awutils.GetPodSets", "appwrapper", aw)
 		return nil, err
 	}
+	for idx := range podSets {
+		podSets[idx].TopologyRequest = jobframework.PodSetTopologyRequest(&podSets[idx].Template.ObjectMeta, nil, nil, nil)
+	}
 	return podSets, nil
 }
 
