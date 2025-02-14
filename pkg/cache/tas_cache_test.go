@@ -212,7 +212,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		// TODO: remove after dropping the LeastAllocatedTAS feature gate
+		// TODO: remove after dropping the TASLeastAllocated feature gate
 		enableTASLeastAllocated bool
 		wantReason              string
 		request                 kueue.PodSetTopologyRequest
@@ -225,7 +225,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		tolerations             []corev1.Toleration
 		wantAssignment          *kueue.TopologyAssignment
 	}{
-		// TODO: remove suffixes LeastAllocated/MostAllocated after dropping the LeastAllocatedTAS feature gate
+		// TODO: remove suffixes LeastAllocated/MostAllocated after dropping the TASLeastAllocated feature gate
 		"minimize the number of used racks before optimizing the number of nodes; LeastAllocated": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
 			// Solution by optimizing the number of nodes: [r1,r2]: [x1,x2]
@@ -414,7 +414,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableTASLeastAllocated: false,
 		},
 		"host required; single Pod fits in the host; LeastAllocated": {
-			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
@@ -461,7 +461,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableTASLeastAllocated: false,
 		},
 		"rack required; single Pod fits in a rack; LeastAllocated": {
-			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -622,7 +622,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableTASLeastAllocated: true,
 		},
 		"block required; single Pod fits in a block; LeastAllocated": {
-			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
@@ -768,7 +768,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableTASLeastAllocated: true,
 		},
 		"rack required; single Pod requiring memory; LeastAllocated": {
-			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
@@ -1322,7 +1322,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			// TODO: remove after dropping the LeastAllocatedTAS feature gate
+			// TODO: remove after dropping the TASLeastAllocated feature gate
 			features.SetFeatureGateDuringTest(t, features.TASLeastAllocated, tc.enableTASLeastAllocated)
 
 			initialObjects := make([]client.Object, 0)
