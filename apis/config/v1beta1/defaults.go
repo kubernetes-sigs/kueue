@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -155,6 +156,27 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.QueueVisibility.ClusterQueues == nil {
 		cfg.QueueVisibility.ClusterQueues = &ClusterQueueVisibility{
 			MaxCount: DefaultClusterQueuesMaxCount,
+		}
+	}
+
+	if !features.Enabled((features.ManagedJobsNamespaceSelector)) {
+		// Backwards compatability: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
+		if cfg.Integrations.PodOptions == nil {
+			cfg.Integrations.PodOptions = &PodIntegrationOptions{}
+		}
+
+		if cfg.Integrations.PodOptions.NamespaceSelector == nil {
+			matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
+
+			cfg.Integrations.PodOptions.NamespaceSelector = &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      corev1.LabelMetadataName,
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   matchExpressionsValues,
+					},
+				},
+			}
 		}
 	}
 
