@@ -57,8 +57,8 @@ You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. C
 {{% /alert %}}
 
   Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
-  and `integrations.podOptions.podSelector` were used instead. Although `podOptions` is
-  still supported in Kueue v0.10, it is expected to be deprecated in a future release.
+  and `integrations.podOptions.podSelector` were used instead. The use of `podOptions` was
+  deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.
 
 
 2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
@@ -71,7 +71,7 @@ You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. C
    ```
    
    When you [install Kueue via Helm](/docs/installation/#install-via-helm), the webhook namespace selector 
-   will match the `integrations.podOptions.namespaceSelector` in the `values.yaml`.
+   will match the `managedJobsNamespaceSelector` in the `values.yaml`.
 
    Make sure that namespaceSelector never matches the kueue namespace, otherwise the 
    Kueue deployment won't be able to create Pods.

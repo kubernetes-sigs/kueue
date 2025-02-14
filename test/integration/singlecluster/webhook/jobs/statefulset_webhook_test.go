@@ -25,7 +25,6 @@ import (
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -50,10 +49,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				statefulset.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithIntegrationOptions(
-					corev1.SchemeGroupVersion.WithKind("Pod").String(),
-					&configapi.PodIntegrationOptions{},
-				),
 			))
 		})
 		ginkgo.AfterAll(func() {

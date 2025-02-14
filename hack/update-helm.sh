@@ -110,6 +110,7 @@ search_validate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }
 add_webhook_line=$(
   cat <<'EOF'
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
+{{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
 EOF
 )
 add_annotations_line=$(
@@ -130,8 +131,8 @@ add_webhook_pod_mutate=$(
     {{- end }}
     name: mpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -151,8 +152,8 @@ add_webhook_pod_validate=$(
     {{- end }}
     name: vpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -173,12 +174,16 @@ add_webhook_deployment_mutate=$(
     {{- end }}
     name: mdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_deployment_validate=$(
@@ -190,12 +195,16 @@ add_webhook_deployment_validate=$(
     {{- end }}
     name: vdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_statefulset_mutate=$(
@@ -207,12 +216,16 @@ add_webhook_statefulset_mutate=$(
     {{- end }}
     name: mstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_statefulset_validate=$(
@@ -224,12 +237,16 @@ add_webhook_statefulset_validate=$(
     {{- end }}
     name: vstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 
