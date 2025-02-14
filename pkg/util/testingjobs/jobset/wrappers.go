@@ -117,6 +117,12 @@ func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrappe
 	return j
 }
 
+func (j *JobSetWrapper) SetTypeMeta() *JobSetWrapper {
+	j.APIVersion = jobsetapi.SchemeGroupVersion.String()
+	j.Kind = "JobSet"
+	return j
+}
+
 // Queue updates the queue name of the JobSet.
 func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	return j.Label(constants.QueueLabel, queue)
