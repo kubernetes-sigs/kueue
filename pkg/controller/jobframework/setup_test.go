@@ -19,10 +19,8 @@ package jobframework
 import (
 	"context"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -43,6 +41,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+
+	"github.com/go-logr/logr"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 func TestSetupControllers(t *testing.T) {
@@ -84,7 +86,7 @@ func TestSetupControllers(t *testing.T) {
 	cases := map[string]struct {
 		opts                    []Option
 		mapperGVKs              []schema.GroupVersionKind
-		delayedGVKs             []*schema.GroupVersionKind
+		crdStatusConditions     []apiextensionsv1.CustomResourceDefinitionStatus
 		wantError               error
 		wantEnabledIntegrations []string
 	}{
@@ -100,6 +102,24 @@ func TestSetupControllers(t *testing.T) {
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 				kfmpi.SchemeGroupVersionKind,
 			},
+			crdStatusConditions: []apiextensionsv1.CustomResourceDefinitionStatus{
+				{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
+				{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
+			},
 			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
@@ -108,6 +128,16 @@ func TestSetupControllers(t *testing.T) {
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			crdStatusConditions: []apiextensionsv1.CustomResourceDefinitionStatus{
+				{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
 			},
 			wantEnabledIntegrations: []string{"batch/job"},
 		},
@@ -118,14 +148,29 @@ func TestSetupControllers(t *testing.T) {
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 				kfmpi.SchemeGroupVersionKind,
-				// Not including RayCluster
 			},
-			delayedGVKs: []*schema.GroupVersionKind{
-				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
+			crdStatusConditions: []apiextensionsv1.CustomResourceDefinitionStatus{
+				{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
+				{
+					Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+						{
+							Type:   apiextensionsv1.Established,
+							Status: apiextensionsv1.ConditionTrue,
+						},
+					},
+				},
 			},
-			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
 		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manager := integrationManager{}
@@ -164,16 +209,28 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
+			discoveredCRDs := make(chan schema.GroupVersionKind, 10)
+
+			go func() {
+				for i, gvk := range tc.mapperGVKs {
+					crd := &apiextensionsv1.CustomResourceDefinition{
+						Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+							Group: gvk.Group,
+							Names: apiextensionsv1.CustomResourceDefinitionNames{Kind: gvk.Kind},
+							Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+								{Name: gvk.Version},
+							},
+						},
+						Status: tc.crdStatusConditions[i],
+					}
+
+					testAddCRDHandler(ctx, mgr, logger, discoveredCRDs, crd)
+				}
+			}()
+
+			gotError := manager.setupControllersFromDiscoveredCRDs(ctx, mgr, logger, discoveredCRDs, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
-			}
-
-			if len(tc.delayedGVKs) > 0 {
-				simulateDelayedIntegration(mgr, tc.delayedGVKs)
-				for _, gvk := range tc.delayedGVKs {
-					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
-				}
 			}
 
 			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
@@ -181,6 +238,25 @@ func TestSetupControllers(t *testing.T) {
 				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func testAddCRDHandler(ctx context.Context, mgr ctrlmgr.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind, crd *apiextensionsv1.CustomResourceDefinition) {
+	gvk := schema.GroupVersionKind{
+		Group:   crd.Spec.Group,
+		Version: crd.Spec.Versions[0].Name,
+		Kind:    crd.Spec.Names.Kind,
+	}
+
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established &&
+			condition.Status == apiextensionsv1.ConditionTrue {
+			go waitForAPI(ctx, mgr, log, gvk, func() {
+				log.Info("API now available, starting controller", "gvk", gvk)
+				discoveredCRDs <- gvk
+			})
+			break
+		}
 	}
 }
 
@@ -193,27 +269,6 @@ func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	return m.DefaultRESTMapper.RESTMapping(gk, versions...)
-}
-
-// Simulates the delayed availability of GVKs
-func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
-	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
-	mapper.lock.Lock()
-	defer mapper.lock.Unlock()
-
-	for _, gvk := range delayedGVKs {
-		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
-	}
-}
-
-func testDelayedIntegration(manager *integrationManager, crdName string) {
-	for {
-		_, ok := manager.getEnabledIntegrations()[crdName]
-		if ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 func TestSetupIndexes(t *testing.T) {
