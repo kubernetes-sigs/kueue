@@ -648,7 +648,7 @@ For a given PodSet Kueue:
   level. Kueue starts the search from the specified level, but if the PodSet
   does not fit, then it tries higher levels in the hierarchy.
 
-Kueue can operate in two modes when it comes to choosing the best domain if there is more than one capable of accommodating all the pods:
+Kueue packs pods on domains starting from the domains with the most free capacity. However, Kueue can operate in two modes when it comes to choosing the last domain if there is more than one capable of accommodating the remaining pods:
 - `MostAllocated` - Kueue chooses the domain with the least available resource that is capable of accommodating all the pods to mitigate resource fragmentation
 - `LeastAllocated` - Kueue chooses the domain that has the most available resources, providing better nodes utilization
 
