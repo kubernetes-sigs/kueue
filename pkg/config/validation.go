@@ -208,14 +208,15 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	var namespaceSelector *metav1.LabelSelector
+	var namespaceSelector *metav1.LabelSelector = nil
 	namespaceSelectorPath := managedJobsNamespaceSelectorPath
 	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
 		namespaceSelector = c.Integrations.PodOptions.NamespaceSelector
 		namespaceSelectorPath = podOptionsNamespaceSelectorPath
 	} else if c.ManagedJobsNamespaceSelector != nil {
 		namespaceSelector = c.ManagedJobsNamespaceSelector
-	} else {
+	}
+	if namespaceSelector == nil {
 		return field.ErrorList{field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled")}
 	}
 	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
