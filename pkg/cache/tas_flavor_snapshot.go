@@ -381,7 +381,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
-	if !features.Enabled(features.LeastAllocatedTAS) && topDomain.state >= count {
+	if !features.Enabled(features.TASLeastAllocated) && topDomain.state >= count {
 		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
@@ -397,7 +397,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
 			lastIdx++
 			offset := 0
-			if !features.Enabled(features.LeastAllocatedTAS) && sortedDomain[lastIdx].state >= remainingCount {
+			if !features.Enabled(features.TASLeastAllocated) && sortedDomain[lastIdx].state >= remainingCount {
 				offset = findMostAllocatedDomainIdx(sortedDomain[lastIdx:], remainingCount)
 			}
 			results = append(results, sortedDomain[lastIdx+offset])
@@ -415,7 +415,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
-		if !features.Enabled(features.LeastAllocatedTAS) && domain.state >= remainingCount {
+		if !features.Enabled(features.TASLeastAllocated) && domain.state >= remainingCount {
 			mostAllocatedIdx := findMostAllocatedDomainIdx(domains[i:], remainingCount)
 			domain = domains[i+mostAllocatedIdx]
 		}
