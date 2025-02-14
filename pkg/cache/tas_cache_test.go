@@ -533,6 +533,57 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			leastAllocated: false,
 		},
+		"block preferred; Pods fit in 2 blocks; MostAllocated": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1").
+					Label(tasBlockLabel, "b1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2").
+					Label(tasBlockLabel, "b2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b3").
+					Label(tasBlockLabel, "b3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Preferred: ptr.To(tasBlockLabel),
+			},
+			levels: []string{tasBlockLabel},
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 5,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: []string{tasBlockLabel},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"b2",
+						},
+					},
+					{
+						Count: 4,
+						Values: []string{
+							"b3",
+						},
+					},
+				},
+			},
+			leastAllocated: false,
+		},
 		"rack required; multiple Pods fit in some racks; MostAllocated": {
 			nodes: defaultNodes,
 			request: kueue.PodSetTopologyRequest{

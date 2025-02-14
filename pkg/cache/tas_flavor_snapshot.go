@@ -365,9 +365,11 @@ func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
 	mostAllocatedFitIdx := 0
 	for i, domain := range domains {
 		if domain.state < count {
-			break
+			return mostAllocatedFitIdx
 		}
 		if domain.state != domains[mostAllocatedFitIdx].state {
+			// choose the first occurrence of fitting domains
+			// to make it consecutive with other podSet's domains
 			mostAllocatedFitIdx = i
 		}
 	}
@@ -386,6 +388,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
+		results := []*domain{topDomain}
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)
 		}
@@ -396,12 +399,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		remainingCount := count - sortedDomain[lastIdx].state
 		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
 			lastIdx++
+			offset := 0
+			if !features.Enabled(features.LeastAllocatedTAS) {
+				offset = findMostAllocatedDomainIdx(sortedDomain[lastIdx:], remainingCount)
+			}
+			results = append(results, sortedDomain[lastIdx+offset])
 			remainingCount -= sortedDomain[lastIdx].state
 		}
 		if remainingCount > 0 {
 			return 0, nil, s.notFitMessage(count-remainingCount, count)
 		}
-		return 0, sortedDomain[:lastIdx+1], ""
+		return 0, results, ""
 	}
 	return levelIdx, []*domain{topDomain}, ""
 }
