@@ -46,7 +46,7 @@ func main() {
 
 	handlers.InitializeWebSocketRoutes(r, dynamicClient, k8sClient)
 
-	if err := r.Run(":8080"); err != nil {
+	if err := r.Run(":8181"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
