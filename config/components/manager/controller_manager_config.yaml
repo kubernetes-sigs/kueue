@@ -34,8 +34,10 @@ clientConnection:
 #    backoffMaxSeconds: 3600
 #manageJobsWithoutQueueName: true
 #managedJobsNamespaceSelector:
-#  matchLabels:
-#    kueue-managed: "true"
+#  matchExpressions:
+#    - key: kubernetes.io/metadata.name
+#      operator: NotIn
+#      values: [ kube-system, kueue-system ]
 #internalCertManagement:
 #  enable: false
 #  webhookServiceName: ""
