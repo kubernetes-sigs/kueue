@@ -94,6 +94,11 @@ managerConfig:
     #    backoffBaseSeconds: 60
     #    backoffMaxSeconds: 3600
     #manageJobsWithoutQueueName: true
+    #managedJobsNamespaceSelector:
+    #  matchExpressions:
+    #    - key: kubernetes.io/metadata.name
+    #      operator: NotIn
+    #      values: [ kube-system, kueue-system ]
     #internalCertManagement:
     #  enable: false
     #  webhookServiceName: ""
