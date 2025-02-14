@@ -192,6 +192,12 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Key:      "abc",
 					Operator: corev1.TolerationOpEqual,
 					Value:    "v",
+					Effect:   corev1.TaintEffectPreferNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
 					Effect:   corev1.TaintEffectNoSchedule,
 				}).
 				Obj(),

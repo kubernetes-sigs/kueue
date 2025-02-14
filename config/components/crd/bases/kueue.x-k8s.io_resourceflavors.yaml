@@ -102,10 +102,8 @@ spec:
                 type: array
                 x-kubernetes-list-type: atomic
                 x-kubernetes-validations:
-                - message: 'supported taint effect values: ''NoSchedule'', ''PreferNoSchedule'',
-                    ''NoExecute'''
-                  rule: self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule',
-                    'NoExecute'])
+                - message: 'supported taint effect values: ''NoSchedule'' and ''NoExecute'''
+                  rule: self.all(x, x.effect in ['NoSchedule', 'NoExecute'])
               tolerations:
                 description: |-
                   tolerations are extra tolerations that will be added to the pods admitted in
