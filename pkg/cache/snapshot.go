@@ -45,6 +45,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.removeUsage(wl.FlavorResourceUsage())
+	cq.removeTASUsage(wl)
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -53,6 +54,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.FlavorResourceUsage())
+	cq.addTASUsage(wl)
 }
 
 func (s *Snapshot) Log(log logr.Logger) {

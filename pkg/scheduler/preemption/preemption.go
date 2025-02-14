@@ -69,6 +69,7 @@ type preemptionCtx struct {
 	preemptorCQ       *cache.ClusterQueueSnapshot
 	snapshot          *cache.Snapshot
 	requests          resources.FlavorResourceQuantities
+	tasRequests       cache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
 
@@ -123,12 +124,15 @@ type Target struct {
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
+	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+	tasRequests := assignment.WorkloadsTopologyRequests(&wl, wl.TotalRequests, cq)
 	return p.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,
-		preemptorCQ:       snapshot.ClusterQueues[wl.ClusterQueue],
+		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		requests:          assignment.TotalRequestsFor(&wl),
+		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 	})
 }
@@ -486,6 +490,11 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {
 	resPerFlavor := sets.New[resources.FlavorResource]()
 	for _, ps := range assignment.PodSets {
+		if ps.TASMode != nil && *ps.TASMode == flavorassigner.Preempt {
+			for res, flvAssignment := range ps.Flavors {
+				resPerFlavor.Insert(resources.FlavorResource{Flavor: flvAssignment.Name, Resource: res})
+			}
+		}
 		for res, flvAssignment := range ps.Flavors {
 			if flvAssignment.Mode == flavorassigner.Preempt {
 				resPerFlavor.Insert(resources.FlavorResource{Flavor: flvAssignment.Name, Resource: res})
@@ -579,7 +588,8 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	return true
+	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false)
+	return tasResult.Failure() == nil
 }
 
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
