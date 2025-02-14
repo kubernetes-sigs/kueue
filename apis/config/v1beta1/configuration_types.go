@@ -48,8 +48,9 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// ManagedJobsNamespaceSelector can be used to selectively exempt namespaces from both
-	// ManagedJobsWithoutQueueName and Pod-based integrations (pod, deployment, statefulset, etc).
+	// ManagedJobsNamespaceSelector can be used to selectively exempt namespaces when
+	// enabling ManagedJobsWithoutQueueName. The selector is respected for all workload
+	// types consistently - Jobs and Pod-based integrations (pod, deployment, statefulset, etc).
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
 	// InternalCertManagement is configuration for internalCertManagement
