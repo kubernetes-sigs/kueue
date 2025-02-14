@@ -364,12 +364,9 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
 	mostAllocatedFitIdx := 0
 	for i, domain := range domains {
-		if domain.state < count {
-			return mostAllocatedFitIdx
-		}
-		if domain.state != domains[mostAllocatedFitIdx].state {
+		if domain.state >= count && domain.state != domains[mostAllocatedFitIdx].state {
 			// choose the first occurrence of fitting domains
-			// to make it consecutive with other podSet's domains
+			// to make it consecutive with other podSet's
 			mostAllocatedFitIdx = i
 		}
 	}
@@ -384,7 +381,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
-	if !features.Enabled(features.LeastAllocatedTAS) {
+	if !features.Enabled(features.LeastAllocatedTAS) && topDomain.state >= count {
 		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
@@ -400,7 +397,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
 			lastIdx++
 			offset := 0
-			if !features.Enabled(features.LeastAllocatedTAS) {
+			if !features.Enabled(features.LeastAllocatedTAS) && sortedDomain[lastIdx].state >= remainingCount {
 				offset = findMostAllocatedDomainIdx(sortedDomain[lastIdx:], remainingCount)
 			}
 			results = append(results, sortedDomain[lastIdx+offset])
@@ -418,7 +415,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
-		if !features.Enabled(features.LeastAllocatedTAS) {
+		if !features.Enabled(features.LeastAllocatedTAS) && domain.state >= remainingCount {
 			mostAllocatedIdx := findMostAllocatedDomainIdx(domains[i:], remainingCount)
 			domain = domains[i+mostAllocatedIdx]
 		}
