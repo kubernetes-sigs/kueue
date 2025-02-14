@@ -198,7 +198,7 @@ func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *MPIJobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *MPIJobWrapper {
-	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+	j.ObjectMeta.OwnerReferences = append(j.ObjectMeta.OwnerReferences, metav1.OwnerReference{
 		{
 			APIVersion: ownerGVK.GroupVersion().String(),
 			Kind:       ownerGVK.Kind,
