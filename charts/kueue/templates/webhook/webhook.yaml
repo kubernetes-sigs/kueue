@@ -104,6 +104,9 @@ webhooks:
         path: /mutate-batch-v1-job
     failurePolicy: Fail
     name: mjob.kb.io
+    objectSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: kueue
     rules:
       - apiGroups:
           - batch
@@ -482,6 +485,9 @@ webhooks:
         path: /validate-batch-v1-job
     failurePolicy: Fail
     name: vjob.kb.io
+    objectSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: kueue
     rules:
       - apiGroups:
           - batch
