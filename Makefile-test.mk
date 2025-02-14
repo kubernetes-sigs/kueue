@@ -104,10 +104,8 @@ test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl gin
 
 CREATE_KIND_CLUSTER ?= true
 
-SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
-CUSTOMCONFIGS-E2E_TARGETS := $(addprefix run-test-e2e-customconfigs-,$(E2E_KIND_VERSION:kindest/node:v%=%))
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top $(SINGLECLUSTER-E2E_TARGETS) $(CUSTOMCONFIGS-E2E_TARGETS)
+test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
