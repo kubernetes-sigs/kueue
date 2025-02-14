@@ -212,18 +212,18 @@ func TestFindTopologyAssignment(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		request        kueue.PodSetTopologyRequest
-		levels         []string
-		nodeLabels     map[string]string
-		nodes          []corev1.Node
-		pods           []corev1.Pod
-		requests       resources.Requests
-		count          int32
-		tolerations    []corev1.Toleration
-		wantAssignment *kueue.TopologyAssignment
-		wantReason     string
 		// TODO: remove after dropping the LeastAllocatedTAS feature gate
 		enableTASLeastAllocated bool
+		wantReason              string
+		request                 kueue.PodSetTopologyRequest
+		levels                  []string
+		nodeLabels              map[string]string
+		nodes                   []corev1.Node
+		pods                    []corev1.Pod
+		requests                resources.Requests
+		count                   int32
+		tolerations             []corev1.Toleration
+		wantAssignment          *kueue.TopologyAssignment
 	}{
 		// TODO: remove suffixes LeastAllocated/MostAllocated after dropping the LeastAllocatedTAS feature gate
 		"minimize the number of used racks before optimizing the number of nodes; LeastAllocated": {
