@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
+
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -160,7 +161,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 
 	if !features.Enabled((features.ManagedJobsNamespaceSelector)) {
-		// Backwards compatability: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
+		// Backwards compatibility: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
 		if cfg.Integrations.PodOptions == nil {
 			cfg.Integrations.PodOptions = &PodIntegrationOptions{}
 		}
