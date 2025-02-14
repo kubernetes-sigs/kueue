@@ -145,6 +145,12 @@ const (
 	//
 	// Enable to set default LocalQueue.
 	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable to set use LeastAlloactedFit algorithm for TAS
+	TASLeastAllocated featuregate.Feature = "TASLeastAllocated"
 )
 
 func init() {
@@ -224,6 +230,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASLeastAllocated: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 }
 
