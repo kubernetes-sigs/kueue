@@ -571,33 +571,52 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 
 // IsAncestorJobManaged checks whether an ancestor job is managed by kueue.
 func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
-	owner := metav1.GetControllerOf(jobObj)
-	if owner == nil || !IsOwnerManagedByKueue(owner) {
-		return false, nil
+	seen := make(sets.Set[types.UID])
+	for {
+		if seen.Has(jobObj.GetUID()) {
+			return false, nil
+		}
+		seen.Insert(jobObj.GetUID())
+
+		owner := metav1.GetControllerOf(jobObj)
+		if owner == nil || !IsOwnerManagedByKueue(owner) {
+			return false, nil
+		}
+		parentJob := GetEmptyOwnerObject(owner)
+		if parentJob == nil {
+			return false, fmt.Errorf("workload owner %v: %w", owner, ErrUnknownWorkloadOwner)
+		}
+		if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
+			return false, errors.Join(ErrWorkloadOwnerNotFound, err)
+		}
+		if QueueNameForObject(parentJob) != "" {
+			return true, nil
+		}
+		jobObj = parentJob
 	}
-	parentJob := GetEmptyOwnerObject(owner)
-	if parentJob == nil {
-		return false, fmt.Errorf("workload owner %v: %w", owner, ErrUnknownWorkloadOwner)
-	}
-	if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
-		return false, errors.Join(ErrWorkloadOwnerNotFound, err)
-	}
-	if QueueNameForObject(parentJob) != "" {
-		return true, nil
-	}
-	return r.IsAncestorJobManaged(ctx, parentJob, namespace)
 }
 
-func (r *JobReconciler) getAncestorWorkload(ctx context.Context, object client.Object, namespace string) (*kueue.Workload, error) {
-	owner := metav1.GetControllerOf(object)
-	if owner == nil || !IsOwnerManagedByKueue(owner) {
-		return nil, nil
-	}
-	wlList := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wlList, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
-	if len(wlList.Items) == 0 {
+func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.Object, namespace string) (*kueue.Workload, error) {
+	seen := make(sets.Set[types.UID])
+	for {
+		if seen.Has(jobObj.GetUID()) {
+			return nil, nil
+		}
+		seen.Insert(jobObj.GetUID())
+
+		owner := metav1.GetControllerOf(jobObj)
+		if owner == nil || !IsOwnerManagedByKueue(owner) {
+			return nil, nil
+		}
+		wlList := kueue.WorkloadList{}
+		if err := r.client.List(ctx, &wlList, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); client.IgnoreNotFound(err) != nil {
+			return nil, err
+		}
+		if len(wlList.Items) > 0 {
+			// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
+			return &wlList.Items[0], nil
+		}
+
 		// Owner doesn't have a workload, but might have an ancestor that does.
 		parentJob := GetEmptyOwnerObject(owner)
 		if parentJob == nil {
@@ -606,11 +625,8 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, object client.O
 		if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
-		return r.getAncestorWorkload(ctx, parentJob, namespace)
+		jobObj = parentJob
 	}
-
-	// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
-	return &wlList.Items[0], nil
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
