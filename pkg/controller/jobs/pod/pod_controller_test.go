@@ -28,8 +28,10 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -131,6 +133,7 @@ func TestRun(t *testing.T) {
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		pod         *Pod
+		isGroup     bool
 		wantPodSets func(pod *Pod) []kueue.PodSet
 	}{
 		"no annotations": {
@@ -141,6 +144,143 @@ func TestPodSets(t *testing.T) {
 						Name:     kueue.DefaultPodSetName,
 						Count:    1,
 						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+				}
+			},
+		},
+		"with pod-group-sets annotation and no group-role annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Group("group").
+				GroupTotalCount("2").
+				PodGroupSets(`
+- name: main
+  count: 1
+- name: generated
+  count: 1
+  template:
+    spec:
+      containers:
+      - resources:
+          limits:
+            cpu: 1
+`).
+				Obj()),
+			isGroup: true,
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				mainShape, err := utilpod.GenerateShape(pod.pod.Spec)
+				if err != nil {
+					t.Fatalf(
+						"failed to calc shape of pod %s/%s in wantPodSets: %s",
+						pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				var podGroupSets []kueue.PodSet
+				podGroupSetsStr := pod.pod.Annotations[PodGroupSetsAnnotation]
+				if err := yaml.NewYAMLOrJSONDecoder(
+					strings.NewReader(podGroupSetsStr), len(podGroupSetsStr),
+				).Decode(&podGroupSets); err != nil {
+					t.Fatalf(
+						"failed to parse '%s' annotation of pod %s/%s in wantPodSets: %s",
+						PodGroupSetsAnnotation, pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				generatedGroupRoleHash, err := getRoleHash(corev1.Pod{Spec: podGroupSets[1].Template.Spec})
+				if err != nil {
+					t.Fatalf(
+						"failed to calc shape of %s pod group in '%s' annotation for pod %s/%s in wantPodSets: %s",
+						podGroupSets[1].Name, PodGroupSetsAnnotation,
+						pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				return []kueue.PodSet{
+					{
+						Name:     mainShape,
+						Count:    1,
+						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+					{
+						Name:  generatedGroupRoleHash,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("1"),
+										},
+									},
+								},
+								}},
+						},
+					},
+				}
+			},
+		},
+		"with pod-group-sets annotation and group-role annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Group("group").
+				GroupTotalCount("2").
+				PodGroupRole("driver").
+				PodGroupSets(`
+- name: driver
+  count: 1
+- name: generated
+  count: 1
+  template:
+    spec:
+      containers:
+      - resources:
+          limits:
+            cpu: 1
+`).
+				Obj()),
+			isGroup: true,
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				driverShape, err := utilpod.GenerateShape(pod.pod.Spec)
+				if err != nil {
+					t.Fatalf(
+						"failed to calc shape of pod %s/%s in wantPodSets: %s",
+						pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				var podGroupSets []kueue.PodSet
+				podGroupSetsStr := pod.pod.Annotations[PodGroupSetsAnnotation]
+				if err := yaml.NewYAMLOrJSONDecoder(
+					strings.NewReader(podGroupSetsStr), len(podGroupSetsStr),
+				).Decode(&podGroupSets); err != nil {
+					t.Fatalf(
+						"failed to parse '%s' annotation of pod %s/%s in wantPodSets: %s",
+						PodGroupSetsAnnotation, pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				generatedGroupRoleHash, err := getRoleHash(corev1.Pod{Spec: podGroupSets[1].Template.Spec})
+				if err != nil {
+					t.Fatalf(
+						"failed to calc shape of %s pod group in '%s' annotation for pod %s/%s in wantPodSets: %s",
+						podGroupSets[1].Name, PodGroupSetsAnnotation,
+						pod.pod.Namespace, pod.pod.Name, err.Error(),
+					)
+				}
+				return []kueue.PodSet{
+					{
+						Name:     driverShape,
+						Count:    1,
+						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+					{
+						Name:  generatedGroupRoleHash,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("1"),
+										},
+									},
+								},
+								}},
+						},
 					},
 				}
 			},
@@ -182,6 +322,9 @@ func TestPodSets(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.isGroup {
+				tc.pod.isGroup = true
+			}
 			gotPodSets, err := tc.pod.PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -737,6 +880,88 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(podUID, 3).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Annotations(map[string]string{
+						"kueue.x-k8s.io/is-group-workload":                           "true",
+						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is composed and created for the pod group with pod group sets": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Group("test-group").
+					GroupTotalCount("2").
+					PodGroupSets(`
+- name: main
+  count: 1
+- name: generated
+  count: 1
+  template:
+    spec:
+      containers:
+      - name: c
+        resources:
+          limits:
+            cpu: 1
+`).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Group("test-group").
+					GroupTotalCount("2").
+					PodGroupSets(`
+- name: main
+  count: 1
+- name: generated
+  count: 1
+  template:
+    spec:
+      containers:
+      - name: c
+        resources:
+          limits:
+            cpu: 1
+`).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(podUID, 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+						// "7aa6c7b8" is shape of "generated" in pod-group-sets annotation
+						*utiltesting.MakePodSet("7aa6c7b8", 1).
+							Limit(corev1.ResourceCPU, "1").
+							RestartPolicy("").
 							Obj(),
 					).
 					Queue("user-queue").
