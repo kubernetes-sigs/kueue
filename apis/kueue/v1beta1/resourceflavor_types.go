@@ -72,7 +72,7 @@ type ResourceFlavorSpec struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
-	// +kubebuilder:validation:XValidation:rule="self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute'])", message="supported taint effect values: 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, x.effect in ['NoSchedule', 'NoExecute'])", message="supported taint effect values: 'NoSchedule' and 'NoExecute'"
 	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
 
 	// tolerations are extra tolerations that will be added to the pods admitted in
