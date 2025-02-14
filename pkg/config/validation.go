@@ -208,7 +208,7 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	var namespaceSelector *metav1.LabelSelector = nil
+	var namespaceSelector *metav1.LabelSelector
 	namespaceSelectorPath := managedJobsNamespaceSelectorPath
 	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
 		namespaceSelector = c.Integrations.PodOptions.NamespaceSelector
