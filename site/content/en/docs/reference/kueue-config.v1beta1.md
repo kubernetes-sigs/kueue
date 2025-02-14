@@ -119,8 +119,9 @@ unsuspended, they will start immediately.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>ManagedJobsNamespaceSelector can be used to selectively exempt namespaces from both
-ManagedJobsWithoutQueueName and Pod-based integrations (pod, deployment, statefulset, etc).</p>
+   <p>ManagedJobsNamespaceSelector can be used to selectively exempt namespaces
+from management by Kueue. The selector is respected for all workload
+types consistently - Jobs and Pod-based integrations (pod, deployment, statefulset, etc).</p>
 </td>
 </tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>

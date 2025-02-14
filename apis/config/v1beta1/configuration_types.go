@@ -48,8 +48,8 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// ManagedJobsNamespaceSelector can be used to selectively exempt namespaces when
-	// enabling ManagedJobsWithoutQueueName. The selector is respected for all workload
+	// ManagedJobsNamespaceSelector can be used to selectively exempt namespaces
+	// from management by Kueue. The selector is respected for all workload
 	// types consistently - Jobs and Pod-based integrations (pod, deployment, statefulset, etc).
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
