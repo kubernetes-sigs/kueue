@@ -17,17 +17,20 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"kueue-viz/handlers"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 
 	"net/http"
 	_ "net/http/pprof"
 )
 
 func main() {
+	viper.AutomaticEnv()
 	// Start pprof server for profiling
 	go func() {
 		log.Println("Starting pprof server on :6060")
@@ -46,7 +49,8 @@ func main() {
 
 	handlers.InitializeWebSocketRoutes(r, dynamicClient, k8sClient)
 
-	if err := r.Run(":8080"); err != nil {
+	viper.SetDefault("KUEUE_VIZ_PORT", "8080")
+	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUE_VIZ_PORT"))); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
