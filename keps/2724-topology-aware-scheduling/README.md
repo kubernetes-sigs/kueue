@@ -648,6 +648,12 @@ For a given PodSet Kueue:
   level. Kueue starts the search from the specified level, but if the PodSet
   does not fit, then it tries higher levels in the hierarchy.
 
+Kueue packs pods on domains starting from the domains with the most free capacity. However, Kueue can operate in two modes when it comes to choosing the last domain if there is more than one capable of accommodating the remaining pods:
+- `MostAllocated` - Kueue chooses the domain with the least available resource that is capable of accommodating all the pods to mitigate resource fragmentation
+- `LeastAllocated` - Kueue chooses the domain that has the most available resources, providing better nodes utilization
+
+By default Kueue uses the `MostAllocated` algorithm. To use `LeastAllocated` algorithm, a user needs to set the feature gate `TASLeastAllocated` to `true`
+
 ### Enforcing the assignment
 
 When the workload has the PodSet assignments and is about to start we modify the
@@ -753,6 +759,7 @@ Consider the following improvements and implement if feasible:
  is running
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
+- drop `TASLeastAllocated` feature gate
 
 ## Implementation History
 

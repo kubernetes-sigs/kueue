@@ -28,6 +28,7 @@ import (
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -356,6 +357,22 @@ func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	return nil
 }
 
+// findMostAllocatedDomainIdx finds an index of the first domain with the lowest
+// value of state, higher or equal than count.
+// If such a domain doesn't exist, it returns 0 as it's an index of the domain with the
+// most available resources
+func findMostAllocatedDomainIdx(domains []*domain, count int32) int {
+	mostAllocatedFitIdx := 0
+	for i, domain := range domains {
+		if domain.state >= count && domain.state != domains[mostAllocatedFitIdx].state {
+			// choose the first occurrence of fitting domains
+			// to make it consecutive with other podSet's
+			mostAllocatedFitIdx = i
+		}
+	}
+	return mostAllocatedFitIdx
+}
+
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
@@ -364,7 +381,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
+	if !features.Enabled(features.TASLeastAllocated) && topDomain.state >= count {
+		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
+	}
 	if topDomain.state < count {
+		results := []*domain{topDomain}
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)
 		}
@@ -375,12 +396,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		remainingCount := count - sortedDomain[lastIdx].state
 		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
 			lastIdx++
+			offset := 0
+			if !features.Enabled(features.TASLeastAllocated) && sortedDomain[lastIdx].state >= remainingCount {
+				offset = findMostAllocatedDomainIdx(sortedDomain[lastIdx:], remainingCount)
+			}
+			results = append(results, sortedDomain[lastIdx+offset])
 			remainingCount -= sortedDomain[lastIdx].state
 		}
 		if remainingCount > 0 {
 			return 0, nil, s.notFitMessage(count-remainingCount, count)
 		}
-		return 0, sortedDomain[:lastIdx+1], ""
+		return 0, results, ""
 	}
 	return levelIdx, []*domain{topDomain}, ""
 }
@@ -388,7 +414,12 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
-	for _, domain := range domains {
+	for i, domain := range domains {
+		if !features.Enabled(features.TASLeastAllocated) && domain.state >= remainingCount {
+			mostAllocatedIdx := findMostAllocatedDomainIdx(domains[i:], remainingCount)
+			domain = domains[i+mostAllocatedIdx]
+		}
+
 		if domain.state >= remainingCount {
 			domain.state = remainingCount
 			result = append(result, domain)
