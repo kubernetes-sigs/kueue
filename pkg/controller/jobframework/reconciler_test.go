@@ -116,16 +116,33 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				Obj(),
 			wantManaged: false,
 		},
+		"cyclic ownership links are properly handled": {
+			grandparentJob: testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
+				UID(grandparentJobName).
+				OwnerReference(childJobName, batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+				UID(parentJobName).
+				OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+				Obj(),
+			job: testingjob.MakeJob(childJobName, jobNamespace).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+				Obj(),
+			wantManaged: false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"))
+			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"))
 			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
 			if tc.grandparentJob != nil {
 				builder = builder.WithObjects(tc.grandparentJob)
 			}
 			if tc.parentJob != nil {
 				builder = builder.WithObjects(tc.parentJob)
+			}
+			if tc.job != nil {
+				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
 			r := NewReconciler(cl, nil)
