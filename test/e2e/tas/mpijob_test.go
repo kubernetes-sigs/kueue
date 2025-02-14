@@ -99,8 +99,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 				Queue(localQueue.Name).
 				MPIJobReplicaSpecs(
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount:  launcherReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
@@ -109,8 +107,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						},
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
@@ -119,6 +115,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						},
 					},
 				).
+				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 				Limit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 				Request(kfmpi.MPIReplicaTypeWorker, extraResource, "1").

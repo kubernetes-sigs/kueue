@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 
 			const replicas = 3
 			sts := statefulset.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1").
 				Replicas(replicas).

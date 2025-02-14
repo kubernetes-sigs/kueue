@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -195,25 +195,25 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj2",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 				).
 				Request("rj1", "cpu", "200m").
@@ -327,7 +327,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a single Pod via TAS", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Pod group via TAS", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
