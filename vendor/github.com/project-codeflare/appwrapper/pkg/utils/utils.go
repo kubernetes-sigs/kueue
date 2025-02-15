@@ -492,6 +492,27 @@ func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperP
 		}
 		podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: "template.spec.template"})
 
+	case schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"}:
+		if jobs, err := getValueAtPath(obj.UnstructuredContent(), "template.spec.replicatedJobs"); err == nil {
+			if jobs, ok := jobs.([]interface{}); ok {
+				for i := range jobs {
+					jobSpecPrefix := fmt.Sprintf("template.spec.replicatedJobs[%v].", i)
+					// validate path to replica template
+					if _, err := getValueAtPath(obj.UnstructuredContent(), jobSpecPrefix+"template"); err == nil {
+						var replicas int32 = 1
+						if parallelism, err := GetReplicas(obj, jobSpecPrefix+"template.spec.parallelism"); err == nil {
+							replicas = parallelism
+						}
+						if completions, err := GetReplicas(obj, jobSpecPrefix+"template.spec.completions"); err == nil && completions < replicas {
+							replicas = completions
+						}
+						// infer replica count
+						podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: jobSpecPrefix + "template.spec.template"})
+					}
+				}
+			}
+		}
+
 	case schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"}:
 		for _, replicaType := range []string{"Master", "Worker"} {
 			prefix := "template.spec.pytorchReplicaSpecs." + replicaType + "."
