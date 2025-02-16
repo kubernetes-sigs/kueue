@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -46,37 +47,17 @@ func TestSummarize(t *testing.T) {
 		},
 		"podDefaults": {
 			ranges: []corev1.LimitRange{
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Default: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-								DefaultRequest: corev1.ResourceList{
-									corev1.ResourceCPU:    ar500m,
-									corev1.ResourceMemory: ar1Gi,
-								},
-							},
-						},
-					},
-				},
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Default: corev1.ResourceList{
-									corev1.ResourceMemory: ar2Gi,
-								},
-								DefaultRequest: corev1.ResourceList{
-									corev1.ResourceCPU: ar1,
-								},
-							},
-						},
-					},
-				},
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Default", corev1.ResourceCPU, ar2.String()).
+					WithValue("DefaultRequest", corev1.ResourceCPU, ar500m.String()).
+					WithValue("DefaultRequest", corev1.ResourceMemory, ar1Gi.String()).
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Default", corev1.ResourceMemory, ar2Gi.String()).
+					WithValue("DefaultRequest", corev1.ResourceCPU, ar1.String()).
+					Obj(),
 			},
 			expected: map[corev1.LimitType]corev1.LimitRangeItem{
 				corev1.LimitTypePod: {
@@ -93,43 +74,19 @@ func TestSummarize(t *testing.T) {
 		},
 		"limits": {
 			ranges: []corev1.LimitRange{
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Max: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-								Min: corev1.ResourceList{
-									corev1.ResourceCPU:    ar500m,
-									corev1.ResourceMemory: ar1Gi,
-								},
-								MaxLimitRequestRatio: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-							},
-						},
-					},
-				},
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Max: corev1.ResourceList{
-									corev1.ResourceMemory: ar2Gi,
-								},
-								Min: corev1.ResourceList{
-									corev1.ResourceCPU: ar1,
-								},
-								MaxLimitRequestRatio: corev1.ResourceList{
-									corev1.ResourceCPU: ar500m,
-								},
-							},
-						},
-					},
-				},
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceCPU, ar2.String()).
+					WithValue("Min", corev1.ResourceCPU, ar500m.String()).
+					WithValue("Min", corev1.ResourceMemory, ar1Gi.String()).
+					WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, ar2.String()).
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceMemory, ar2Gi.String()).
+					WithValue("Min", corev1.ResourceCPU, ar1.String()).
+					WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, ar500m.String()).
+					Obj(),
 			},
 			expected: Summary{
 				corev1.LimitTypePod: {
@@ -152,7 +109,7 @@ func TestSummarize(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			result := Summarize(tc.ranges...)
-			if diff := cmp.Diff(tc.expected, result); diff != "" {
+			if diff := cmp.Diff(tc.expected, result, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})

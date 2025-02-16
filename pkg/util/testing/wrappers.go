@@ -1086,6 +1086,8 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 		target = lr.Spec.Limits[0].Default
 	case "Max":
 	// nothing
+	case "MaxLimitRequestRatio":
+		target = lr.Spec.Limits[0].MaxLimitRequestRatio
 	default:
 		panic("Unexpected member " + member)
 	}
