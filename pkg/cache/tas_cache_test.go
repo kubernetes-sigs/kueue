@@ -55,6 +55,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -65,6 +66,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -75,6 +77,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -85,6 +88,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -95,6 +99,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -105,6 +110,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("40"),
 			}).
 			Ready().
 			Obj(),
@@ -135,6 +141,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -145,6 +152,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -155,6 +163,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -165,6 +174,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -175,6 +185,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -185,6 +196,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -195,6 +207,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -205,6 +218,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -238,7 +252,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -247,7 +262,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r2").
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("20"),
 					}).
 					Ready().
 					Obj(),
@@ -256,7 +272,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -265,7 +282,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -274,7 +292,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -283,7 +302,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -673,6 +693,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Obj(),
 			},
@@ -697,6 +718,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -733,6 +755,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -755,6 +778,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -791,6 +815,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -833,6 +858,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -861,6 +887,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -890,6 +917,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -898,6 +926,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -935,6 +964,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					NotReady().
 					StatusConditions(corev1.NodeCondition{
@@ -964,6 +994,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Unschedulable().
@@ -990,6 +1021,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Taints(corev1.Taint{
@@ -1025,6 +1057,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1058,6 +1091,38 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+		},
+		"no assignment as node does not have enough allocatable pods (.status.allocatable['pods'])": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-running", "test-ns").
+					NodeName("b1-r1-x1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "300m").
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 300,
+			},
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 	}
 	for name, tc := range cases {

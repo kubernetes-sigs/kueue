@@ -2239,6 +2239,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
