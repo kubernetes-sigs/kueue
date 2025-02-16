@@ -209,6 +209,7 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
+	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -223,6 +224,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
+	s.leaves[domainID].tasUsage.Add(resources.Requests{corev1.ResourcePods: 1})
 }
 
 type TASPodSetRequests struct {
@@ -272,6 +274,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		for _, domain := range assignment.Domains {
 			domainID := utiltas.DomainID(domain.Values)
 			assumedDomainUsage := tr.SinglePodRequests.Clone()
+			assumedDomainUsage.Add(resources.Requests{corev1.ResourcePods: 1})
 			assumedDomainUsage.Mul(int64(domain.Count))
 			if assumedUsage[domainID] == nil {
 				assumedUsage[domainID] = resources.Requests{}
@@ -508,7 +511,8 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		if leafAssumedUsage, found := assumedUsage[leaf.domain.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
 		}
-		leaf.state = requests.CountIn(remainingCapacity)
+		// Consider the situation where the allocatable Pods is less than allocatable resources from requests.CountIn().
+		leaf.state = min(requests.CountIn(remainingCapacity), int32(remainingCapacity[corev1.ResourcePods]))
 	}
 	for _, root := range s.roots {
 		root.state = s.fillInCountsHelper(root)
