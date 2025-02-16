@@ -28,9 +28,7 @@ import (
 )
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
-func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info,
-	requests []workload.PodSetResources,
-	cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
+func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
 	tasRequests := make(cache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
 		if podSet.TopologyRequest != nil {
