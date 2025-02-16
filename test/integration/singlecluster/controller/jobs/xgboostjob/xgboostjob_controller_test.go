@@ -345,6 +345,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
