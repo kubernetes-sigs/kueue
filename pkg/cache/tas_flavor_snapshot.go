@@ -210,6 +210,7 @@ func (s *TASFlavorSnapshot) addUsage(domainID utiltas.TopologyDomainID, usage re
 	// If the leaf domain exists the freeCapacity is already initialized by
 	// the addCapacity function
 	s.leaves[domainID].freeCapacity.Sub(usage)
+	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
 // Algorithm overview:

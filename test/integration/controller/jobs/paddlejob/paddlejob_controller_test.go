@@ -348,6 +348,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
