@@ -362,6 +362,7 @@ func TestTotalRequest(t *testing.T) {
 	}
 }
 func TestValidatePodSpec(t *testing.T) {
+	podSpecPath := field.NewPath("spec").Child("podSets").Index(0).Child("template").Child("spec")
 	podSpec := &corev1.PodSpec{
 		Containers: []corev1.Container{
 			*testingutil.MakeContainer().
@@ -393,19 +394,22 @@ func TestValidatePodSpec(t *testing.T) {
 	}
 	cases := map[string]struct {
 		summary Summary
-		want    []string
+		want    field.ErrorList
 	}{
 		"empty": {
 			summary: Summary{},
-			want:    []string{},
 		},
 		"init container over": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Max", "example.com/initContainerGpu", "1").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]string{"example.com/initContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
 			},
 		},
 		"init container under": {
@@ -413,8 +417,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Min", "example.com/initContainerGpu", "3").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]string{"example.com/initContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
 			},
 		},
 		"container over": {
@@ -422,8 +430,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Max", "example.com/mainContainerGpu", "1").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]string{"example.com/mainContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
 			},
 		},
 		"container under": {
@@ -431,8 +443,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Min", "example.com/mainContainerGpu", "3").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]string{"example.com/mainContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
 			},
 		},
 		"pod over": {
@@ -440,8 +456,8 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypePod).
 				WithValue("Max", corev1.ResourceCPU, "4").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []string{corev1.ResourceCPU.String()}, RequestsMustNotBeAboveLimitRangeMaxMessage),
 			},
 		},
 		"pod under": {
@@ -449,8 +465,8 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypePod).
 				WithValue("Min", corev1.ResourceCPU, "6").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []string{corev1.ResourceCPU.String()}, RequestsMustNotBeBelowLimitRangeMinMessage),
 			},
 		},
 		"multiple": {
@@ -468,10 +484,18 @@ func TestValidatePodSpec(t *testing.T) {
 					WithValue("Max", "example.com/initContainerGpu", "1").
 					Obj(),
 			),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
-				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
-				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]string{"example.com/initContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]string{"example.com/mainContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
+				field.Invalid(podSpecPath, []string{corev1.ResourceCPU.String()}, RequestsMustNotBeAboveLimitRangeMaxMessage),
 			},
 		},
 		"multiple valid": {
@@ -489,12 +513,11 @@ func TestValidatePodSpec(t *testing.T) {
 					WithValue("Max", "example.com/initContainerGpu", "2").
 					Obj(),
 			),
-			want: []string{},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			result := tc.summary.ValidatePodSpec(podSpec, field.NewPath("testPodSet"))
+			result := tc.summary.ValidatePodSpec(podSpec, podSpecPath)
 			if diff := cmp.Diff(tc.want, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
