@@ -106,10 +106,6 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 func (req Requests) CountIn(capacity Requests) int32 {
 	var result *int32
 	for rName, rValue := range req {
-		// The number of Pods could not count in capacities.
-		if rName == corev1.ResourcePods {
-			continue
-		}
 		capacity, found := capacity[rName]
 		if !found {
 			return 0

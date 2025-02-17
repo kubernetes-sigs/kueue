@@ -4933,7 +4933,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1000m"),
-						corev1.ResourcePods: resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("3"),
 					}).
 					Ready().
 					Obj(),
@@ -4960,13 +4960,13 @@ func TestScheduleForTAS(t *testing.T) {
 					Queue("tas-main").
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-default", "300m").
-							AssignmentPodCount(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "150m").
+							AssignmentPodCount(2).
 							TopologyAssignment(&kueue.TopologyAssignment{
 								Levels: utiltas.Levels(&defaultSingleLevelTopology),
 								Domains: []kueue.TopologyDomainAssignment{
 									{
-										Count: 1,
+										Count: 2,
 										Values: []string{
 											"x1",
 										},
@@ -4975,9 +4975,9 @@ func TestScheduleForTAS(t *testing.T) {
 							}).Obj(),
 					).
 					Admitted(true).
-					PodSets(*utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "300m").
+						Request(corev1.ResourceCPU, "150m").
 						Obj()).
 					Obj(),
 			},
