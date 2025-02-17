@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -269,6 +270,7 @@ func TestSchedule(t *testing.T) {
 		multiplePreemptions multiplePreemptionsCompatibility
 
 		workloads      []kueue.Workload
+		objects        []client.Object
 		admissionError error
 
 		// additional*Queues can hold any extra queues needed by the tc
@@ -2351,6 +2353,40 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 		},
+		"container does not satisfy limitRange constraints": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "500m").
+						Obj()).
+					Obj(),
+			},
+			objects: []client.Object{
+				utiltesting.MakeLimitRange("alpha", "sales").
+					WithType(corev1.LimitTypeContainer).
+					WithValue("Max", corev1.ResourceCPU, "300m").
+					Obj(),
+			},
+			wantLeft: map[string][]string{
+				"sales": {"sales/new"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "sales", Name: "new"},
+					Reason:    "Pending",
+					EventType: corev1.EventTypeWarning,
+					Message: fmt.Sprintf("%s: %s",
+						errLimitRangeConstraintsUnsatisfiedResources,
+						field.Invalid(
+							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
+							[]string{corev1.ResourceCPU.String()},
+							limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
+						).Error(),
+					),
+				},
+			},
+		},
 		"container resource requests exceed limits": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "sales").
@@ -2767,13 +2803,15 @@ func TestSchedule(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
-				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "lend", Labels: map[string]string{"dep": "lend"}}},
-				)
+				WithObjects(append(
+					[]client.Object{
+						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
+						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
+						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
+						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
+						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "lend", Labels: map[string]string{"dep": "lend"}}},
+					}, tc.objects...,
+				)...)
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := cache.New(cl)
