@@ -328,7 +328,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
 	}
-	return s.buildAssignment(currFitDomain, requests), ""
+	return s.buildAssignment(currFitDomain), ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
@@ -436,7 +436,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 }
 
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
-func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *kueue.TopologyAssignment {
 	assignment := &kueue.TopologyAssignment{
 		Domains: make([]kueue.TopologyDomainAssignment, len(domains)),
 	}
@@ -446,15 +446,11 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 			Values: domain.levelValues[levelIdx:],
 			Count:  domain.state,
 		}
-		usage := make(resources.Requests)
-		for resName, resValue := range singlePodRequest {
-			usage[resName] = resValue * int64(domain.state)
-		}
 	}
 	return assignment
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
 	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
 	slices.SortFunc(domains, func(a, b *domain) int {
 		return slices.Compare(a.levelValues, b.levelValues)
@@ -464,7 +460,7 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest 
 	if s.isLowestLevelNode() {
 		levelIdx = len(s.levelKeys) - 1
 	}
-	return s.buildTopologyAssignmentForLevels(domains, levelIdx, singlePodRequest)
+	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
