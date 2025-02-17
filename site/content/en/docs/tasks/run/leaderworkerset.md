@@ -4,7 +4,7 @@ linkTitle: "LeaderWorkerSet"
 date: 2025-02-17
 weight: 6
 description: >
-   Run a LeaderWorkerSet as a Kueue-managed workload for each group.
+   Run a LeaderWorkerSet as a Kueue-managed workload.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management
