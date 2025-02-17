@@ -1116,12 +1116,8 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condition {
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
-	// Once PodsReady=True it stays as long as the workload remains admitted to
-	// avoid unnecessary flickering the condition when the pods transition
-	// from Ready to Completed. As pods finish, they transition first into the
-	// uncountedTerminatedPods staging area, before passing to the
-	// succeeded/failed counters.
-	if workload.IsAdmitted(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+
+	if workload.IsAdmitted(wl) && job.PodsReady() {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}
