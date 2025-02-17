@@ -212,6 +212,14 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp) {
+	if op == add {
+		s.addTASUsage(domainID, usage)
+	} else {
+		s.removeTASUsage(domainID, usage)
+	}
+}
+
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
@@ -224,6 +232,13 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
+}
+
+func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	if s.leaves[domainID].tasUsage == nil {
+		s.leaves[domainID].tasUsage = resources.Requests{}
+	}
+	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
 type TASPodSetRequests struct {
@@ -261,11 +276,15 @@ type tasPodSetAssignmentResult struct {
 
 type FlavorTASRequests []TASPodSetRequests
 
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests) TASAssignmentsResult {
+// FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
+// the TAS requests in the flavor handled by the snapshot.
+// The simulateEmpty parameter allows to look for the assignment under the
+// assumption that all TAS workloads are preempted.
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool) TASAssignmentsResult {
 	result := make(map[string]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
-		assignment, reason := s.findTopologyAssignment(tr, assumedUsage)
+		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty)
 		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 		if reason != "" {
 			return result
@@ -297,7 +316,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 //	c) build the assignment for the lowest level in the hierarchy
 func (s *TASFlavorSnapshot) findTopologyAssignment(
 	tasPodSetRequests TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*kueue.TopologyAssignment, string) {
+	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	simulateEmpty bool) (*kueue.TopologyAssignment, string) {
 	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
 	requests := tasPodSetRequests.SinglePodRequests
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
@@ -313,7 +333,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	s.fillInCounts(requests, assumedUsage, append(podSetTolerations, s.tolerations...))
+	s.fillInCounts(requests, assumedUsage, simulateEmpty, append(podSetTolerations, s.tolerations...))
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
@@ -487,6 +507,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	simulateEmpty bool,
 	tolerations []corev1.Toleration) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
@@ -502,7 +523,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
-		remainingCapacity.Sub(leaf.tasUsage)
+		if !simulateEmpty {
+			remainingCapacity.Sub(leaf.tasUsage)
+		}
 		if leafAssumedUsage, found := assumedUsage[leaf.domain.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
 		}

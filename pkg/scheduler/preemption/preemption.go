@@ -69,6 +69,7 @@ type preemptionCtx struct {
 	preemptorCQ       *cache.ClusterQueueSnapshot
 	snapshot          *cache.Snapshot
 	requests          resources.FlavorResourceQuantities
+	tasRequests       cache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
 
@@ -123,12 +124,15 @@ type Target struct {
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
+	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
 	return p.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,
-		preemptorCQ:       snapshot.ClusterQueues[wl.ClusterQueue],
+		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		requests:          assignment.TotalRequestsFor(&wl),
+		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 	})
 }
@@ -579,7 +583,8 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	return true
+	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false)
+	return tasResult.Failure() == nil
 }
 
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {

@@ -25,9 +25,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -75,6 +77,19 @@ func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) 
 func (c *ClusterQueueSnapshot) removeUsage(frq resources.FlavorResourceQuantities) {
 	for fr, q := range frq {
 		removeUsage(c, fr, q)
+	}
+}
+
+func (c *ClusterQueueSnapshot) updateTASUsage(wi *workload.Info, op usageOp) {
+	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
+		for tasFlavor, tasUsage := range wi.TASUsage() {
+			if tasFlvCache := c.TASFlavors[tasFlavor]; tasFlvCache != nil {
+				for _, tr := range tasUsage {
+					domainID := utiltas.DomainID(tr.Values)
+					tasFlvCache.updateTASUsage(domainID, tr.Requests, op)
+				}
+			}
+		}
 	}
 }
 
@@ -153,14 +168,15 @@ func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.Flav
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
-	tasRequestsByFlavor WorkloadTASRequests) TASAssignmentsResult {
+	tasRequestsByFlavor WorkloadTASRequests,
+	simulateEmpty bool) TASAssignmentsResult {
 	result := make(TASAssignmentsResult)
 	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, simulateEmpty)
 		for psName, psAssignment := range flvResult {
 			result[psName] = psAssignment
 		}
