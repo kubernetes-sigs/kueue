@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"sort"
 	"testing"
 
@@ -1321,7 +1320,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx, _ := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			features.SetFeatureGateDuringTest(t, features.TASLeastAllocated, tc.enableTASLeastAllocated)
 
