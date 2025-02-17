@@ -230,6 +230,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 	requests resources.Requests,
 	count int32,
 	podSetTolerations []corev1.Toleration) (*kueue.TopologyAssignment, string) {
+	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	required := topologyRequest.Required != nil
 	key := levelKey(topologyRequest)
 	if key == nil {
