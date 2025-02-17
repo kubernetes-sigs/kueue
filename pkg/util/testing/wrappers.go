@@ -694,6 +694,14 @@ func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrap
 	return c
 }
 
+func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
+	if c.Spec.FairSharing == nil {
+		c.Spec.FairSharing = &kueue.FairSharing{}
+	}
+	c.Spec.FairSharing.Weight = &w
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -826,7 +834,7 @@ func (c *ClusterQueueWrapper) FairWeight(w resource.Quantity) *ClusterQueueWrapp
 	if c.Spec.FairSharing == nil {
 		c.Spec.FairSharing = &kueue.FairSharing{}
 	}
-	c.Spec.FairSharing.Weight = ptr.To(w)
+	c.Spec.FairSharing.Weight = &w
 	return c
 }
 
