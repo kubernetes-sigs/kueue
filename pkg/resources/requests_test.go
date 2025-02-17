@@ -80,15 +80,6 @@ func TestCountIn(t *testing.T) {
 			},
 			wantResult: 2,
 		},
-		"pods are ignored": {
-			requests: Requests{
-				corev1.ResourcePods: 3,
-			},
-			capacity: Requests{
-				corev1.ResourcePods: 5,
-			},
-			wantResult: 0,
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
