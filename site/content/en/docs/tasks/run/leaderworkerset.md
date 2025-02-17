@@ -8,7 +8,7 @@ description: >
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management
-capabilities when running LeaderWorkerSet.
+capabilities when running [LeaderWorkerSet](https://github.com/kubernetes-sigs/lws).
 
 We demonstrate how to support scheduling LeaderWorkerSets where a group of Pods constitutes
 a unit of admission represented by a Workload. This allows to scale-up and down LeaderWorkerSets
