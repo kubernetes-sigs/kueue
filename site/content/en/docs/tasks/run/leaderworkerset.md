@@ -10,10 +10,11 @@ description: >
 This page shows how to leverage Kueue's scheduling and resource management
 capabilities when running LeaderWorkerSet.
 
-We demonstrate how to support scheduling LeaderWorkerSet in Kueue based on the
-[Plain Pod Group](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/) integration,
-where LeaderWorkerSet is represented as a separate, independent workload for each
-group.
+We demonstrate how to support scheduling LeaderWorkerSets where a group of Pods constitutes
+a unit of admission represented by a Workload. This allows to scale-up and down LeaderWorkerSets
+group by group.
+
+This integration is based on the [Plain Pod Group](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/) integration.
 
 This guide is for [serving users](/docs/tasks#serving-user) that have a basic understanding of Kueue.
 For more information, see [Kueue's overview](/docs/overview).
