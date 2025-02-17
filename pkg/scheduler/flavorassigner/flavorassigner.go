@@ -396,7 +396,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == Fit {
-		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, requests, a.cq)
+		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, a.cq)
 		result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests)
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
