@@ -73,12 +73,7 @@ spec:
 
 ### c. Scaling
 
-You can perform scale up or scale down operations on a LeaderWorkerSet.
-
-```yaml
-spec:
-  replicas: 2
-```
+You can perform scale up or scale down operations on a LeaderWorkerSet `.spec.replicas`.
 
 The unit of scaling is a LWS group. By changing the number of `replicas` in the LWS you can create
 or delete entire groups of Pods. As a result of scale up the newly created group of Pods is
