@@ -79,8 +79,9 @@ spec:
   replicas: 2
 ```
 
-During these operations, all Pods are recreated and remain suspended until their corresponding workload 
-is admitted independently for each group..
+The unit of scaling is a LWS group. By changing the number of `replicas` in the LWS you can create
+or delete entire groups of Pods. As a result of scale up the newly created group of Pods is
+suspended by a scheduling gate, until the corresponding Workload is admitted.
 
 ## Example
 Here is a sample LeaderWorkerSet:
