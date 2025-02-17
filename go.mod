@@ -16,7 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/ray-project/kuberay/ray-operator v1.2.2
-	github.com/spf13/cobra v1.8.1
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
 	gomodules.xyz/jsonpatch/v2 v2.4.0
