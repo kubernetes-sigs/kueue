@@ -23,7 +23,7 @@ spec:
       spec:
         containers:
           - name: nginx-worker
-            image: nginx:1.14.2
+            image: registry.k8s.io/nginx-slim:0.27
             resources:
               requests:
                 cpu: "200m"
