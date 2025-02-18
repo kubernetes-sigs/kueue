@@ -827,9 +827,6 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 	}
 	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
-		elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-	}
 	return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 }
 
