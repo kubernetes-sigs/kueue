@@ -228,20 +228,23 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
+	// At least one namespace selector must be non-nil and enabled.
+	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
+	hasNamespaceSelector := false
 	if features.Enabled(features.ManagedJobsNamespaceSelector) {
-		atLeastOne := false
-		if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-			allErrs = validateNamespaceSelector(c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-			atLeastOne = true
-		}
-		if c.ManagedJobsNamespaceSelector == nil && !atLeastOne {
-			allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
-		} else {
+		if c.ManagedJobsNamespaceSelector != nil {
 			allErrs = validateNamespaceSelector(c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
+			hasNamespaceSelector = true
 		}
-	} else {
-		if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-			allErrs = validateNamespaceSelector(c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
+	}
+	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
+		allErrs = validateNamespaceSelector(c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
+		hasNamespaceSelector = true
+	}
+
+	if !hasNamespaceSelector {
+		if features.Enabled(features.ManagedJobsNamespaceSelector) {
+			allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 		} else {
 			allErrs = append(allErrs, field.Required(podOptionsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 		}
