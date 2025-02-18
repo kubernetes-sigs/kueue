@@ -123,7 +123,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           5 * time.Minute,
+			wantRecheckAfter:           4 * time.Minute,
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
