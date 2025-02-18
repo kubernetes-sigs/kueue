@@ -19,7 +19,6 @@ package jobframework
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -51,13 +50,28 @@ const (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	discoveredCRDs := make(chan schema.GroupVersionKind, 10)
-	go watchCRDs(ctx, mgr, log, discoveredCRDs)
+	options := ProcessOptions(opts...)
+	capacity := len(options.EnabledFrameworks)
+	discoveredCRDs := make(chan schema.GroupVersionKind, capacity)
+
+	enabledFrameworks := ProcessOptions(opts...)
+
+	go watchCRDs(ctx, mgr, log, discoveredCRDs, enabledFrameworks)
 	return manager.setupControllersFromDiscoveredCRDs(ctx, mgr, log, discoveredCRDs, opts...)
 }
 
 func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs <-chan schema.GroupVersionKind, opts ...Option) error {
 	options := ProcessOptions(opts...)
+
+	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
+		return fmt.Errorf("check enabled frameworks list: %w", err)
+	}
+
+	for fwkName := range options.EnabledExternalFrameworks {
+		if err := RegisterExternalJobType(fwkName); err != nil {
+			return err
+		}
+	}
 
 	setupChan := make(chan struct{}, 10)
 
@@ -69,18 +83,19 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 
 				var matchedName string
 				var matchedCallbacks *IntegrationCallbacks
-				m.mu.Lock()
+				m.mu.RLock()
 				for name, cb := range m.integrations {
 					if options.EnabledFrameworks.Has(name) {
+						jobTypeStr := strings.ToLower(fmt.Sprintf("%T", cb.JobType))
 						if name == fmt.Sprintf("%s/%s", currentGVK.Group, strings.ToLower(currentGVK.Kind)) ||
-							strings.EqualFold(reflect.TypeOf(cb.JobType).String(), currentGVK.Kind) {
+							strings.EqualFold(jobTypeStr, strings.ToLower(currentGVK.Kind)) {
 							matchedName = name
 							matchedCallbacks = &cb
 							break
 						}
 					}
 				}
-				m.mu.Unlock()
+				m.mu.RUnlock()
 
 				if matchedCallbacks == nil {
 					log.Info("No matching integration found for GVK", "gvk", currentGVK)
@@ -189,7 +204,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 	})
 }
 
-func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind) {
+func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind, opts Options) {
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		log.Error(err, "Failed to create CRD client")
@@ -212,11 +227,13 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			for _, condition := range crd.Status.Conditions {
 				if condition.Type == apiextensionsv1.Established &&
 					condition.Status == apiextensionsv1.ConditionTrue {
-					go waitForAPI(ctx, mgr, log, gvk, func() {
-						log.Info("API now available, starting controller", "gvk", gvk)
-						discoveredCRDs <- gvk
-					})
-					break
+					if opts.EnabledFrameworks.Has(fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))) {
+						go waitForAPI(ctx, mgr, log, gvk, func() {
+							log.Info("API now available, starting controller", "gvk", gvk)
+							discoveredCRDs <- gvk
+						})
+						break
+					}
 				}
 			}
 		},
@@ -231,11 +248,13 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			for _, condition := range newCRD.Status.Conditions {
 				if condition.Type == apiextensionsv1.Established &&
 					condition.Status == apiextensionsv1.ConditionTrue {
-					go waitForAPI(ctx, mgr, log, gvk, func() {
-						log.Info("API now available, starting controller", "gvk", gvk)
-						discoveredCRDs <- gvk
-					})
-					break
+					if opts.EnabledFrameworks.Has(fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))) {
+						go waitForAPI(ctx, mgr, log, gvk, func() {
+							log.Info("API now available, starting controller", "gvk", gvk)
+							discoveredCRDs <- gvk
+						})
+						break
+					}
 				}
 			}
 		},
