@@ -18,6 +18,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -318,6 +319,18 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 					).
 					Obj(),
 				testing.BeForbiddenError()),
+			ginkgo.Entry("Should allow FairSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow zero FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should forbid negative FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("-1")).Obj(),
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should allow fractional FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
+				gomega.Succeed()),
 		)
 	})
 

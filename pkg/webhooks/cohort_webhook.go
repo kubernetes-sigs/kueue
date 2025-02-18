@@ -72,5 +72,9 @@ func validateCohort(cohort *kueuealpha.Cohort) field.ErrorList {
 		hasParent:                        cohort.Spec.Parent != "",
 		enforceNominalGreaterThanLending: false,
 	}
-	return validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"))
+	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, validateFairSharing(cohort.Spec.FairSharing, path.Child("fairSharing"))...)
+	allErrs = append(allErrs, validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"))...)
+	return allErrs
 }

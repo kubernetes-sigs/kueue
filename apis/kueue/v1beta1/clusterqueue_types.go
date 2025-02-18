@@ -139,8 +139,9 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 
-	// fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
-	// The values are only relevant if fair sharing is enabled in the Kueue configuration.
+	// fairSharing defines the properties of the ClusterQueue when
+	// participating in FairSharing.  The values are only relevant
+	// if FairSharing is enabled in the Kueue configuration.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
@@ -361,16 +362,6 @@ type ResourceUsage struct {
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
 
-type FairSharingStatus struct {
-	// WeightedShare represent the maximum of the ratios of usage above nominal
-	// quota to the lendable resources in the cohort, among all the resources
-	// provided by the ClusterQueue, and divided by the weight.
-	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
-	// the maximum possible share value.
-	WeightedShare int64 `json:"weightedShare"`
-}
-
 const (
 	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the same cohort.
@@ -495,20 +486,6 @@ type BorrowWithinCohort struct {
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
-}
-
-// FairSharing contains the properties of the ClusterQueue when participating in fair sharing.
-type FairSharing struct {
-	// weight gives a comparative advantage to this ClusterQueue when competing for unused
-	// resources in the cohort against other ClusterQueues.
-	// The share of a ClusterQueue is based on the dominant resource usage above nominal
-	// quotas for each resource, divided by the weight.
-	// Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
-	// and preempting workloads from the ClusterQueues with the highest share.
-	// A zero weight implies infinite share value, meaning that this ClusterQueue will always
-	// be at disadvantage against other ClusterQueues.
-	// +kubebuilder:default=1
-	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
 // +genclient

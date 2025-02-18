@@ -118,6 +118,15 @@ Cohort has a parent.  Otherwise, the Cohort create/update
 will be rejected by the webhook.</p>
 </td>
 </tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the Cohort when
+participating in FairSharing. The values are only relevant
+if FairSharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
