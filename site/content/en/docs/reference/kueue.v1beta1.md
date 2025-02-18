@@ -908,7 +908,7 @@ made.</p>
 </ul>
 </td>
 </tr>
-<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<tr><td><code>fairSharing</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
