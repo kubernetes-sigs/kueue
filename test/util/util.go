@@ -967,8 +967,41 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 	return out.Bytes(), outErr.Bytes(), nil
 }
 
+// GetProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.
+// The fallback to the search is useful for running in IDEs like vs-code which don't set the PROJECT_DIR env. variable by default.
 func GetProjectBaseDir() string {
-	return filepath.Dir(os.Getenv("PROJECT_DIR"))
+	projectBasePath, found := os.LookupEnv("PROJECT_DIR")
+	if found {
+		return filepath.Dir(projectBasePath)
+	}
+
+	projectBaseDir, err := findMakefileDir()
+	if err != nil {
+		klog.Error(err)
+		return ""
+	}
+	return projectBaseDir
+}
+
+// findMakefileDir traverses directories upward from the current directory until it finds a directory containing a Makefile.
+func findMakefileDir() (string, error) {
+	startDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("could not get current working directory: %w", err)
+	}
+
+	for {
+		makefilePath := filepath.Join(startDir, "Makefile")
+		if _, err := os.Stat(makefilePath); err == nil {
+			return startDir, nil
+		}
+
+		parentDir := filepath.Dir(startDir)
+		if parentDir == startDir {
+			return "", errors.New("not able to locate Makefile")
+		}
+		startDir = parentDir
+	}
 }
 
 func FindDeploymentCondition(deployment *appsv1.Deployment, deploymentType appsv1.DeploymentConditionType) *appsv1.DeploymentCondition {
