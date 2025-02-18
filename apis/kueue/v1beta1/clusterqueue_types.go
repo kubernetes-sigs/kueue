@@ -142,6 +142,7 @@ type ClusterQueueSpec struct {
 	// fairSharing defines the properties of the ClusterQueue when
 	// participating in FairSharing.  The values are only relevant
 	// if FairSharing is enabled in the Kueue configuration.
+	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
