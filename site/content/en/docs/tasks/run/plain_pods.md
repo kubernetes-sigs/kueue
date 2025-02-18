@@ -52,13 +52,12 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 {{% alert title="Note" color="primary" %}}
 
 `managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
-
 You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
 
   Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
   and `integrations.podOptions.podSelector` were used instead. The use of `podOptions` was
   deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.
+{{% /alert %}}
 
 
 2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
