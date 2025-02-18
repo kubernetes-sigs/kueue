@@ -209,44 +209,41 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	var namespaceSelector *metav1.LabelSelector = nil
-	var namespaceSelectorPath *field.Path
-	if features.Enabled(features.ManagedJobsNamespaceSelector) {
-		namespaceSelectorPath = managedJobsNamespaceSelectorPath
-		if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-			namespaceSelector = c.Integrations.PodOptions.NamespaceSelector
-			namespaceSelectorPath = podOptionsNamespaceSelectorPath
-		} else if c.ManagedJobsNamespaceSelector != nil {
-			namespaceSelector = c.ManagedJobsNamespaceSelector
+	validateNamespaceSelector := func(namespaceSelector *metav1.LabelSelector, namespaceSelectorPath *field.Path, allErrs field.ErrorList) field.ErrorList {
+		allErrs = append(allErrs, validation.ValidateLabelSelector(namespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
+		selector, err := metav1.LabelSelectorAsSelector(namespaceSelector)
+		if err != nil {
+			return allErrs
 		}
-	} else {
-		if c.Integrations.PodOptions == nil {
-			return field.ErrorList{field.Required(podOptionsPath, "cannot be empty when pod integration is enabled and ManagedJobsNamespaceSelector is disabled")}
+		prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
+		if c.Namespace != nil && *c.Namespace != "" {
+			prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
 		}
-		namespaceSelectorPath = podOptionsNamespaceSelectorPath
-		namespaceSelector = c.Integrations.PodOptions.NamespaceSelector
-	}
-	if namespaceSelector == nil {
-		return field.ErrorList{field.Required(namespaceSelectorPath, "cannot be empty when pod integration is enabled")}
-	}
-
-	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
-
-	if c.Namespace != nil && *c.Namespace != "" {
-		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
-	}
-
-	allErrs = append(allErrs, validation.ValidateLabelSelector(namespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
-
-	selector, err := metav1.LabelSelectorAsSelector(namespaceSelector)
-	if err != nil {
+		for _, pn := range prohibitedNamespaces {
+			if selector.Matches(pn) {
+				allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, namespaceSelector,
+					fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+			}
+		}
 		return allErrs
 	}
 
-	for _, pn := range prohibitedNamespaces {
-		if selector.Matches(pn) {
-			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, namespaceSelector,
-				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+	if features.Enabled(features.ManagedJobsNamespaceSelector) {
+		atLeastOne := false
+		if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
+			allErrs = validateNamespaceSelector(c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
+			atLeastOne = true
+		}
+		if c.ManagedJobsNamespaceSelector == nil && !atLeastOne {
+			allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
+		} else {
+			allErrs = validateNamespaceSelector(c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
+		}
+	} else {
+		if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
+			allErrs = validateNamespaceSelector(c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
+		} else {
+			allErrs = append(allErrs, field.Required(podOptionsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 		}
 	}
 

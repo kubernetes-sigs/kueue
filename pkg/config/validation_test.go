@@ -220,7 +220,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions",
+					Field: "integrations.podOptions.namespaceSelector",
 				},
 			},
 		},
