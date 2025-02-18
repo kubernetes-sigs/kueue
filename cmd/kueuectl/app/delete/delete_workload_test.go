@@ -284,7 +284,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 
 			streams, in, out, outErr := genericiooptions.NewTestIOStreams()
-			clientset := fake.NewSimpleClientset(tc.workloads...)
+			clientset := fake.NewClientset(tc.workloads...)
 			clientset.PrependReactor("delete", "workloads", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				if slices.Contains(action.(kubetesting.DeleteAction).GetDeleteOptions().DryRun, metav1.DryRunAll) {
 					handled = true

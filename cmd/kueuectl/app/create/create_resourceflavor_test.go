@@ -324,7 +324,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			clientset := fake.NewSimpleClientset()
+			clientset := fake.NewClientset()
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 
 			cmd := NewResourceFlavorCmd(tcg, streams)

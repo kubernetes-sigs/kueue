@@ -875,7 +875,7 @@ wl2               j2         lq2          cq2            PENDING   22           
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			clientset := fake.NewSimpleClientset(tc.objs...)
+			clientset := fake.NewClientset(tc.objs...)
 
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {

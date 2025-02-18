@@ -112,7 +112,7 @@ rf1                  60m
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 
 			cmd := NewResourceFlavorCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetOut(out)
