@@ -278,6 +278,49 @@ func readNode(p []byte, node Node) (int, error) {
 	return size, nil
 }
 
+func checkLineBreak(t *token.Token) bool {
+	if t.Prev != nil {
+		lbc := "\n"
+		prev := t.Prev
+		var adjustment int
+		// if the previous type is sequence entry use the previous type for that
+		if prev.Type == token.SequenceEntryType {
+			// as well as switching to previous type count any new lines in origin to account for:
+			// -
+			//   b: c
+			adjustment = strings.Count(strings.TrimRight(t.Origin, lbc), lbc)
+			if prev.Prev != nil {
+				prev = prev.Prev
+			}
+		}
+		lineDiff := t.Position.Line - prev.Position.Line - 1
+		if lineDiff > 0 {
+			if prev.Type == token.StringType {
+				// Remove any line breaks included in multiline string
+				adjustment += strings.Count(strings.TrimRight(strings.TrimSpace(prev.Origin), lbc), lbc)
+			}
+			// Due to the way that comment parsing works its assumed that when a null value does not have new line in origin
+			// it was squashed therefore difference is ignored.
+			//foo:
+			//  bar:
+			//  # comment
+			//  baz: 1
+			//becomes
+			//foo:
+			//  bar: null # comment
+			//
+			//  baz: 1
+			if prev.Type == token.NullType {
+				return strings.Count(prev.Origin, lbc) > 0
+			}
+			if lineDiff-adjustment > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Null create node for null value
 func Null(tk *token.Token) *NullNode {
 	return &NullNode{
@@ -298,25 +341,19 @@ func Bool(tk *token.Token) *BoolNode {
 
 // Integer create node for integer value
 func Integer(tk *token.Token) *IntegerNode {
-	value := removeUnderScoreFromNumber(tk.Value)
 	switch tk.Type {
 	case token.BinaryIntegerType:
 		// skip two characters because binary token starts with '0b'
-		skipCharacterNum := 2
-		negativePrefix := ""
-		if value[0] == '-' {
-			skipCharacterNum++
-			negativePrefix = "-"
-		}
-		if len(negativePrefix) > 0 {
-			i, _ := strconv.ParseInt(negativePrefix+value[skipCharacterNum:], 2, 64)
+		parsedNum := parseNumber("0b", tk.Value)
+		if parsedNum.isNegative {
+			i, _ := strconv.ParseInt(parsedNum.String(), 2, 64)
 			return &IntegerNode{
 				BaseNode: &BaseNode{},
 				Token:    tk,
 				Value:    i,
 			}
 		}
-		i, _ := strconv.ParseUint(negativePrefix+value[skipCharacterNum:], 2, 64)
+		i, _ := strconv.ParseUint(parsedNum.String(), 2, 64)
 		return &IntegerNode{
 			BaseNode: &BaseNode{},
 			Token:    tk,
@@ -324,28 +361,16 @@ func Integer(tk *token.Token) *IntegerNode {
 		}
 	case token.OctetIntegerType:
 		// octet token starts with '0o' or '-0o' or '0' or '-0'
-		skipCharacterNum := 1
-		negativePrefix := ""
-		if value[0] == '-' {
-			skipCharacterNum++
-			if len(value) > 2 && value[2] == 'o' {
-				skipCharacterNum++
-			}
-			negativePrefix = "-"
-		} else {
-			if value[1] == 'o' {
-				skipCharacterNum++
-			}
-		}
-		if len(negativePrefix) > 0 {
-			i, _ := strconv.ParseInt(negativePrefix+value[skipCharacterNum:], 8, 64)
+		parsedNum := parseNumber("0o", tk.Value)
+		if parsedNum.isNegative {
+			i, _ := strconv.ParseInt(parsedNum.String(), 8, 64)
 			return &IntegerNode{
 				BaseNode: &BaseNode{},
 				Token:    tk,
 				Value:    i,
 			}
 		}
-		i, _ := strconv.ParseUint(value[skipCharacterNum:], 8, 64)
+		i, _ := strconv.ParseUint(parsedNum.String(), 8, 64)
 		return &IntegerNode{
 			BaseNode: &BaseNode{},
 			Token:    tk,
@@ -353,36 +378,32 @@ func Integer(tk *token.Token) *IntegerNode {
 		}
 	case token.HexIntegerType:
 		// hex token starts with '0x' or '-0x'
-		skipCharacterNum := 2
-		negativePrefix := ""
-		if value[0] == '-' {
-			skipCharacterNum++
-			negativePrefix = "-"
-		}
-		if len(negativePrefix) > 0 {
-			i, _ := strconv.ParseInt(negativePrefix+value[skipCharacterNum:], 16, 64)
+		parsedNum := parseNumber("0x", tk.Value)
+		if parsedNum.isNegative {
+			i, _ := strconv.ParseInt(parsedNum.String(), 16, 64)
 			return &IntegerNode{
 				BaseNode: &BaseNode{},
 				Token:    tk,
 				Value:    i,
 			}
 		}
-		i, _ := strconv.ParseUint(value[skipCharacterNum:], 16, 64)
+		i, _ := strconv.ParseUint(parsedNum.String(), 16, 64)
 		return &IntegerNode{
 			BaseNode: &BaseNode{},
 			Token:    tk,
 			Value:    i,
 		}
 	}
-	if value[0] == '-' || value[0] == '+' {
-		i, _ := strconv.ParseInt(value, 10, 64)
+	parsedNum := parseNumber("", tk.Value)
+	if parsedNum.isNegative {
+		i, _ := strconv.ParseInt(parsedNum.String(), 10, 64)
 		return &IntegerNode{
 			BaseNode: &BaseNode{},
 			Token:    tk,
 			Value:    i,
 		}
 	}
-	i, _ := strconv.ParseUint(value, 10, 64)
+	i, _ := strconv.ParseUint(parsedNum.String(), 10, 64)
 	return &IntegerNode{
 		BaseNode: &BaseNode{},
 		Token:    tk,
@@ -390,9 +411,44 @@ func Integer(tk *token.Token) *IntegerNode {
 	}
 }
 
+type parsedNumber struct {
+	isNegative bool
+	num        string
+}
+
+func (n *parsedNumber) String() string {
+	if n.isNegative {
+		return "-" + n.num
+	}
+	return n.num
+}
+
+func parseNumber(prefix, value string) *parsedNumber {
+	isNegative := value[0] == '-'
+	trimmed := strings.TrimPrefix(value, "+")
+	trimmed = strings.TrimPrefix(trimmed, "-")
+	trimmed = strings.TrimPrefix(trimmed, prefix)
+
+	num := make([]rune, 0, len(trimmed))
+	for _, v := range trimmed {
+		if v == '_' {
+			continue
+		}
+		num = append(num, v)
+	}
+	if len(num) == 0 {
+		num = append(num, '0')
+	}
+	return &parsedNumber{
+		isNegative: isNegative,
+		num:        string(num),
+	}
+}
+
 // Float create node for float value
 func Float(tk *token.Token) *FloatNode {
-	f, _ := strconv.ParseFloat(removeUnderScoreFromNumber(tk.Value), 64)
+	parsedNum := parseNumber("", tk.Value)
+	f, _ := strconv.ParseFloat(parsedNum.String(), 64)
 	return &FloatNode{
 		BaseNode: &BaseNode{},
 		Token:    tk,
@@ -617,10 +673,6 @@ func (d *DocumentNode) String() string {
 // MarshalYAML encodes to a YAML text
 func (d *DocumentNode) MarshalYAML() ([]byte, error) {
 	return []byte(d.String()), nil
-}
-
-func removeUnderScoreFromNumber(num string) string {
-	return strings.ReplaceAll(num, "_", "")
 }
 
 // NullNode type of null node
@@ -1390,6 +1442,9 @@ func (n *MappingValueNode) String() string {
 
 func (n *MappingValueNode) toString() string {
 	space := strings.Repeat(" ", n.Key.GetToken().Position.Column-1)
+	if checkLineBreak(n.Key.GetToken()) {
+		space = fmt.Sprintf("%s%s", "\n", space)
+	}
 	keyIndentLevel := n.Key.GetToken().Position.IndentLevel
 	valueIndentLevel := n.Value.GetToken().Position.IndentLevel
 	keyComment := n.Key.GetComment()
@@ -1563,6 +1618,11 @@ func (n *SequenceNode) blockStyleString() string {
 
 	for idx, value := range n.Values {
 		valueStr := value.String()
+		newLinePrefix := ""
+		if strings.HasPrefix(valueStr, "\n") {
+			valueStr = valueStr[1:]
+			newLinePrefix = "\n"
+		}
 		splittedValues := strings.Split(valueStr, "\n")
 		trimmedFirstValue := strings.TrimLeft(splittedValues[0], " ")
 		diffLength := len(splittedValues[0]) - len(trimmedFirstValue)
@@ -1585,9 +1645,10 @@ func (n *SequenceNode) blockStyleString() string {
 		}
 		newValue := strings.Join(newValues, "\n")
 		if len(n.ValueHeadComments) == len(n.Values) && n.ValueHeadComments[idx] != nil {
-			values = append(values, n.ValueHeadComments[idx].StringWithSpace(n.Start.Position.Column-1))
+			values = append(values, fmt.Sprintf("%s%s", newLinePrefix, n.ValueHeadComments[idx].StringWithSpace(n.Start.Position.Column-1)))
+			newLinePrefix = ""
 		}
-		values = append(values, fmt.Sprintf("%s- %s", space, newValue))
+		values = append(values, fmt.Sprintf("%s%s- %s", newLinePrefix, space, newValue))
 	}
 	if n.FootComment != nil {
 		values = append(values, n.FootComment.StringWithSpace(n.Start.Position.Column-1))
@@ -1880,10 +1941,13 @@ func (n *CommentGroupNode) StringWithSpace(col int) string {
 	values := []string{}
 	space := strings.Repeat(" ", col)
 	for _, comment := range n.Comments {
+		space := space
+		if checkLineBreak(comment.Token) {
+			space = fmt.Sprintf("%s%s", "\n", space)
+		}
 		values = append(values, space+comment.String())
 	}
 	return strings.Join(values, "\n")
-
 }
 
 // MarshalYAML encodes to a YAML text

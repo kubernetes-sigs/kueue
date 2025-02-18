@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"golang.org/x/tools/go/packages"
+
 	"k8s.io/gengo/v2/types"
 	"k8s.io/klog/v2"
 )
@@ -572,6 +573,9 @@ func goVarNameToName(in string) types.Name {
 	return goNameToName(nameParts[1])
 }
 
+// goNameToName converts a go name string to a gengo types.Name.
+// It operates solely on the string on a best effort basis. The name may be updated
+// in walkType for generics.
 func goNameToName(in string) types.Name {
 	// Detect anonymous type names. (These may have '.' characters because
 	// embedded types may have packages, so we detect them specially.)
@@ -602,6 +606,10 @@ func goNameToName(in string) types.Name {
 		// The final "." is the name of the type--previous ones must
 		// have been in the package path.
 		name.Package, name.Name = strings.Join(nameParts[:n-1], "."), nameParts[n-1]
+		// Add back the generic component now that the package and type name have been separated.
+		if genericIndex != len(in) {
+			name.Name = name.Name + in[genericIndex:]
+		}
 	}
 	return name
 }
@@ -633,6 +641,12 @@ func (p *Parser) walkType(u types.Universe, useName *types.Name, in gotypes.Type
 	name := goNameToName(in.String())
 	if useName != nil {
 		name = *useName
+	}
+
+	// Handle alias types conditionally on go1.22+.
+	// Inline this once the minimum supported version is go1.22
+	if out := p.walkAliasType(u, in); out != nil {
+		return out
 	}
 
 	switch t := in.(type) {
@@ -745,7 +759,7 @@ func (p *Parser) walkType(u types.Universe, useName *types.Name, in gotypes.Type
 			}
 			out.Kind = types.Alias
 			out.Underlying = p.walkType(u, nil, t.Underlying())
-		case *gotypes.Struct:
+		case *gotypes.Struct, *gotypes.Interface:
 			name := goNameToName(t.String())
 			tpMap := map[string]*types.Type{}
 			if t.TypeParams().Len() != 0 {

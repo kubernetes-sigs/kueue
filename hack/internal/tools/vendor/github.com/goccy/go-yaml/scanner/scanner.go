@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -70,7 +71,7 @@ func (s *Scanner) bufferedToken(ctx *Context) *token.Token {
 	line := s.line
 	column := s.column - len(ctx.buf)
 	level := s.indentLevel
-	if ctx.isSaveIndentMode() {
+	if ctx.isDocument() {
 		line -= s.newLineCount(ctx.buf)
 		column = strings.Index(string(ctx.obuf), string(ctx.buf)) + 1
 		// Since we are in a literal, folded or raw folded
@@ -92,7 +93,7 @@ func (s *Scanner) bufferedToken(ctx *Context) *token.Token {
 func (s *Scanner) progressColumn(ctx *Context, num int) {
 	s.column += num
 	s.offset += num
-	ctx.progress(num)
+	s.progress(ctx, num)
 }
 
 func (s *Scanner) progressLine(ctx *Context) {
@@ -103,7 +104,12 @@ func (s *Scanner) progressLine(ctx *Context) {
 	s.indentNum = 0
 	s.isFirstCharAtLine = true
 	s.isAnchor = false
-	ctx.progress(1)
+	s.progress(ctx, 1)
+}
+
+func (s *Scanner) progress(ctx *Context, num int) {
+	ctx.progress(num)
+	s.sourcePos += num
 }
 
 func (s *Scanner) isNewLineChar(c rune) bool {
@@ -203,7 +209,7 @@ func (s *Scanner) breakLiteral(ctx *Context) {
 	ctx.breakLiteral()
 }
 
-func (s *Scanner) scanSingleQuote(ctx *Context) (tk *token.Token, pos int) {
+func (s *Scanner) scanSingleQuote(ctx *Context) (*token.Token, error) {
 	ctx.addOriginBuf('\'')
 	srcpos := s.pos()
 	startIndex := ctx.idx + 1
@@ -212,6 +218,7 @@ func (s *Scanner) scanSingleQuote(ctx *Context) (tk *token.Token, pos int) {
 	value := []rune{}
 	isFirstLineChar := false
 	isNewLine := false
+
 	for idx := startIndex; idx < size; idx++ {
 		if !isNewLine {
 			s.progressColumn(ctx, 1)
@@ -219,7 +226,6 @@ func (s *Scanner) scanSingleQuote(ctx *Context) (tk *token.Token, pos int) {
 			isNewLine = false
 		}
 		c := src[idx]
-		pos = idx + 1
 		ctx.addOriginBuf(c)
 		if s.isNewLineChar(c) {
 			value = append(value, ' ')
@@ -239,14 +245,17 @@ func (s *Scanner) scanSingleQuote(ctx *Context) (tk *token.Token, pos int) {
 			value = append(value, c)
 			ctx.addOriginBuf(c)
 			idx++
+			s.progressColumn(ctx, 1)
 			continue
 		}
 		s.progressColumn(ctx, 1)
-		tk = token.SingleQuote(string(value), string(ctx.obuf), srcpos)
-		pos = idx - startIndex + 1
-		return
+		return token.SingleQuote(string(value), string(ctx.obuf), srcpos), nil
 	}
-	return
+	s.progressColumn(ctx, 1)
+	return nil, ErrInvalidToken(
+		"could not find end character of single-quotated text",
+		token.Invalid(string(ctx.obuf), srcpos),
+	)
 }
 
 func hexToInt(b rune) int {
@@ -267,7 +276,7 @@ func hexRunesToInt(b []rune) int {
 	return sum
 }
 
-func (s *Scanner) scanDoubleQuote(ctx *Context) (tk *token.Token, pos int) {
+func (s *Scanner) scanDoubleQuote(ctx *Context) (*token.Token, error) {
 	ctx.addOriginBuf('"')
 	srcpos := s.pos()
 	startIndex := ctx.idx + 1
@@ -276,6 +285,7 @@ func (s *Scanner) scanDoubleQuote(ctx *Context) (tk *token.Token, pos int) {
 	value := []rune{}
 	isFirstLineChar := false
 	isNewLine := false
+
 	for idx := startIndex; idx < size; idx++ {
 		if !isNewLine {
 			s.progressColumn(ctx, 1)
@@ -283,7 +293,6 @@ func (s *Scanner) scanDoubleQuote(ctx *Context) (tk *token.Token, pos int) {
 			isNewLine = false
 		}
 		c := src[idx]
-		pos = idx + 1
 		ctx.addOriginBuf(c)
 		if s.isNewLineChar(c) {
 			value = append(value, ' ')
@@ -347,32 +356,35 @@ func (s *Scanner) scanDoubleQuote(ctx *Context) (tk *token.Token, pos int) {
 				ctx.addOriginBuf(nextChar)
 				value = append(value, nextChar)
 			case 'x':
-				progress = 3
-				if idx+progress >= size {
-					// TODO: need to return error
-					//err = errors.New("invalid escape character \\x")
-					return
+				if idx+3 >= size {
+					progress = 1
+					ctx.addOriginBuf(nextChar)
+					value = append(value, nextChar)
+				} else {
+					progress = 3
+					codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
+					value = append(value, rune(codeNum))
 				}
-				codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
-				value = append(value, rune(codeNum))
 			case 'u':
-				progress = 5
-				if idx+progress >= size {
-					// TODO: need to return error
-					//err = errors.New("invalid escape character \\u")
-					return
+				if idx+5 >= size {
+					progress = 1
+					ctx.addOriginBuf(nextChar)
+					value = append(value, nextChar)
+				} else {
+					progress = 5
+					codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
+					value = append(value, rune(codeNum))
 				}
-				codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
-				value = append(value, rune(codeNum))
 			case 'U':
-				progress = 9
-				if idx+progress >= size {
-					// TODO: need to return error
-					//err = errors.New("invalid escape character \\U")
-					return
+				if idx+9 >= size {
+					progress = 1
+					ctx.addOriginBuf(nextChar)
+					value = append(value, nextChar)
+				} else {
+					progress = 9
+					codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
+					value = append(value, rune(codeNum))
 				}
-				codeNum := hexRunesToInt(src[idx+2 : idx+progress+1])
-				value = append(value, rune(codeNum))
 			case '\\':
 				progress = 1
 				ctx.addOriginBuf(nextChar)
@@ -389,18 +401,53 @@ func (s *Scanner) scanDoubleQuote(ctx *Context) (tk *token.Token, pos int) {
 			continue
 		}
 		s.progressColumn(ctx, 1)
-		tk = token.DoubleQuote(string(value), string(ctx.obuf), srcpos)
-		pos = idx - startIndex + 1
-		return
+		return token.DoubleQuote(string(value), string(ctx.obuf), srcpos), nil
 	}
-	return
+	s.progressColumn(ctx, 1)
+	return nil, ErrInvalidToken(
+		"could not find end character of double-quotated text",
+		token.Invalid(string(ctx.obuf), srcpos),
+	)
 }
 
-func (s *Scanner) scanQuote(ctx *Context, ch rune) (tk *token.Token, pos int) {
-	if ch == '\'' {
-		return s.scanSingleQuote(ctx)
+func (s *Scanner) scanQuote(ctx *Context, ch rune) (bool, error) {
+	if ctx.existsBuffer() {
+		return false, nil
 	}
-	return s.scanDoubleQuote(ctx)
+	if ch == '\'' {
+		tk, err := s.scanSingleQuote(ctx)
+		if err != nil {
+			return false, err
+		}
+		ctx.addToken(tk)
+	} else {
+		tk, err := s.scanDoubleQuote(ctx)
+		if err != nil {
+			return false, err
+		}
+		ctx.addToken(tk)
+	}
+	ctx.clear()
+	return true, nil
+}
+
+func (s *Scanner) scanWhiteSpace(ctx *Context) bool {
+	if ctx.isDocument() {
+		return false
+	}
+	if !s.isAnchor && !s.isFirstCharAtLine {
+		return false
+	}
+
+	if s.isFirstCharAtLine {
+		s.progressColumn(ctx, 1)
+		ctx.addOriginBuf(' ')
+		return true
+	}
+
+	s.addBufferedTokenIfExists(ctx)
+	s.isAnchor = false
+	return true
 }
 
 func (s *Scanner) isMergeKey(ctx *Context) bool {
@@ -427,26 +474,41 @@ func (s *Scanner) isMergeKey(ctx *Context) bool {
 	return false
 }
 
-func (s *Scanner) scanTag(ctx *Context) (tk *token.Token, pos int) {
+func (s *Scanner) scanTag(ctx *Context) bool {
+	if ctx.existsBuffer() {
+		return false
+	}
+
 	ctx.addOriginBuf('!')
-	ctx.progress(1) // skip '!' character
+	s.progress(ctx, 1) // skip '!' character
+
+	var progress int
 	for idx, c := range ctx.src[ctx.idx:] {
-		pos = idx + 1
+		progress = idx + 1
 		ctx.addOriginBuf(c)
 		switch c {
 		case ' ', '\n', '\r':
 			value := ctx.source(ctx.idx-1, ctx.idx+idx)
-			tk = token.Tag(value, string(ctx.obuf), s.pos())
-			pos = len([]rune(value))
-			return
+			ctx.addToken(token.Tag(value, string(ctx.obuf), s.pos()))
+			progress = len([]rune(value))
+			goto END
 		}
 	}
-	return
+END:
+	s.progressColumn(ctx, progress)
+	ctx.clear()
+	return true
 }
 
-func (s *Scanner) scanComment(ctx *Context) (tk *token.Token, pos int) {
+func (s *Scanner) scanComment(ctx *Context) bool {
+	if ctx.existsBuffer() && ctx.previousChar() != ' ' {
+		return false
+	}
+
+	s.addBufferedTokenIfExists(ctx)
 	ctx.addOriginBuf('#')
-	ctx.progress(1) // skip '#' character
+	s.progress(ctx, 1) // skip '#' character
+
 	for idx, c := range ctx.src[ctx.idx:] {
 		ctx.addOriginBuf(c)
 		switch c {
@@ -455,25 +517,34 @@ func (s *Scanner) scanComment(ctx *Context) (tk *token.Token, pos int) {
 				continue
 			}
 			value := ctx.source(ctx.idx, ctx.idx+idx)
-			tk = token.Comment(value, string(ctx.obuf), s.pos())
-			pos = len([]rune(value)) + 1
-			return
+			progress := len([]rune(value))
+			ctx.addToken(token.Comment(value, string(ctx.obuf), s.pos()))
+			s.progressColumn(ctx, progress)
+			s.progressLine(ctx)
+			ctx.clear()
+			return true
 		}
 	}
 	// document ends with comment.
 	value := string(ctx.src[ctx.idx:])
-	tk = token.Comment(value, string(ctx.obuf), s.pos())
-	pos = len([]rune(value)) + 1
-	return
+	ctx.addToken(token.Comment(value, string(ctx.obuf), s.pos()))
+	progress := len([]rune(value))
+	s.progressColumn(ctx, progress)
+	s.progressLine(ctx)
+	ctx.clear()
+	return true
 }
 
-func trimCommentFromLiteralOpt(text string) (string, error) {
+func (s *Scanner) trimCommentFromLiteralOpt(text string, header rune) (string, error) {
 	idx := strings.Index(text, "#")
 	if idx < 0 {
 		return text, nil
 	}
 	if idx == 0 {
-		return "", errors.New("invalid literal header")
+		return "", ErrInvalidToken(
+			fmt.Sprintf("invalid literal header %s", text),
+			token.Invalid(string(header)+text, s.pos()),
+		)
 	}
 	return text[:idx-1], nil
 }
@@ -535,7 +606,7 @@ func (s *Scanner) scanNewLine(ctx *Context, c rune) {
 	// > -- https://yaml.org/spec/1.2/spec.html
 	if c == '\r' && ctx.nextChar() == '\n' {
 		ctx.addOriginBuf('\r')
-		ctx.progress(1)
+		s.progress(ctx, 1)
 		c = '\n'
 	}
 
@@ -546,19 +617,30 @@ func (s *Scanner) scanNewLine(ctx *Context, c rune) {
 	}
 	ctx.addBuf(' ')
 	ctx.addOriginBuf(c)
-	ctx.isSingleLine = false
 	s.progressLine(ctx)
 }
 
+func (s *Scanner) isFlowMode() bool {
+	if s.startedFlowSequenceNum > 0 {
+		return true
+	}
+	if s.startedFlowMapNum > 0 {
+		return true
+	}
+	return false
+}
+
 func (s *Scanner) scanFlowMapStart(ctx *Context) bool {
-	if ctx.existsBuffer() {
+	if ctx.existsBuffer() && !s.isFlowMode() {
 		return false
 	}
 
+	s.addBufferedTokenIfExists(ctx)
 	ctx.addOriginBuf('{')
 	ctx.addToken(token.MappingStart(string(ctx.obuf), s.pos()))
 	s.startedFlowMapNum++
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -572,23 +654,26 @@ func (s *Scanner) scanFlowMapEnd(ctx *Context) bool {
 	ctx.addToken(token.MappingEnd(string(ctx.obuf), s.pos()))
 	s.startedFlowMapNum--
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
 func (s *Scanner) scanFlowArrayStart(ctx *Context) bool {
-	if ctx.existsBuffer() {
+	if ctx.existsBuffer() && !s.isFlowMode() {
 		return false
 	}
 
+	s.addBufferedTokenIfExists(ctx)
 	ctx.addOriginBuf('[')
 	ctx.addToken(token.SequenceStart(string(ctx.obuf), s.pos()))
 	s.startedFlowSequenceNum++
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
 func (s *Scanner) scanFlowArrayEnd(ctx *Context) bool {
-	if s.startedFlowSequenceNum <= 0 {
+	if ctx.existsBuffer() && s.startedFlowSequenceNum <= 0 {
 		return false
 	}
 
@@ -597,6 +682,7 @@ func (s *Scanner) scanFlowArrayEnd(ctx *Context) bool {
 	ctx.addToken(token.SequenceEnd(string(ctx.obuf), s.pos()))
 	s.startedFlowSequenceNum--
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -609,6 +695,7 @@ func (s *Scanner) scanFlowEntry(ctx *Context, c rune) bool {
 	ctx.addOriginBuf(c)
 	ctx.addToken(token.CollectEntry(string(ctx.obuf), s.pos()))
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -632,6 +719,7 @@ func (s *Scanner) scanMapDelim(ctx *Context) bool {
 	}
 	ctx.addToken(token.MappingValue(s.pos()))
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -649,6 +737,7 @@ func (s *Scanner) scanDocumentStart(ctx *Context) bool {
 	s.addBufferedTokenIfExists(ctx)
 	ctx.addToken(token.DocumentHeader(string(ctx.obuf)+"---", s.pos()))
 	s.progressColumn(ctx, 3)
+	ctx.clear()
 	return true
 }
 
@@ -665,6 +754,7 @@ func (s *Scanner) scanDocumentEnd(ctx *Context) bool {
 
 	ctx.addToken(token.DocumentEnd(string(ctx.obuf)+"...", s.pos()))
 	s.progressColumn(ctx, 3)
+	ctx.clear()
 	return true
 }
 
@@ -675,7 +765,8 @@ func (s *Scanner) scanMergeKey(ctx *Context) bool {
 
 	s.lastDelimColumn = s.column
 	ctx.addToken(token.MergeKey(string(ctx.obuf)+"<<", s.pos()))
-	s.progressColumn(ctx, 1)
+	s.progressColumn(ctx, 2)
+	ctx.clear()
 	return true
 }
 
@@ -710,6 +801,7 @@ func (s *Scanner) scanSequence(ctx *Context) bool {
 	s.lastDelimColumn = tk.Position.Column
 	ctx.addToken(tk)
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -718,35 +810,36 @@ func (s *Scanner) scanLiteralHeader(ctx *Context) (bool, error) {
 		return false, nil
 	}
 
-	progress, err := s.scanLiteralHeaderOption(ctx)
-	if err != nil {
+	if err := s.scanLiteralHeaderOption(ctx); err != nil {
 		return false, err
 	}
-	s.progressColumn(ctx, progress)
 	s.progressLine(ctx)
 	return true, nil
 }
 
-func (s *Scanner) scanLiteralHeaderOption(ctx *Context) (pos int, err error) {
+func (s *Scanner) scanLiteralHeaderOption(ctx *Context) error {
 	header := ctx.currentChar()
 	ctx.addOriginBuf(header)
-	ctx.progress(1) // skip '|' or '>' character
+	s.progress(ctx, 1) // skip '|' or '>' character
 	for idx, c := range ctx.src[ctx.idx:] {
-		pos = idx
+		progress := idx
 		ctx.addOriginBuf(c)
 		switch c {
 		case '\n', '\r':
 			value := ctx.source(ctx.idx, ctx.idx+idx)
 			opt := strings.TrimRight(value, " ")
 			orgOptLen := len(opt)
-			opt, err = trimCommentFromLiteralOpt(opt)
+			opt, err := s.trimCommentFromLiteralOpt(opt, header)
 			if err != nil {
-				return
+				return err
 			}
 			switch opt {
 			case "", "+", "-",
 				"0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 				hasComment := len(opt) < orgOptLen
+				if s.column == 1 {
+					s.lastDelimColumn = 1
+				}
 				if header == '|' {
 					if hasComment {
 						commentLen := orgOptLen - len(opt)
@@ -781,12 +874,19 @@ func (s *Scanner) scanLiteralHeaderOption(ctx *Context) (pos int, err error) {
 				s.indentState = IndentStateKeep
 				ctx.resetBuffer()
 				ctx.literalOpt = opt
-				return
+				s.progressColumn(ctx, progress)
+				return nil
+			default:
+				invalidTk := token.Invalid(string(ctx.obuf), s.pos())
+				s.progressColumn(ctx, progress)
+				return ErrInvalidToken(fmt.Sprintf("invalid literal header: %q", opt), invalidTk)
 			}
 		}
 	}
-	err = errors.New("invalid literal header")
-	return
+	text := string(ctx.src[ctx.idx:])
+	invalidTk := token.Invalid(string(ctx.obuf), s.pos())
+	s.progressColumn(ctx, len(text))
+	return ErrInvalidToken(fmt.Sprintf("invalid literal header: %q", text), invalidTk)
 }
 
 func (s *Scanner) scanMapKey(ctx *Context) bool {
@@ -801,6 +901,7 @@ func (s *Scanner) scanMapKey(ctx *Context) bool {
 
 	ctx.addToken(token.MappingKey(s.pos()))
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -814,6 +915,7 @@ func (s *Scanner) scanDirective(ctx *Context) bool {
 
 	ctx.addToken(token.Directive(string(ctx.obuf)+"%", s.pos()))
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
@@ -827,6 +929,7 @@ func (s *Scanner) scanAnchor(ctx *Context) bool {
 	ctx.addToken(token.Anchor(string(ctx.obuf), s.pos()))
 	s.progressColumn(ctx, 1)
 	s.isAnchor = true
+	ctx.clear()
 	return true
 }
 
@@ -839,12 +942,12 @@ func (s *Scanner) scanAlias(ctx *Context) bool {
 	ctx.addOriginBuf('*')
 	ctx.addToken(token.Alias(string(ctx.obuf), s.pos()))
 	s.progressColumn(ctx, 1)
+	ctx.clear()
 	return true
 }
 
-func (s *Scanner) scan(ctx *Context) (pos int) {
+func (s *Scanner) scan(ctx *Context) error {
 	for ctx.next() {
-		pos = ctx.nextPos()
 		c := ctx.currentChar()
 
 		// First, change the IndentState.
@@ -858,6 +961,20 @@ func (s *Scanner) scan(ctx *Context) (pos int) {
 		}
 		if ctx.isDocument() {
 			if s.isChangedToIndentStateDown() {
+				if tk := ctx.lastToken(); tk != nil {
+					// If literal/folded content is empty, no string token is added.
+					// Therefore, add an empty string token.
+					// But if literal/folded token column is 1, it is invalid at down state.
+					if tk.Position.Column == 1 {
+						return ErrInvalidToken(
+							"could not find document",
+							token.Invalid(string(ctx.obuf), s.pos()),
+						)
+					}
+					if tk.Type != token.StringType {
+						ctx.addToken(token.String("", "", s.pos()))
+					}
+				}
 				s.breakLiteral(ctx)
 			} else {
 				s.scanLiteral(ctx, c)
@@ -867,140 +984,100 @@ func (s *Scanner) scan(ctx *Context) (pos int) {
 		switch c {
 		case '{':
 			if s.scanFlowMapStart(ctx) {
-				return
+				continue
 			}
 		case '}':
 			if s.scanFlowMapEnd(ctx) {
-				return
+				continue
 			}
 		case '.':
 			if s.scanDocumentEnd(ctx) {
-				pos += 2
-				return
+				continue
 			}
 		case '<':
 			if s.scanMergeKey(ctx) {
-				pos++
-				return
+				continue
 			}
 		case '-':
 			if s.scanDocumentStart(ctx) {
-				pos += 2
-				return
+				continue
 			}
 			if s.scanRawFoldedChar(ctx) {
 				continue
 			}
 			if s.scanSequence(ctx) {
-				return
-			}
-			if ctx.existsBuffer() {
-				// '-' is literal
-				ctx.addBuf(c)
-				ctx.addOriginBuf(c)
-				s.progressColumn(ctx, 1)
 				continue
 			}
 		case '[':
 			if s.scanFlowArrayStart(ctx) {
-				return
+				continue
 			}
 		case ']':
 			if s.scanFlowArrayEnd(ctx) {
-				return
+				continue
 			}
 		case ',':
 			if s.scanFlowEntry(ctx, c) {
-				return
+				continue
 			}
 		case ':':
 			if s.scanMapDelim(ctx) {
-				return
+				continue
 			}
 		case '|', '>':
 			scanned, err := s.scanLiteralHeader(ctx)
 			if err != nil {
-				// TODO: returns syntax error object
-				return
+				return err
 			}
 			if scanned {
 				continue
 			}
 		case '!':
-			if !ctx.existsBuffer() {
-				token, progress := s.scanTag(ctx)
-				ctx.addToken(token)
-				s.progressColumn(ctx, progress)
-				if c := ctx.previousChar(); s.isNewLineChar(c) {
-					s.progressLine(ctx)
-				}
-				pos += progress
-				return
+			if s.scanTag(ctx) {
+				continue
 			}
 		case '%':
 			if s.scanDirective(ctx) {
-				return
+				continue
 			}
 		case '?':
 			if s.scanMapKey(ctx) {
-				return
+				continue
 			}
 		case '&':
 			if s.scanAnchor(ctx) {
-				return
+				continue
 			}
 		case '*':
 			if s.scanAlias(ctx) {
-				return
+				continue
 			}
 		case '#':
-			if !ctx.existsBuffer() || ctx.previousChar() == ' ' {
-				s.addBufferedTokenIfExists(ctx)
-				token, progress := s.scanComment(ctx)
-				ctx.addToken(token)
-				s.progressColumn(ctx, progress)
-				s.progressLine(ctx)
-				pos += progress
-				return
+			if s.scanComment(ctx) {
+				continue
 			}
 		case '\'', '"':
-			if !ctx.existsBuffer() {
-				token, progress := s.scanQuote(ctx, c)
-				ctx.addToken(token)
-				pos += progress
-				// If the non-whitespace character immediately following the quote is ':', the quote should be treated as a map key.
-				// Therefore, do not return and continue processing as a normal map key.
-				if ctx.currentCharWithSkipWhitespace() == ':' {
-					continue
-				}
-				return
+			scanned, err := s.scanQuote(ctx, c)
+			if err != nil {
+				return err
+			}
+			if scanned {
+				continue
 			}
 		case '\r', '\n':
 			s.scanNewLine(ctx, c)
 			continue
 		case ' ':
-			if ctx.isSaveIndentMode() || (!s.isAnchor && !s.isFirstCharAtLine) {
-				ctx.addBuf(c)
-				ctx.addOriginBuf(c)
-				s.progressColumn(ctx, 1)
+			if s.scanWhiteSpace(ctx) {
 				continue
 			}
-			if s.isFirstCharAtLine {
-				s.progressColumn(ctx, 1)
-				ctx.addOriginBuf(c)
-				continue
-			}
-			s.addBufferedTokenIfExists(ctx)
-			pos-- // to rescan white space at next scanning for adding white space to next buffer.
-			s.isAnchor = false
-			return
 		}
 		ctx.addBuf(c)
 		ctx.addOriginBuf(c)
 		s.progressColumn(ctx, 1)
 	}
 	s.addBufferedTokenIfExists(ctx)
-	return
+	return nil
 }
 
 // Init prepares the scanner s to tokenize the text src by setting the scanner at the beginning of src.
@@ -1026,9 +1103,17 @@ func (s *Scanner) Scan() (token.Tokens, error) {
 	}
 	ctx := newContext(s.source[s.sourcePos:])
 	defer ctx.release()
-	progress := s.scan(ctx)
-	s.sourcePos += progress
+
 	var tokens token.Tokens
+	err := s.scan(ctx)
 	tokens = append(tokens, ctx.tokens...)
+
+	if err != nil {
+		var invalidTokenErr *InvalidTokenError
+		if errors.As(err, &invalidTokenErr) {
+			tokens = append(tokens, invalidTokenErr.Token)
+		}
+		return tokens, err
+	}
 	return tokens, nil
 }

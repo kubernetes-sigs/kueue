@@ -6,8 +6,6 @@ import (
 	"github.com/goccy/go-yaml/token"
 )
 
-const whitespace = ' '
-
 // Context context at scanning
 type Context struct {
 	idx                int
@@ -21,7 +19,6 @@ type Context struct {
 	isRawFolded        bool
 	isLiteral          bool
 	isFolded           bool
-	isSingleLine       bool
 	literalOpt         string
 }
 
@@ -35,9 +32,8 @@ var (
 
 func createContext() *Context {
 	return &Context{
-		idx:          0,
-		tokens:       token.Tokens{},
-		isSingleLine: true,
+		idx:    0,
+		tokens: token.Tokens{},
 	}
 }
 
@@ -51,6 +47,14 @@ func (c *Context) release() {
 	ctxPool.Put(c)
 }
 
+func (c *Context) clear() {
+	c.resetBuffer()
+	c.isRawFolded = false
+	c.isLiteral = false
+	c.isFolded = false
+	c.literalOpt = ""
+}
+
 func (c *Context) reset(src []rune) {
 	c.idx = 0
 	c.size = len(src)
@@ -58,7 +62,6 @@ func (c *Context) reset(src []rune) {
 	c.tokens = c.tokens[:0]
 	c.resetBuffer()
 	c.isRawFolded = false
-	c.isSingleLine = true
 	c.isLiteral = false
 	c.isFolded = false
 	c.literalOpt = ""
@@ -69,10 +72,6 @@ func (c *Context) resetBuffer() {
 	c.obuf = c.obuf[:0]
 	c.notSpaceCharPos = 0
 	c.notSpaceOrgCharPos = 0
-}
-
-func (c *Context) isSaveIndentMode() bool {
-	return c.isLiteral || c.isFolded || c.isRawFolded
 }
 
 func (c *Context) breakLiteral() {
@@ -126,7 +125,7 @@ func (c *Context) isEOS() bool {
 }
 
 func (c *Context) isNextEOS() bool {
-	return len(c.src)-1 <= c.idx+1
+	return len(c.src) <= c.idx+1
 }
 
 func (c *Context) next() bool {
@@ -147,18 +146,6 @@ func (c *Context) previousChar() rune {
 func (c *Context) currentChar() rune {
 	if c.size > c.idx {
 		return c.src[c.idx]
-	}
-	return rune(0)
-}
-
-func (c *Context) currentCharWithSkipWhitespace() rune {
-	idx := c.idx
-	for c.size > idx {
-		ch := c.src[idx]
-		if ch != whitespace {
-			return ch
-		}
-		idx++
 	}
 	return rune(0)
 }
@@ -184,10 +171,6 @@ func (c *Context) repeatNum(r rune) int {
 
 func (c *Context) progress(num int) {
 	c.idx += num
-}
-
-func (c *Context) nextPos() int {
-	return c.idx + 1
 }
 
 func (c *Context) existsBuffer() bool {

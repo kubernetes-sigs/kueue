@@ -63,10 +63,6 @@ ifeq ($(USE_OCP),true)
     IMAGE_BUILD_CMD = $(OCP_IMAGE_BUILD_CMD)
     BASE_IMAGE = $(OCP_BASE_IMAGE)
     BUILDER_IMAGE = $(OCP_BUILDER_IMAGE)
-else
-    IMAGE_BUILD_CMD = $(DOCKER_BUILDX_CMD) build
-    BASE_IMAGE = $(BASE_IMAGE)
-    BUILDER_IMAGE = $(BUILDER_IMAGE)
 endif
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
