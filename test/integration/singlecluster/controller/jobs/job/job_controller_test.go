@@ -1082,11 +1082,53 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 		}),
+		ginkgo.Entry("One pod ready, one terminating succeeded", podsReadyTestSpec{
+			jobStatus: batchv1.JobStatus{
+				Active: 1,
+				Ready:  ptr.To[int32](1),
+				UncountedTerminatedPods: &batchv1.UncountedTerminatedPods{
+					Succeeded: []types.UID{"foo"},
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "PodsReady",
+				Message: "All pods were ready or succeeded since the workload admission",
+			},
+		}),
 		ginkgo.Entry("One pod ready, one succeeded", podsReadyTestSpec{
 			jobStatus: batchv1.JobStatus{
 				Active:    1,
 				Ready:     ptr.To[int32](1),
 				Succeeded: 1,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "PodsReady",
+				Message: "All pods were ready or succeeded since the workload admission",
+			},
+		}),
+		ginkgo.Entry("One pod succeeded, one terminating succeeded", podsReadyTestSpec{
+			jobStatus: batchv1.JobStatus{
+				Succeeded: 1,
+				UncountedTerminatedPods: &batchv1.UncountedTerminatedPods{
+					Succeeded: []types.UID{"foo"},
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "PodsReady",
+				Message: "All pods were ready or succeeded since the workload admission",
+			},
+		}),
+		ginkgo.Entry("All pods terminating succeeded", podsReadyTestSpec{
+			jobStatus: batchv1.JobStatus{
+				UncountedTerminatedPods: &batchv1.UncountedTerminatedPods{
+					Succeeded: []types.UID{"foo", "bar"},
+				},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
