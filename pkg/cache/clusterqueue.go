@@ -43,7 +43,6 @@ import (
 
 var (
 	errQueueAlreadyExists = errors.New("queue already exists")
-	oneQuantity           = resource.MustParse("1")
 )
 
 // clusterQueue is the internal implementation of kueue.clusterQueue that
@@ -171,10 +170,7 @@ func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, i
 		c.FlavorFungibility = defaultFlavorFungibility
 	}
 
-	c.FairWeight = oneQuantity
-	if fs := in.Spec.FairSharing; fs != nil && fs.Weight != nil {
-		c.FairWeight = *fs.Weight
-	}
+	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
 
 	return nil
 }
