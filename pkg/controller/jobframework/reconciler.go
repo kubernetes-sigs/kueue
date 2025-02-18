@@ -582,11 +582,8 @@ func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.
 // getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
 func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.Object, namespace string) (*kueue.Workload, error) {
 	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj, namespace)
-	if err != nil {
+	if err != nil || ancestor == nil {
 		return nil, err
-	}
-	if ancestor == nil {
-		return nil, nil
 	}
 	wlList := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wlList, client.InNamespace(ancestor.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(ancestor.GetUID())}); client.IgnoreNotFound(err) != nil {
@@ -601,7 +598,7 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.O
 
 // getAncestorJobManagedByKueue traverses controllerRefs to find an ancestor job that is manged by Kueue (ie, it has a queue-name label).
 func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj client.Object, namespace string) (client.Object, error) {
-	seen := make(sets.Set[types.UID])
+	seen := sets.New[types.UID]()
 	currentJob := jobObj
 	for {
 		if seen.Has(currentJob.GetUID()) {
