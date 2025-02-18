@@ -24,17 +24,20 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -61,7 +64,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
-	ginkgo.When("creating a Job when manageJobsWithoutQueueName=true", func() {
+	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		var (
 			defaultRf    *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
@@ -88,7 +91,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
 		})
 
-		ginkgo.It("should suspend it", func() {
+		ginkgo.It("should suspend a job", func() {
 			var testJob *batchv1.Job
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
 				testJob = testingjob.MakeJob("test-job", ns.Name).Suspend(false).Obj()
@@ -105,7 +108,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 		})
 
-		ginkgo.It("should unsuspend it", func() {
+		ginkgo.It("should unsuspend a job", func() {
 			var testJob *batchv1.Job
 			var jobLookupKey types.NamespacedName
 			createdJob := &batchv1.Job{}
@@ -245,6 +248,67 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should suspend a pod created in the test namespace", func() {
+			var testPod, createdPod *corev1.Pod
+			var podLookupKey types.NamespacedName
+			ginkgo.By("creating a pod without a queue name", func() {
+				testPod = testingpod.MakePod("test-pod", ns.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pod is gated", func() {
+				createdPod = &corev1.Pod{}
+				podLookupKey = types.NamespacedName{Name: testPod.Name, Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.HaveLen(1))
+					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
+						{Name: "kueue.x-k8s.io/admission"},
+					}))
+					g.Expect(createdPod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabel: "true"}))
+					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("deleting the pod", func() {
+				gomega.Expect(k8sClient.Delete(ctx, testPod)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					err := k8sClient.Get(ctx, podLookupKey, createdPod)
+					g.Expect(apierrors.IsNotFound(err)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should NOT suspend a pod created in the kube-system namespace", func() {
+			var testPod, createdPod *corev1.Pod
+			var podLookupKey types.NamespacedName
+			ginkgo.By("creating a pod without a queue name", func() {
+				testPod = testingpod.MakePod("test-pod", "kube-system").
+					Image(util.E2eTestSleepImage, []string{"1s"}).
+					Request("cpu", "1").
+					Request("memory", "2G").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pod is running", func() {
+				createdPod = &corev1.Pod{}
+				podLookupKey = types.NamespacedName{Name: testPod.Name, Namespace: "kube-system"}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("deleting the pod", func() {
+				gomega.Expect(k8sClient.Delete(ctx, testPod)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					err := k8sClient.Get(ctx, podLookupKey, createdPod)
+					g.Expect(apierrors.IsNotFound(err)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
