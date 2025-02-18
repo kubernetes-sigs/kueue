@@ -43,7 +43,6 @@ import (
 
 const (
 	customResourceOne = "example.org/res1"
-	customResourceTwo = "example.org/res2"
 )
 
 var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
