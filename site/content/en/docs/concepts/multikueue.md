@@ -82,5 +82,4 @@ Kueue delegates the job to the configured worker clusters without any additional
 
 ## What’s next? 
 - Learn how to [setup a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
-- Learn how to [submit JobSets](/docs/tasks/run/multikueue/jobsets) to a running MultiKueue cluster.
-- Learn how to [submit batch/Jobs](/docs/tasks/run/multikueue/jobs) to a running MultiKueue cluster.
+- Learn how to [run jobs](/docs/tasks/run/multikueue) in MultiKueue environment.
