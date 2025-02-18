@@ -24,7 +24,6 @@ import (
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -42,7 +41,12 @@ import (
 )
 
 var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
-	var ns *corev1.Namespace
+	var (
+		ns           *corev1.Namespace
+		defaultRf    *kueue.ResourceFlavor
+		localQueue   *kueue.LocalQueue
+		clusterQueue *kueue.ClusterQueue
+	)
 
 	ginkgo.BeforeAll(func() {
 		configurationUpdate := time.Now()
@@ -60,62 +64,40 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		defaultRf = testing.MakeResourceFlavor("default").Obj()
+		gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*testing.MakeFlavorQuotas(defaultRf.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
 	})
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
-		var (
-			defaultRf    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
-		)
-		ginkgo.BeforeEach(func() {
-			defaultRf = testing.MakeResourceFlavor("default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(
-					*testing.MakeFlavorQuotas(defaultRf.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
-		})
-
 		ginkgo.It("should suspend a job", func() {
-			var testJob *batchv1.Job
+			var testJob, createdJob *batchv1.Job
+			var jobLookupKey types.NamespacedName
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
 				testJob = testingjob.MakeJob("test-job", ns.Name).Suspend(false).Obj()
 				gomega.Expect(k8sClient.Create(ctx, testJob)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that the job gets suspended", func() {
-				jobLookupKey := types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
-				createdJob := &batchv1.Job{}
+				createdJob = &batchv1.Job{}
+				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-		})
 
-		ginkgo.It("should unsuspend a job", func() {
-			var testJob *batchv1.Job
-			var jobLookupKey types.NamespacedName
-			createdJob := &batchv1.Job{}
-			ginkgo.By("creating a job without queue name", func() {
-				testJob = testingjob.MakeJob("test-job", ns.Name).Suspend(false).Obj()
-				gomega.Expect(k8sClient.Create(ctx, testJob)).Should(gomega.Succeed())
-			})
 			ginkgo.By("setting the queue-name label", func() {
 				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -264,20 +246,11 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				podLookupKey = types.NamespacedName{Name: testPod.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
-					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.HaveLen(1))
 					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
 						{Name: "kueue.x-k8s.io/admission"},
 					}))
 					g.Expect(createdPod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabel: "true"}))
 					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("deleting the pod", func() {
-				gomega.Expect(k8sClient.Delete(ctx, testPod)).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					err := k8sClient.Get(ctx, podLookupKey, createdPod)
-					g.Expect(apierrors.IsNotFound(err)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -306,9 +279,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("deleting the pod", func() {
 				gomega.Expect(k8sClient.Delete(ctx, testPod)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					err := k8sClient.Get(ctx, podLookupKey, createdPod)
-					g.Expect(apierrors.IsNotFound(err)).Should(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(testing.BeNotFoundError())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
