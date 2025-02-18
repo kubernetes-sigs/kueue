@@ -66,10 +66,10 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		// in practice the oldCondition cannot be nil, however we should try to avoid nil ptr deref.
 		if oldCondition != nil {
 			d := int32(now.Sub(oldCondition.LastTransitionTime.Time).Seconds())
-			if w.Status.AccumulatedPastExexcutionTimeSeconds != nil {
-				*w.Status.AccumulatedPastExexcutionTimeSeconds += d
+			if w.Status.AccumulatedPastExecutionTimeSeconds != nil {
+				*w.Status.AccumulatedPastExecutionTimeSeconds += d
 			} else {
-				w.Status.AccumulatedPastExexcutionTimeSeconds = &d
+				w.Status.AccumulatedPastExecutionTimeSeconds = &d
 			}
 		}
 	}

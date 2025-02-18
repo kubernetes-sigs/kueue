@@ -1687,8 +1687,8 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.AccumulatedPastExexcutionTimeSeconds != nil {
-		in, out := &in.AccumulatedPastExexcutionTimeSeconds, &out.AccumulatedPastExexcutionTimeSeconds
+	if in.AccumulatedPastExecutionTimeSeconds != nil {
+		in, out := &in.AccumulatedPastExecutionTimeSeconds, &out.AccumulatedPastExecutionTimeSeconds
 		*out = new(int32)
 		**out = **in
 	}

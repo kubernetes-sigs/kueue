@@ -304,14 +304,14 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.BeForbiddenError()),
-			ginkgo.Entry("invalid maximumExexcutionTimeSeconds",
+			ginkgo.Entry("invalid maximumExecutionTimeSeconds",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(0).
 						Obj()
 				},
 				testing.BeInvalidError()),
-			ginkgo.Entry("valid maximumExexcutionTimeSeconds",
+			ginkgo.Entry("valid maximumExecutionTimeSeconds",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(1).

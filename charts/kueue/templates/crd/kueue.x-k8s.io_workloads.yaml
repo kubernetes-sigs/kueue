@@ -8390,9 +8390,9 @@ spec:
           status:
             description: WorkloadStatus defines the observed state of Workload
             properties:
-              accumulatedPastExexcutionTimeSeconds:
+              accumulatedPastExecutionTimeSeconds:
                 description: |-
-                  accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+                  accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
                   in Admitted state, in the previous `Admit` - `Evict` cycles.
                 format: int32
                 type: integer

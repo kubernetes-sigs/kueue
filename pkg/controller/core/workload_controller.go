@@ -350,14 +350,14 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return 0, nil
 	}
 
-	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
 
 	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 		workload.SetDeactivationTarget(wl, kueue.WorkloadMaximumExecutionTimeExceeded, "exceeding the maximum execution time")
-		wl.Status.AccumulatedPastExexcutionTimeSeconds = nil
+		wl.Status.AccumulatedPastExecutionTimeSeconds = nil
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
 			return 0, err
 		}
