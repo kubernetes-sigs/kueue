@@ -830,11 +830,7 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
 		elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 	}
-	waitFor := r.waitForPodsReady.timeout - elapsedTime
-	if waitFor < 0 {
-		waitFor = 0
-	}
-	return true, waitFor
+	return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 }
 
 type resourceUpdatesHandler struct {
