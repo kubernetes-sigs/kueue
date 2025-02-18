@@ -27,4 +27,5 @@ const (
 	ReasonFinishedWorkload      = "FinishedWorkload"
 	ReasonErrWorkloadCompose    = "ErrWorkloadCompose"
 	ReasonUpdatedAdmissionCheck = "UpdatedAdmissionCheck"
+	ReasonJobNestingTooDeep     = "JobNestingTooDeep"
 )

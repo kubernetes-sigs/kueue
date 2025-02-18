@@ -63,6 +63,7 @@ import (
 
 const (
 	FailedToStartFinishedReason = "FailedToStart"
+	managedOwnersChainLimit     = 10
 )
 
 var (
@@ -601,13 +602,15 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.O
 // getAncestorJobManagedByKueue traverses controllerRefs to find an ancestor job that is manged by Kueue (ie, it has a queue-name label).
 func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj client.Object, namespace string) (client.Object, error) {
 	seen := make(sets.Set[types.UID])
+	linksTraversed := 0
+	currentJob := jobObj
 	for {
-		if seen.Has(jobObj.GetUID()) {
+		if seen.Has(currentJob.GetUID()) {
 			return nil, nil
 		}
-		seen.Insert(jobObj.GetUID())
+		seen.Insert(currentJob.GetUID())
 
-		owner := metav1.GetControllerOf(jobObj)
+		owner := metav1.GetControllerOf(currentJob)
 		if owner == nil || !IsOwnerManagedByKueue(owner) {
 			return nil, nil
 		}
@@ -621,7 +624,13 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 		if QueueNameForObject(parentJob) != "" {
 			return parentJob, nil
 		}
-		jobObj = parentJob
+		currentJob = parentJob
+		linksTraversed++
+		if linksTraversed > managedOwnersChainLimit {
+			r.record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
+				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
+			return nil, nil
+		}
 	}
 }
 
