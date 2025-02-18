@@ -182,6 +182,8 @@ type TopologyRequest struct {
 type TopologyDomainRequests struct {
 	Values   []string
 	Requests resources.Requests
+	// Count indicates how many pods are requested in this TopologyDomain.
+	Count int32
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -414,6 +416,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
 					Values:   domain.Values,
 					Requests: domainRequests,
+					Count:    domain.Count,
 				})
 			}
 		}
