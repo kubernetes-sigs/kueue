@@ -455,7 +455,7 @@ func TestValidate(t *testing.T) {
 						Duration: 50,
 					},
 					RecoveryTimeout: &metav1.Duration{
-						Duration: 5,
+						Duration: 3,
 					},
 					BlockAdmission: ptr.To(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{

@@ -158,6 +158,7 @@ waitForPodsReady:
   enable: true
   timeout: 50s
   blockAdmission: false
+  recoveryTimeout: 3m
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10

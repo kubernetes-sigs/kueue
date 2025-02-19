@@ -26,6 +26,7 @@ clientConnection:
 #waitForPodsReady:
 #  enable: false
 #  timeout: 5m
+#  recoveryTimeout: 3m
 #  blockAdmission: false
 #  requeuingStrategy:
 #    timestamp: Eviction

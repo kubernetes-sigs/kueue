@@ -123,7 +123,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
-	podsReadyRecoveryTimeout := metav1.Duration{Duration: defaultPodsRecoveryTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
 	testCases := map[string]struct {
@@ -392,7 +391,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:          true,
 					BlockAdmission:  ptr.To(true),
 					Timeout:         &podsReadyTimeout,
-					RecoveryTimeout: &podsReadyRecoveryTimeout,
+					RecoveryTimeout: nil,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
@@ -411,7 +410,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 		},
-		"set waitForPodsReady.blockAdmission to false when enable is false": {
+		"set waitForPodsReady.blockAdmission to false, and waitForPodsReady.recoveryTimeout to nil when enable is false": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: false,
@@ -422,10 +421,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:          false,
-					BlockAdmission:  ptr.To(false),
-					Timeout:         &podsReadyTimeout,
-					RecoveryTimeout: &podsReadyRecoveryTimeout,
+					Enable:         false,
+					BlockAdmission: ptr.To(false),
+					Timeout:        &podsReadyTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
@@ -454,6 +452,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						BackoffBaseSeconds: ptr.To[int32](63),
 						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
+					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
@@ -464,7 +463,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:          true,
 					BlockAdmission:  ptr.To(true),
 					Timeout:         &podsReadyTimeoutOverwrite,
-					RecoveryTimeout: &podsReadyRecoveryTimeout,
+					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),

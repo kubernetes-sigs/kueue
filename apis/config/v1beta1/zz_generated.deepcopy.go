@@ -512,11 +512,6 @@ func (in *WaitForPodsReady) DeepCopyInto(out *WaitForPodsReady) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
-	if in.RecoveryTimeout != nil {
-		in, out := &in.RecoveryTimeout, &out.RecoveryTimeout
-		*out = new(v1.Duration)
-		**out = **in
-	}
 	if in.BlockAdmission != nil {
 		in, out := &in.BlockAdmission, &out.BlockAdmission
 		*out = new(bool)
@@ -526,6 +521,11 @@ func (in *WaitForPodsReady) DeepCopyInto(out *WaitForPodsReady) {
 		in, out := &in.RequeuingStrategy, &out.RequeuingStrategy
 		*out = new(RequeuingStrategy)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.RecoveryTimeout != nil {
+		in, out := &in.RecoveryTimeout, &out.RecoveryTimeout
+		*out = new(v1.Duration)
+		**out = **in
 	}
 }
 

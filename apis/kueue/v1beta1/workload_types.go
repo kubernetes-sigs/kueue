@@ -578,6 +578,14 @@ const (
 	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
+
+	// WorkloadWaitForPodsStart indicates that the PodsReady condition is set before
+	// the workload has started
+	WorkloadWaitForPodsStart = "WorkloadWaitForPodsStart"
+
+	// WorkloadWaitForPodsStart indicates that the PodsReady condition is set after
+	// the workload has started, some pod has failed, and workload waits for recovering
+	WorkloadWaitForPodsRecovery = "WorkloadWaitForPodsRecovery"
 )
 
 const (
