@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,7 +27,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,23 +68,19 @@ func TestIsParentJobManaged(t *testing.T) {
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job has queue-name label": {
-			ancestors: []client.Object{
-				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-					UID(parentJobName).
-					Queue("test-q").
-					Obj(),
-			},
+			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+				UID(parentJobName).
+				Queue("test-q").
+				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantManaged: true,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job doesn't has queue-name label": {
-			ancestors: []client.Object{
-				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-					UID(parentJobName).
-					Obj(),
-			},
+			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+				UID(parentJobName).
+				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
@@ -105,9 +101,6 @@ func TestIsParentJobManaged(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}
