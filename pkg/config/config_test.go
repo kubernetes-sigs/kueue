@@ -373,18 +373,6 @@ webhook:
 
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{job.FrameworkName},
-		PodOptions: &configapi.PodIntegrationOptions{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      corev1.LabelMetadataName,
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"kube-system", "kueue-system"},
-					},
-				},
-			},
-			PodSelector: &metav1.LabelSelector{},
-		},
 	}
 
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
@@ -471,18 +459,6 @@ webhook:
 				ClientConnection:           defaultClientConnection,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-tenant-a"},
-								},
-							},
-						},
-						PodSelector: &metav1.LabelSelector{},
-					},
 				},
 				QueueVisibility: defaultQueueVisibility,
 				MultiKueue:      defaultMultiKueue,
@@ -751,18 +727,6 @@ webhook:
 					// therefore the batch/framework should be registered
 					Frameworks:         []string{job.FrameworkName},
 					ExternalFrameworks: []string{"Foo.v1.example.com"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-system"},
-								},
-							},
-						},
-						PodSelector: &metav1.LabelSelector{},
-					},
 				},
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
@@ -1064,16 +1028,6 @@ func TestEncode(t *testing.T) {
 				},
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
-					"podOptions": map[string]any{
-						"namespaceSelector": map[string]any{
-							"matchExpressions": []any{map[string]any{
-								"key":      corev1.LabelMetadataName,
-								"operator": "NotIn",
-								"values":   []any{"kube-system", "kueue-system"},
-							}},
-						},
-						"podSelector": map[string]any{},
-					},
 				},
 				"queueVisibility": map[string]any{
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),

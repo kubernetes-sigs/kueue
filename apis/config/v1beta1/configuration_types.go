@@ -48,7 +48,21 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
+	// ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
+	// from management by Kueue.
+	//
+	// It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
+	// For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
+	// eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
+	// never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
+	// This strong exemption ensures that Kueue will not interfere with the basic operation
+	// of system namespace.
+	//
+	// For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
+	// by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
+	// a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
+	// a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
+	// true and the job's namespace matches ManagedJobsNamespaceSelector.
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
 	// InternalCertManagement is configuration for internalCertManagement
@@ -339,6 +353,9 @@ type Integrations struct {
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
+	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
+	// instead.
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the

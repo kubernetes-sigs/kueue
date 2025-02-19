@@ -18,11 +18,10 @@ Learn how to [install Kueue with a custom manager configuration](/docs/installat
 You will need to modify the manage configuration to set `manageJobsWithoutQueueName` to true.
 
 If you also modify the default configuration to enable the `Pod`, `Deployment` or `StatefulSet` integrations,
-you may also need to override the default value of `integrations.podOptions.namespaceSelector` (Kueue 0.9 or earlier)
-or `managedJobsNamespaceSelector` (Kueue 0.10 or later) to limit the scope of `manageJobsWithoutQueueName`
-to only apply to _batch user_ namespaces.
+you may also need to override the default value of `managedJobsNamespaceSelector` to limit the scope of
+`manageJobsWithoutQueueName` to only apply to _batch user_ namespaces.
 
-The default value for both `integrations.podOptions.namespaceSelector` and `managedJobsNamespaceSelector` is
+The default value for `managedJobsNamespaceSelector` is
 ```yaml
 matchExpressions:
 - key: kubernetes.io/metadata.name

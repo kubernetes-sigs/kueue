@@ -208,7 +208,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector with mjns feature gate disabled": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -216,14 +216,35 @@ func TestValidate(t *testing.T) {
 					PodOptions: nil,
 				},
 			},
+			managedJobsFeatureGate: false,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions",
+					Field: "integrations.podOptions.namespaceSelector",
 				},
 			},
 		},
-		"nil PodIntegrationOptions.NamespaceSelector without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: nil,
+				},
+			},
+			managedJobsFeatureGate: true,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "managedJobsNamespaceSelector",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "managedJobsNamespaceSelector",
+				},
+			},
+		},
+		"nil PodIntegrationOptions.NamespaceSelector and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -233,6 +254,7 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+			managedJobsFeatureGate: false,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
