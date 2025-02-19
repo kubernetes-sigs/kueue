@@ -1437,7 +1437,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				wantMainPodSetResult.TopologyAssignment = tc.wantAssignment
 			}
 			wantResult["main"] = wantMainPodSetResult
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
