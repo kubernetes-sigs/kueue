@@ -826,8 +826,21 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
 		return false, 0
 	}
-	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
+
+	var elapsedTime time.Duration
+	switch {
+	case podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart:
+		// PodsReady condition is not set yet or was stale
+		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		elapsedTime = r.clock.Since(admittedCond.LastTransitionTime.Time)
+	case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
+		// A pod has failed and is recovering now
+		if r.waitForPodsReady.recoveryTimeout != nil {
+			elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
+			return true, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		}
+		return false, 0
+	}
 	return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 }
 

@@ -771,6 +771,22 @@ func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
 }
 
+func IsPodsReadyStartCond(w *kueue.Workload) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPodsReady)
+	if cond == nil || cond.Reason != kueue.WorkloadWaitForPodsStart {
+		return nil
+	}
+	return cond
+}
+
+func IsPodsReadyRecoveryCond(w *kueue.Workload) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPodsReady)
+	if cond == nil || cond.Reason != kueue.WorkloadWaitForPodsRecovery {
+		return nil
+	}
+	return cond
+}
+
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
 func IsEvictedByDeactivation(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
@@ -796,6 +812,18 @@ func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
 
 func IsEvicted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
+}
+
+// HasCondition checks if there is a condition in Workload's status with exactly the same
+// Type, Status, Reason and Message
+func HasCondition(w *kueue.Workload, cond *metav1.Condition) bool {
+	for _, statusCond := range w.Status.Conditions {
+		if statusCond.Type == cond.Type && statusCond.Reason == cond.Reason &&
+			statusCond.Status == cond.Status && statusCond.Message == cond.Message {
+			return true
+		}
+	}
+	return false
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
