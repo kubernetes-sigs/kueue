@@ -45,11 +45,8 @@ import (
 )
 
 const (
-	jobName           = "test-job"
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	jobQueueName      = "test-queue"
+	jobName     = "test-job"
+	instanceKey = "cloud.provider.com/instance"
 )
 
 var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {

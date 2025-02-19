@@ -38,7 +38,6 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 	const (
 		nsName   = "foo"
 		cqNameA  = "cqA"
-		cqNameB  = "cqB"
 		lqNameA  = "lqA"
 		lqNameB  = "lqB"
 		lowPrio  = 50
