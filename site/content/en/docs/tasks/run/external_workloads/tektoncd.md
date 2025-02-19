@@ -17,7 +17,7 @@ We demonstrate how to support scheduling Tekton Pipelines Tasks in Kueue based o
 
 1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
 
-1. Follow the steps in [Run Plain Pods](docs/tasks/run/plain_pods/#before-you-begin) to learn how to enable and configure the `v1/pod` integration.
+1. Follow the steps in [Run Plain Pods](docs/tasks/run/plain_pods/#before-you-begin) to learn how to enable and configure the `pod` integration.
 
 1. Check [Administrator cluster quotas](/docs/tasks/manage/administer_cluster_quotas/) for details on the initial Kueue step.
 
