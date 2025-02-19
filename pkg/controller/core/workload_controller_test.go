@@ -1128,7 +1128,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1145,7 +1145,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1188,7 +1188,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1206,7 +1206,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{

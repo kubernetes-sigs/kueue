@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
-					Reason: "PodsReady",
+					Reason: kueue.WorkloadWaitForPodsStart,
 				})
 				g.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
