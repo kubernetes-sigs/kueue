@@ -144,3 +144,21 @@ func (c *ClusterQueueSnapshot) getResourceNode() ResourceNode {
 func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
+
+type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
+
+func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
+	tasRequestsByFlavor WorkloadTASRequests) TASAssignmentsResult {
+	result := make(TASAssignmentsResult)
+	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
+		// We assume the `tasFlavor` is already in the snapshot as this was
+		// already checked earlier during flavor assignment, and the set of
+		// flavors is immutable in snapshot.
+		tasFlavorCache := c.TASFlavors[tasFlavor]
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+		for psName, psAssignment := range flvResult {
+			result[psName] = psAssignment
+		}
+	}
+	return result
+}
