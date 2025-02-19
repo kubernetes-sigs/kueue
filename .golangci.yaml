@@ -11,11 +11,8 @@ linters-settings:
       - appendAssign
       - exitAfterDefer
   goheader:
-    values:
-      regexp:
-        CopyrightDate: "Copyright \\d{4}"
     template: |-
-      {{CopyrightDate}} The Kubernetes Authors.
+      Copyright The Kubernetes Authors.
 
       Licensed under the Apache License, Version 2.0 (the "License");
       you may not use this file except in compliance with the License.
@@ -28,6 +25,9 @@ linters-settings:
       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
       See the License for the specific language governing permissions and
       limitations under the License.
+    # We can't use the template-path option because it requires text without `/*` and `*/` comments.
+    # We can't remove the comments `/*` and `*/` because the controller-gen requires them.
+    # template-path: ./hack/boilerplate.go.txt
   govet:
     enable:
       - nilness
