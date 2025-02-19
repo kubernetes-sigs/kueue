@@ -148,7 +148,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
-		multiQueue                 bool
+		enableMultiKueue           bool
 		job                        *batchv1.Job
 		want                       *batchv1.Job
 	}{
@@ -222,7 +222,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queue("multikueue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiQueue: true,
+			enableMultiKueue: true,
 		},
 		"ManagedByDefaulting, targeting multikueue local queue but already managaed by someone else": {
 			job: utiljob.MakeJob("job", "default").
@@ -233,7 +233,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
-			multiQueue: true,
+			enableMultiKueue: true,
 		},
 		"ManagedByDefaulting, targeting non-multikueue local queue": {
 			job: utiljob.MakeJob("job", "default").
@@ -242,14 +242,14 @@ func TestBaseWebhookDefault(t *testing.T) {
 			want: utiljob.MakeJob("job", "default").
 				Queue("queue").
 				Obj(),
-			multiQueue: true,
+			enableMultiKueue: true,
 		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiQueue)
+			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
@@ -263,7 +263,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
-			if tc.multiQueue {
+			if tc.enableMultiKueue {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
