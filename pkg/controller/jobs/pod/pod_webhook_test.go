@@ -85,6 +85,9 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
 				Obj(),
 		},
 		"pod with queue matching ns selector": {
@@ -814,7 +817,7 @@ func TestGetPodOptions(t *testing.T) {
 			integrationOpts: map[string]any{
 				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
 			},
-			wantOpts: &configapi.PodIntegrationOptions{},
+			wantOpts: nil,
 		},
 		"podIntegrationOptions isn't of type PodIntegrationOptions": {
 			integrationOpts: map[string]any{

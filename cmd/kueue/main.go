@@ -326,13 +326,15 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
-		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
+	}
+	if cfg.Integrations.PodOptions != nil {
+		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
 	}
 	if features.Enabled(features.ManagedJobsNamespaceSelector) {
 		nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
