@@ -583,9 +583,10 @@ const (
 	// when the pods have not been ready since admission, or the workload is not admitted.
 	WorkloadWaitForPodsStart = "WaitForPodsStart"
 
-	// WorkloadWaitForPodsStart indicates that the PodsReady condition is set after
-	// the workload has started, some pod has failed, and workload waits for recovering
-	WorkloadWaitForPodsRecovery = "WorkloadWaitForPodsRecovery"
+	// WorkloadWaitForPodsStart indicates the reason for the PodsReady=False condition
+	// when the Pods were ready since the workload admission, but some pod has failed, 
+	// and workload waits for recovering.
+	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
 )
 
 const (
