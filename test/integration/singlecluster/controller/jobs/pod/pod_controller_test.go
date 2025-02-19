@@ -518,7 +518,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pod with prebuild workload", func() {
+			ginkgo.It("Should ungate pod with prebuilt workload", func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -526,7 +526,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				pod := testingpod.MakePod(podName, ns.Name).
 					Request(corev1.ResourceCPU, "1").
 					Queue(lq.Name).
-					PrebuildWorkload(workloadName).
+					PrebuiltWorkload(workloadName).
 					Obj()
 
 				ginkgo.By("Creating pod with queue-name", func() {
@@ -539,7 +539,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Obj()
 				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
 
-				ginkgo.By("Creating prebuild workload with queue-name", func() {
+				ginkgo.By("Creating prebuilt workload with queue-name", func() {
 					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 				})
 
@@ -1578,7 +1578,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 
-			ginkgo.It("Should ungate pods with prebuild workload", func() {
+			ginkgo.It("Should ungate pods with prebuilt workload", func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -1588,7 +1588,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "1").
 					Queue(lq.Name).
-					PrebuildWorkload(workloadName).
+					PrebuiltWorkload(workloadName).
 					RoleHash("leader").
 					Obj()
 				pod2 := testingpod.MakePod("test-pod-2", ns.Name).
@@ -1596,7 +1596,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "2").
 					Queue(lq.Name).
-					PrebuildWorkload(workloadName).
+					PrebuiltWorkload(workloadName).
 					RoleHash("worker").
 					Obj()
 
@@ -1617,7 +1617,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Obj()
 				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
 
-				ginkgo.By("Creating prebuild workload", func() {
+				ginkgo.By("Creating prebuilt workload", func() {
 					gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 				})
 

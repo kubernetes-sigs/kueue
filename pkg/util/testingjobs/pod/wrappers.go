@@ -100,7 +100,7 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(controllerconsts.QueueLabel, q)
 }
 
-func (p *PodWrapper) PrebuildWorkload(name string) *PodWrapper {
+func (p *PodWrapper) PrebuiltWorkload(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
 }
 
