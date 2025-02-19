@@ -115,12 +115,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 			ginkgo.By("setting the queue-name label", func() {
 				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, jobLookupKey, createdJob); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					createdJob.Labels["kueue.x-k8s.io/queue-name"] = "main"
-					return k8sClient.Update(ctx, createdJob)
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("verifying that the job is unsuspended", func() {
@@ -147,8 +145,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
-					// Give it enough time that the children would be suspended if parent detection doesn't work as intended.
-					Image(util.E2eTestSleepImage, []string{"3s"}).
+					Image(util.E2eTestSleepImage, []string{"1ms"}).
 					SetTypeMeta().Obj()).
 				Suspend(false).
 				Obj()
@@ -168,12 +165,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("setting the queue-name label", func() {
 				createdAppWrapper := &awv1beta2.AppWrapper{}
 				awLookupKey := types.NamespacedName{Name: aw.Name, Namespace: ns.Name}
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, awLookupKey, createdAppWrapper); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, awLookupKey, createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels["kueue.x-k8s.io/queue-name"] = "main"
-					return k8sClient.Update(ctx, createdAppWrapper)
+					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -204,8 +199,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 							Parallelism: 2,
 							Completions: 2,
 							Image:       util.E2eTestSleepImage,
-							// Give it enough time that the children would be suspended if ancestor detection doesn't work as intended.
-							Args: []string{"3s"},
+							Args:        []string{"1ms"},
 						},
 					).
 					SetTypeMeta().
@@ -230,12 +224,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("setting the queue-name label", func() {
 				createdAppWrapper := &awv1beta2.AppWrapper{}
 				awLookupKey := types.NamespacedName{Name: aw.Name, Namespace: ns.Name}
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, awLookupKey, createdAppWrapper); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, awLookupKey, createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels["kueue.x-k8s.io/queue-name"] = "main"
-					return k8sClient.Update(ctx, createdAppWrapper)
+					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
