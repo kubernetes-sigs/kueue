@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -939,7 +940,8 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 					Name:  wl.Spec.PodSets[0].Name,
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required: ptr.To(tasBlockLabel),
+						Required:      ptr.To(tasBlockLabel),
+						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

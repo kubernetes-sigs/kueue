@@ -19,6 +19,7 @@ package appwrapper
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -128,13 +129,27 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
 	for psIndex := range podSpecTemplates {
+		var podIndexLabel *string
+		var subGroupIndexLabel *string
+		var subGroupCount *int32
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASPodIndexLabel]; ok {
+			podIndexLabel = &annotation
+		}
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupIndexLabel]; ok {
+			subGroupIndexLabel = &annotation
+		}
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupCount]; ok {
+			if count, err := strconv.Atoi(annotation); err == nil {
+				count32 := int32(count)
+				subGroupCount = &count32
+			}
+		}
 		podSets[psIndex] = kueue.PodSet{
 			Name:            fmt.Sprintf("%s-%v", aw.Name, psIndex),
 			Template:        *podSpecTemplates[psIndex],
 			Count:           awutils.Replicas(awPodSets[psIndex]),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), nil, nil, nil),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), podIndexLabel, subGroupIndexLabel, subGroupCount),
 		}
-	}
 	return podSets, nil
 }
 
@@ -149,7 +164,7 @@ func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error 
 	}
 
 	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(aw), awPodSetsInfo); err != nil {
-		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
+		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)	
 	}
 	aw.Spec.Suspend = false
 	return nil
