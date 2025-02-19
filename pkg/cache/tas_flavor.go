@@ -127,7 +127,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {
-		snapshot.addUsage(domainID, usage)
+		snapshot.addTASUsage(domainID, usage)
 	}
 	for _, pod := range pods {
 		// skip unscheduled or terminal pods as they don't use any capacity
@@ -137,7 +137,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
 			requests := limitrange.TotalRequests(&pod.Spec)
 			usage := resources.NewRequests(requests)
-			snapshot.addUsage(domainID, usage)
+			snapshot.addNonTASUsage(domainID, usage)
 		}
 	}
 	return snapshot
