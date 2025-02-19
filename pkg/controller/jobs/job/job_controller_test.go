@@ -1896,7 +1896,6 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1904,7 +1903,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1912,7 +1911,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 		},
@@ -1933,21 +1932,20 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1974,7 +1972,6 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
-					UID("parent-uid").
 					Queue("queue").
 					Obj(),
 			},
@@ -1983,7 +1980,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},
@@ -1992,7 +1989,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},

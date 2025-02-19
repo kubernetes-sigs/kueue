@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -193,18 +192,6 @@ func (j *MPIJobWrapper) Suspend(s bool) *MPIJobWrapper {
 // UID updates the uid of the job.
 func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
-	return j
-}
-
-// OwnerReference adds a ownerReference to the default container.
-func (j *MPIJobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *MPIJobWrapper {
-	j.ObjectMeta.OwnerReferences = append(j.ObjectMeta.OwnerReferences, metav1.OwnerReference{
-		APIVersion: ownerGVK.GroupVersion().String(),
-		Kind:       ownerGVK.Kind,
-		Name:       ownerName,
-		UID:        types.UID(ownerName),
-		Controller: ptr.To(true),
-	})
 	return j
 }
 
