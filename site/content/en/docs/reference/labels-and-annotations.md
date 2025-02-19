@@ -152,7 +152,7 @@ The annotation key is used to indicate the integration name of the Pod owner.
 
 Type: Label
 
-Example: `kueue.x-k8s.io/prebuilt-workload-name: "my-prebuild-workload-name"`
+Example: `kueue.x-k8s.io/prebuilt-workload-name: "my-prebuilt-workload-name"`
 
 Used on: Kueue-managed Jobs.
 
