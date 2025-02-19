@@ -30,7 +30,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -207,10 +206,10 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 }
 
 func IsManagedByKueue(obj client.Object) bool {
-	objectOwner := metav1.GetControllerOf(obj)
-	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
+	if IsOwnerManagedByKueueForObject(obj) {
 		return false
-	} else if QueueNameForObject(obj) != "" {
+	}
+	if QueueNameForObject(obj) != "" {
 		return true
 	}
 	return false

@@ -1329,13 +1329,6 @@ func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kue
 	return p.equivalentToWorkload(wl, podSets), nil
 }
 
-func IsPodOwnerManagedByKueue(p *Pod) bool {
-	if owner := metav1.GetControllerOf(&p.pod); owner != nil {
-		return jobframework.IsOwnerManagedByKueue(owner)
-	}
-	return false
-}
-
 func GetWorkloadNameForPod(podName string, podUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, podUID, gvk)
 }
