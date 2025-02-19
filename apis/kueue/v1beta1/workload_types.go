@@ -584,7 +584,7 @@ const (
 	WorkloadWaitForPodsStart = "WaitForPodsStart"
 
 	// WorkloadWaitForPodsStart indicates the reason for the PodsReady=False condition
-	// when the Pods were ready since the workload admission, but some pod has failed, 
+	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
 	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
 )
