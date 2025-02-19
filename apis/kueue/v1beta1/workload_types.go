@@ -579,8 +579,8 @@ const (
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 
-	// WorkloadWaitForPodsStart indicates that the PodsReady condition is set before
-	// the workload has started
+	// WorkloadWaitForPodsStart indicates the reason for PodsReady=False condition
+	// when the pods have not been ready since admission, or the workload is not admitted.
 	WorkloadWaitForPodsStart = "WorkloadWaitForPodsStart"
 
 	// WorkloadWaitForPodsStart indicates that the PodsReady condition is set after
