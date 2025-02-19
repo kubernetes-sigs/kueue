@@ -17,7 +17,6 @@ limitations under the License.
 package jobframework_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -173,7 +172,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"))
-			ctx, _ := utiltestings.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
 			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
 			builder = builder.WithObjects(tc.ancestors...)
