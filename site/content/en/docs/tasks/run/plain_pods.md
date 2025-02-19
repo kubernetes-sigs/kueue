@@ -16,7 +16,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. By default, the integration for `v1/pod` is not enabled.
+1. By default, the integration for `pod` is not enabled.
    Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
    and enable the `pod` integration.
 
