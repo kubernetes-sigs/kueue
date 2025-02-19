@@ -63,6 +63,7 @@ import (
 
 const (
 	FailedToStartFinishedReason = "FailedToStart"
+	managedOwnersChainLimit     = 10
 )
 
 var (
@@ -581,11 +582,8 @@ func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.
 // getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
 func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.Object, namespace string) (*kueue.Workload, error) {
 	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj, namespace)
-	if err != nil {
+	if err != nil || ancestor == nil {
 		return nil, err
-	}
-	if ancestor == nil {
-		return nil, nil
 	}
 	wlList := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wlList, client.InNamespace(ancestor.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(ancestor.GetUID())}); client.IgnoreNotFound(err) != nil {
@@ -600,14 +598,15 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.O
 
 // getAncestorJobManagedByKueue traverses controllerRefs to find an ancestor job that is manged by Kueue (ie, it has a queue-name label).
 func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj client.Object, namespace string) (client.Object, error) {
-	seen := make(sets.Set[types.UID])
+	seen := sets.New[types.UID]()
+	currentJob := jobObj
 	for {
-		if seen.Has(jobObj.GetUID()) {
+		if seen.Has(currentJob.GetUID()) {
 			return nil, nil
 		}
-		seen.Insert(jobObj.GetUID())
+		seen.Insert(currentJob.GetUID())
 
-		owner := metav1.GetControllerOf(jobObj)
+		owner := metav1.GetControllerOf(currentJob)
 		if owner == nil || !IsOwnerManagedByKueue(owner) {
 			return nil, nil
 		}
@@ -621,7 +620,17 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 		if QueueNameForObject(parentJob) != "" {
 			return parentJob, nil
 		}
-		jobObj = parentJob
+		currentJob = parentJob
+		if len(seen) > managedOwnersChainLimit {
+			r.record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
+				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
+			ctrl.LoggerFrom(ctx).V(2).Info(
+				"Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainlimit",
+				"limit ", managedOwnersChainLimit,
+				"lastParentReached", parentJob,
+			)
+			return nil, nil
+		}
 	}
 }
 
