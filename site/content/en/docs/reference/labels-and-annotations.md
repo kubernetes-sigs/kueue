@@ -160,6 +160,9 @@ The label key of the job holds the name of the pre-built workload to be used.
 The intended use of prebuilt workload is to create the Job once the workload
 is created. In other scenarios the behavior is undefined.
 
+Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name 
+and the pod group name should be the same.
+
 ### kueue.x-k8s.io/priority-class
 
 Type: Label
