@@ -163,7 +163,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: jobNamespace, Name: childJobName},
-					EventType: "Warning",
+					EventType: corev1.EventTypeWarning,
 					Reason:    ReasonJobNestingTooDeep,
 					Message:   "Terminated search for Kueue-managed Job because ancestor depth exceeded limit of 10",
 				},
@@ -173,6 +173,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"))
+			ctx, _ := utiltestings.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
 			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
 			builder = builder.WithObjects(tc.ancestors...)
@@ -181,7 +182,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			}
 			cl := builder.Build()
 			r := NewReconciler(cl, recorder)
-			got, gotErr := r.IsAncestorJobManaged(context.Background(), tc.job, jobNamespace)
+			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job, jobNamespace)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from IsAncestorJobManaged want: %v,got: %v", tc.wantManaged, got)
 			}

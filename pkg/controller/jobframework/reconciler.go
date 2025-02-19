@@ -626,7 +626,6 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
 			ctrl.LoggerFrom(ctx).V(2).Info(
 				"Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainlimit",
-				"jobObj", jobObj,
 				"limit ", managedOwnersChainLimit,
 				"lastParentReached", parentJob,
 			)
