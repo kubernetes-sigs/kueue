@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -244,20 +245,64 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
-func (s *TASFlavorSnapshot) FreeCapacityPerDomain() map[string]int {
-	freeCapacityPerDomain := make(map[string]int)
+func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[string]resources.Requests {
+	freeCapacityPerDomain := make(map[string]resources.Requests)
 
 	for domainID, leaf := range s.leaves {
-		// Calculate the total free capacity for the domain
-		totalFreeCapacity := 0
-		for _, quantity := range leaf.freeCapacity {
-			totalFreeCapacity += int(quantity)
-		}
-
-		freeCapacityPerDomain[string(domainID)] = totalFreeCapacity
+		freeCapacityPerDomain[string(domainID)] = leaf.freeCapacity.Clone()
 	}
 
 	return freeCapacityPerDomain
+}
+
+func (s *TASFlavorSnapshot) tasUsagePerDomain() map[string]resources.Requests {
+	tasUsagePerDomain := make(map[string]resources.Requests)
+
+	for domainID, leaf := range s.leaves {
+		tasUsagePerDomain[string(domainID)] = leaf.tasUsage.Clone()
+	}
+
+	return tasUsagePerDomain
+}
+
+func (s *TASFlavorSnapshot) PrettyPrintFreeCapacityPerDomain() string {
+	freeCapacityPerDomain := s.freeCapacityPerDomain()
+	tasUsagePerDomain := s.tasUsagePerDomain()
+
+	// Pretty-print the free capacities
+	var prettyDomains []string
+
+	// Sort domain keys lexicographically
+	for _, domain := range slices.Sorted(maps.Keys(freeCapacityPerDomain)) {
+		freeCapacity := freeCapacityPerDomain[domain]
+		tasUsage := tasUsagePerDomain[domain]
+
+		// Pretty-print freeCapacity
+		var freeCapacityDetails []string
+		for _, resourceName := range slices.Sorted(maps.Keys(freeCapacity)) {
+			value := freeCapacity[resourceName]
+			prettyValue := resources.ResourceQuantityString(resourceName, value)
+			freeCapacityDetails = append(freeCapacityDetails, fmt.Sprintf("%s: %s", resourceName, prettyValue))
+		}
+
+		// Pretty-print tasUsage
+		var tasUsageDetails []string
+		for _, resourceName := range slices.Sorted(maps.Keys(tasUsage)) {
+			value := tasUsage[resourceName]
+			prettyValue := resources.ResourceQuantityString(resourceName, value)
+			tasUsageDetails = append(tasUsageDetails, fmt.Sprintf("%s: %s", resourceName, prettyValue))
+		}
+
+		// Format freeCapacity and tasUsage into the output string for this domain
+		prettyDomains = append(prettyDomains, fmt.Sprintf("%s={\nfreeCapacity: %s\ntasUsage: %s\n}",
+			domain,
+			strings.Join(freeCapacityDetails, "; "),
+			strings.Join(tasUsageDetails, "; "),
+		))
+	}
+
+	// Join all domains together with commas and newlines
+	return strings.Join(prettyDomains, ",\n")
 }
 
 type TASPodSetRequests struct {

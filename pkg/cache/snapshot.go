@@ -80,12 +80,12 @@ func (s *Snapshot) Log(log logr.Logger) {
 
 	// Dump TAS snapshots if the feature is enabled
 	if features.Enabled(features.TopologyAwareScheduling) {
-		for cqName, cq := range s.ClusterQueues {
+		for cqName, cq := range s.ClusterQueues() {
 			for tasFlavor, tasSnapshot := range cq.TASFlavors {
 				log.Info("TAS Snapshot Free Capacity",
 					"clusterQueue", cqName,
 					"resourceFlavor", tasFlavor,
-					"freeCapacityPerDomain", tasSnapshot.FreeCapacityPerDomain(),
+					"freeCapacityPerDomain", tasSnapshot.PrettyPrintFreeCapacityPerDomain(),
 				)
 			}
 		}
