@@ -476,7 +476,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
-	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
+	if err := s.cache.AssumeWorkload(ctx, newWorkload); err != nil {
 		return err
 	}
 	e.status = assumed
@@ -488,18 +488,20 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 			waitTime := workload.QueuedWaitTime(newWorkload)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-			if features.Enabled(features.LocalQueueMetrics) {
+			lqObj := &kueue.LocalQueue{}
+			s.client.Get(ctx, client.ObjectKey{Name: newWorkload.Spec.QueueName, Namespace: newWorkload.Namespace}, lqObj)
+			if should, _ := metrics.ShouldReportLocalMetrics(ctx, s.client, lqObj); should {
 				metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 			}
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-				if features.Enabled(features.LocalQueueMetrics) {
+				if should, _ := metrics.ShouldReportLocalMetrics(ctx, s.client, lqObj); should {
 					metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 				if len(newWorkload.Status.AdmissionChecks) > 0 {
 					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
-					if features.Enabled(features.LocalQueueMetrics) {
+					if should, _ := metrics.ShouldReportLocalMetrics(ctx, s.client, lqObj); should {
 						metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
 					}
 				}
@@ -509,7 +511,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
-		_ = s.cache.ForgetWorkload(newWorkload)
+		_ = s.cache.ForgetWorkload(ctx, newWorkload)
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
