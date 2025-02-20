@@ -315,7 +315,7 @@ func TestDominantResourceShare(t *testing.T) {
 
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
 
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(ctx, wl)
 				snapshot.AddWorkload(workload.NewInfo(wl))
 				i++
 			}
