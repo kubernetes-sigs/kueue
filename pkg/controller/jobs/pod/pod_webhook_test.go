@@ -595,6 +595,31 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"prebuilt workload for pod": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Obj(),
+		},
+		"prebuilt workload for pod group valid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+		},
+		"prebuilt workload for pod group invalid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -759,6 +784,26 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
 					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
+				},
+			}.ToAggregate(),
+		},
+		"prebuilt workload for pod group invalid": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name-new").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
 				},
 			}.ToAggregate(),
 		},
