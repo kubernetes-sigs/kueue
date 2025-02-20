@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -241,20 +242,33 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
-func (s *TASFlavorSnapshot) FreeCapacityPerDomain() map[string]int {
-	freeCapacityPerDomain := make(map[string]int)
+func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[string]resources.Requests {
+	freeCapacityPerDomain := make(map[string]resources.Requests)
 
 	for domainID, leaf := range s.leaves {
-		// Calculate the total free capacity for the domain
-		totalFreeCapacity := 0
-		for _, quantity := range leaf.freeCapacity {
-			totalFreeCapacity += int(quantity)
-		}
-
-		freeCapacityPerDomain[string(domainID)] = totalFreeCapacity
+		freeCapacityPerDomain[string(domainID)] = leaf.freeCapacity.Clone()
 	}
 
 	return freeCapacityPerDomain
+}
+
+func (s *TASFlavorSnapshot) PrettyPrintFreeCapacityPerDomain() string {
+	freeCapacityPerDomain := s.freeCapacityPerDomain()
+
+	// Pretty-print the free capacities
+	var prettyFreeCapacity []string
+	// Sort keys lexicographically
+	for _, domain := range slices.Sorted(maps.Keys(freeCapacityPerDomain)) {
+		rr := freeCapacityPerDomain[domain]
+		var resourceDetails []string
+		for _, resourceName := range slices.Sorted(maps.Keys(rr)) {
+			value := rr[resourceName]
+			prettyValue := resources.ResourceQuantityString(resourceName, value)
+			resourceDetails = append(resourceDetails, fmt.Sprintf("%s: %s", resourceName, prettyValue))
+		}
+		prettyFreeCapacity = append(prettyFreeCapacity, fmt.Sprintf("%s={\n%s\n}", domain, strings.Join(resourceDetails, "; ")))
+	}
+	return strings.Join(prettyFreeCapacity, ",\n")
 }
 
 type TASPodSetRequests struct {
