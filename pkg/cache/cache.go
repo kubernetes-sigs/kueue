@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -28,6 +29,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -145,6 +147,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
+		client:              c.client,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
@@ -443,13 +446,22 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
+	ctx := context.TODO()
+	logger := ctrl.LoggerFrom(ctx)
 	curCq := c.hm.ClusterQueue(cq.Name)
 	if curCq == nil {
 		return
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
-		for _, q := range c.hm.ClusterQueue(cq.Name).localQueues {
-			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
+	if features.Enabled(features.LocalQueueMetrics) && metrics.GetLocalQueueMetrics().Enabled {
+		for _, q := range curCq.localQueues {
+			lqSlice := strings.Split(q.key, "/")
+			lq := &kueue.LocalQueue{}
+			err := c.client.Get(ctx, types.NamespacedName{Name: lqSlice[1], Namespace: lqSlice[0]}, lq)
+			if err != nil {
+				logger.Error(err, "Could not get LocalQueue, skipping")
+			} else if should, _ := metrics.ShouldReportLocalMetrics(c.client, lq); should {
+				metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
+			}
 		}
 	}
 	c.hm.DeleteClusterQueue(cq.Name)

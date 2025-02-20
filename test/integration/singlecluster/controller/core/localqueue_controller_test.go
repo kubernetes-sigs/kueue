@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -93,7 +92,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	ginkgo.BeforeEach(func() {
 		ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
-		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(

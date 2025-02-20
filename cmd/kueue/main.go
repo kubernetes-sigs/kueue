@@ -155,6 +155,16 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
+	if features.Enabled(features.LocalQueueMetrics) {
+		if cfg.Metrics.LocalQueueMetrics != nil {
+			metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+				Enabled:            cfg.Metrics.LocalQueueMetrics.Enable,
+				NamespaceSelector:  cfg.Metrics.LocalQueueMetrics.NamespaceSelector,
+				LocalQueueSelector: cfg.Metrics.LocalQueueMetrics.LocalQueueSelector,
+			})
+		}
+	}
+
 	metrics.Register()
 
 	kubeConfig := ctrl.GetConfigOrDie()

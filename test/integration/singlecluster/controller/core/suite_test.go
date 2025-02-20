@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -73,6 +74,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
+	metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+		Enabled: true,
+	})
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 	controllersCfg.QueueVisibility = &config.QueueVisibility{
 		UpdateIntervalSeconds: 2,
