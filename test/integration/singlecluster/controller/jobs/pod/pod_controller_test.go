@@ -1581,7 +1581,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				)
 
 				pod1 := testingpod.MakePod("test-pod-1", ns.Name).
-					Group("test-group").
+					Group(workloadName).
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "1").
 					Queue(lq.Name).
@@ -1589,7 +1589,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					RoleHash("leader").
 					Obj()
 				pod2 := testingpod.MakePod("test-pod-2", ns.Name).
-					Group("test-group").
+					Group(workloadName).
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "2").
 					Queue(lq.Name).
