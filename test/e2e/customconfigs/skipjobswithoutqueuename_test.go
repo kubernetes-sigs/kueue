@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
-					Image(util.E2eTestSleepImage, []string{"1ms"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					SetTypeMeta().Obj()).
 				Suspend(false).
 				Obj()
@@ -183,8 +183,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 							Replicas:    2,
 							Parallelism: 2,
 							Completions: 2,
-							Image:       util.E2eTestSleepImage,
-							Args:        []string{"1ms"},
+							Image:       util.E2eTestAgnHostImage,
+							Args:        util.BehaviorExitFast,
 						},
 					).
 					SetTypeMeta().
@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var podLookupKey types.NamespacedName
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", "kube-system").
-					Image(util.E2eTestSleepImage, []string{"1s"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Request("cpu", "1").
 					Request("memory", "2G").
 					Obj()
