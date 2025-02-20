@@ -14,7 +14,16 @@ spec:
     singular: multikueueconfig
   scope: Cluster
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - description: MultiKueueCluster is connected
+      jsonPath: .status.conditions[?(@.type=='Active')].status
+      name: Connected
+      type: string
+    - description: Time this workload was created
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: MultiKueueConfig is the Schema for the multikueue API
@@ -54,3 +63,4 @@ spec:
         type: object
     served: true
     storage: true
+    subresources: {}
