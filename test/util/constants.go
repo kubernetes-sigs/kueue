@@ -59,3 +59,9 @@ var (
 	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
 	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
 )
+
+var (
+	BehaviorWaitForDeletion           = []string{"netexec"}
+	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+	BehaviorExitFast                  = []string{"entrypoint-tester"}
+)
