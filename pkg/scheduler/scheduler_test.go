@@ -3883,6 +3883,7 @@ func TestScheduleForTAS(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -4182,7 +4183,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label("tas-node", "true").
 					Label("cloud.com/custom-level", "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4509,7 +4511,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("3"),
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4518,7 +4521,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "y1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("3"),
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4565,7 +4569,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4574,7 +4579,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "y1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4659,7 +4665,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4668,7 +4675,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "y1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("8"),
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4755,7 +4763,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label("tas-node", "true").
 					Label(corev1.LabelHostname, "y1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -4840,7 +4849,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Label("tas-node", "true").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Taints(corev1.Taint{
 						Key:    "example.com/gpu",
@@ -4913,6 +4923,73 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					Reason:    "Admitted",
 					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"workload does not get scheduled as the node capacity (.status.allocatable['pods']) is already used by non-TAS and TAS workloads": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1000m"),
+						corev1.ResourcePods: resource.MustParse("3"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-running", "test-ns").
+					NodeName("x1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "300m").
+					Obj(),
+			},
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "300m").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("bar-admitted", "default").
+					Queue("tas-main").
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "150m").
+							AssignmentPodCount(2).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 2,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).Obj(),
+					).
+					Admitted(true).
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "150m").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
 				},
 			},
 		},

@@ -208,6 +208,7 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
+	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -298,6 +299,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*kueue.TopologyAssignment, string) {
 	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
 	requests := tasPodSetRequests.SinglePodRequests
+	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
 	count := tasPodSetRequests.Count
 	required := topologyRequest.Required != nil

@@ -162,8 +162,10 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.Requests)
+			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
 			c.usage[domainID].Add(tr.Requests)
+			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }
