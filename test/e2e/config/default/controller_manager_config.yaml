@@ -14,6 +14,8 @@ controller:
     ResourceFlavor.kueue.x-k8s.io: 1
 fairSharing:
   enable: true
+localQueueMetrics:
+  enable: true
 clientConnection:
   qps: 50
   burst: 100

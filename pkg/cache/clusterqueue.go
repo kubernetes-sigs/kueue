@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -30,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -87,6 +90,7 @@ type clusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 
 	tasCache *TASCache
+	client   client.Client
 }
 
 func (c *clusterQueue) GetName() string {
@@ -461,14 +465,14 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 }
 
-func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addWorkload(ctx context.Context, w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
-	c.updateWorkloadUsage(wi, 1)
+	c.updateWorkloadUsage(ctx, wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
@@ -476,13 +480,13 @@ func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
+func (c *clusterQueue) deleteWorkload(ctx context.Context, w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(wi, -1)
+	c.updateWorkloadUsage(ctx, wi, -1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
@@ -507,7 +511,8 @@ func (q *queue) reportActiveWorkloads() {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(ctx context.Context, wi *workload.Info, m int64) {
+	logger := ctrl.LoggerFrom(ctx)
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
@@ -542,7 +547,12 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
+		lqKeySlice := strings.Split(lq.key, "/")
+		lqObject := &kueue.LocalQueue{}
+		err := c.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObject)
+		if err != nil {
+			logger.Error(err, "Could not get LocalQueue, skipping")
+		} else if should, _ := metrics.ShouldReportLocalMetrics(ctx, c.tasCache.client, lqObject); should {
 			lq.reportActiveWorkloads()
 		}
 	}
@@ -564,7 +574,8 @@ func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage res
 	}
 }
 
-func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
+func (c *clusterQueue) addLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
+	logger := ctrl.LoggerFrom(ctx)
 	qKey := queueKey(q)
 	if _, ok := c.localQueues[qKey]; ok {
 		return errQueueAlreadyExists
@@ -589,15 +600,28 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
-	if features.Enabled(features.LocalQueueMetrics) {
+	lqKeySlice := strings.Split(qKey, "/")
+	lqObject := &kueue.LocalQueue{}
+	err := c.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObject)
+	if err != nil {
+		logger.Error(err, "Could not get LocalQueue, skipping")
+	}
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, c.tasCache.client, lqObject); should {
 		qImpl.reportActiveWorkloads()
 	}
 	return nil
 }
 
-func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
+func (c *clusterQueue) deleteLocalQueue(ctx context.Context, q *kueue.LocalQueue) {
+	logger := ctrl.LoggerFrom(ctx)
 	qKey := queueKey(q)
-	if features.Enabled(features.LocalQueueMetrics) {
+	lqKeySlice := strings.Split(qKey, "/")
+	lqObject := &kueue.LocalQueue{}
+	err := c.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObject)
+	if err != nil {
+		logger.Error(err, "Could not get LocalQueue, skipping")
+	}
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, c.tasCache.client, lqObject); should {
 		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
 	}
 	delete(c.localQueues, qKey)
