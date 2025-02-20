@@ -87,7 +87,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 				log.Info("TAS Snapshot Free Capacity",
 					"clusterQueue", cqName,
 					"resourceFlavor", tasFlavor,
-					"freeCapacityPerDomain", tasSnapshot.FreeCapacityPerDomain(),
+					"freeCapacityPerDomain", tasSnapshot.PrettyPrintFreeCapacityPerDomain(),
 				)
 			}
 		}
