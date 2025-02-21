@@ -1753,6 +1753,68 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+
+		"workload with other label and without UID label gets UID label": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label("other", "label").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label("other", "label").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
+
+		"workload with other label and correct UID label has it unchanged": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label("other", "label").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label("other", "label").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
+
+		"workload with other label and incorrect UID label has it changed": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("correct").
+				Label("other", "label").
+				Label(constants.WorklodUIDLabel, "incorrect").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("correct").
+				Label("other", "label").
+				Label(constants.WorklodUIDLabel, "correct").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
