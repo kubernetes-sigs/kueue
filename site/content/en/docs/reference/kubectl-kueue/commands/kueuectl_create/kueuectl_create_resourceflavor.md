@@ -36,7 +36,7 @@ kueuectl create resourceflavor NAME [--node-labels KEY=VALUE] [--node-taints KEY
   
   # Create a resource flavor with tolerations
   kueuectl create resourceflavor my-resource-flavor \
-  --tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
+  --tolerations key1=value:NoSchedule,key2:NoExecute,key3=value
 ```
 
 
