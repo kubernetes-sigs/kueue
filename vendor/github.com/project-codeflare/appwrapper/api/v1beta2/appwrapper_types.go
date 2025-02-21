@@ -64,6 +64,11 @@ type AppWrapperPodSet struct {
 
 	// Path is the path Component.Template to the PodTemplateSpec for this PodSet
 	Path string `json:"path"`
+
+	// Annotations is an unstructured key value map that may be used to store and retrieve
+	// arbitrary metadata about the PodSet to customize its treatment by the AppWrapper controller.
+	//+optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // AppWrapperPodSetInfo contains the data that Kueue wants to inject into an admitted PodSpecTemplate

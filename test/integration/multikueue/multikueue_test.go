@@ -1122,7 +1122,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
 			kueue.PodSetAssignment{
-				Name: "aw-0-0",
+				Name: "aw-0",
 			},
 		)
 
