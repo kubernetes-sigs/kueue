@@ -85,6 +85,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"with required topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.K8sJobMode).
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -117,6 +118,21 @@ func TestPodSets(t *testing.T) {
 						},
 					},
 				).
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "ray-job-submitter",
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
@@ -136,6 +152,12 @@ func TestPodSets(t *testing.T) {
 						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
 						Count:    3,
 						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+					{
+						Name:            "submitter",
+						Count:           1,
+						Template:        *getSubmitterTemplate(rayJob),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
 					},
 				}
 			},
