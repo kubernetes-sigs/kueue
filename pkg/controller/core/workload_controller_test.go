@@ -102,8 +102,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           0,
 		},
-		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
+		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyStart; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -116,6 +117,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 						{
 							Type:               kueue.WorkloadPodsReady,
 							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForPodsStart,
 							LastTransitionTime: metav1.NewTime(now),
 						},
 					},
@@ -124,6 +126,51 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           4 * time.Minute,
+		},
+		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForPodsRecovery,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           3 * time.Minute,
+		},
+		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery, recoveryTimeout not configured": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForPodsRecovery,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: nil},
+			wantCountingTowardsTimeout: false,
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
@@ -1081,7 +1128,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1098,7 +1145,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1141,7 +1188,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1159,7 +1206,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  "PodsReady",
+					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{

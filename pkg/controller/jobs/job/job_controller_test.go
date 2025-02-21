@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -478,6 +479,8 @@ func TestReconciler(t *testing.T) {
 		},
 	}
 
+	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{Enable: true}
+
 	cases := map[string]struct {
 		enableTopologyAwareScheduling bool
 
@@ -491,6 +494,143 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"PodsReady is set to False before Workload is Admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(false).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Workload isn't admitted",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False after Workload is Admitted but not all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "All pods reached readiness and the job is running",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False after Workload is running and one pod failed": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(9).
+				Failed(1).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(9).
+				Failed(1).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "All pods reached readiness and the job is running",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Message: "One of pods has failed and is waiting for recovery",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to True after failing pod recovered": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Message: "One of pods has failed and is waiting for recovery",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Message: "All pods reached readiness and the job is running",
+				}).
+				Obj(),
+			},
+		},
 		"PodSet label and Workload annotation are set when Job is starting; TopologyAwareScheduling enabled": {
 			enableTopologyAwareScheduling: true,
 			reconcilerOptions: []jobframework.Option{
