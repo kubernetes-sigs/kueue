@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	deploymentcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -93,4 +94,6 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		scheduler.WithFairSharing(fairSharing))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	gomega.Expect(deploymentcontroller.SetupWebhook(mgr)).ToNot(gomega.HaveOccurred())
 }
