@@ -934,5 +934,18 @@ This setting is only honored when <code>Enable</code> is set to true.</p>
    <p>RequeuingStrategy defines the strategy for requeuing a Workload.</p>
 </td>
 </tr>
+<tr><td><code>recoveryTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>RecoveryTimeout defines an opt-in timeout, measured since the
+last transition to the PodsReady=false condition after a Workload is Admitted and running.
+Such a transition may happen when a Pod failed and the replacement Pod
+is awaited to be scheduled.
+After exceeding the timeout the corresponding job gets suspended again
+and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+If not set, there is no timeout.</p>
+</td>
+</tr>
 </tbody>
 </table>
