@@ -68,6 +68,9 @@ function kind_load {
     if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
         install_lws "$KIND_CLUSTER_NAME"
     fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        install_kuberay "$KIND_CLUSTER_NAME"
+    fi
 }
 
 function kueue_deploy {
