@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -1695,6 +1696,62 @@ func TestReconcile(t *testing.T) {
 					Message:   "The maximum execution time (60s) exceeded",
 				},
 			},
+		},
+
+		"workload without UID label gets UID label": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
+
+		"workload with correct UID label has it unchanged": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
+
+		"workload with incorrect UID label has it changed": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				UID("correct").
+				Label(constants.WorklodUIDLabel, "incorrect").
+				Active(false).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				UID("correct").
+				Label(constants.WorklodUIDLabel, "correct").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
 		},
 	}
 	for name, tc := range cases {

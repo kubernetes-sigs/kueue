@@ -47,6 +47,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -127,6 +128,27 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 }
 
+func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workload) error {
+	metaUID := string(wl.ObjectMeta.UID)
+	if metaUID == "" {
+		return nil
+	}
+
+	labels := wl.ObjectMeta.Labels
+	if labels == nil {
+		labels = map[string]string{}
+	}
+
+	labelUID, hasLabelUID := labels[constants.WorklodUIDLabel]
+	if !hasLabelUID || metaUID != labelUID {
+		labels[constants.WorklodUIDLabel] = metaUID
+		wl.Labels = labels
+		err := r.client.Update(ctx, wl)
+		return err
+	}
+	return nil
+}
+
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -143,6 +165,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
+
+	if err := r.updateUIDLabel(ctx, &wl); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
