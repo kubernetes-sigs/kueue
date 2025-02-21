@@ -31,6 +31,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	appsv1 "k8s.io/api/apps/v1"
@@ -104,7 +105,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if ns == nil {
 		return nil
 	}
-	if err := DeleteAllJobsetsInNamespace(ctx, c, ns); err != nil {
+	if err := DeleteAllJobSetsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
@@ -133,54 +134,60 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 }
 
 func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &batchv1.Job{})
 }
 
-func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+func DeleteAllJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &jobset.JobSet{})
 }
 
 func DeleteAllMPIJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &kfmpi.MPIJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kfmpi.MPIJob{})
 }
 
 func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &kftraining.PyTorchJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.PyTorchJob{})
+}
+
+func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
+}
+
+func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllPodsInNamespace(ctx, c, ns, 2)
+}
+
+func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, obj client.Object) error {
+	err := c.DeleteAllOf(ctx, obj, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
 		return err
 	}
 	return nil
 }
 
-func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
 	if err := client.IgnoreNotFound(c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))); err != nil {
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
-
-	gomega.Eventually(func(g gomega.Gomega) {
-		lst := corev1.PodList{}
-		g.Expect(client.IgnoreNotFound(c.List(ctx, &lst, client.InNamespace(ns.Name)))).
+	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+		pods := corev1.PodList{}
+		g.Expect(client.IgnoreNotFound(c.List(ctx, &pods, client.InNamespace(ns.Name)))).
 			Should(gomega.Succeed(), "listing Pods with a finalizer in namespace %q", ns.Name)
-		for _, p := range lst.Items {
+		for _, p := range pods.Items {
 			if controllerutil.RemoveFinalizer(&p, pod.PodFinalizer) {
 				g.Expect(client.IgnoreNotFound(c.Update(ctx, &p))).Should(gomega.Succeed(), "removing finalizer")
 			}
 		}
 	}, LongTimeout, Interval).Should(gomega.Succeed())
-
 	return nil
+}
+
+func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *corev1.Namespace) {
+	pods := corev1.PodList{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+		g.Expect(pods.Items).Should(gomega.BeEmpty())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {

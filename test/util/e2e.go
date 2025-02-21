@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -143,6 +144,11 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
 }
 
+func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	kroKey := types.NamespacedName{Namespace: "ray-system", Name: "kuberay-operator"}
+	waitForOperatorAvailability(ctx, k8sClient, kroKey)
+}
+
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int) {
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
@@ -169,4 +175,18 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
 		}
 	}
+}
+
+func GetKuberayTestImage() string {
+	var (
+		kuberayTestImage string
+		found            bool
+	)
+	if runtime.GOARCH == "arm64" {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
+	} else {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
+	}
+	gomega.Expect(found).To(gomega.BeTrue())
+	return kuberayTestImage
 }

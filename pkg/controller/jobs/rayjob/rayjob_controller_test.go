@@ -197,6 +197,126 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
+		"with submitter topology annotation not specified": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.K8sJobMode).
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+					},
+					{
+						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
+						Count:           3,
+						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     "submitter",
+						Count:    1,
+						Template: *getSubmitterTemplate(rayJob),
+					},
+				}
+			},
+		},
+		"with submitter topology annotation specified": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.K8sJobMode).
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "submitter_c",
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+					},
+					{
+						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
+						Count:           3,
+						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:            "submitter",
+						Count:           1,
+						Template:        *getSubmitterTemplate(rayJob),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
 		"with NumOfHosts > 1": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				WithHeadGroupSpec(
