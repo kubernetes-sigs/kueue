@@ -241,6 +241,19 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
+func (s *TASFlavorSnapshot) FreeCapacityPerDomain() map[string]resources.Requests {
+	freeCapacityPerDomain := make(map[string]resources.Requests)
+
+	for domainID, leaf := range s.leaves {
+		// CPU is represented in millicores
+		// Memory is represented in bytes
+		// For other resources, use their raw integer value
+		freeCapacityPerDomain[string(domainID)] = leaf.freeCapacity.Clone()
+	}
+
+	return freeCapacityPerDomain
+}
+
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	SinglePodRequests resources.Requests
