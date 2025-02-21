@@ -30,7 +30,7 @@ Run the application:
 ./kueue_ws_app
 ```
 
-The application starts on port `8080`.
+The application starts on port `8181`.
 
 ## Endpoints
 
