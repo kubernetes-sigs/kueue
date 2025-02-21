@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -256,4 +257,18 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
 		}
 	}
+}
+
+func GetKuberayTestImage() string {
+	var (
+		kuberayTestImage string
+		found            bool
+	)
+	if runtime.GOARCH == "arm64" {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
+	} else {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
+	}
+	gomega.Expect(found).To(gomega.BeTrue())
+	return kuberayTestImage
 }
