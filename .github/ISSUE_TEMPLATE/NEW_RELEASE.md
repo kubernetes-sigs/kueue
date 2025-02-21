@@ -40,10 +40,11 @@ Please do not remove items from the checklist
       to generate the artifacts in the `artifacts` folder.
   - [ ] Upload the files in the `artifacts` folder to the draft release - either
       via UI or `gh release --repo kubernetes-sigs/kueue upload <tag> artifacts/*`.
-- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
-      updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
-      [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
-      to production: <!-- example kubernetes/k8s.io#3612-->
+- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to 
+      [promote the container images and Helm Chart](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
+      to production: <!-- example kubernetes/k8s.io#3612 and kubernetes/k8s.io#7817 -->
+  - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`.
+  - [ ] Update `registry.k8s.io/images/charts/images.yaml`.
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
