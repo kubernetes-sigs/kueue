@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sf", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "1").
 				Limit(corev1.ResourceCPU, "1").
 				Replicas(3).
@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sf-conflict", ns.Name).
-					Image(util.E2eTestSleepImage, []string{"10m"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Request(corev1.ResourceCPU, "0.1").
 					Limit(corev1.ResourceCPU, "0.1").
 					Replicas(1).
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 
 		ginkgo.It("should delete all Pods if StatefulSet was deleted after being partially ready", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
 				Replicas(3).
 				Queue(localQueueName).
