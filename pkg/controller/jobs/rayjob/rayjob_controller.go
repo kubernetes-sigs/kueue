@@ -144,11 +144,14 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	// submitter Job
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterJobPodSet := kueue.PodSet{
-			Name:  submitterJobPodSetName,
-			Count: 1,
+			Name:     submitterJobPodSetName,
+			Count:    1,
+			Template: *getSubmitterTemplate(j),
 		}
 
-		submitterJobPodSet.Template = *getSubmitterTemplate(j)
+		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
 		podSets = append(podSets, submitterJobPodSet)
 	}
 
