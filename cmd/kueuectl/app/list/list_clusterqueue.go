@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ import (
 
 var (
 	cqLong = templates.LongDesc(`
-		Lists all ClusterQueues, potentially limiting output to those 
+		Lists all ClusterQueues, potentially limiting output to those
 		that are active/inactive and matching the label selector.
 	`)
 	cqExample = templates.Examples(`
