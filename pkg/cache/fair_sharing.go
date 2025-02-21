@@ -22,7 +22,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
+)
+
+var (
+	oneQuantity = resource.MustParse("1")
 )
 
 // dominantResourceShareNode is a node in the Cohort tree on which we
@@ -61,7 +66,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	var drs int64 = -1
 	var dRes corev1.ResourceName
 
-	lendable := node.parentHRN().getResourceNode().calculateLendable()
+	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr > 0 {
 			ratio := b * 1000 / lr
@@ -74,4 +79,31 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	}
 	dws := drs * 1000 / node.fairWeight().MilliValue()
 	return int(dws), dRes
+}
+
+// calculateLendable aggregates capacity for resources across all
+// FlavorResources.
+func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]int64 {
+	// walk to root
+	root := node
+	for root.HasParent() {
+		root = root.parentHRN()
+	}
+
+	lendable := make(map[corev1.ResourceName]int64, len(root.getResourceNode().SubtreeQuota))
+	// The root's SubtreeQuota contains all FlavorResources,
+	// as we accumulate even 0s in accumulateFromChild.
+	for fr := range root.getResourceNode().SubtreeQuota {
+		lendable[fr.Resource] += potentialAvailable(node, fr)
+	}
+	return lendable
+}
+
+// parseFairWeight parses FairSharing.Weight if it exists,
+// or otherwise returns the default value of 1.
+func parseFairWeight(fs *kueue.FairSharing) resource.Quantity {
+	if fs == nil || fs.Weight == nil {
+		return oneQuantity
+	}
+	return *fs.Weight
 }

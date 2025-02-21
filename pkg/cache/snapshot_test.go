@@ -788,6 +788,7 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
 								},
 							},
+							FairWeight: oneQuantity,
 						},
 					},
 				},
@@ -865,12 +866,28 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
 								},
 							},
+							FairWeight: oneQuantity,
 						},
 					},
 				},
 				InactiveClusterQueueSets: sets.New("cq-autocycle", "cq-a", "cq-b"),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"arm": utiltesting.MakeResourceFlavor("arm").Obj(),
+				},
+			},
+		},
+		"cohort snapshot has fair sharing weight": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					Cohorts: map[string]*CohortSnapshot{
+						"cohort": {
+							Name:       "cohort",
+							FairWeight: resource.MustParse("0.5"),
+						},
+					},
 				},
 			},
 		},
