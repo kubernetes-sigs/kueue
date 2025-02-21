@@ -42,3 +42,10 @@ func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGr
 	}
 	return nil
 }
+
+func IsTopologyRequestFound(meta *metav1.ObjectMeta) bool {
+	_, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
+	_, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+
+	return requiredFound || preferredFound
+}
