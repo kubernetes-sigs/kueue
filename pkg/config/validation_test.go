@@ -451,6 +451,23 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative waitForPodsReady.recoveryTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RecoveryTimeout: &metav1.Duration{
+						Duration: -1,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.recoveryTimeout",
+				},
+			},
+		},
 		"valid waitForPodsReady": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -458,6 +475,9 @@ func TestValidate(t *testing.T) {
 					Enable: true,
 					Timeout: &metav1.Duration{
 						Duration: 50,
+					},
+					RecoveryTimeout: &metav1.Duration{
+						Duration: 3,
 					},
 					BlockAdmission: ptr.To(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{

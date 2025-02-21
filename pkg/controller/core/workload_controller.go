@@ -62,6 +62,7 @@ var (
 
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
+	recoveryTimeout             *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
 	requeuingBackoffMaxDuration time.Duration
