@@ -96,6 +96,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}
 		snap.AddCohort(cohort.Name)
 		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohorts[cohort.Name].FairWeight = cohort.FairWeight
 		if cohort.HasParent() {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}

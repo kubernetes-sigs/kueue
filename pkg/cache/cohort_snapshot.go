@@ -16,13 +16,19 @@ limitations under the License.
 
 package cache
 
-import "sigs.k8s.io/kueue/pkg/hierarchy"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"sigs.k8s.io/kueue/pkg/hierarchy"
+)
 
 type CohortSnapshot struct {
 	Name string
 
 	ResourceNode ResourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
+
+	FairWeight resource.Quantity
 }
 
 func (c *CohortSnapshot) GetName() string {
@@ -69,4 +75,10 @@ func (c *CohortSnapshot) getResourceNode() ResourceNode {
 
 func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
+}
+
+// Implements dominantResourceShareNode interface.
+
+func (c *CohortSnapshot) fairWeight() *resource.Quantity {
+	return &c.FairWeight
 }
