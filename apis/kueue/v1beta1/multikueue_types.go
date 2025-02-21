@@ -113,6 +113,8 @@ type MultiKueueConfigSpec struct {
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 
+// +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
 	metav1.TypeMeta   `json:",inline"`
