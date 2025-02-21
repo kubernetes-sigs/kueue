@@ -337,7 +337,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				if err := manager.AddOrUpdateWorkload(w); err != nil {
+				if err := manager.AddOrUpdateWorkload(ctx, w); err != nil {
 					t.Fatalf("Failed to add or update workload %q: %v", w.Name, err)
 				}
 			}
