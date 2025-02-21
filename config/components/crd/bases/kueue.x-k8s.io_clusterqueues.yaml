@@ -232,19 +232,6 @@ spec:
                 description: |-
                   preemption describes policies to preempt Workloads from this ClusterQueue
                   or the ClusterQueue's cohort.
-
-                  Preemption can happen in two scenarios:
-
-                  - When a Workload fits within the nominal quota of the ClusterQueue, but
-                    the quota is currently borrowed by other ClusterQueues in the cohort.
-                    Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-                    reclaim its nominal quota.
-                  - When a Workload doesn't fit within the nominal quota of the ClusterQueue
-                    and there are admitted Workloads in the ClusterQueue with lower priority.
-
-                  The preemption algorithm tries to find a minimal set of Workloads to
-                  preempt to accomomdate the pending Workload, preempting Workloads with
-                  lower priority first.
                 properties:
                   borrowWithinCohort:
                     default: {}
