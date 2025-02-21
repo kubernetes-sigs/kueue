@@ -176,14 +176,15 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 func TestReportExternalFrameworkMetricsEnabled(t *testing.T) {
 	ReportExternalFrameworksSupported([]string{"test"})
-	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 1, "enabled", string(FrameworkEnabled))
+	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 1, "workload", "test")
 }
 
 func TestReportExternalFrameworkMetricsDisabled(t *testing.T) {
 	ReportExternalFrameworksSupported([]string{})
-	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 1, "enabled", string(FrameworkDisabled))
+	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 0)
 }
 
 func TestReportIntegrationsFrameworksSupported(t *testing.T) {
-	ReportIntegrationsFrameworksSupported([]string{})
+	ReportIntegrationsFrameworksSupported([]string{"batch/job"})
+	expectFilteredMetricsCount(t, WorkloadIntegrationsCounter, 1, "workload", "batch/job")
 }
