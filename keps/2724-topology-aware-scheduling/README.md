@@ -181,8 +181,8 @@ spec:
     spec:
       containers:
       - name: worker
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-        args: ["300s"]
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["pause"]
         resources:
           requests:
             cpu: "4"
@@ -223,8 +223,8 @@ spec:
           spec:
             containers:
             - name: leader
-              image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-              args: ["300s"]
+              image: registry.k8s.io/e2e-test-images/agnhost:2.53
+              args: ["pause"]
   - name: workers
     replicas: 2
     template:
@@ -238,8 +238,8 @@ spec:
           spec:
             containers:
             - name: worker
-              image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-              args: ["100s"]
+              image: registry.k8s.io/e2e-test-images/agnhost:2.53
+              args: ["pause"]
 ```
 
 In this example we say that the PodSet corresponding to the leader requires

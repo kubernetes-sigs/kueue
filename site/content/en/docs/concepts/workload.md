@@ -37,9 +37,10 @@ spec:
     template:
       spec:
         containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        - name: container
+          image: registry.k8s.io/e2e-test-images/agnhost:latest
+          args: ["pause"]
           imagePullPolicy: Always
-          name: container
           resources:
             requests:
               cpu: "1"

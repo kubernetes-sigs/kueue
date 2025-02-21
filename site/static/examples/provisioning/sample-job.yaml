@@ -19,8 +19,8 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-        args: ["120s"]
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["pause"]
         resources:
           requests:
             cpu: "100m"

@@ -13,8 +13,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-        args: ["30s"]
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["entrypoint-tester", "hello", "world"]
         resources:
           requests:
             cpu: 1

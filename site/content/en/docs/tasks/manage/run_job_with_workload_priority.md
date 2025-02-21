@@ -54,7 +54,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        image: registry.k8s.io/e2e-test-images/agnhost:latest
+        args: ["pause"]
       restartPolicy: Never
 ```
 
@@ -80,6 +81,7 @@ spec:
     template:
       spec:
         containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
-          name: dummy-job
+        - name: dummy-job
+          image: registry.k8s.io/e2e-test-images/agnhost:latest
+          args: ["pause"]
 ```

@@ -166,7 +166,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        image: registry.k8s.io/e2e-test-images/agnhost:latest
+        args: ["pause"]
       restartPolicy: Never
 ```
 
@@ -191,8 +192,10 @@ spec:
     template:
       spec:
         containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
-          name: dummy-job
+        - name: dummy-job
+          image: registry.k8s.io/e2e-test-images/agnhost:latest
+          args: ["pause"]
+          
 ```
 
 In this example, since the `WorkloadPriorityClassName` of `sample-job` is set to `sample-priority`, the `priority` of the `sample-job` will be set to 10,000.
@@ -251,7 +254,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        image: registry.k8s.io/e2e-test-images/agnhost:latest
+        args: ["pause"]
       restartPolicy: Never
 ```
 
@@ -275,7 +279,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        image: registry.k8s.io/e2e-test-images/agnhost:latest
+        args: ["pause"]
       restartPolicy: Never
 ```
 
@@ -300,7 +305,8 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+        image: registry.k8s.io/e2e-test-images/agnhost:latest
+        args: ["pause"]
       restartPolicy: Never
 ```
 
