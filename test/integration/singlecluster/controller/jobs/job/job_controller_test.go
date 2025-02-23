@@ -1696,7 +1696,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
-			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, lowJobKey, map[string]string{
 				instanceKey: "spot-untainted",
 			})
 		})
@@ -1712,13 +1712,13 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			highJobKey := types.NamespacedName{Name: "high", Namespace: ns.Name}
-			expectJobUnsuspendedWithNodeSelectors(highJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, highJobKey, map[string]string{
 				instanceKey: "spot-untainted",
 			})
 		})
 
 		ginkgo.By("Preempted job should be admitted on second flavor", func() {
-			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, lowJobKey, map[string]string{
 				instanceKey: "on-demand",
 			})
 		})
@@ -1743,7 +1743,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
-			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, lowJobKey, map[string]string{
 				instanceKey: "spot-untainted",
 			})
 		})
@@ -1759,13 +1759,13 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			highJobKey := types.NamespacedName{Name: "high", Namespace: ns.Name}
-			expectJobUnsuspendedWithNodeSelectors(highJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, highJobKey, map[string]string{
 				instanceKey: "spot-untainted",
 			})
 		})
 
 		ginkgo.By("Preempted job should be admitted on second flavor", func() {
-			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, lowJobKey, map[string]string{
 				instanceKey: "on-demand",
 			})
 		})
@@ -1867,7 +1867,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Parallelism(2).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-			expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(job), map[string]string{
 				instanceKey: "on-demand",
 			})
 		})
@@ -2414,12 +2414,3 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 		})
 	})
 })
-
-func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
-	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(ns))
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}

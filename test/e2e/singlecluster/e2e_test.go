@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			createdWorkload := &kueue.Workload{}
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
-			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			ginkgo.By("Verify the job is running", func() {
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
 			})
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			ginkgo.By("Job is admitted using the first flavor", func() {
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
 			})
@@ -237,13 +237,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
-				expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(job), map[string]string{
 					"instance-type": "on-demand",
 				})
 			})
 
 			ginkgo.By("Job is re-admitted using the second flavor", func() {
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "spot",
 				})
 			})
@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			ginkgo.By("Job is admitted using the first flavor", func() {
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
 			})
@@ -273,13 +273,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
-				expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(job), map[string]string{
 					"instance-type": "on-demand",
 				})
 			})
 
 			ginkgo.By("Job is re-admitted using the second flavor", func() {
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "spot",
 				})
 			})
@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			ginkgo.By("Wait for the job to start and check the updated Parallelism and Completions", func() {
 				jobKey := client.ObjectKeyFromObject(job)
-				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
 
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
-			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
 
@@ -478,15 +478,6 @@ func expectJobUnsuspended(key types.NamespacedName) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
-
-func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
-	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(ns))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 

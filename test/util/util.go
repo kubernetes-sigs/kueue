@@ -879,6 +879,15 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
+	job := &batchv1.Job{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
 	for _, node := range nodes {
 		// 1. Create a node
