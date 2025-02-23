@@ -17,12 +17,17 @@ limitations under the License.
 package resources
 
 import (
+	"errors"
 	"maps"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
+)
+
+var (
+	errorRequestsHasTwoOrMorePodsCount = errors.New("requests have 2 or more Pods count")
 )
 
 // The following resources calculations are inspired on
@@ -115,12 +120,15 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-func (req Requests) CountIn(capacity Requests) int32 {
+func (r Requests) CountIn(capacity Requests) (int32, error) {
+	if count, ok := r[corev1.ResourcePods]; ok && count > 1 {
+		return 0, errorRequestsHasTwoOrMorePodsCount
+	}
 	var result *int32
-	for rName, rValue := range req {
+	for rName, rValue := range r {
 		capacity, found := capacity[rName]
 		if !found {
-			return 0
+			return 0, nil
 		}
 		// find the minimum count matching all the resource quota.
 		count := int32(capacity / rValue)
@@ -128,5 +136,5 @@ func (req Requests) CountIn(capacity Requests) int32 {
 			result = ptr.To(count)
 		}
 	}
-	return ptr.Deref(result, 0)
+	return ptr.Deref(result, 0), nil
 }
