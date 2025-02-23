@@ -333,7 +333,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	s.fillInCounts(requests, assumedUsage, simulateEmpty, append(podSetTolerations, s.tolerations...))
+	if err := s.fillInCounts(requests, assumedUsage, simulateEmpty, append(podSetTolerations, s.tolerations...)); err != nil {
+		return nil, fmt.Sprintf("unexpected pods fitting calculation failure: %v", err)
+	}
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
@@ -508,7 +510,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool,
-	tolerations []corev1.Toleration) {
+	tolerations []corev1.Toleration) error {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
@@ -529,11 +531,15 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		if leafAssumedUsage, found := assumedUsage[leaf.domain.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
 		}
-		leaf.state = requests.CountIn(remainingCapacity)
+		var err error
+		if leaf.state, err = requests.CountIn(remainingCapacity); err != nil {
+			return err
+		}
 	}
 	for _, root := range s.roots {
 		root.state = s.fillInCountsHelper(root)
 	}
+	return nil
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain) int32 {
