@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
@@ -67,14 +66,9 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
 					},
 				},
 			}
@@ -96,22 +90,12 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
 					},
 				},
 			}
@@ -197,32 +181,20 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.Entry("should not request num-pods resource",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
-						PodSets(kueue.PodSet{
-							Name:  "bad",
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									InitContainers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													corev1.ResourcePods: resource.MustParse("1"),
-												},
-											},
-										},
-									},
-									Containers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													corev1.ResourcePods: resource.MustParse("1"),
-												},
-											},
-										},
-									},
-								},
-							},
-						}).
+						PodSets(
+							*testing.MakePodSet("bad", 1).
+								InitContainers(
+									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourcePods: "1",
+									})...,
+								).
+								Containers(
+									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourcePods: "1",
+									})...,
+								).
+								Obj(),
+						).
 						Obj()
 				},
 				testing.BeForbiddenError()),

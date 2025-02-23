@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -50,14 +49,8 @@ func TestValidateWorkload(t *testing.T) {
 	}{
 		"valid": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				kueue.PodSet{
-					Name:  "driver",
-					Count: 1,
-				},
-				kueue.PodSet{
-					Name:  "workers",
-					Count: 100,
-				},
+				*testingutil.MakePodSet("driver", 1).Obj(),
+				*testingutil.MakePodSet("workers", 100).Obj(),
 			).Obj(),
 		},
 		"should have a valid podSet name in status assignment": {
@@ -84,32 +77,16 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"should not request num-pods resource": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(kueue.PodSet{
-					Name:  "bad",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							InitContainers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-							Containers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-						},
-					},
-				}).
+				PodSets(
+					*testingutil.MakePodSet("bad", 1).
+						InitContainers(testingutil.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourcePods: "1",
+						})...).
+						Containers(testingutil.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourcePods: "1",
+						})...).
+						Obj(),
+				).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),

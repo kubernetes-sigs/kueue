@@ -487,6 +487,23 @@ func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodSetWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
+}
+
 func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 	p.Template.Spec.NodeName = name
 	return p
@@ -1324,6 +1341,12 @@ func MakeContainer() *ContainerWrapper {
 // Obj returns the inner corev1.Container.
 func (c *ContainerWrapper) Obj() *corev1.Container {
 	return &c.Container
+}
+
+// Name sets the name of the container.
+func (c *ContainerWrapper) Name(name string) *ContainerWrapper {
+	c.Container.Name = name
+	return c
 }
 
 // WithResourceReq appends a resource request to the container.
