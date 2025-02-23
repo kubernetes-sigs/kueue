@@ -18,6 +18,7 @@ package resources
 
 import (
 	"maps"
+	"math"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -103,17 +104,27 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-func (req Requests) CountIn(capacity Requests) int32 {
+func (r Requests) CountIn(capacity Requests) int32 {
 	var result *int32
-	for rName, rValue := range req {
-		capacity, found := capacity[rName]
+	// If the capacity does not have Pods count, this assumes the unlimited Pods count capacity.
+	if _, ok := capacity[corev1.ResourcePods]; !ok {
+		capacity[corev1.ResourcePods] = math.MaxInt32
+	}
+	for rName, rValue := range r {
+		rCap, found := capacity[rName]
 		if !found {
 			return 0
 		}
 		// find the minimum count matching all the resource quota.
-		count := int32(capacity / rValue)
+		var count int32
+		switch rName {
+		case corev1.ResourcePods:
+			count = max(int32(rCap-rValue), 0)
+		default:
+			count = int32(rCap / rValue)
+		}
 		if result == nil || count < *result {
-			result = ptr.To(count)
+			result = ptr.To(min(count, int32(capacity[corev1.ResourcePods])))
 		}
 	}
 	return ptr.Deref(result, 0)
