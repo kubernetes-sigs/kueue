@@ -13,7 +13,7 @@ ENV GOEXPERIMENT=strictfipsruntime
 WORKDIR /workspace
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -tags strictfipsruntime -mod=vendor -a -o manager cmd/kueue/main.go
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -tags strictfipsruntime -a -o manager cmd/kueue/main.go
 
 FROM --platform=${TARGETPLATFORM} ${BASE_IMAGE}
 WORKDIR /
