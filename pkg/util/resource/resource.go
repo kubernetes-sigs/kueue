@@ -77,15 +77,15 @@ func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
 }
 
 // GetGreaterKeys returns the list of ResourceNames for which the value in a are greater than the value in b.
-func GetGreaterKeys(a, b corev1.ResourceList) []string {
+func GetGreaterKeys(a, b corev1.ResourceList) []corev1.ResourceName {
 	if len(a) == 0 || len(b) == 0 {
 		return nil
 	}
 
-	ret := make([]string, 0, len(a))
+	ret := make([]corev1.ResourceName, 0, len(a))
 	for k, va := range a {
 		if vb, found := b[k]; found && va.Cmp(vb) > 0 {
-			ret = append(ret, k.String())
+			ret = append(ret, k)
 		}
 	}
 	if len(ret) == 0 {

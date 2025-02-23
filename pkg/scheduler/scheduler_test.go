@@ -2215,7 +2215,7 @@ func TestSchedule(t *testing.T) {
 						errLimitRangeConstraintsUnsatisfiedResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
-							[]string{corev1.ResourceCPU.String()},
+							[]corev1.ResourceName{corev1.ResourceCPU},
 							limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
 						).Error(),
 					),
@@ -2244,7 +2244,7 @@ func TestSchedule(t *testing.T) {
 						errInvalidWLResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
-							[]string{corev1.ResourceCPU.String()}, workload.RequestsMustNotExceedLimitMessage,
+							[]corev1.ResourceName{corev1.ResourceCPU}, workload.RequestsMustNotExceedLimitMessage,
 						).Error(),
 					),
 				},
