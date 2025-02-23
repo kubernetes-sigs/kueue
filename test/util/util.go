@@ -895,7 +895,7 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func CreateNodes(ctx context.Context, c client.Client, nodes []corev1.Node) {
+func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
 	for _, node := range nodes {
 		// 1. Create a node
 		gomega.ExpectWithOffset(1, c.Create(ctx, &node)).Should(gomega.Succeed())
