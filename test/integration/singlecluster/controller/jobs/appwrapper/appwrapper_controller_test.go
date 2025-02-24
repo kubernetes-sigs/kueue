@@ -393,7 +393,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "test-aw-0-0",
+								Name: "test-aw-0",
 								Annotations: map[string]string{
 									"ann1": "ann-value1",
 								},
@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 								},
 							},
 							{
-								Name: "test-aw-1-0",
+								Name: "test-aw-1",
 								Annotations: map[string]string{
 									"ann1": "ann-value2",
 								},

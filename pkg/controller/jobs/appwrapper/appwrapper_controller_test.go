@@ -76,9 +76,9 @@ func TestPodSets(t *testing.T) {
 				Component(batchJob).
 				Obj(),
 			wantPodSets: []kueue.PodSet{
-				{Name: "aw-0-0", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template, Count: 1},
-				{Name: "aw-0-1", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template, Count: 4},
-				{Name: "aw-1-0", Template: batchJob.Spec.Template, Count: 2},
+				{Name: "aw-0", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template, Count: 1},
+				{Name: "aw-1", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template, Count: 4},
+				{Name: "aw-2", Template: batchJob.Spec.Template, Count: 2},
 			},
 		},
 	}
@@ -142,7 +142,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("aw", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("aw-0-0", 2).Obj(),
+						*utiltesting.MakePodSet("aw-0", 2).Obj(),
 					).
 					Obj(),
 			},
@@ -171,7 +171,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("aw", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
-						*utiltesting.MakePodSet("aw-0-0", 2).Obj(),
+						*utiltesting.MakePodSet("aw-0", 2).Obj(),
 					).
 					Obj(),
 			},
@@ -210,26 +210,26 @@ func TestReconciler(t *testing.T) {
 				workloads: []kueue.Workload{
 					*utiltesting.MakeWorkload("a", "ns").
 						PodSets(
-							*utiltesting.MakePodSet("aw-0-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-1-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-2-0", 1).Request(corev1.ResourceCPU, "1")Obj(),
+							*utiltesting.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1")Obj(),
 						).
 						ReserveQuota(utiltesting.MakeAdmission("cq").
 							PodSets(
 								kueue.PodSetAssignment{
-									Name: "aw-0-0",
+									Name: "aw-0",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "on-demand",
 									},
 								},
 								kueue.PodSetAssignment{
-									Name: "aw-1-0",
+									Name: "aw-1",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "spot",
 									},
 								},
 								kueue.PodSetAssignment{
-									Name: "aw-2-0",
+									Name: "aw-2",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "default",
 									},
@@ -256,26 +256,26 @@ func TestReconciler(t *testing.T) {
 				wantWorkloads: []kueue.Workload{
 					*utiltesting.MakeWorkload("a", "ns").
 						PodSets(
-							*utiltesting.MakePodSet("aw-0-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-1-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-2-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						).
 						ReserveQuota(utiltesting.MakeAdmission("cq").
 							PodSets(
 								kueue.PodSetAssignment{
-									Name: "aw-0-0",
+									Name: "aw-0",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "on-demand",
 									},
 								},
 								kueue.PodSetAssignment{
-									Name: "aw-1-0",
+									Name: "aw-1",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "spot",
 									},
 								},
 								kueue.PodSetAssignment{
-									Name: "aw-2-0",
+									Name: "aw-2",
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "default",
 									},
