@@ -536,6 +536,41 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 		},
+		"PodsReady is set to False after Workload is Admitted, some Pods became ready but not all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Active(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
 		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
