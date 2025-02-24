@@ -205,7 +205,7 @@ func TestGetGraterKeys(t *testing.T) {
 	}
 	cases := map[string]struct {
 		a, b corev1.ResourceList
-		want []string
+		want []corev1.ResourceName
 	}{
 		"empty_a": {
 			b:    cpuOnly1,
@@ -223,7 +223,7 @@ func TestGetGraterKeys(t *testing.T) {
 		"not less one resource": {
 			a:    cpuOnly1,
 			b:    cpuOnly500m,
-			want: []string{corev1.ResourceCPU.String()},
+			want: []corev1.ResourceName{corev1.ResourceCPU},
 		},
 		"multiple unrelated": {
 			a: corev1.ResourceList{
@@ -245,7 +245,7 @@ func TestGetGraterKeys(t *testing.T) {
 				"r1": resource.MustParse("1"),
 				"r2": resource.MustParse("2"),
 			},
-			want: []string{"r1"},
+			want: []corev1.ResourceName{"r1"},
 		},
 	}
 

@@ -549,11 +549,11 @@ func TestValidateResources(t *testing.T) {
 			},
 			wantError: field.ErrorList{
 				field.Invalid(PodSetsPath.Index(0).Child("template").Child("spec").Child("initContainers").Index(0),
-					[]string{corev1.ResourceMemory.String()}, RequestsMustNotExceedLimitMessage),
+					[]corev1.ResourceName{corev1.ResourceMemory}, RequestsMustNotExceedLimitMessage),
 				field.Invalid(PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
-					[]string{corev1.ResourceCPU.String()}, RequestsMustNotExceedLimitMessage),
+					[]corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotExceedLimitMessage),
 				field.Invalid(PodSetsPath.Index(1).Child("template").Child("spec").Child("initContainers").Index(0),
-					[]string{corev1.ResourceCPU.String()}, RequestsMustNotExceedLimitMessage),
+					[]corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotExceedLimitMessage),
 			},
 		},
 	}
@@ -622,7 +622,7 @@ func TestValidateLimitRange(t *testing.T) {
 			wantError: field.ErrorList{
 				field.Invalid(
 					PodSetsPath.Index(0).Child("template").Child("spec"),
-					[]string{corev1.ResourceCPU.String()},
+					[]corev1.ResourceName{corev1.ResourceCPU},
 					limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
 				),
 			},
