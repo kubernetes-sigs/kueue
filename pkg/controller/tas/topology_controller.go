@@ -84,14 +84,14 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies/finalizers,verbs=update
 
-func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	topology := &kueuealpha.Topology{}
 	if err := r.client.Get(ctx, req.NamespacedName, topology); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := r.log.WithValues("name", req.NamespacedName.Name)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology")
 
 	if !topology.DeletionTimestamp.IsZero() {
