@@ -50,7 +50,9 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 
 ## Install a released version
 
-To install a released version of Kueue in your cluster, run the following command:
+### Install by kubectl
+
+To install a released version of Kueue in your cluster by kubectl, run the following command:
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
@@ -60,6 +62,27 @@ To wait for Kueue to be fully available, run:
 
 ```shell
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
+```
+
+### Install by Helm
+
+To install a released version of Kueue in your cluster by [Helm](https://helm.sh/), run the following command:
+
+```shell
+helm install kueue oci://registry.k8s.io/charts/kueue \
+  --version={{< param "version" >}} \
+  --namespace  kueue-system \
+  --create-namespace \
+  --wait --timeout 300s
+```
+
+You can also use the following command:
+
+```shell
+helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-chart-{{< param "version" >}}.tgz \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait --timeout 300s
 ```
 
 ### Add metrics scraping for prometheus-operator
@@ -83,10 +106,16 @@ See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_wor
 
 ### Uninstall
 
-To uninstall a released version of Kueue from your cluster, run the following command:
+To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
 
 ```shell
 kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+```
+
+To uninstall a released version of Kueue from your cluster by Helm, run the following command:
+
+```shell
+helm uninstall kueue --namespace kueue-system
 ```
 
 ## Install a custom-configured released version

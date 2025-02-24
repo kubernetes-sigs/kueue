@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,14 +17,16 @@ limitations under the License.
 package limitrange
 
 import (
-	"fmt"
-	"strings"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/util/resource"
+)
+
+const (
+	RequestsMustNotBeAboveLimitRangeMaxMessage = "requests must not be above the limitRange max"
+	RequestsMustNotBeBelowLimitRangeMinMessage = "requests must not be below the limitRange min"
 )
 
 type Summary map[corev1.LimitType]corev1.LimitRangeItem
@@ -54,46 +56,40 @@ func addToSummary(summary, item corev1.LimitRangeItem) corev1.LimitRangeItem {
 	return summary
 }
 
-func violateMaxMessage(path *field.Path, keys ...string) string {
-	return fmt.Sprintf("the requests of %s[%s] exceeds the limits", path.String(), strings.Join(keys, ", "))
-}
-func violateMinMessage(path *field.Path, keys ...string) string {
-	return fmt.Sprintf("the requests of %s[%s] are less than the limits", path.String(), strings.Join(keys, ", "))
-}
-
-func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *field.Path) []string {
+func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *field.Path) field.ErrorList {
 	containerRange, found := s[corev1.LimitTypeContainer]
 	if !found {
 		return nil
 	}
-	var reasons []string
+	var allErrs field.ErrorList
 	for i := range containers {
+		containerPath := path.Index(i)
 		res := &containers[i].Resources
 		cMin := resource.MergeResourceListKeepMin(res.Requests, res.Limits)
 		cMax := resource.MergeResourceListKeepMax(res.Requests, res.Limits)
-		if list := resource.GetGreaterKeys(cMax, containerRange.Max); len(list) > 0 {
-			reasons = append(reasons, violateMaxMessage(path.Index(i), list...))
+		if resNames := resource.GetGreaterKeys(cMax, containerRange.Max); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if list := resource.GetGreaterKeys(containerRange.Min, cMin); len(list) > 0 {
-			reasons = append(reasons, violateMinMessage(path.Index(i), list...))
+		if resNames := resource.GetGreaterKeys(containerRange.Min, cMin); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 	}
-	return reasons
+	return allErrs
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
-func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) []string {
-	var reasons []string
-	reasons = append(reasons, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
-	reasons = append(reasons, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
-	if containerRange, found := s[corev1.LimitTypePod]; found {
+func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
+	allErrs = append(allErrs, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
+	if podRange, found := s[corev1.LimitTypePod]; found {
 		total := resourcehelpers.PodRequests(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{})
-		if list := resource.GetGreaterKeys(total, containerRange.Max); len(list) > 0 {
-			reasons = append(reasons, violateMaxMessage(path, list...))
+		if resNames := resource.GetGreaterKeys(total, podRange.Max); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if list := resource.GetGreaterKeys(containerRange.Min, total); len(list) > 0 {
-			reasons = append(reasons, violateMinMessage(path, list...))
+		if resNames := resource.GetGreaterKeys(podRange.Min, total); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 	}
-	return reasons
+	return allErrs
 }

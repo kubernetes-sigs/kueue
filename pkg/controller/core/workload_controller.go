@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -62,6 +62,7 @@ var (
 
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
+	recoveryTimeout             *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
 	requeuingBackoffMaxDuration time.Duration
@@ -827,14 +828,7 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 	}
 	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
-		elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-	}
-	waitFor := r.waitForPodsReady.timeout - elapsedTime
-	if waitFor < 0 {
-		waitFor = 0
-	}
-	return true, waitFor
+	return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 }
 
 type resourceUpdatesHandler struct {

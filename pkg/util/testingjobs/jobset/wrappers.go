@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -114,6 +114,12 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 // Annotations sets annotations to the JobSet.
 func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrapper {
 	j.ObjectMeta.Annotations = annotations
+	return j
+}
+
+func (j *JobSetWrapper) SetTypeMeta() *JobSetWrapper {
+	j.APIVersion = jobsetapi.SchemeGroupVersion.String()
+	j.Kind = "JobSet"
 	return j
 }
 

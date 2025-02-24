@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -121,7 +121,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
-	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", concurrency)
+	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("v1_pod").
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).

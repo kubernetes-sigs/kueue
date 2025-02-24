@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1196,6 +1196,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
@@ -1242,8 +1243,8 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
-					Image: util.E2eTestSleepImage,
-					Args:  []string{"1ms"},
+					Image: util.E2eTestAgnHostImage,
+					Args:  util.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "rj2",
@@ -1253,8 +1254,8 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
-					Image: util.E2eTestSleepImage,
-					Args:  []string{"1ms"},
+					Image: util.E2eTestAgnHostImage,
+					Args:  util.BehaviorExitFast,
 				},
 			).
 			Request("rj1", "cpu", "100m").

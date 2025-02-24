@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -209,6 +209,15 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
+	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
+}
+
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp) {
+	if op == add {
+		s.addTASUsage(domainID, usage)
+	} else {
+		s.removeTASUsage(domainID, usage)
+	}
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -223,6 +232,13 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
+}
+
+func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	if s.leaves[domainID].tasUsage == nil {
+		s.leaves[domainID].tasUsage = resources.Requests{}
+	}
+	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
 type TASPodSetRequests struct {
@@ -260,11 +276,15 @@ type tasPodSetAssignmentResult struct {
 
 type FlavorTASRequests []TASPodSetRequests
 
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests) TASAssignmentsResult {
+// FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
+// the TAS requests in the flavor handled by the snapshot.
+// The simulateEmpty parameter allows to look for the assignment under the
+// assumption that all TAS workloads are preempted.
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool) TASAssignmentsResult {
 	result := make(map[string]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
-		assignment, reason := s.findTopologyAssignment(tr, assumedUsage)
+		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty)
 		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 		if reason != "" {
 			return result
@@ -296,9 +316,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 //	c) build the assignment for the lowest level in the hierarchy
 func (s *TASFlavorSnapshot) findTopologyAssignment(
 	tasPodSetRequests TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*kueue.TopologyAssignment, string) {
+	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	simulateEmpty bool) (*kueue.TopologyAssignment, string) {
 	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
 	requests := tasPodSetRequests.SinglePodRequests
+	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
 	count := tasPodSetRequests.Count
 	required := topologyRequest.Required != nil
@@ -311,7 +333,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	s.fillInCounts(requests, assumedUsage, append(podSetTolerations, s.tolerations...))
+	s.fillInCounts(requests, assumedUsage, simulateEmpty, append(podSetTolerations, s.tolerations...))
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
@@ -328,7 +350,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
 	}
-	return s.buildAssignment(currFitDomain, requests), ""
+	return s.buildAssignment(currFitDomain), ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
@@ -436,7 +458,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 }
 
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
-func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *kueue.TopologyAssignment {
 	assignment := &kueue.TopologyAssignment{
 		Domains: make([]kueue.TopologyDomainAssignment, len(domains)),
 	}
@@ -446,15 +468,11 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 			Values: domain.levelValues[levelIdx:],
 			Count:  domain.state,
 		}
-		usage := make(resources.Requests)
-		for resName, resValue := range singlePodRequest {
-			usage[resName] = resValue * int64(domain.state)
-		}
 	}
 	return assignment
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest resources.Requests) *kueue.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
 	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
 	slices.SortFunc(domains, func(a, b *domain) int {
 		return slices.Compare(a.levelValues, b.levelValues)
@@ -464,7 +482,7 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, singlePodRequest 
 	if s.isLowestLevelNode() {
 		levelIdx = len(s.levelKeys) - 1
 	}
-	return s.buildTopologyAssignmentForLevels(domains, levelIdx, singlePodRequest)
+	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
@@ -489,6 +507,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	simulateEmpty bool,
 	tolerations []corev1.Toleration) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
@@ -504,7 +523,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
-		remainingCapacity.Sub(leaf.tasUsage)
+		if !simulateEmpty {
+			remainingCapacity.Sub(leaf.tasUsage)
+		}
 		if leafAssumedUsage, found := assumedUsage[leaf.domain.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
 		}

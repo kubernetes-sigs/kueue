@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(controllerconsts.QueueLabel, q)
 }
 
-func (p *PodWrapper) PrebuildWorkload(name string) *PodWrapper {
+func (p *PodWrapper) PrebuiltWorkload(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
 }
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -208,7 +208,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector with mjns feature gate disabled": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -216,14 +216,35 @@ func TestValidate(t *testing.T) {
 					PodOptions: nil,
 				},
 			},
+			managedJobsFeatureGate: false,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions",
+					Field: "integrations.podOptions.namespaceSelector",
 				},
 			},
 		},
-		"nil PodIntegrationOptions.NamespaceSelector without managedJobsNamespaceSelector": {
+		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: nil,
+				},
+			},
+			managedJobsFeatureGate: true,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "managedJobsNamespaceSelector",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "managedJobsNamespaceSelector",
+				},
+			},
+		},
+		"nil PodIntegrationOptions.NamespaceSelector and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
@@ -233,6 +254,7 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+			managedJobsFeatureGate: false,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
@@ -429,6 +451,23 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative waitForPodsReady.recoveryTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RecoveryTimeout: &metav1.Duration{
+						Duration: -1,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.recoveryTimeout",
+				},
+			},
+		},
 		"valid waitForPodsReady": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -436,6 +475,9 @@ func TestValidate(t *testing.T) {
 					Enable: true,
 					Timeout: &metav1.Duration{
 						Duration: 50,
+					},
+					RecoveryTimeout: &metav1.Duration{
+						Duration: 3,
 					},
 					BlockAdmission: ptr.To(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{

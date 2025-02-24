@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,11 +45,8 @@ import (
 )
 
 const (
-	jobName           = "test-job"
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	jobQueueName      = "test-queue"
+	jobName     = "test-job"
+	instanceKey = "cloud.provider.com/instance"
 )
 
 var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -345,6 +342,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),

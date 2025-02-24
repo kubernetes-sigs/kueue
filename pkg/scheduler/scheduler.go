@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,8 +52,9 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL    = "Could not admit Workload and assign flavors in apiserver"
-	errInvalidWLResources = "resource validation failed"
+	errCouldNotAdmitWL                           = "Could not admit Workload and assign flavors in apiserver"
+	errInvalidWLResources                        = "resources validation failed"
+	errLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
 var (
@@ -376,7 +377,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := workload.ValidateResources(&w); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errInvalidWLResources, err.ToAggregate())
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
-			e.inadmissibleMsg = err.Error()
+			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()

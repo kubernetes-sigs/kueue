@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -578,6 +578,15 @@ const (
 	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
+
+	// WorkloadWaitForPodsStart indicates the reason for PodsReady=False condition
+	// when the pods have not been ready since admission, or the workload is not admitted.
+	WorkloadWaitForPodsStart = "WaitForPodsStart"
+
+	// WorkloadWaitForPodsStart indicates the reason for the PodsReady=False condition
+	// when the Pods were ready since the workload admission, but some pod has failed,
+	// and workload waits for recovering.
+	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
 )
 
 const (
@@ -586,9 +595,6 @@ const (
 
 	// WorkloadFinishedReasonFailed indicates that the workload's job finished with an error.
 	WorkloadFinishedReasonFailed = "Failed"
-
-	// WorkloadFinishedReasonAdmissionChecksRejected indicates that the workload was rejected by admission checks.
-	WorkloadFinishedReasonAdmissionChecksRejected = "AdmissionChecksRejected"
 
 	// WorkloadFinishedReasonOutOfSync indicates that the prebuilt workload is not in sync with its parent job.
 	WorkloadFinishedReasonOutOfSync = "OutOfSync"

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -58,4 +58,10 @@ var (
 	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
 	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
 	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+)
+
+var (
+	BehaviorWaitForDeletion           = []string{"netexec"}
+	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+	BehaviorExitFast                  = []string{"entrypoint-tester"}
 )

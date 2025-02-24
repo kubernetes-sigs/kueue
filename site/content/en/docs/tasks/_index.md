@@ -54,6 +54,7 @@ A serving user runs serving workloads, for example, to expose a trained AI/ML mo
 As a serving user, you can learn how to:
 - [Run a Kueue managed Deployment](run/deployment).
 - [Run a Kueue managed StatefulSet](run/statefulset).
+- [Run a Kueue managed LeaderWorkerSet](run/leaderworkerset).
 
 ### Platform developer
 

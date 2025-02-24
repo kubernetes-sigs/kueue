@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -84,6 +87,24 @@ func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 func (aw *AppWrapperWrapper) Name(n string) *AppWrapperWrapper {
 	aw.ObjectMeta.Name = n
 	return aw
+}
+
+// UID updates the uid of the job.
+func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
+	aw.ObjectMeta.UID = types.UID(uid)
+	return aw
+}
+
+// OwnerReference adds a ownerReference to the default container.
+func (j *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
+	j.ObjectMeta.OwnerReferences = append(j.ObjectMeta.OwnerReferences, metav1.OwnerReference{
+		APIVersion: ownerGVK.GroupVersion().String(),
+		Kind:       ownerGVK.Kind,
+		Name:       ownerName,
+		UID:        types.UID(ownerName),
+		Controller: ptr.To(true),
+	})
+	return j
 }
 
 // Component adds a component to the AppWrapper

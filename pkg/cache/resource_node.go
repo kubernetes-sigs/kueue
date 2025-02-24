@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,8 +19,6 @@ package cache
 import (
 	"errors"
 	"maps"
-
-	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -144,16 +142,6 @@ func removeUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val
 	}
 	deltaParentUsage := min(val, usageStoredInParent)
 	removeUsage(node.parentHRN(), fr, deltaParentUsage)
-}
-
-// calculateLendable aggregates capacity for resources across all
-// FlavorResources.
-func (r ResourceNode) calculateLendable() map[corev1.ResourceName]int64 {
-	lendable := make(map[corev1.ResourceName]int64, len(r.SubtreeQuota))
-	for fr, q := range r.SubtreeQuota {
-		lendable[fr.Resource] += q
-	}
-	return lendable
 }
 
 func updateClusterQueueResourceNode(cq *clusterQueue) {

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ func TestReconciler(t *testing.T) {
 		wantEvents          []utiltesting.EventRecord
 		wantErr             error
 	}{
-		"should create prebuild workload": {
+		"should create prebuilt workload": {
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -97,7 +97,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuild workload with leader template": {
+		"should create prebuilt workload with leader template": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Size(3).
@@ -165,7 +165,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuild workloads with leader template": {
+		"should create prebuilt workloads with leader template": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Replicas(2).
@@ -275,7 +275,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuild workload with required topology annotation": {
+		"should create prebuilt workload with required topology annotation": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Size(3).

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -100,8 +100,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: util.E2eTestSleepImage,
-								Args:  []string{"10m"},
+								Image: util.E2eTestAgnHostImage,
+								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -679,8 +679,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported for preemption within cluster queue.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name: "TAS do not support MultiKueue AdmissionCheck",

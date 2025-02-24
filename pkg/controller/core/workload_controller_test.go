@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -123,7 +123,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           5 * time.Minute,
+			wantRecheckAfter:           4 * time.Minute,
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -85,6 +85,9 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				Label(constants.ManagedByKueueLabel, "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
 				Obj(),
 		},
 		"pod with queue matching ns selector": {
@@ -592,6 +595,31 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"prebuilt workload for pod": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Obj(),
+		},
+		"prebuilt workload for pod group valid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+		},
+		"prebuilt workload for pod group invalid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -759,6 +787,26 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"prebuilt workload for pod group invalid": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name-new").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -814,7 +862,7 @@ func TestGetPodOptions(t *testing.T) {
 			integrationOpts: map[string]any{
 				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
 			},
-			wantOpts: &configapi.PodIntegrationOptions{},
+			wantOpts: nil,
 		},
 		"podIntegrationOptions isn't of type PodIntegrationOptions": {
 			integrationOpts: map[string]any{

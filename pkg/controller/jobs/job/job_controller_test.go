@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1896,6 +1896,7 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
+					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1903,7 +1904,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1911,7 +1912,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 		},
@@ -1932,20 +1933,21 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
+					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1972,6 +1974,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
+					UID("parent-uid").
 					Queue("queue").
 					Obj(),
 			},
@@ -1980,7 +1983,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
 			},
@@ -1989,7 +1992,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
 			},
@@ -2356,7 +2359,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
-		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuild workload not found error is returned": {
+		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuilt workload not found error is returned": {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -2376,7 +2379,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload exists its owner info is updated": {
 			job: *baseJobWrapper.
@@ -2465,7 +2468,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload is not equivalent to the job": {
 			job: *baseJobWrapper.
@@ -2517,7 +2520,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{

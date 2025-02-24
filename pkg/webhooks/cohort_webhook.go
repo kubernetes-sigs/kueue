@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -72,5 +72,9 @@ func validateCohort(cohort *kueuealpha.Cohort) field.ErrorList {
 		hasParent:                        cohort.Spec.Parent != "",
 		enforceNominalGreaterThanLending: false,
 	}
-	return validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"))
+	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, validateFairSharing(cohort.Spec.FairSharing, path.Child("fairSharing"))...)
+	allErrs = append(allErrs, validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"))...)
+	return allErrs
 }

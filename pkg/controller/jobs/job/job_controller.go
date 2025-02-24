@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -314,7 +314,11 @@ func (j *Job) Finished() (message string, success, finished bool) {
 
 func (j *Job) PodsReady() bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
-	return j.Status.Succeeded+ready >= j.podsCount()
+	uncountedTerminatedSucceeded := 0
+	if j.Status.UncountedTerminatedPods != nil {
+		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
 }
 
 func (j *Job) CanDefaultManagedBy() bool {

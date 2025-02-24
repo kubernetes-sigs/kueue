@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -694,6 +694,14 @@ func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrap
 	return c
 }
 
+func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
+	if c.Spec.FairSharing == nil {
+		c.Spec.FairSharing = &kueue.FairSharing{}
+	}
+	c.Spec.FairSharing.Weight = &w
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -826,7 +834,7 @@ func (c *ClusterQueueWrapper) FairWeight(w resource.Quantity) *ClusterQueueWrapp
 	if c.Spec.FairSharing == nil {
 		c.Spec.FairSharing = &kueue.FairSharing{}
 	}
-	c.Spec.FairSharing.Weight = ptr.To(w)
+	c.Spec.FairSharing.Weight = &w
 	return c
 }
 
@@ -1085,6 +1093,8 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 	case "Default":
 		target = lr.Spec.Limits[0].Default
 	case "Max":
+	case "MaxLimitRequestRatio":
+		target = lr.Spec.Limits[0].MaxLimitRequestRatio
 	// nothing
 	default:
 		panic("Unexpected member " + member)

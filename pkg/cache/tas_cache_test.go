@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"sort"
 	"testing"
 
@@ -56,6 +55,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -66,6 +66,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -76,6 +77,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -86,6 +88,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -96,6 +99,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -106,6 +110,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("40"),
 			}).
 			Ready().
 			Obj(),
@@ -136,6 +141,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -146,6 +152,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -156,6 +163,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -166,6 +174,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -176,6 +185,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -186,6 +196,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -196,6 +207,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -206,6 +218,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -215,7 +228,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		// TODO: remove after dropping the TASLeastAllocated feature gate
 		enableTASLeastAllocated bool
 		wantReason              string
-		request                 kueue.PodSetTopologyRequest
+		topologyRequest         kueue.PodSetTopologyRequest
 		levels                  []string
 		nodeLabels              map[string]string
 		nodes                   []corev1.Node
@@ -242,7 +255,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -251,7 +265,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r2").
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("20"),
 					}).
 					Ready().
 					Obj(),
@@ -260,7 +275,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -269,7 +285,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -278,7 +295,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -287,12 +305,13 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -333,7 +352,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; 4 pods fit into one host each; LeastAllocated": {
 			nodes: binaryTreesNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -374,7 +393,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; 4 pods fit into one host each; MostAllocated": {
 			nodes: binaryTreesNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -416,7 +435,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"host required; single Pod fits in the host; LeastAllocated": {
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -439,7 +458,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"host required; single Pod fits in the host; MostAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -463,7 +482,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"rack required; single Pod fits in a rack; LeastAllocated": {
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -487,7 +506,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fits in a rack; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -511,7 +530,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fit in a rack; MostAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -538,26 +557,29 @@ func TestFindTopologyAssignment(t *testing.T) {
 				*testingnode.MakeNode("b1").
 					Label(tasBlockLabel, "b1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("20"),
 					}).
 					Ready().
 					Obj(),
 				*testingnode.MakeNode("b2").
 					Label(tasBlockLabel, "b2").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
 				*testingnode.MakeNode("b3").
 					Label(tasBlockLabel, "b3").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("40"),
 					}).
 					Ready().
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: []string{tasBlockLabel},
@@ -586,7 +608,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fit in some racks; MostAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -610,7 +632,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; too many pods to fit in any rack; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -624,7 +646,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"block required; single Pod fits in a block; LeastAllocated": {
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -651,7 +673,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod fits in a block and a single rack; MostAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -678,7 +700,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod fits in a block spread across two racks; MostAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -712,7 +734,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; Pods fit in a block spread across two racks; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -743,7 +765,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod which cannot be split; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -756,7 +778,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; too many Pods to fit requested; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -770,7 +792,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"rack required; single Pod requiring memory; LeastAllocated": {
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -794,7 +816,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack preferred; but only block can accommodate the workload; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -825,7 +847,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack preferred; but only multiple blocks can accommodate the workload; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -863,7 +885,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block preferred; but only multiple blocks can accommodate the workload; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -901,7 +923,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block preferred; but the workload cannot be accommodate in entire topology; LeastAllocated": {
 			nodes: defaultNodes,
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -920,10 +942,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -945,11 +968,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -982,11 +1006,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultThreeLevels,
@@ -1005,6 +1030,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1014,7 +1040,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1042,6 +1068,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1056,7 +1083,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1085,6 +1112,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1095,7 +1123,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1114,6 +1142,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1124,7 +1153,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1144,6 +1173,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1152,6 +1182,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1161,7 +1192,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1190,6 +1221,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					NotReady().
 					StatusConditions(corev1.NodeCondition{
@@ -1198,7 +1230,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					}).
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1220,12 +1252,13 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Unschedulable().
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1247,6 +1280,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Taints(corev1.Taint{
@@ -1256,7 +1290,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					}).
 					Obj(),
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1283,6 +1317,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
@@ -1294,7 +1329,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 				},
 			},
-			request: kueue.PodSetTopologyRequest{
+			topologyRequest: kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1318,10 +1353,43 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableTASLeastAllocated: true,
 		},
+		"no assignment as node does not have enough allocatable pods (.status.allocatable['pods']); LeastAllocated": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-running", "test-ns").
+					NodeName("b1-r1-x1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "300m").
+					Obj(),
+			},
+			topologyRequest: kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 300,
+			},
+			count:                   1,
+			wantReason:              `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			enableTASLeastAllocated: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx, _ := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TASLeastAllocated feature gate
 			features.SetFeatureGateDuringTest(t, features.TASLeastAllocated, tc.enableTASLeastAllocated)
 
@@ -1347,7 +1415,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			tasInput := TASPodSetRequests{
 				PodSet: &kueue.PodSet{
 					Name:            "main",
-					TopologyRequest: &tc.request,
+					TopologyRequest: &tc.topologyRequest,
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Tolerations: tc.tolerations,
@@ -1369,7 +1437,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				wantMainPodSetResult.TopologyAssignment = tc.wantAssignment
 			}
 			wantResult["main"] = wantMainPodSetResult
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}

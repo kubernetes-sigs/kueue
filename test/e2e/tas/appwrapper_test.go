@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 					Request(extraResource, "1").
 					Limit(extraResource, "1").
 					Suspend(false).
-					Image(util.E2eTestSleepImage, []string{"60s"}).
+					Image(util.E2eTestAgnHostImage, []string{"60s"}).
 					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 					SetTypeMeta().Obj()).
 				Queue(localQueue.Name).

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -84,7 +84,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling LeaderWorkerSet")
 
-	err = r.createPrebuildWorkloadsIfNotExist(ctx, lws)
+	err = r.createPrebuiltWorkloadsIfNotExist(ctx, lws)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -92,27 +92,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) createPrebuildWorkloadsIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
+func (r *Reconciler) createPrebuiltWorkloadsIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
 	replicas := ptr.Deref(lws.Spec.Replicas, 1)
 	for i := int32(0); i < replicas; i++ {
-		if err := r.createPrebuildWorkloadIfNotExist(ctx, lws, i); err != nil {
+		if err := r.createPrebuiltWorkloadIfNotExist(ctx, lws, i); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) createPrebuildWorkloadIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
+func (r *Reconciler) createPrebuiltWorkloadIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, client.ObjectKey{Name: GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), Namespace: lws.Namespace}, wl)
 	// Ignore if the Workload already exists or an error occurs.
 	if err == nil || client.IgnoreNotFound(err) != nil {
 		return err
 	}
-	return r.createPrebuildWorkload(ctx, lws, index)
+	return r.createPrebuiltWorkload(ctx, lws, index)
 }
 
-func (r *Reconciler) createPrebuildWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
+func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
 	createdWorkload := r.constructWorkload(lws, index)
 	err := r.client.Create(ctx, createdWorkload)
 	if err != nil {

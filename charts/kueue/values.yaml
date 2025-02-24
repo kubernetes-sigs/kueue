@@ -85,6 +85,7 @@ managerConfig:
     #waitForPodsReady:
     #  enable: false
     #  timeout: 5m
+    #  recoveryTimeout: 3m
     #  blockAdmission: false
     #  requeuingStrategy:
     #    timestamp: Eviction
@@ -119,12 +120,6 @@ managerConfig:
     #  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
-    #  podOptions:
-    #    namespaceSelector:
-    #      matchExpressions:
-    #        - key: kubernetes.io/metadata.name
-    #          operator: NotIn
-    #          values: [ kube-system, kueue-system ]
     #fairSharing:
     #  enable: true
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]

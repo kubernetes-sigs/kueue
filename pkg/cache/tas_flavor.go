@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -163,8 +163,10 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.Requests)
+			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
 			c.usage[domainID].Add(tr.Requests)
+			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }

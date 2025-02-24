@@ -12,26 +12,26 @@ require (
 	github.com/onsi/ginkgo/v2 v2.22.2
 	github.com/onsi/gomega v1.36.2
 	github.com/open-policy-agent/cert-controller v0.12.0
-	github.com/project-codeflare/appwrapper v1.0.3
+	github.com/project-codeflare/appwrapper v1.0.4
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/ray-project/kuberay/ray-operator v1.2.2
-	github.com/spf13/cobra v1.8.1
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
 	gomodules.xyz/jsonpatch/v2 v2.4.0
-	k8s.io/api v0.32.1
-	k8s.io/apimachinery v0.32.1
-	k8s.io/apiserver v0.32.1
+	k8s.io/api v0.32.2
+	k8s.io/apimachinery v0.32.2
+	k8s.io/apiserver v0.32.2
 	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240813092541-aec7b75bb683
-	k8s.io/cli-runtime v0.32.1
-	k8s.io/client-go v0.32.1
-	k8s.io/component-base v0.32.1
-	k8s.io/component-helpers v0.32.1
+	k8s.io/cli-runtime v0.32.2
+	k8s.io/client-go v0.32.2
+	k8s.io/component-base v0.32.2
+	k8s.io/component-helpers v0.32.2
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7
-	k8s.io/kubectl v0.32.1
-	k8s.io/metrics v0.32.1
+	k8s.io/kubectl v0.32.2
+	k8s.io/metrics v0.32.2
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 	sigs.k8s.io/controller-runtime v0.19.4
 	sigs.k8s.io/jobset v0.7.3
@@ -140,9 +140,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.31.4 // indirect
-	k8s.io/code-generator v0.32.1 // indirect
+	k8s.io/code-generator v0.32.2 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250106234829-0359904fc2a6 // indirect
-	k8s.io/kms v0.32.1 // indirect
+	k8s.io/kms v0.32.2 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/kustomize/api v0.18.0 // indirect

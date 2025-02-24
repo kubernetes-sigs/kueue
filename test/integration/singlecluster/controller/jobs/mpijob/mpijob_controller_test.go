@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -969,6 +969,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -65,7 +65,7 @@ var (
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
-	allErrs = append(allErrs, validateCreateForPrebuildWorkload(job)...)
+	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	return allErrs
 }
@@ -73,13 +73,13 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
-	allErrs = append(allErrs, validateUpdateForPrebuildWorkload(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	return allErrs
 }
 
-func validateCreateForPrebuildWorkload(job GenericJob) field.ErrorList {
+func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job.Object(), constants.PrebuiltWorkloadLabel)...)
 
@@ -128,7 +128,7 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func validateUpdateForPrebuildWorkload(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		oldWlName, _ := PrebuiltWorkloadFor(oldJob)
@@ -136,7 +136,7 @@ func validateUpdateForPrebuildWorkload(oldJob, newJob GenericJob) field.ErrorLis
 
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	} else {
-		allErrs = append(allErrs, validateCreateForPrebuildWorkload(newJob)...)
+		allErrs = append(allErrs, validateCreateForPrebuiltWorkload(newJob)...)
 	}
 	return allErrs
 }

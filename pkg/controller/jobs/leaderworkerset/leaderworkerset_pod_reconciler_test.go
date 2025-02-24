@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -112,7 +112,7 @@ func TestPodReconciler(t *testing.T) {
 				Queue("queue").
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
-				PrebuildWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
 				Annotation(podcontroller.RoleHashAnnotation, "main").
@@ -137,7 +137,7 @@ func TestPodReconciler(t *testing.T) {
 				Queue("queue").
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
-				PrebuildWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
 				Annotation(podcontroller.RoleHashAnnotation, kueue.DefaultPodSetName).

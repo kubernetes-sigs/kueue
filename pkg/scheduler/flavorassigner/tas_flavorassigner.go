@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,9 +28,7 @@ import (
 )
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
-func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info,
-	requests []workload.PodSetResources,
-	cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
+func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
 	tasRequests := make(cache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
 		if podSet.TopologyRequest != nil {

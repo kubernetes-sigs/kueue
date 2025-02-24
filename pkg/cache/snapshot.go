@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.removeUsage(wl.FlavorResourceUsage())
+	cq.updateTASUsage(wl, subtract)
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -53,6 +54,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.FlavorResourceUsage())
+	cq.updateTASUsage(wl, add)
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -94,6 +96,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}
 		snap.AddCohort(cohort.Name)
 		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohorts[cohort.Name].FairWeight = cohort.FairWeight
 		if cohort.HasParent() {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}

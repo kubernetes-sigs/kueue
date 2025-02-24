@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -61,10 +60,6 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector:       &metav1.LabelSelector{},
-					NamespaceSelector: nsSelector,
-				}),
 			))
 		})
 		ginkgo.BeforeEach(func() {
@@ -200,10 +195,6 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector:       &metav1.LabelSelector{},
-					NamespaceSelector: nsSelector,
-				}),
 			))
 		})
 		ginkgo.BeforeEach(func() {

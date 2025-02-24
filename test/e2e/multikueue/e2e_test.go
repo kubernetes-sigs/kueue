@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -205,7 +205,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	ginkgo.When("Creating a multikueue admission check", func() {
 		ginkgo.It("Should create a pod on worker if admitted", func() {
 			pod := testingpod.MakePod("pod", managerNs.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Request("cpu", "1").
 				Request("memory", "2G").
 				Queue(managerLq.Name).
@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 
 			deployment := testingdeployment.MakeDeployment("deployment", managerNs.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Replicas(3).
 				Queue(managerLq.Name).
 				Obj()
@@ -396,7 +396,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request("cpu", "1").
 				Request("memory", "2G").
 				// Give it the time to be observed Active in the live status update step.
-				Image(util.E2eTestSleepImage, []string{"5s"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
@@ -439,10 +439,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Finishing the job's pod", func() {
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0)
+			})
+
 			ginkgo.By("Waiting for the job to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -481,9 +484,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestSleepImage,
+						Image:       util.E2eTestAgnHostImage,
 						// Give it the time to be observed Active in the live status update step.
-						Args: []string{"5s"},
+						Args: util.BehaviorWaitForDeletion,
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -530,6 +533,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Finishing the jobset pods", func() {
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, jobSet.Namespace, 4, 0)
+			})
+
 			ginkgo.By("Waiting for the jobSet to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
@@ -574,7 +581,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Component(testingjob.MakeJob("job-1", managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
-					Image(util.E2eTestSleepImage, []string{"5s"}). // Give it the time to be observed Active in the live status update step.
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					Request(corev1.ResourceCPU, "1").
 					SetTypeMeta().Obj()).
@@ -596,6 +603,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Finishing the jobset pods", func() {
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, aw.Namespace, 2, 0)
 			})
 
 			ginkgo.By("Waiting for the appwrapper to finish", func() {
@@ -649,8 +660,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestSleepImage, []string{"1ms"}).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
@@ -712,8 +723,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestSleepImage, []string{"1ms"}).
-				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
+				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {

@@ -1,11 +1,11 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,6 @@ package workload
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -163,12 +162,12 @@ func ValidateResources(wi *Info) field.ErrorList {
 
 // ValidateLimitRange validates that the requested resources fit into the namespace defined
 // limitRanges.
-func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) error {
-	podsetsPath := field.NewPath("podSets")
-	// get the range summary from the namespace.
+func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.ErrorList {
+	var allErrs field.ErrorList
 	limitRanges := corev1.LimitRangeList{}
 	if err := c.List(ctx, &limitRanges, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
-		return err
+		allErrs = append(allErrs, field.InternalError(field.NewPath(""), err))
+		return allErrs
 	}
 	if len(limitRanges.Items) == 0 {
 		return nil
@@ -176,13 +175,9 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) error {
 	summary := limitrange.Summarize(limitRanges.Items...)
 
 	// verify
-	var allReasons []string
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]
-		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
+		allErrs = append(allErrs, summary.ValidatePodSpec(&ps.Template.Spec, PodSetsPath.Index(i).Child("template").Child("spec"))...)
 	}
-	if len(allReasons) > 0 {
-		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))
-	}
-	return nil
+	return allErrs
 }

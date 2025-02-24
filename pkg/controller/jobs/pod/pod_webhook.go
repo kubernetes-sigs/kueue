@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -64,6 +64,7 @@ var (
 	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
 
@@ -91,8 +92,10 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		namespaceSelector:            podOpts.NamespaceSelector,
-		podSelector:                  podOpts.PodSelector,
+	}
+	if podOpts != nil {
+		wh.namespaceSelector = podOpts.NamespaceSelector
+		wh.podSelector = podOpts.PodSelector
 	}
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
@@ -105,7 +108,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
 	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
 	if !ok {
-		return &configapi.PodIntegrationOptions{}, nil
+		return nil, nil
 	}
 	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
 	if !ok {
@@ -152,21 +155,25 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Backwards compatibility: podOptions.podSelector
-		podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse pod selector: %w", err)
-		}
-		if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
-			return nil
+		if w.podSelector != nil {
+			podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
+			if err != nil {
+				return fmt.Errorf("failed to parse pod selector: %w", err)
+			}
+			if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
+				return nil
+			}
 		}
 
 		// Backwards compatibility: podOptions.namespaceSelector
-		nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse namespace selector: %w", err)
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
+		if w.namespaceSelector != nil {
+			nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
+			if err != nil {
+				return fmt.Errorf("failed to parse namespace selector: %w", err)
+			}
+			if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+				return nil
+			}
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
@@ -285,6 +292,7 @@ func validateCommon(pod *Pod) field.ErrorList {
 	allErrs := validateManagedLabel(pod)
 	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
 	allErrs = append(allErrs, validateTopologyRequest(pod)...)
+	allErrs = append(allErrs, validatePrebuiltWorkloadName(pod)...)
 	return allErrs
 }
 
@@ -354,4 +362,14 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 	}
 
 	return field.ErrorList{}
+}
+
+func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
+	allErrs := field.ErrorList{}
+	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
+	groupName := podGroupName(pod.pod)
+	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
+		allErrs = append(allErrs, field.Invalid(prebuiltWorkloadLabelPath, prebuiltWorkloadLabelPath, "prebuilt workload and pod group should be equal"))
+	}
+	return allErrs
 }
