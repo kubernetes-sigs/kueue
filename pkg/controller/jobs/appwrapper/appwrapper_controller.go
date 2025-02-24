@@ -19,6 +19,7 @@ package appwrapper
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -128,11 +130,29 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
 	for psIndex := range podSpecTemplates {
+		var podIndexLabel *string
+		var subGroupIndexLabel *string
+		var subGroupCount *int32
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASPodIndexLabel]; ok {
+			podIndexLabel = &annotation
+		}
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupIndexLabel]; ok {
+			subGroupIndexLabel = &annotation
+		}
+		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupCount]; ok {
+			if count, err := strconv.Atoi(annotation); err == nil {
+				subGroupCount = ptr.To(int32(count))
+			} else {
+				ctrl.Log.Error(err, "Malformed annotation ignored",
+					"annotationKey", awutils.PodSetAnnotationTASSubGroupCount,
+					"annotationValue", annotation)
+			}
+		}
 		podSets[psIndex] = kueue.PodSet{
 			Name:            fmt.Sprintf("%s-%v", aw.Name, psIndex),
 			Template:        *podSpecTemplates[psIndex],
 			Count:           awutils.Replicas(awPodSets[psIndex]),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), nil, nil, nil),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), podIndexLabel, subGroupIndexLabel, subGroupCount),
 		}
 	}
 	return podSets, nil

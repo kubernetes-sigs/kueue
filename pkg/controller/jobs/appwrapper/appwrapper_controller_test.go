@@ -27,10 +27,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -61,6 +63,25 @@ func TestPodSets(t *testing.T) {
 		).
 		SetTypeMeta().
 		Obj()
+	pytorchJobTAS := testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+		PyTorchReplicaSpecs(
+			testingpytorchjob.PyTorchReplicaSpecRequirement{
+				ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+				ReplicaCount: 1,
+				Annotations: map[string]string{
+					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+				},
+			},
+			testingpytorchjob.PyTorchReplicaSpecRequirement{
+				ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+				ReplicaCount: 4,
+				Annotations: map[string]string{
+					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+		).
+		SetTypeMeta().
+		Obj()
 	batchJob := utiltestingjob.MakeJob("job", "ns").
 		SetTypeMeta().
 		Parallelism(2).
@@ -76,9 +97,35 @@ func TestPodSets(t *testing.T) {
 				Component(batchJob).
 				Obj(),
 			wantPodSets: []kueue.PodSet{
-				{Name: "aw-0", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template, Count: 1},
-				{Name: "aw-1", Template: pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template, Count: 4},
-				{Name: "aw-2", Template: batchJob.Spec.Template, Count: 2},
+				*utiltesting.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					Obj(),
+				*utiltesting.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					Obj(),
+				*utiltesting.MakePodSet("aw-2", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					Obj(),
+			},
+		},
+		"with required and preferred topology annotation": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(pytorchJobTAS).
+				Obj(),
+
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					RequiredTopologyRequest("cloud.com/rack").
+					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+					Obj(),
+				*utiltesting.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					PreferredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+					Obj(),
 			},
 		},
 	}
