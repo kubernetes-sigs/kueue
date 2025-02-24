@@ -814,12 +814,12 @@ func IsEvicted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
 }
 
-// HasConditionWithTypeAndReason checks if there is a condition in Workload's status with exactly the same
-// Type, Status, Reason and Message
+// HasConditionWithTypeAndReason checks if there is a condition in Workload's status
+// with exactly the same Type, Status and Reason
 func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bool {
 	for _, statusCond := range w.Status.Conditions {
 		if statusCond.Type == cond.Type && statusCond.Reason == cond.Reason &&
-			statusCond.Status == cond.Status && statusCond.Message == cond.Message {
+			statusCond.Status == cond.Status {
 			return true
 		}
 	}

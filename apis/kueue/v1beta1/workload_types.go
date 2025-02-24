@@ -587,6 +587,9 @@ const (
 	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
 	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
+
+	// WorkloadNotAdmitted is a reason that indicates the Workload has not been admitted
+	WorkloadNotAdmitted = "NotAdmitted"
 )
 
 const (

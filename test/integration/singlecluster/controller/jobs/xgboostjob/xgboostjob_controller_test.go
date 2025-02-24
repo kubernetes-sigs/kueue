@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadNotAdmitted,
 				Message: "Workload isn't admitted",
 			},
 		}),

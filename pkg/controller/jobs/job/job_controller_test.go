@@ -509,7 +509,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadNotAdmitted,
 					Message: "Workload isn't admitted",
 				}).
 				Obj(),

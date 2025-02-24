@@ -1080,7 +1080,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("One pod ready, one terminating succeeded", podsReadyTestSpec{
@@ -1095,7 +1095,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("One pod ready, one succeeded", podsReadyTestSpec{
@@ -1108,7 +1108,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("One pod succeeded, one terminating succeeded", podsReadyTestSpec{
@@ -1122,7 +1122,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("All pods terminating succeeded", podsReadyTestSpec{
@@ -1135,7 +1135,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("All pods are succeeded", podsReadyTestSpec{
@@ -1147,7 +1147,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("All pods are succeeded; PodsReady=False before", podsReadyTestSpec{
@@ -1165,7 +1165,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 		}),
 		ginkgo.Entry("One pod has failed; PodsReady=True before", podsReadyTestSpec{
@@ -1177,7 +1177,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Active: 1,
@@ -1200,7 +1200,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Failed: 2,
@@ -1222,7 +1222,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the workload is running",
+				Message: "All pods reached readiness and the job is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Active: 2,
@@ -1232,7 +1232,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadNotAdmitted,
 				Message: "Workload isn't admitted",
 			},
 		}),
@@ -2147,7 +2147,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadWaitForPodsStart,
+						Reason:  kueue.WorkloadNotAdmitted,
 						Message: "Workload isn't admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2215,7 +2215,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadWaitForPodsStart,
-						Message: "All pods reached readiness and the workload is running",
+						Message: "All pods reached readiness and the job is running",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -2235,7 +2235,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadWaitForPodsStart,
+						Reason:  kueue.WorkloadNotAdmitted,
 						Message: "Workload isn't admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2303,7 +2303,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadWaitForPodsStart,
+						Reason:  kueue.WorkloadNotAdmitted,
 						Message: "Workload isn't admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2350,7 +2350,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadWaitForPodsStart,
+						Reason:  kueue.WorkloadNotAdmitted,
 						Message: "Workload isn't admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
