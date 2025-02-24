@@ -30,6 +30,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
@@ -65,21 +66,15 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     headGroupPodSetName,
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-					},
-					{
-						Name:     "group1",
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-					},
-					{
-						Name:     "group2",
-						Count:    3,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-					},
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group2", 3).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -120,23 +115,19 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:            headGroupPodSetName,
-						Count:           1,
-						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
-					},
-					{
-						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
-						Count:           1,
-						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
-					},
-					{
-						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
-						Count:    3,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-					},
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName, 3).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -177,23 +168,19 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:            headGroupPodSetName,
-						Count:           1,
-						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
-					},
-					{
-						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-					},
-					{
-						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
-						Count:           3,
-						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
-					},
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						PreferredTopologyRequest("cloud.com/block").
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName, 3).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
+						PreferredTopologyRequest("cloud.com/block").
+						Obj(),
 				}
 			},
 		},
@@ -226,21 +213,15 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     headGroupPodSetName,
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-					},
-					{
-						Name:     "group1",
-						Count:    4,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-					},
-					{
-						Name:     "group2",
-						Count:    12,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-					},
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName, 4).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName, 12).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -272,26 +253,18 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     headGroupPodSetName,
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-					},
-					{
-						Name:     "group1",
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-					},
-					{
-						Name:     "group2",
-						Count:    3,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-					},
-					{
-						Name:     "submitter",
-						Count:    1,
-						Template: *getSubmitterTemplate(rayJob),
-					},
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group2", 3).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("submitter", 1).
+						PodSpec(getSubmitterTemplate(rayJob).Spec).
+						Obj(),
 				}
 			},
 		},
@@ -339,41 +312,27 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     headGroupPodSetName,
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-					},
-					{
-						Name:     "group1",
-						Count:    1,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
-					},
-					{
-						Name:     "group2",
-						Count:    3,
-						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
-					},
-					{
-						Name:  "submitter",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name: "ray-job-submitter",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												corev1.ResourceCPU:    resource.MustParse("50m"),
-												corev1.ResourceMemory: resource.MustParse("100Mi"),
-											},
-										},
-									},
-								},
-								RestartPolicy: corev1.RestartPolicyNever,
+					*utiltesting.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("group2", 3).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet("submitter", 1).
+						PodSpec(corev1.PodSpec{
+							RestartPolicy: corev1.RestartPolicyNever,
+							Containers: []corev1.Container{
+								*utiltesting.MakeContainer().
+									Name("ray-job-submitter").
+									WithResourceReq(corev1.ResourceCPU, "50m").
+									WithResourceReq(corev1.ResourceMemory, "100Mi").
+									Obj(),
 							},
-						},
-					},
+						}).
+						Obj(),
 				}
 			},
 		},

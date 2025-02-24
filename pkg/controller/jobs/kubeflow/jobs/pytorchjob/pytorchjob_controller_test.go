@@ -28,6 +28,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 )
 
@@ -243,16 +244,12 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
-						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
-						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -277,20 +274,18 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
-						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
-						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						RequiredTopologyRequest("cloud.com/rack").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
 				}
 			},
 		},
