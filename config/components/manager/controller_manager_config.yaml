@@ -4,6 +4,8 @@ health:
   healthProbeBindAddress: :8081
 metrics:
   bindAddress: :8443
+# Uncommented if you are using certs with prometheus
+#  certDir: "/tmp/k8s-metrics-server/metrics-certs"
 # enableClusterQueueResources: true
 webhook:
   port: 9443
