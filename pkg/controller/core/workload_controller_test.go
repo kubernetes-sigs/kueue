@@ -127,6 +127,29 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           4 * time.Minute,
 		},
+		"workload with Admitted=True, PodsReady=False, Reason=PodsReady; counting since admitted.LastTransitionTime": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             "PodsReady",
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           4 * time.Minute,
+		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
