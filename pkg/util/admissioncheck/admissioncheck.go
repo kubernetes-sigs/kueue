@@ -162,7 +162,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[kueue.Resour
 	if cq.Spec.AdmissionChecksStrategy != nil {
 		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
 		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
-			checks[check.Name] = sets.New[kueue.ResourceFlavorReference](check.OnFlavors...)
+			checks[check.Name] = sets.New(check.OnFlavors...)
 		}
 	} else {
 		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))

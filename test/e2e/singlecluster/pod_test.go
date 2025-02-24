@@ -424,7 +424,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Request(corev1.ResourceCPU, "2").
 				MakeGroup(2)
 			defaultGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "default-priority-group"}
-			defaultGroupPods := sets.New[types.NamespacedName](
+			defaultGroupPods := sets.New(
 				client.ObjectKeyFromObject(defaultPriorityGroup[0]),
 				client.ObjectKeyFromObject(defaultPriorityGroup[1]),
 			)
