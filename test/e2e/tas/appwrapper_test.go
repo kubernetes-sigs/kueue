@@ -175,8 +175,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
-				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-					client.MatchingLabels(wrappedJob.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gotAssignment := make(map[string]string, numPods)
 				for _, pod := range pods.Items {
 					index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
