@@ -216,16 +216,12 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-					},
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -246,21 +242,17 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](2),
-						},
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-					},
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](2)).
+						Obj(),
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -281,21 +273,17 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](3),
-						},
-					},
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](3)).
+						Obj(),
 				}
 			},
 		},

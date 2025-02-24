@@ -250,16 +250,12 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -284,20 +280,18 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						RequiredTopologyRequest("cloud.com/rack").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
 				}
 			},
 		},

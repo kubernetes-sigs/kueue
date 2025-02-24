@@ -137,11 +137,9 @@ func TestPodSets(t *testing.T) {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -152,13 +150,11 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj(),
 				}
 			},
 		},
@@ -169,13 +165,11 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj(),
 				}
 			},
 		},
