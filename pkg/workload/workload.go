@@ -814,9 +814,9 @@ func IsEvicted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
 }
 
-// HasCondition checks if there is a condition in Workload's status with exactly the same
+// HasConditionWithTypeAndReason checks if there is a condition in Workload's status with exactly the same
 // Type, Status, Reason and Message
-func HasCondition(w *kueue.Workload, cond *metav1.Condition) bool {
+func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bool {
 	for _, statusCond := range w.Status.Conditions {
 		if statusCond.Type == cond.Type && statusCond.Reason == cond.Reason &&
 			statusCond.Status == cond.Status && statusCond.Message == cond.Message {
@@ -824,6 +824,16 @@ func HasCondition(w *kueue.Workload, cond *metav1.Condition) bool {
 		}
 	}
 	return false
+}
+
+func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+	return metav1.Condition{
+		Type:    kueue.WorkloadPodsReady,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+		// ObservedGeneration is added via workload.UpdateStatus
+	}
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {

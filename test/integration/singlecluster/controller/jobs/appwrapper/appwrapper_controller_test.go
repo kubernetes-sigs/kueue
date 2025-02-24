@@ -709,7 +709,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the job is running",
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("Running AppWrapper; PodsReady=False before", podsReadyTestSpec{
@@ -733,7 +733,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the job is running",
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("AppWrapper suspended; PodsReady=True before", podsReadyTestSpec{
@@ -751,7 +751,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadWaitForPodsStart,
-				Message: "All pods reached readiness and the job is running",
+				Message: "All pods reached readiness and the workload is running",
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{

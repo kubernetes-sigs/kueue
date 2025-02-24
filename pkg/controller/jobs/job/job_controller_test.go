@@ -562,7 +562,7 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadWaitForPodsStart,
-					Message: "All pods reached readiness and the job is running",
+					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
 			},
@@ -585,7 +585,7 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadWaitForPodsStart,
-					Message: "All pods reached readiness and the job is running",
+					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
 			},
@@ -595,7 +595,7 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadWaitForPodsRecovery,
-					Message: "One of pods has failed and is waiting for recovery",
+					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
 			},
@@ -616,7 +616,7 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadWaitForPodsRecovery,
-					Message: "One of pods has failed and is waiting for recovery",
+					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
 			},
@@ -626,7 +626,7 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadWaitForPodsRecovery,
-					Message: "All pods reached readiness and the job is running",
+					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
 			},
