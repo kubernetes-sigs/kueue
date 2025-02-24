@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localQueue.Name).
 					PodSets(
-						*testing.MakePodSet("main", 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
+						*testing.MakePodSet(kueue.DefaultPodSetName, 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
 					).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())

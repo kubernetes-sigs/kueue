@@ -1276,7 +1276,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1304,7 +1304,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1331,7 +1331,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1359,7 +1359,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
