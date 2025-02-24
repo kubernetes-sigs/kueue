@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("main", 3).
+							*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 								Request(corev1.ResourceCPU, "1").
 								Obj(),
 						).
@@ -380,7 +380,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"@abc": "foo"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"@abc": "foo"}}}},
 			),
 			ginkgo.Entry("invalid node selector name of podSetUpdate",
 				func() *kueue.Workload {
@@ -390,7 +390,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"@abc": "foo"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, NodeSelector: map[string]string{"@abc": "foo"}}}},
 			),
 			ginkgo.Entry("invalid label value of podSetUpdate",
 				func() *kueue.Workload {
@@ -400,7 +400,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"foo": "@abc"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "@abc"}}}},
 			),
 		)
 
@@ -463,7 +463,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				true,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet("main", 2).Obj()}
+					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet(kueue.DefaultPodSetName, 2).Obj()}
 				},
 				testing.BeForbiddenError(),
 			),
@@ -474,7 +474,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets = []kueue.PodSet{{
-						Name:  "main",
+						Name:  kueue.DefaultPodSetName,
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -655,7 +655,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets = []kueue.PodSet{
 						{
-							Name:  "main",
+							Name:  kueue.DefaultPodSetName,
 							Count: 1,
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{

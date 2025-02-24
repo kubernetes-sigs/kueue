@@ -596,7 +596,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -613,7 +613,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -653,7 +653,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -695,7 +695,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -790,7 +790,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -831,7 +831,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -870,7 +870,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -911,7 +911,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -950,7 +950,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -991,7 +991,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1030,7 +1030,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1071,7 +1071,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1119,7 +1119,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1150,7 +1150,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1174,7 +1174,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1186,7 +1186,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1203,7 +1203,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1215,7 +1215,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1245,7 +1245,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1257,7 +1257,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1274,7 +1274,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1286,7 +1286,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1316,7 +1316,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1328,7 +1328,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1345,7 +1345,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1357,7 +1357,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1389,7 +1389,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"provisioning": "on-demand",
 								},
@@ -1406,7 +1406,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"provisioning": "on-demand",
 								},
@@ -1441,7 +1441,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1460,7 +1460,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1484,7 +1484,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1503,7 +1503,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -2178,7 +2178,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -2188,7 +2188,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -2532,7 +2532,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2553,7 +2553,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey2",
 								Operator: corev1.TolerationOpExists,
@@ -2598,7 +2598,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2613,7 +2613,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
@@ -2627,7 +2627,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2642,7 +2642,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
@@ -2670,7 +2670,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2684,7 +2684,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},

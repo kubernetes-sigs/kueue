@@ -1345,13 +1345,13 @@ func TestReconcile(t *testing.T) {
 func TestActiveOrLastPRForChecks(t *testing.T) {
 	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
 		PodSets(
-			*utiltesting.MakePodSet("main", 4).
+			*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
 		ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
-				Name: "main",
+				Name: kueue.DefaultPodSetName,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: "flv1",
 				},

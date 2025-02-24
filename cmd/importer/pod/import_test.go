@@ -46,7 +46,7 @@ func TestImportNamespace(t *testing.T) {
 		Label(constants.JobUIDLabel, "pod").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Queue("lq1").
-		PodSets(*utiltesting.MakePodSet("main", 1).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
 			Obj()).

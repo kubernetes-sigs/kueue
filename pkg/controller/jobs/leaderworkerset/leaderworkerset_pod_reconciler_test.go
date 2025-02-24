@@ -115,7 +115,7 @@ func TestPodReconciler(t *testing.T) {
 				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podcontroller.GroupServingAnnotation, "true").
-				Annotation(podcontroller.RoleHashAnnotation, "main").
+				Annotation(podcontroller.RoleHashAnnotation, kueue.DefaultPodSetName).
 				Obj(),
 		},
 		"should set default values and priority class when has value": {

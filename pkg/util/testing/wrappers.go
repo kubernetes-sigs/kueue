@@ -70,7 +70,7 @@ func MakeWorkload(name, ns string) *WorkloadWrapper {
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
-				*MakePodSet("main", 1).Obj(),
+				*MakePodSet(kueue.DefaultPodSetName, 1).Obj(),
 			},
 		},
 	}}
