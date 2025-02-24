@@ -827,16 +827,15 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 		return false, 0
 	}
 
-	var elapsedTime time.Duration
 	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart {
 		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		elapsedTime = r.clock.Since(admittedCond.LastTransitionTime.Time)
+		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
 		return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 	} else {
 		// podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery
 		// A pod has failed and the workload is waiting for recovery
 		if r.waitForPodsReady.recoveryTimeout != nil {
-			elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
+			elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 			return true, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 		}
 		return false, 0
