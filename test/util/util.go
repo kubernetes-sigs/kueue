@@ -109,7 +109,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if ns == nil {
 		return nil
 	}
-	if err := DeleteAllJobsetsInNamespace(ctx, c, ns); err != nil {
+	if err := DeleteAllJobSetsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
@@ -138,55 +138,39 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 }
 
 func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &batchv1.Job{})
 }
 
-func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+func DeleteAllJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &jobset.JobSet{})
 }
 
 func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &leaderworkersetv1.LeaderWorkerSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &leaderworkersetv1.LeaderWorkerSet{})
 }
 
 func DeleteAllMPIJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &kfmpi.MPIJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kfmpi.MPIJob{})
 }
 
 func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &kftraining.PyTorchJob{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.PyTorchJob{})
 }
 
 func DeleteAllAppWrappersInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &awv1beta2.AppWrapper{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
-		return err
-	}
-	return nil
+	return deleteAllObjectsInNamespace(ctx, c, ns, &awv1beta2.AppWrapper{})
 }
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllPodsInNamespace(ctx, c, ns, 2)
+}
+
+func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, obj client.Object) error {
+	err := c.DeleteAllOf(ctx, obj, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
+		return err
+	}
+	return nil
 }
 
 func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
