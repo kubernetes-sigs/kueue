@@ -1194,7 +1194,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 			kueue.WorkloadWaitForPodsRecovery,
 			"All pods reached readiness and the workload is running")
 	default:
-		log.V(2).Info("WARNING Unexpected PodsReady condition",
+		log.V(2).Info("PodsReady condition with Reason not belonging to [\"WaitForPodsStart\", \"WaitForPodsRecovery\"]",
 			"Current PodsReady condition", podsReadyCond,
 			"Pods are ready", podsReady,
 		)
