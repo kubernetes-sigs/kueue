@@ -117,12 +117,10 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(headGroupPodSetName, 1).
 						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName, 1).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName, 3).
@@ -170,7 +168,6 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(headGroupPodSetName, 1).
 						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName, 1).
@@ -178,7 +175,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltesting.MakePodSet(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName, 3).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
 						Obj(),
 				}

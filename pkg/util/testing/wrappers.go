@@ -405,6 +405,7 @@ func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
 	p.TopologyRequest.Required = &level
+	p.annotation(kueuealpha.PodSetRequiredTopologyAnnotation, level)
 	return p
 }
 
@@ -413,6 +414,7 @@ func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
 	p.TopologyRequest.Preferred = &level
+	p.annotation(kueuealpha.PodSetPreferredTopologyAnnotation, level)
 	return p
 }
 
@@ -511,6 +513,14 @@ func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 
 func (p *PodSetWrapper) Labels(kv map[string]string) *PodSetWrapper {
 	p.Template.Labels = kv
+	return p
+}
+
+func (p *PodSetWrapper) annotation(k, v string) *PodSetWrapper {
+	if p.Template.Annotations == nil {
+		p.Template.Annotations = make(map[string]string)
+	}
+	p.Template.Annotations[k] = v
 	return p
 }
 
