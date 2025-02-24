@@ -4,6 +4,7 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-leader-election-rolebinding'
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
