@@ -18,6 +18,7 @@ package appwrapper
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -120,20 +121,35 @@ func (aw *AppWrapper) GVK() schema.GroupVersionKind {
 }
 
 func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
-	podSets, err := awutils.GetPodSets((*awv1beta2.AppWrapper)(aw))
+	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(aw))
 	if err != nil {
-		ctrl.Log.Error(err, "Error returned from awutils.GetPodSets", "appwrapper", aw)
+		ctrl.Log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", aw)
 		return nil, err
 	}
-	for idx := range podSets {
-		podSets[idx].TopologyRequest = jobframework.PodSetTopologyRequest(&podSets[idx].Template.ObjectMeta, nil, nil, nil)
+	podSets := []kueue.PodSet{}
+	for psIndex := range podSpecTemplates {
+		podSets = append(podSets, kueue.PodSet{
+			Name:            fmt.Sprintf("%s-%v", aw.Name, psIndex),
+			Template:        *podSpecTemplates[psIndex],
+			Count:           awutils.Replicas(awPodSets[psIndex]),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), nil, nil, nil),
+		})
 	}
 	return podSets, nil
 }
 
 func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
-	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(aw), podSetsInfo); err != nil {
-		return err
+	awPodSetsInfo := make([]awv1beta2.AppWrapperPodSetInfo, len(podSetsInfo))
+	for idx := range podSetsInfo {
+		awPodSetsInfo[idx].Annotations = podSetsInfo[idx].Annotations
+		awPodSetsInfo[idx].Labels = podSetsInfo[idx].Labels
+		awPodSetsInfo[idx].NodeSelector = podSetsInfo[idx].NodeSelector
+		awPodSetsInfo[idx].Tolerations = podSetsInfo[idx].Tolerations
+		awPodSetsInfo[idx].SchedulingGates = podSetsInfo[idx].SchedulingGates
+	}
+
+	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(aw), awPodSetsInfo); err != nil {
+		return fmt.Errorf("%w: %v", podset.ErrInvalidPodsetInfo, err)
 	}
 	aw.Spec.Suspend = false
 	return nil
