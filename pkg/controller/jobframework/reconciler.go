@@ -1159,8 +1159,8 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 			"Workload isn't admitted")
 	}
 
-	podsReadyStartCond := workload.IsPodsReadyStartCond(wl)
-	podsReadyRecoveryCond := workload.IsPodsReadyRecoveryCond(wl)
+	podsReadyStartCond := workload.FindStatusConditionWithReason(wl, kueue.WorkloadPodsReady, kueue.WorkloadWaitForPodsStart)
+	podsReadyRecoveryCond := workload.FindStatusConditionWithReason(wl, kueue.WorkloadPodsReady, kueue.WorkloadWaitForPodsRecovery)
 	podsReady := job.PodsReady()
 	log.V(3).Info("Generating PodsReady condition",
 		"WaitForPodsReady with WorkloadWaitForPodsStart reason", podsReadyStartCond,

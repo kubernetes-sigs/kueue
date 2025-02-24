@@ -771,20 +771,13 @@ func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
 }
 
-func IsPodsReadyStartCond(w *kueue.Workload) *metav1.Condition {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPodsReady)
-	if cond == nil || cond.Reason != kueue.WorkloadWaitForPodsStart {
-		return nil
+// FindStatusCondition finds metav1.Condition in Workload's Status with that has the reason
+func FindStatusConditionWithReason(w *kueue.Workload, condType, reason string) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, condType)
+	if cond != nil && cond.Reason == reason {
+		return cond
 	}
-	return cond
-}
-
-func IsPodsReadyRecoveryCond(w *kueue.Workload) *metav1.Condition {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPodsReady)
-	if cond == nil || cond.Reason != kueue.WorkloadWaitForPodsRecovery {
-		return nil
-	}
-	return cond
+	return nil
 }
 
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
