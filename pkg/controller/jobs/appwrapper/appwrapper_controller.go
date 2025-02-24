@@ -153,6 +153,7 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 			Count:           awutils.Replicas(awPodSets[psIndex]),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), podIndexLabel, subGroupIndexLabel, subGroupCount),
 		}
+	}
 	return podSets, nil
 }
 
@@ -167,7 +168,7 @@ func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error 
 	}
 
 	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(aw), awPodSetsInfo); err != nil {
-		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)	
+		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
 	aw.Spec.Suspend = false
 	return nil
