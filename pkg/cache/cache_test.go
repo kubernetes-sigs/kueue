@@ -1156,7 +1156,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			Request(corev1.ResourceCPU, "5m").
 			Obj(),
 	}
-	podSetFlavors := []kueue.PodSetAssignment{
+	psAssignment := []kueue.PodSetAssignment{
 		{
 			Name: "driver",
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1179,7 +1179,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	cl := utiltesting.NewFakeClient(
 		utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 			ClusterQueue:      "one",
-			PodSetAssignments: podSetFlavors,
+			PodSetAssignments: psAssignment,
 		}).Obj(),
 		utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 			ClusterQueue: "one",
@@ -1206,7 +1206,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 					utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 						ClusterQueue: "two",
@@ -1288,7 +1288,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				latest := utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 					ClusterQueue:      "two",
-					PodSetAssignments: podSetFlavors,
+					PodSetAssignments: psAssignment,
 				}).Obj()
 				return cache.UpdateWorkload(old, latest)
 			},
@@ -1492,11 +1492,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 				}
 				for i := range workloads {
@@ -1559,11 +1559,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 				}
 				for i := range workloads {
@@ -1626,11 +1626,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
-						PodSetAssignments: podSetFlavors,
+						PodSetAssignments: psAssignment,
 					}).Obj(),
 				}
 				for i := range workloads {

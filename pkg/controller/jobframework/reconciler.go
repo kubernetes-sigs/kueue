@@ -1078,13 +1078,13 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 
 	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
-	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
-		info, err := podset.FromAssignment(ctx, c, &podSetFlavor, w.Spec.PodSets[i].Count)
+	for i, psAssignment := range w.Status.Admission.PodSetAssignments {
+		info, err := podset.FromAssignment(ctx, c, &psAssignment, w.Spec.PodSets[i].Count)
 		if err != nil {
 			return nil, err
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			info.Labels[kueuealpha.PodSetLabel] = podSetFlavor.Name
+			info.Labels[kueuealpha.PodSetLabel] = psAssignment.Name
 			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
 		}
 		for _, admissionCheck := range w.Status.AdmissionChecks {
