@@ -467,7 +467,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								Obj(),
 							TotalRequests: []workload.PodSetResources{
 								{
-									Name:     "main",
+									Name:     kueue.DefaultPodSetName,
 									Requests: resources.Requests{corev1.ResourceCPU: 5000},
 									Count:    1,
 									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
@@ -896,7 +896,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							ClusterQueue: "cq1",
 							TotalRequests: []workload.PodSetResources{
 								{
-									Name:     "main",
+									Name:     kueue.DefaultPodSetName,
 									Requests: resources.Requests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -909,7 +909,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							ClusterQueue: "cq1",
 							TotalRequests: []workload.PodSetResources{
 								{
-									Name:     "main",
+									Name:     kueue.DefaultPodSetName,
 									Requests: resources.Requests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1954,12 +1954,12 @@ func TestClusterQueueUsage(t *testing.T) {
 			clusterQueue: cq,
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("partial-one", "").
-					PodSets(*utiltesting.MakePodSet("main", 5).Request(corev1.ResourceCPU, "2").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 				*utiltesting.MakeWorkload("partial-two", "").
-					PodSets(*utiltesting.MakePodSet("main", 5).Request(corev1.ResourceCPU, "2").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
 					Obj(),
 			},

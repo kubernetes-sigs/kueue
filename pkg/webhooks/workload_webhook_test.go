@@ -63,7 +63,7 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"assignment usage should be divisible by count": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*testingutil.MakePodSet("main", 3).
+				PodSets(*testingutil.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue").
@@ -161,7 +161,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid label name of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"@abc": "foo"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"@abc": "foo"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -171,7 +171,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid node selector name of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"@abc": "foo"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, NodeSelector: map[string]string{"@abc": "foo"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -181,7 +181,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid label value of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"foo": "@abc"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "@abc"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{

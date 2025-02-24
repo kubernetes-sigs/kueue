@@ -393,11 +393,11 @@ func TestClusterQueueImpl(t *testing.T) {
 		},
 		"update reclaimable pods in inadmissible": {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{
-				workload.NewInfo(utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
+				workload.NewInfo(utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
 			},
 			workloadsToUpdate: []*kueue.Workload{
-				utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReclaimablePods(kueue.ReclaimablePod{Name: "main", Count: 1}).
+				utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.DefaultPodSetName, Count: 1}).
 					Obj(),
 			},
 			wantActiveWorkloads: []string{"/w"},

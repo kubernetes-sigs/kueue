@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			wl := testing.MakeWorkload("wl", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
 					Containers(*container.DeepCopy()).
 					Obj()).
 				Obj()
@@ -502,7 +502,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}
 			testingjob.SetContainerDefaults(&container)
 			wl := testing.MakeWorkload("wl", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
 					Containers(*container.DeepCopy()).
 					Obj()).
 				Obj()
@@ -757,7 +757,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label1": "label-value1",
 								},
@@ -895,7 +895,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key": "new-label-value",
 								},
@@ -1660,7 +1660,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{{
-					Name:  "main",
+					Name:  kueue.DefaultPodSetName,
 					Count: 1,
 				}}))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2382,7 +2382,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
-					Name:  "main",
+					Name:  kueue.DefaultPodSetName,
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
 						Required:      ptr.To(tasBlockLabel),

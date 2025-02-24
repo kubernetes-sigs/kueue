@@ -470,7 +470,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								State: kueue.CheckStateReady,
 								PodSetUpdates: []kueue.PodSetUpdate{
 									{
-										Name: "main",
+										Name: kueue.DefaultPodSetName,
 										Labels: map[string]string{
 											"label1": "label-value1",
 										},
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				wl := testing.MakeWorkload(workloadName, ns.Name).
 					Queue(lq.Name).
-					PodSets(*testing.MakePodSet("main", 1).PodSpec(pod.Spec).Obj()).
+					PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(pod.Spec).Obj()).
 					Obj()
 				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
 
@@ -2252,7 +2252,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
-					Name:  "main",
+					Name:  kueue.DefaultPodSetName,
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
 						Required:      ptr.To(tasBlockLabel),

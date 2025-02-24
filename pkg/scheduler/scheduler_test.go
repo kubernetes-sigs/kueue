@@ -1266,18 +1266,18 @@ func TestSchedule(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
 				).Obj(),
 				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r2", "16").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r2", "16").Obj(),
 				).Obj(),
 			},
 			wantScheduled: []string{"sales/wl1", "sales/wl2"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
 					Assignment("r1", "default", "16").AssignmentPodCount(1).
 					Obj(),
-				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", kueue.DefaultPodSetName).
 					Assignment("r2", "default", "16").AssignmentPodCount(1).
 					Obj(),
 			},
@@ -1301,18 +1301,18 @@ func TestSchedule(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
 				).Obj(),
 				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r1", "14").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "14").Obj(),
 				).Obj(),
 			},
 			wantScheduled: []string{"sales/wl1", "sales/wl2"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
 					Assignment("r1", "default", "16").AssignmentPodCount(1).
 					Obj(),
-				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", kueue.DefaultPodSetName).
 					Assignment("r1", "default", "14").AssignmentPodCount(1).
 					Obj(),
 			},
@@ -1336,15 +1336,15 @@ func TestSchedule(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
 				).Obj(),
 				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
 				).Obj(),
 			},
 			wantScheduled: []string{"sales/wl1"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
 					Assignment("r1", "default", "16").AssignmentPodCount(1).
 					Obj(),
 			},
@@ -1410,28 +1410,28 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeWorkload("a", "eng-alpha").
 					Queue("lq_a").
 					Creation(now.Add(time.Second)).
-					PodSets(*utiltesting.MakePodSet("main", 1).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("b", "eng-beta").
 					Queue("lq_b").
 					Creation(now.Add(2 * time.Second)).
-					PodSets(*utiltesting.MakePodSet("main", 1).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_a", "eng-alpha").
 					Queue("lq_a").
 					PodSets(
-						*utiltesting.MakePodSet("main", 1).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "2").
 							Obj(),
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq_a").
 						PodSets(
 							kueue.PodSetAssignment{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 									corev1.ResourceCPU: "default",
 								},
@@ -1449,7 +1449,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "cq_a",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						{
-							Name: "main",
+							Name: kueue.DefaultPodSetName,
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
@@ -1464,7 +1464,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "cq_b",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						{
-							Name: "main",
+							Name: kueue.DefaultPodSetName,
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
@@ -3514,7 +3514,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "didn't fit",
 					},
 				},
-				ResourceRequests: []kueue.PodSetRequest{{Name: "main"}},
+				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
 			},
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
@@ -3556,7 +3556,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "cohort used in this cycle",
 					},
 				},
-				ResourceRequests: []kueue.PodSetRequest{{Name: "main"}},
+				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
 			},
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},

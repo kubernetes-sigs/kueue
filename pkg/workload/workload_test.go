@@ -54,7 +54,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Requests: resources.Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
@@ -67,14 +67,14 @@ func TestNewInfo(t *testing.T) {
 		"pending with reclaim": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet("main", 5).
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "512Ki").
 						Obj(),
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{
-						Name:  "main",
+						Name:  kueue.DefaultPodSetName,
 						Count: 2,
 					},
 				).
@@ -82,7 +82,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Requests: resources.Requests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
@@ -159,7 +159,7 @@ func TestNewInfo(t *testing.T) {
 		"admitted with reclaim": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet("main", 5).
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
@@ -173,7 +173,7 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{
-						Name:  "main",
+						Name:  kueue.DefaultPodSetName,
 						Count: 2,
 					},
 				).
@@ -181,7 +181,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
@@ -198,7 +198,7 @@ func TestNewInfo(t *testing.T) {
 		"admitted with reclaim and increased reclaim": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet("main", 5).
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
@@ -212,7 +212,7 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{
-						Name:  "main",
+						Name:  kueue.DefaultPodSetName,
 						Count: 3,
 					},
 				).
@@ -220,7 +220,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
@@ -237,7 +237,7 @@ func TestNewInfo(t *testing.T) {
 		"partially admitted": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet("main", 5).
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
@@ -253,7 +253,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
@@ -277,7 +277,7 @@ func TestNewInfo(t *testing.T) {
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Requests: resources.Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
