@@ -169,6 +169,12 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+
+	// CertDir is the directory that contains the server key and certificate.
+	// The server key and certificate
+	// must be named tls.key and tls.crt, respectively.
+	// +optional
+	CertDir string `json:"certDir,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
