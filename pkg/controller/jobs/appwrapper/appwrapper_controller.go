@@ -126,14 +126,14 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 		ctrl.Log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", aw)
 		return nil, err
 	}
-	podSets := []kueue.PodSet{}
+	podSets := make([]kueue.PodSet, len(podSpecTemplates))
 	for psIndex := range podSpecTemplates {
-		podSets = append(podSets, kueue.PodSet{
+		podSets[psIndex] = kueue.PodSet{
 			Name:            fmt.Sprintf("%s-%v", aw.Name, psIndex),
 			Template:        *podSpecTemplates[psIndex],
 			Count:           awutils.Replicas(awPodSets[psIndex]),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), nil, nil, nil),
-		})
+		}
 	}
 	return podSets, nil
 }
