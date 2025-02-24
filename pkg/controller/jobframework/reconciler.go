@@ -1174,7 +1174,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 
 	// 2a. Pods have reached readiness; before job runtime
 	// 2b. Pods continue to be ready
-	case podsReady && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart:
+	case podsReady && (podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart):
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
 			kueue.WorkloadWaitForPodsStart,
 			"All pods reached readiness and the workload is running")
