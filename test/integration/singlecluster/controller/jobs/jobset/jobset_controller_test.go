@@ -1201,7 +1201,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 				Ready().
 				Obj(),
 		}
-		util.CreateNodes(ctx, k8sClient, nodes)
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
