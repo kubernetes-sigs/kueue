@@ -141,10 +141,11 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 		}
 		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupCount]; ok {
 			if count, err := strconv.Atoi(annotation); err == nil {
-				subGroupCount = ptr.To[int32](int32(count))
+				subGroupCount = ptr.To(int32(count))
 			} else {
-				ctrl.Log.Error(err, fmt.Sprintf("Malformed %v annotation ignored", awutils.PodSetAnnotationTASSubGroupCount),
-					"annotation", annotation)
+				ctrl.Log.Error(err, "Malformed annotation ignored",
+					"annotationKey", awutils.PodSetAnnotationTASSubGroupCount,
+					"annotationValue", annotation)
 			}
 		}
 		podSets[psIndex] = kueue.PodSet{
