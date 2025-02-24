@@ -1175,19 +1175,19 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 			kueue.WorkloadWaitForPodsStart,
 			"All pods reached readiness and the workload is running")
 
-	case !podsReady && podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart && podsReadyCond.Status == metav1.ConditionFalse:
+	case !podsReady && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady") && podsReadyCond.Status == metav1.ConditionFalse:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForPodsStart,
 			"Not all pods are ready or succeeded")
 
-	case podsReady && podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart:
+	case podsReady && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady"):
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
 			kueue.WorkloadWaitForPodsStart,
 			"All pods reached readiness and the workload is running")
 
 	// a) The workload was running and a pod has failed
 	// b) A pod has failed and the Workload has already recovered once before
-	case !podsReady && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart && podsReadyCond.Status == metav1.ConditionTrue ||
+	case !podsReady && ((podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady") && podsReadyCond.Status == metav1.ConditionTrue ||
 		podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery):
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForPodsRecovery,
