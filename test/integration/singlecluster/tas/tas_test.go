@@ -348,7 +348,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				util.CreateNodes(ctx, k8sClient, nodes)
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = testing.MakeDefaultTwoLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -756,7 +756,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				util.CreateNodes(ctx, k8sClient, nodes)
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = testing.MakeDefaultThreeLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -866,7 +866,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				util.CreateNodes(ctx, k8sClient, nodes)
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = testing.MakeDefaultThreeLevelTopology("default")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -1031,7 +1031,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					util.CreateNodes(ctx, k8sClient, nodes)
+					util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -1110,7 +1110,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					util.CreateNodes(ctx, k8sClient, nodes)
+					util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("creating a workload which does not tolerate the taint", func() {
@@ -1180,7 +1180,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				util.CreateNodes(ctx, k8sClient, nodes)
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = testing.MakeTopology("default").Levels(
 					testing.DefaultRackTopologyLevel,
