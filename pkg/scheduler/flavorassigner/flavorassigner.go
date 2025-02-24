@@ -141,8 +141,8 @@ func (s *Status) IsError() bool {
 	return s != nil && s.err != nil
 }
 
-func (s *Status) append(r ...string) *Status {
-	s.reasons = append(s.reasons, r...)
+func (s *Status) appendf(format string, args ...any) *Status {
+	s.reasons = append(s.reasons, fmt.Sprintf(format, args...))
 	return s
 }
 
@@ -497,13 +497,13 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		flavor, exist := a.resourceFlavors[fName]
 		if !exist {
 			log.Error(nil, "Flavor not found", "Flavor", fName)
-			status.append(fmt.Sprintf("flavor %s not found", fName))
+			status.appendf("flavor %s not found", fName)
 			continue
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
-				status.append(*message)
+				status.appendf("%s", *message)
 				continue
 			}
 		}
@@ -511,7 +511,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, fName))
+			status.appendf("untolerated taint %s in flavor %s", taint, fName)
 			continue
 		}
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
@@ -519,7 +519,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.err = err
 				return nil, status
 			}
-			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", fName))
+			status.appendf("flavor %s doesn't match node affinity", fName)
 			continue
 		}
 		needsBorrowing := false
@@ -667,8 +667,8 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// No Fit
 	if val > maxCapacity {
-		status.append(fmt.Sprintf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity)))
+		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
+			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
 		return noFit, false, &status
 	}
 
@@ -688,8 +688,8 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		mode = preempt
 	}
 
-	status.append(fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available)))
+	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
+		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
 	return mode, borrow, &status
 }
