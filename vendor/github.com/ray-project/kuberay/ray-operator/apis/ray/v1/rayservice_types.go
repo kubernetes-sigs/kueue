@@ -11,13 +11,21 @@ import (
 type ServiceStatus string
 
 const (
-	FailedToGetOrCreateRayCluster    ServiceStatus = "FailedToGetOrCreateRayCluster"
-	WaitForServeDeploymentReady      ServiceStatus = "WaitForServeDeploymentReady"
-	FailedToGetServeDeploymentStatus ServiceStatus = "FailedToGetServeDeploymentStatus"
-	Running                          ServiceStatus = "Running"
-	Restarting                       ServiceStatus = "Restarting"
-	FailedToUpdateServingPodLabel    ServiceStatus = "FailedToUpdateServingPodLabel"
-	FailedToUpdateService            ServiceStatus = "FailedToUpdateService"
+	// `Running` means the RayService is ready to serve requests. `NotRunning` means it is not ready.
+	// The naming is a bit confusing, but to maintain backward compatibility, we use `Running` instead of `Ready`.
+	// Since KubeRay v1.3.0, `ServiceStatus` is equivalent to the `RayServiceReady` condition.
+	// `ServiceStatus` is deprecated - please use conditions instead.
+	Running    ServiceStatus = "Running"
+	NotRunning ServiceStatus = ""
+)
+
+type RayServiceUpgradeType string
+
+const (
+	// During upgrade, NewCluster strategy will create new upgraded cluster and switch to it when it becomes ready
+	NewCluster RayServiceUpgradeType = "NewCluster"
+	// No new cluster will be created while the strategy is set to None
+	None RayServiceUpgradeType = "None"
 )
 
 // These statuses should match Ray Serve's application statuses
@@ -49,6 +57,11 @@ var DeploymentStatusEnum = struct {
 	UNHEALTHY: "UNHEALTHY",
 }
 
+type RayServiceUpgradeStrategy struct {
+	// Type represents the strategy used when upgrading the RayService. Currently supports `NewCluster` and `None`.
+	Type *RayServiceUpgradeType `json:"type,omitempty"`
+}
+
 // RayServiceSpec defines the desired state of RayService
 type RayServiceSpec struct {
 	// Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685
@@ -57,17 +70,30 @@ type RayServiceSpec struct {
 	DeploymentUnhealthySecondThreshold *int32 `json:"deploymentUnhealthySecondThreshold,omitempty"`
 	// ServeService is the Kubernetes service for head node and worker nodes who have healthy http proxy to serve traffics.
 	ServeService *corev1.Service `json:"serveService,omitempty"`
+	// UpgradeStrategy defines the scaling policy used when upgrading the RayService.
+	UpgradeStrategy *RayServiceUpgradeStrategy `json:"upgradeStrategy,omitempty"`
 	// Important: Run "make" to regenerate code after modifying this file
 	// Defines the applications and deployments to deploy, should be a YAML multi-line scalar string.
 	ServeConfigV2  string         `json:"serveConfigV2,omitempty"`
 	RayClusterSpec RayClusterSpec `json:"rayClusterConfig,omitempty"`
+	// If the field is set to true, the value of the label `ray.io/serve` on the head Pod should always be false.
+	// Therefore, the head Pod's endpoint will not be added to the Kubernetes Serve service.
+	ExcludeHeadPodFromServeSvc bool `json:"excludeHeadPodFromServeSvc,omitempty"`
 }
 
 // RayServiceStatuses defines the observed state of RayService
 type RayServiceStatuses struct {
+	// Represents the latest available observations of a RayService's current state.
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// LastUpdateTime represents the timestamp when the RayService status was last updated.
 	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
-	// ServiceStatus indicates the current RayService status.
+	// Deprecated: `ServiceStatus` is deprecated - use `Conditions` instead. `Running` means the RayService is ready to
+	// serve requests. An empty `ServiceStatus` means the RayService is not ready to serve requests. The definition of
+	// `ServiceStatus` is equivalent to the `RayServiceReady` condition.
 	ServiceStatus       ServiceStatus    `json:"serviceStatus,omitempty"`
 	ActiveServiceStatus RayServiceStatus `json:"activeServiceStatus,omitempty"`
 	// Pending Service Status indicates a RayCluster will be created or is being created.
@@ -88,24 +114,37 @@ type RayServiceStatus struct {
 }
 
 type AppStatus struct {
-	// Keep track of how long the service is healthy.
-	// Update when Serve deployment is healthy or first time convert to unhealthy from healthy.
-	HealthLastUpdateTime *metav1.Time                     `json:"healthLastUpdateTime,omitempty"`
-	Deployments          map[string]ServeDeploymentStatus `json:"serveDeploymentStatuses,omitempty"`
-	Status               string                           `json:"status,omitempty"`
-	Message              string                           `json:"message,omitempty"`
+	Deployments map[string]ServeDeploymentStatus `json:"serveDeploymentStatuses,omitempty"`
+	Status      string                           `json:"status,omitempty"`
+	Message     string                           `json:"message,omitempty"`
 }
 
 // ServeDeploymentStatus defines the current state of a Serve deployment
 type ServeDeploymentStatus struct {
-	// Keep track of how long the service is healthy.
-	// Update when Serve deployment is healthy or first time convert to unhealthy from healthy.
-	HealthLastUpdateTime *metav1.Time `json:"healthLastUpdateTime,omitempty"`
-	// Name, Status, Message are from Ray Dashboard and represent a Serve deployment's state.
-	// TODO: change status type to enum
 	Status  string `json:"status,omitempty"`
 	Message string `json:"message,omitempty"`
 }
+
+type (
+	RayServiceConditionType   string
+	RayServiceConditionReason string
+)
+
+const (
+	// RayServiceReady means users can send requests to the underlying cluster and the number of serve endpoints is greater than 0.
+	RayServiceReady RayServiceConditionType = "Ready"
+	// UpgradeInProgress means the RayService is currently performing a zero-downtime upgrade.
+	UpgradeInProgress RayServiceConditionType = "UpgradeInProgress"
+)
+
+const (
+	RayServiceInitializing         RayServiceConditionReason = "Initializing"
+	ZeroServeEndpoints             RayServiceConditionReason = "ZeroServeEndpoints"
+	NonZeroServeEndpoints          RayServiceConditionReason = "NonZeroServeEndpoints"
+	BothActivePendingClustersExist RayServiceConditionReason = "BothActivePendingClustersExist"
+	NoPendingCluster               RayServiceConditionReason = "NoPendingCluster"
+	NoActiveCluster                RayServiceConditionReason = "NoActiveCluster"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:categories=all
