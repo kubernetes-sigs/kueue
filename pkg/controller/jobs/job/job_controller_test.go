@@ -691,7 +691,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			},
 		},
-		"PodsReady is set to False with the old reason (pre v0.11.0)": {
+		"PodsReady has the new Reason if there was the old one before (pre v0.11.0)": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -703,6 +703,33 @@ func TestReconciler(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False if there's an invalid Reason (pre v0.11.0)": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidReason",
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
