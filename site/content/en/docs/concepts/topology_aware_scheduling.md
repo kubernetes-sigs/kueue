@@ -56,7 +56,7 @@ the "cloud.provider.com/topology-rack" label, but in different blocks.
 For each PodSet TAS determines the current free capacity per each topology
 domain (like a given rack) by:
 - including Node allocatable capacity (based on the `.status.allocatable` field)
-  of only ready Nodes (with `Ready=True` condition),
+  of only ready (with `Ready=True` condition) and schedulable (with `.spec.unschedulable=false`) Nodes,
 - subtracting the usage coming from all other admitted TAS workloads,
 - subtracting the usage coming from all other non-TAS Pods (owned mainly by
   DaemonSets, but also including static Pods, Deployments, etc.).
