@@ -1,0 +1,9 @@
+resources:
+  - clusterrole.yaml
+  - cluster-role-binding.yaml
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - backend-service.yaml
+  - frontend-service.yaml
+  - backend-ingress.yaml
+  - frontend-ingress.yaml
