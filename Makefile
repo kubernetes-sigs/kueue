@@ -77,7 +77,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.10.1
+RELEASE_VERSION=v0.10.2
 RELEASE_BRANCH=main
 
 .PHONY: all
