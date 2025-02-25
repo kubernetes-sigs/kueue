@@ -428,6 +428,17 @@ done
 
 # Add kueue-viz templating on kueue-viz directory
 for output_file in "${DEST_KUEUE_VIZ_DIR}"/*.yaml; do
+  $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "Ingress")')" ]; then
+    $YQ -N -i '.spec.rules.[].http.paths.[].backend.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+    $YQ -N -i '.spec.tls.[].secretName |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  fi
+
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "ClusterRoleBinding")')" ]; then
+    $YQ -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  fi
+
   if [ "$(< "$output_file" $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
     $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi

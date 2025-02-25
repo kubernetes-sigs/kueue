@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kueue-viz-frontend
+  name: '{{ include "kueue.fullname" . }}-kueue-viz-frontend'
   namespace: '{{ .Release.Namespace }}'
 spec:
   replicas: 1

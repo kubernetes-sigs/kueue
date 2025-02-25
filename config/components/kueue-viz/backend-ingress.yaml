@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: kueue-backend-ingress
+  name: kueue-viz-backend-ingress
   namespace: system
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
@@ -11,7 +11,7 @@ spec:
   tls:
     - hosts:
         - backend.kueue-viz.local
-      secretName: kueue-kueue-viz-tls-secret
+      secretName: kueue-viz-tls-secret
   rules:
     - host: backend.kueue-viz.local
       http:
