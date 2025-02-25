@@ -54,7 +54,7 @@ var (
 
 		# Create a resource flavor with tolerations
   		kueuectl create resourceflavor my-resource-flavor \
-		--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
+		--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value
 	`)
 	nodeLabelsFlagName  = "node-labels"
 	nodeTaintsFlagName  = "node-taints"
@@ -296,7 +296,7 @@ func parseTaint(str string) (corev1.Taint, error) {
 }
 
 func validateTaintEffect(effect corev1.TaintEffect) error {
-	if effect != corev1.TaintEffectNoSchedule && effect != corev1.TaintEffectPreferNoSchedule && effect != corev1.TaintEffectNoExecute {
+	if effect != corev1.TaintEffectNoSchedule && effect != corev1.TaintEffectNoExecute {
 		return fmt.Errorf("invalid taint effect: %v, unsupported taint effect", effect)
 	}
 	return nil

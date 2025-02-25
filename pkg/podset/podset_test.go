@@ -48,7 +48,7 @@ func TestFromAssignment(t *testing.T) {
 		Key:      "t3k",
 		Operator: corev1.TolerationOpEqual,
 		Value:    "t3v",
-		Effect:   corev1.TaintEffectPreferNoSchedule,
+		Effect:   corev1.TaintEffectNoSchedule,
 	}
 
 	flavor1 := utiltesting.MakeResourceFlavor("flavor1").

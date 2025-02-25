@@ -279,14 +279,13 @@ func TestResourceFlavorCmd(t *testing.T) {
 		},
 		"should create resource flavor with node taints": {
 			rfName: "rf",
-			args:   []string{"--node-taints", "key1=value:NoSchedule,key1=value:PreferNoSchedule,key2=value:NoSchedule,key3=value:NoSchedule"},
+			args:   []string{"--node-taints", "key1=value:NoSchedule,key2=value:NoSchedule,key3=value:NoSchedule"},
 			wantRf: &v1beta1.ResourceFlavor{
 				TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
 				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
 				Spec: v1beta1.ResourceFlavorSpec{
 					NodeTaints: []corev1.Taint{
 						{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule},
-						{Key: "key1", Value: "value", Effect: corev1.TaintEffectPreferNoSchedule},
 						{Key: "key2", Value: "value", Effect: corev1.TaintEffectNoSchedule},
 						{Key: "key3", Value: "value", Effect: corev1.TaintEffectNoSchedule},
 					},
