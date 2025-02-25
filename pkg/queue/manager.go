@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -155,7 +156,7 @@ func (m *Manager) DeleteCohort(cohortName string) {
 func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
 	m.Lock()
 	defer m.Unlock()
-
+	logger := ctrl.LoggerFrom(ctx)
 	if _, ok := m.hm.ClusterQueues[cq.Name]; ok {
 		return errClusterQueueAlreadyExists
 	}
@@ -190,7 +191,14 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		for _, q := range queues.Items {
 			qImpl := m.localQueues[Key(&q)]
 			if qImpl != nil {
-				m.reportLQPendingWorkloads(qImpl)
+				lqKeySlice := strings.Split(qImpl.Key, "/")
+				lqObj := &kueue.LocalQueue{}
+				err = m.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObj)
+				if err != nil {
+					logger.Error(err, "Could not get LocalQueue, skipping")
+				} else if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, lqObj); should {
+					m.reportLQPendingWorkloads(qImpl)
+				}
 			}
 		}
 	}
@@ -204,6 +212,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
+	logger := ctrl.LoggerFrom(ctx)
 	cqImpl, ok := m.hm.ClusterQueues[cq.Name]
 	if !ok {
 		return ErrClusterQueueDoesNotExist
@@ -223,7 +232,14 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		if features.Enabled(features.LocalQueueMetrics) {
 			for _, q := range m.localQueues {
 				if q.ClusterQueue == cq.Name {
-					m.reportLQPendingWorkloads(q)
+					lqKeySlice := strings.Split(q.Key, "/")
+					lqObj := &kueue.LocalQueue{}
+					err := m.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObj)
+					if err != nil {
+						logger.Error(err, "Could not get LocalQueue, skipping")
+					} else if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, lqObj); should {
+						m.reportLQPendingWorkloads(q)
+					}
 				}
 			}
 		}
@@ -302,7 +318,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	return nil
 }
 
-func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
+func (m *Manager) DeleteLocalQueue(ctx context.Context, q *kueue.LocalQueue) {
 	m.Lock()
 	defer m.Unlock()
 	key := Key(q)
@@ -314,7 +330,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, q); should {
 		metrics.ClearLocalQueueMetrics(metrics.LQRefFromLocalQueueKey(key))
 	}
 	delete(m.localQueues, key)
@@ -367,13 +383,13 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkload(ctx context.Context, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(ctx, w)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, w *kueue.Workload) error {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -386,7 +402,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, q.LocalQueueObj); should {
 		m.reportLQPendingWorkloads(q)
 	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
@@ -422,6 +438,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	added := cq.RequeueIfNotPresent(info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
+	// TODO: add object to lq implementation
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
 	}
@@ -431,13 +448,13 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
-func (m *Manager) DeleteWorkload(w *kueue.Workload) {
+func (m *Manager) DeleteWorkload(ctx context.Context, w *kueue.Workload) {
 	m.Lock()
-	m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(w))
+	m.deleteWorkloadFromQueueAndClusterQueue(ctx, w, workload.QueueKey(w))
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey string) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(ctx context.Context, w *kueue.Workload, qKey string) {
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
@@ -448,7 +465,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		cq.Delete(w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, q.LocalQueueObj); should {
 		m.reportLQPendingWorkloads(q)
 	}
 }
@@ -560,13 +577,13 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
+func (m *Manager) UpdateWorkload(ctx context.Context, oldW, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(ctx, w, workload.QueueKey(oldW))
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(ctx, w)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -584,7 +601,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	defer m.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	for {
-		workloads := m.heads()
+		workloads := m.heads(ctx)
 		log.V(3).Info("Obtained ClusterQueue heads", "count", len(workloads))
 		if len(workloads) != 0 {
 			return workloads
@@ -598,7 +615,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-func (m *Manager) heads() []workload.Info {
+func (m *Manager) heads(ctx context.Context) []workload.Info {
 	var workloads []workload.Info
 	for cqName, cq := range m.hm.ClusterQueues {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
@@ -615,7 +632,7 @@ func (m *Manager) heads() []workload.Info {
 		workloads = append(workloads, wlCopy)
 		q := m.localQueues[workload.QueueKey(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
-		if features.Enabled(features.LocalQueueMetrics) {
+		if should, _ := metrics.ShouldReportLocalMetrics(ctx, m.client, q.LocalQueueObj); should {
 			m.reportLQPendingWorkloads(q)
 		}
 	}

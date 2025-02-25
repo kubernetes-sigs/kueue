@@ -162,6 +162,14 @@ func main() {
 		kubeConfig.UserAgent = useragent.Default()
 	}
 
+	if cfg.Metrics.LocalQueueMetrics != nil {
+		metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:            cfg.Metrics.LocalQueueMetrics.Enable,
+			NamespaceSelector:  cfg.Metrics.LocalQueueMetrics.NamespaceSelector,
+			LocalQueueSelector: cfg.Metrics.LocalQueueMetrics.LocalQueueSelector,
+		})
+	}
+
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))

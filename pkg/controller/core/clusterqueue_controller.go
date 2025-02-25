@@ -307,7 +307,7 @@ func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 	defer r.notifyWatchers(cq, nil)
 
 	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(cq))
-	r.cache.DeleteClusterQueue(cq)
+	r.cache.DeleteClusterQueue(context.Background(), cq)
 	r.qManager.DeleteClusterQueue(cq)
 	r.qManager.DeleteSnapshot(cq)
 
