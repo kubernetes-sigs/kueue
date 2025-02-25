@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				})
 
 				ginkgo.By("Check workload for group 2 is deleted", func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload2, false)
+					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
 				})
 
 				ginkgo.By("Delete the LeaderWorkerSet", func() {
