@@ -76,9 +76,9 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("resourceFlavor", klog.KObj(&flavor))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling ResourceFlavor")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile ResourceFlavor")
 
 	if flavor.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful

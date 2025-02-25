@@ -140,9 +140,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling Workload")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Workload")
 
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)

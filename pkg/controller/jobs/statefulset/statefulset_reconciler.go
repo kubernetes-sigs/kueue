@@ -57,9 +57,8 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("statefulset", klog.KRef(req.Namespace, req.Name))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling StatefulSet")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile StatefulSet")
 
 	err := r.fetchAndFinalizePods(ctx, req)
 	return ctrl.Result{}, err

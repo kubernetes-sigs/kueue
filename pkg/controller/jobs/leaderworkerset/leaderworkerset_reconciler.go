@@ -22,7 +22,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,9 +79,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("leaderworkerset", klog.KObj(lws))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling LeaderWorkerSet")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile LeaderWorkerSet")
 
 	err = r.createPrebuiltWorkloadsIfNotExist(ctx, lws)
 	if err != nil {

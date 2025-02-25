@@ -67,9 +67,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling LeaderWorkerSet Pod")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
 	if utilpod.IsTerminated(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
