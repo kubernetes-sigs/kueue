@@ -364,7 +364,6 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
@@ -380,7 +379,6 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),

@@ -276,13 +276,11 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),

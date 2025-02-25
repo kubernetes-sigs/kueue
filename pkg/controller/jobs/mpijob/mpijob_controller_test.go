@@ -228,13 +228,11 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet(strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 				*utiltesting.MakePodSet(strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
@@ -257,13 +255,11 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet(strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)), 1).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 				*utiltesting.MakePodSet(strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
