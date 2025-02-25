@@ -157,8 +157,8 @@ func main() {
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
 
-	if len(cfg.Metrics.CertDir) > 0 {
-		metricsCertPath := cfg.Metrics.CertDir
+	if cfg.Metrics.UseTLS {
+		metricsCertPath := "/tmp/k8s-metrics-server/metrics-certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
