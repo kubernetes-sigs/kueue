@@ -1,3 +1,37 @@
+## v0.9.4
+
+Changes since `v0.9.3`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Add missing external types to apply configurations (#4202, @astefanutti)
+- Disable the StatefulSet webhook in the kube-system and kueue-system namespaces by default.
+  This aligns the default StatefulSet webhook configuration with the Pod and Deployment configurations. (#4161, @@dgrove-oss)
+- Fix a bug is incorrect field path in inadmissible reasons and messages when Pod resources requests do not satisfy LimitRange constraints. (#4290, @tenzen-y)
+- Fix a bug is incorrect field path in inadmissible reasons and messages when container requests exceed limits (#4246, @tenzen-y)
+- Fix a bug that allowed unsupported changes to some PodSpec fields which were resulting in the StatefulSet getting stuck on Pods with schedulingGates.
+
+  The validation blocks mutating the following Pod spec fields: `nodeSelector`, `affinity`, `tolerations`, `runtimeClassName`, `priority`, `topologySpreadConstraints`, `overhead`, `resourceClaims`, plus container (and init container) fields: `ports` and `resources.requests`.
+
+  Mutating other fields, such as container image, command or args, remains allowed and supported. (#4154, @mbobrovskyi)
+- Fix a bug that doesn't allow Kueue to delete Pods after a StatefulSet is deleted. (#4206, @mbobrovskyi)
+- Fix a bug that prevented tracking some of the controller-runtime metrics in Prometheus. (#4227, @tenzen-y)
+- Fix a bug truncating AdmissionCheck condition message at `1024` characters when creation of the associated ProvisioningRequest or PodTemplate fails.
+  Instead, use the `32*1024` characters limit as for condition messages. (#4195, @mbobrovskyi)
+- Fix the bug that prevented Kueue from updating the AdmissionCheck state in the Workload status on a ProvisioningRequest creation error. (#4118, @mbobrovskyi)
+- Helm: Fix the unspecified LeaderElection Role and Rolebinding namespaces (#4386, @eric-higgins-ai)
+- MultiKueue: Do not update the status of the Job on the management cluster while the Job is suspended. This is updated  for jobs represented by JobSet, Kubeflow Jobs and MPIJob. (#4085, @IrvingMg)
+- Propagate the top-level setting of the `kueue.x-k8s.io/priority-class` label to the PodTemplate for
+  Deployments and StatefulSets. This way the Workload Priority class is no longer ignored by the workloads. (#4036, @Abirdcfly)
+- TAS: Fix a bug that unschedulable nodes (".spec.unschedulable=true") are counted as allocatable capacities (#4209, @tenzen-y)
+- TAS: Fixed a bug that allows to create a JobSet with both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations set on the PodTemplate. (#4156, @mbobrovskyi)
+
+### Other (Cleanup or Flake)
+
+- Renamed Log key from "attemptCount" to "schedulingCycleCount". This key tracks how many scheduling cycles we have done since starting Kueue. (#4241, @tenzen-y)
+
 ## v0.9.3
 
 Changes since `v0.9.2`:
