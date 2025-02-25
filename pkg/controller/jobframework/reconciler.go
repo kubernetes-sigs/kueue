@@ -1155,8 +1155,8 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		// The workload has not been admitted yet
 		// or it was admitted in the past but it's evicted/requeued
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadNotAdmitted,
-			"Workload isn't admitted")
+			kueue.WorkloadWaitForPodsStart,
+			"Not all pods are ready or succeeded")
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
