@@ -1155,7 +1155,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		// The workload has not been admitted yet
 		// or it was admitted in the past but it's evicted/requeued
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsStart,
+			kueue.WorkloadWaitForStart,
 			"Not all pods are ready or succeeded")
 	}
 
@@ -1167,7 +1167,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 
 	if podsReady {
 		reason := kueue.WorkloadStarted
-		if podsReadyCond != nil && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery || podsReadyCond.Reason == kueue.WorkloadRecovered) {
+		if podsReadyCond != nil && (podsReadyCond.Reason == kueue.WorkloadWaitForRecovery || podsReadyCond.Reason == kueue.WorkloadRecovered) {
 			reason = kueue.WorkloadRecovered
 		}
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
@@ -1178,23 +1178,23 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 	switch {
 	case podsReadyCond == nil:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsStart,
+			kueue.WorkloadWaitForStart,
 			"Not all pods are ready or succeeded")
 
 	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsRecovery,
+			kueue.WorkloadWaitForRecovery,
 			"At least one pod has failed, waiting for recovery")
 
-	case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsRecovery,
+			kueue.WorkloadWaitForRecovery,
 			"At least one pod has failed, waiting for recovery")
 
 	default:
 		// handles both "WaitForPodsStart" and the old "PodsReady" reasons
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsStart,
+			kueue.WorkloadWaitForStart,
 			"Not all pods are ready or succeeded")
 	}
 }

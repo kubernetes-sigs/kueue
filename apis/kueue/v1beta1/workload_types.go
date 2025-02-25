@@ -579,14 +579,14 @@ const (
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 
-	// WorkloadWaitForPodsStart indicates the reason for PodsReady=False condition
+	// WorkloadWaitForStart indicates the reason for PodsReady=False condition
 	// when the pods have not been ready since admission, or the workload is not admitted.
-	WorkloadWaitForPodsStart = "WaitForPodsStart"
+	WorkloadWaitForStart = "WaitForStart"
 
-	// WorkloadWaitForPodsStart indicates the reason for the PodsReady=False condition
+	// WorkloadWaitForRecovery indicates the reason for the PodsReady=False condition
 	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
-	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
+	WorkloadWaitForRecovery = "WaitForRecovery"
 
 	// WorkloadStarted indicates that all Pods are ready and the Workload has successfully started
 	WorkloadStarted = "Started"

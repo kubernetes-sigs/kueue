@@ -509,7 +509,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -530,7 +530,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -555,7 +555,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -565,7 +565,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -586,7 +586,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -654,7 +654,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Reason:  kueue.WorkloadWaitForRecovery,
 					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
@@ -679,7 +679,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Reason:  kueue.WorkloadWaitForRecovery,
 					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
@@ -689,7 +689,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Reason:  kueue.WorkloadWaitForRecovery,
 					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
@@ -710,7 +710,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Reason:  kueue.WorkloadWaitForRecovery,
 					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
@@ -747,7 +747,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),
@@ -805,7 +805,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Obj(),

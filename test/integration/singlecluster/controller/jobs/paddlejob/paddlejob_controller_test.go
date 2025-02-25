@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 			JobStatus: kftraining.JobStatus{
@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
