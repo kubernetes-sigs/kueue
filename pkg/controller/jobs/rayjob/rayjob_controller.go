@@ -148,7 +148,8 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 			Count: 1,
 		}
 		submitterJobPodSet.Template = *getSubmitterTemplate(j)
-		// submitter ObjectMeta might be only available from getSubmitterTemplate and in that case it is not present j.Spec.SubmitterPodTemplate
+		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
 		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
 		podSets = append(podSets, submitterJobPodSet)
 	}
