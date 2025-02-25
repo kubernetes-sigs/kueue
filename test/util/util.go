@@ -860,9 +860,7 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 		readCq := &kueue.ClusterQueue{}
 		for _, cq := range cqs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(readCq.Status.Conditions, kueue.ClusterQueueActive)
-			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.ClusterQueueActive, cq.Name)
-			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", cq.Name, cond.Status, cond.Message)
+			g.Expect(readCq.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.ClusterQueueActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
@@ -872,9 +870,7 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 		readLq := &kueue.LocalQueue{}
 		for _, lq := range lqs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(readLq.Status.Conditions, kueue.LocalQueueActive)
-			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.LocalQueueActive, lq.Name)
-			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", lq.Name, cond.Status, cond.Message)
+			g.Expect(readLq.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

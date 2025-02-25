@@ -26,7 +26,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -2133,7 +2132,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)).Should(gomega.BeNil())
+				g.Expect(wl.Status.Conditions).ShouldNot(testing.HaveCondition(kueue.WorkloadDeactivationTarget))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
