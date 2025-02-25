@@ -36,6 +36,14 @@ const (
 	// the owner job.
 	JobUIDLabel = "kueue.x-k8s.io/job-uid"
 
+	// WorkloadUIDLabel is the label key in the workload resource, that holds
+	// the UID of the workload.
+	//
+	// We include the workload UID in the workload labels so that it is easy to
+	// kubectl get a workload by UID. See
+	// https://github.com/kubernetes-sigs/kueue/issues/4038 for discussion.
+	WorklodUIDLabel = "kueue.x-k8s.io/workload-uid"
+
 	// WorkloadPriorityClassLabel is the label key in the workload that holds the
 	// workloadPriorityClass name.
 	// This label is always mutable because it might be useful for the preemption.
