@@ -1166,18 +1166,10 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		"Pods are ready", podsReady)
 
 	if podsReady {
-		var reason string
-		switch {
-		case podsReadyCond == nil:
-			reason = kueue.WorkloadStarted
-
-		case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery || podsReadyCond.Reason == kueue.WorkloadRecovered:
+		reason := kueue.WorkloadStarted
+		if podsReadyCond != nil && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery || podsReadyCond.Reason == kueue.WorkloadRecovered) {
 			reason = kueue.WorkloadRecovered
-
-		default:
-			reason = kueue.WorkloadStarted
 		}
-
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
 			reason,
 			"All pods reached readiness and the workload is running")
