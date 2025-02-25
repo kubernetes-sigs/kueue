@@ -1171,7 +1171,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		case podsReadyCond == nil:
 			reason = kueue.WorkloadStarted
 
-		case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
+		case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery || podsReadyCond.Reason == kueue.WorkloadRecovered:
 			reason = kueue.WorkloadRecovered
 
 		default:
