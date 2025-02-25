@@ -57,6 +57,14 @@ var (
 	k8sWorker1Client client.Client
 	k8sWorker2Client client.Client
 	ctx              context.Context
+
+	managerCfg *rest.Config
+	worker1Cfg *rest.Config
+	worker2Cfg *rest.Config
+
+	managerRestClient *rest.RESTClient
+	worker1RestClient *rest.RESTClient
+	worker2RestClient *rest.RESTClient
 )
 
 func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -242,10 +250,13 @@ var _ = ginkgo.BeforeSuite(func() {
 	worker2ClusterName = os.Getenv("WORKER2_KIND_CLUSTER_NAME")
 	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
 
-	var managerCfg, worker1Cfg, worker2Cfg *rest.Config
 	k8sManagerClient, managerCfg = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	k8sWorker1Client, worker1Cfg = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
 	k8sWorker2Client, worker2Cfg = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+
+	managerRestClient = util.CreateRestClient(managerCfg)
+	worker1RestClient = util.CreateRestClient(worker1Cfg)
+	worker2RestClient = util.CreateRestClient(worker2Cfg)
 
 	ctx = context.Background()
 
