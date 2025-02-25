@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			for i := 0; i < 4; i++ {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(lq1.Name).
-					Image(util.E2eTestSleepImage, []string{"1ns"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					Parallelism(3).
 					Completions(3).
 					Request("cpu", "1").

@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"10ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"60s"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 

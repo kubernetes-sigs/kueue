@@ -11,6 +11,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -26,10 +27,10 @@ import (
 )
 
 const (
-	// E2eTestSleepImageOld is the image used for testing rolling update.
-	E2eTestSleepImageOld = "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b"
-	// E2eTestSleepImage is the image used for testing.
-	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+	// E2eTestAgnHostImageOld is the image used for testing rolling update.
+	E2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
+	// E2eTestAgnHostImage is the image used for testing.
+	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
@@ -58,9 +59,22 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	err = kfmpi.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	cfg.APIPath = "/api"
+	cfg.ContentConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+	cfg.ContentConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	return client, cfg
+}
+
+// CreateRestClient creates a *rest.RESTClient using the provided config.
+func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
+	restClient, err := rest.RESTClientFor(cfg)
+	gomega.ExpectWithOffset(1, err).Should(gomega.Succeed())
+	gomega.ExpectWithOffset(1, restClient).NotTo(gomega.BeNil())
+
+	return restClient
 }
 
 func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Interface {
@@ -127,4 +141,31 @@ func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+}
+
+func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int) {
+	activePods := make([]corev1.Pod, 0)
+	pods := corev1.PodList{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(namespace))).To(gomega.Succeed())
+		for _, p := range pods.Items {
+			if (len(p.Status.PodIP) != 0 && p.Status.PodIP != "0.0.0.0") && (p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending) {
+				activePods = append(activePods, p)
+			}
+		}
+		g.Expect(activePods).To(gomega.HaveLen(activePodsCount))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+
+	for _, p := range activePods {
+		cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", p.Status.PodIP, exitCode)}
+		_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
+		// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
+		// We add the custom handling to protect in situation when the target pods completes with the expected
+		// exit code but it terminates before it completes sending the response.
+		if err != nil {
+			gomega.ExpectWithOffset(1, err.Error()).To(gomega.ContainSubstring("137"))
+		} else {
+			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
+		}
+	}
 }

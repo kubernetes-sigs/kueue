@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("Should only admit a complete group", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -175,14 +175,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
 
 			// First pod runs for much longer, so that there is time to terminate it.
-			group[0].Spec.Containers[0].Args = []string{"-termination-code=1", "10m"}
+			group[0].Spec.Containers[0].Args = util.BehaviorWaitForDeletionFailOnExit
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "3").
 				MakeGroup(2)
@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"-termination-code=1", "10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "2").
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
@@ -491,7 +491,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				for _, origPod := range defaultPriorityGroup {
 					rep := origPod.DeepCopy()
 					rep.Name = "replacement-for-" + rep.Name
-					rep.Spec.Containers[0].Args = []string{"1ms"}
+					rep.Spec.Containers[0].Args = util.BehaviorExitFast
 					gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
 					replacementPods = append(replacementPods, client.ObjectKeyFromObject(rep))
 				}
