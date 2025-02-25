@@ -605,7 +605,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Finishing the jobset pods", func() {
+			ginkgo.By("Finishing the wrapped job's pods", func() {
 				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, aw.Namespace, 2, 0)
 			})
 
