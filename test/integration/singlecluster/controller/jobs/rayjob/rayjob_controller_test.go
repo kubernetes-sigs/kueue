@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
@@ -495,7 +495,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: rayv1.RayJobStatus{

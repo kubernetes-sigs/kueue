@@ -596,7 +596,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadStarted,
 					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
@@ -621,7 +621,7 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadStarted,
 					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
@@ -644,8 +644,43 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadWaitForPodsStart,
+					Reason:  kueue.WorkloadStarted,
 					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady continues to be False after a pod failed and workload is still recovering": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Failed(1).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Failed(1).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
 				}).
 				Obj(),
 			},
@@ -685,13 +720,13 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadWaitForPodsRecovery,
+					Reason:  kueue.WorkloadRecovered,
 					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
 			},
 		},
-		"PodsReady has the new Reason if there was the old one before (pre v0.11.0)": {
+		"PodsReady=False has the new Reason if there was the old one before (pre v0.11.0)": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -714,6 +749,37 @@ func TestReconciler(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadWaitForPodsStart,
 					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady=True has the new Reason if there was the old one before (pre v0.11.0)": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  "PodsReady",
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
 				}).
 				Obj(),
 			},

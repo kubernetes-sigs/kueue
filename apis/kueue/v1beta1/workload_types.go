@@ -587,6 +587,12 @@ const (
 	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
 	WorkloadWaitForPodsRecovery = "WaitForPodsRecovery"
+
+	// WorkloadStarted indicates that all Pods are ready and the Workload has successfully started
+	WorkloadStarted = "Started"
+
+	// WorkloadRecovered indicates that after at least one Pod has failed, the Workload has recovered and is running
+	WorkloadRecovered = "Recovered"
 )
 
 const (

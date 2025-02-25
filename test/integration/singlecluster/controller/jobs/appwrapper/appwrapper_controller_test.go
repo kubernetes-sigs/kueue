@@ -700,7 +700,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadWaitForPodsStart,
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -708,7 +708,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
@@ -724,7 +724,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadWaitForPodsStart,
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -732,7 +732,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
@@ -742,7 +742,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadWaitForPodsStart,
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -750,7 +750,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadWaitForPodsStart,
+				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
 			suspended: true,
