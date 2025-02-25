@@ -171,9 +171,9 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(&cqObj))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling ClusterQueue")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile ClusterQueue")
 
 	if cqObj.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful

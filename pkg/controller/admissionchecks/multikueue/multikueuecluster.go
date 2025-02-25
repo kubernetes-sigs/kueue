@@ -389,13 +389,13 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	cluster := &kueue.MultiKueueCluster{}
-	log := ctrl.LoggerFrom(ctx)
 
 	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile MultiKueueCluster")
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
