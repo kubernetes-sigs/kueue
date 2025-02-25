@@ -1,0 +1,337 @@
+# KEP-4377: TLS Support for Metrics
+
+<!--
+This is the title of your KEP. Keep it short, simple, and descriptive. A good
+title can help communicate what the KEP is and should be considered as part of
+any review.
+-->
+
+<!--
+A table of contents is helpful for quickly jumping to sections of a KEP and for
+highlighting any additional information provided beyond the standard KEP
+template.
+
+Ensure the TOC is wrapped with
+  <code>&lt;!-- toc --&rt;&lt;!-- /toc --&rt;</code>
+tags, and then generate with `hack/update-toc.sh`.
+-->
+
+<!-- toc -->
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Existing Deployments Options](#existing-deployments-options)
+  - [Future Deployment Options](#future-deployment-options)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+    - [Story 2](#story-2)
+  - [Notes](#notes)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [KubeBuilder Recommendation](#kubebuilder-recommendation)
+  - [Prometheus Service Monitor Changes](#prometheus-service-monitor-changes)
+  - [Deployment Changes](#deployment-changes)
+  - [Controller Changes](#controller-changes)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+<!-- /toc -->
+
+## Summary
+
+Kueue should allow admins to provide their own certificates for metrics endpoints.
+
+## Motivation
+
+Kueue has a few options for managing certificates.
+Kueue provides the ability to manage certificates for both webhooks and metrics.
+For webhooks Kueue provide either external certificates or we use internal certificate rotation.
+
+For metrics Kueue only allows one to use internal certificates.
+In order to have metrics exposed, one needs to turn off tls verify on the service Monitors.
+For many organizations, this can be flagged as a security vulnerability.
+
+We will elaborate on the existing deployment options.
+
+### Existing Deployments Options
+
+Kueue provides the following deployment options for webhooks and metrics.
+Metrics will be assumed to be deployed but they are also optional.
+
+Option 1:
+
+- Admin deploys Kueue with InternalCertManagement set to true.
+- This will use internal certificates for webhooks.
+- Metrics will use internal certificates.
+- ServiceMonitor will skip tls checks via InsecureSkipVerify: true.
+
+Option 2:
+
+- Admin deploys Kueue and Cert Manager (InternalCertManagement set to false).
+- This will use external certificates for webhooks.
+- Metrics will use internal certificates.
+- ServiceMonitor will skip tls checks via InsecureSkipVerify: true.
+
+### Future Deployment Options
+
+Option 3:
+
+- Admin deploys Kueue and Cert Manager (InternalCertManagement set to false).
+- Kueue will use external certificates for webhooks.
+- Kueue will use external certificates for metrics.
+- ServiceMonitor will verify the TLS certificates from a metrics secret created by external certificate solution.
+
+### Goals
+
+- Provide a way for metrics to verify tls certificates.
+
+### Non-Goals
+
+- Disable secure metrics serving.
+
+It is important to secure metrics if they are enabled.
+We will not provide a way to disable this.
+
+## Proposal
+
+We want to provide a configurational option for metrics that allows one
+to use external certificates for the prometheus endpoint.
+
+The supported options above are already supported so we want to offer an opt in approach for metrics.
+
+We will add the following field to the metrics option in the Kueue configuration API.
+
+```golang
+// ControllerMetrics defines the metrics configs.
+type ControllerMetrics struct {
+  ...
+	// UseTLS, if true, will provide tls validation for the prometheus endpoint
+	// False means that we will allow access to metrics to whoever has access to the ServiceAccount
+	// Default will be false
+	// +optional
+	UseTLS bool `json:"useTLS,omitempty"`
+}
+```
+
+We will pass this options to the controller runtime `MetricsServer` option where the validation will be done by
+the controller runtime.
+### User Stories (Optional)
+
+<!--
+Detail the things that people will be able to do if this KEP is implemented.
+Include as much detail as possible so that people can understand the "how" of
+the system. The goal here is to make this feel real for users without getting
+bogged down.
+-->
+
+#### Story 1
+
+As a cluster adminstration, I want to use Cert Manager for all certificates. I want to use external certificates for webhooks and metrics.
+I am concerned with turning off tls verification for prometheus and I want to validate the certificates.
+
+#### Story 2
+
+As a cluster adminstration, I want to use Cert Manager for webhooks but I am not yet interested in protecting my metric endpoints.
+My cluster is contained in an internal network and I am not concerned with outsiders viewing my metrics endpoints.
+To keep my support levels lower, I am fine with using internal certificates for metrics but I still want to use Cert manager for all webhooks.
+
+### Notes
+
+Kueue at the moment skips all tls checking for prometheus endpoints.
+
+```yaml
+# Prometheus Monitor Service (Metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: controller-manager-metrics-monitor
+  namespace: system
+spec:
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/name: kueue
+```
+
+### Risks and Mitigations
+
+This is more secure option for deploying Kueue but it would require an external dependency on Cert Manager or some other
+certificate management solution.
+
+## Design Details
+
+### KubeBuilder Recommendation
+
+Kubebuilder recommends that one enables some kind of external certificate solution for metrics.
+[Recommended For Production](https://book.kubebuilder.io/reference/metrics#recommended-enabling-certificates-for-production-disabled-by-default)
+
+> The default scaffold in cmd/main.go uses a controller-runtime feature to automatically generate a self-signed certificate to secure the metrics server.
+  While this is convenient for development and testing, it is not recommended for production.
+  Those certificates are used to secure the transport layer (TLS). The token authentication using authn/authz, which is enabled by default serves as the application-level credential. However, for example, when you enable the integration of your metrics with Prometheus, those certificates can be used to secure the communication.
+
+With the deprecation of Kube-RBAC-Proxy from Kueue, we are already requiring secure metrics via the use of the below code:
+
+```golang
+if secureMetrics {
+  ...
+  metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+}
+```
+
+### Prometheus Service Monitor Changes
+
+The example below shows:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: controller-manager-metrics-monitor
+  namespace: system
+spec:
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        serverName: SERVICE_NAME.SERVICE_NAMESPACE.svc
+        insecureSkipVerify: false
+        ca:
+          secret:
+            name: metrics-server-cert
+            key: ca.crt
+        cert:
+          secret:
+            name: metrics-server-cert
+            key: tls.crt
+        keySecret:
+          name: metrics-server-cert
+          key: tls.key
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/name: kueue
+```
+
+### Deployment Changes
+
+Whenever you add Certificate management, one needs to mount a volume to the deployment that references a secret that is created by
+an external service.
+
+Following the kubebuilder examples, one would add the following example to the deployment:
+
+```yaml
+# Add the volumeMount for the metrics-server certs
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    mountPath: /tmp/k8s-metrics-server/metrics-certs
+    name: metrics-certs
+    readOnly: true
+
+# Add the metrics-server certs volume configuration
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: metrics-certs
+    secret:
+      secretName: metrics-server-cert
+      optional: false
+      items:
+        - key: ca.crt
+          path: ca.crt
+        - key: tls.crt
+          path: tls.crt
+        - key: tls.key
+          path: tls.key
+```
+
+### Controller Changes
+
+To keep configurations minimal, we will require that the certificates be mounted to "/tmp/k8s-metrics-server/metrics-certs" 
+and the tls certificate and key are called `tls.crt` and `tls.key`, respectively.
+
+```golang
+	if cfg.Metrics.UseTLS {
+		metricsCertPath := "/tmp/k8s-metrics-server/metrics-certs"
+		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath)
+
+		var err error
+		metricsCertWatcher, err := certwatcher.New(
+			filepath.Join(metricsCertPath, "tls.crt"),
+			filepath.Join(metricsCertPath, "tls.key"),
+		)
+		if err != nil {
+			setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
+			os.Exit(1)
+		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
+	}
+```
+
+### Test Plan
+
+<!--
+**Note:** *Not required until targeted at a release.*
+The goal is to ensure that we don't accept enhancements with inadequate testing.
+
+All code is expected to have adequate tests (eventually with coverage
+expectations). Please adhere to the [Kubernetes testing guidelines][testing-guidelines]
+when drafting this test plan.
+
+[testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
+-->
+
+[x] I/we understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes necessary
+to implement this enhancement.
+
+##### Prerequisite testing updates
+
+<!--
+Based on reviewers feedback describe what additional tests need to be added prior
+implementing this enhancement to ensure the enhancements have also solid foundations.
+-->
+
+#### Unit Tests
+
+This will mostly impact cmd/kueue which does not have unit tests.
+
+#### Integration tests
+
+None.
+
+### Graduation Criteria
+
+I think this can go to stable as is as it is an opt-in feature.
+
+## Implementation History
+
+Draft: Feb 25 2025
+
+## Drawbacks
+
+This puts more support burden on upstream Kueue as we had a new pattern for certificates.
+
+## Alternatives
+
+None.
