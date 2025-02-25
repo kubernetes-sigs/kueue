@@ -1164,47 +1164,46 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)
+
+	if podsReady {
+		var reason string
+		switch {
+		case podsReadyCond == nil:
+			reason = kueue.WorkloadStarted
+
+		case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
+			reason = kueue.WorkloadRecovered
+
+		default:
+			reason = kueue.WorkloadStarted
+		}
+
+		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
+			reason,
+			"All pods reached readiness and the workload is running")
+	}
+
 	switch {
-	case !podsReady && podsReadyCond == nil:
+	case podsReadyCond == nil:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForPodsStart,
 			"Not all pods are ready or succeeded")
 
-	case podsReady && podsReadyCond == nil:
-		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
-			kueue.WorkloadWaitForPodsStart,
-			"All pods reached readiness and the workload is running")
-
-	case !podsReady && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady") && podsReadyCond.Status == metav1.ConditionFalse:
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsStart,
-			"Not all pods are ready or succeeded")
-
-	case podsReady && (podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady"):
-		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
-			kueue.WorkloadWaitForPodsStart,
-			"All pods reached readiness and the workload is running")
-
-	// a) The workload was running and a pod has failed
-	// b) A pod has failed and the Workload has already recovered once before
-	case !podsReady && ((podsReadyCond.Reason == kueue.WorkloadWaitForPodsStart || podsReadyCond.Reason == "PodsReady") && podsReadyCond.Status == metav1.ConditionTrue ||
-		podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery):
+	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForPodsRecovery,
 			"At least one pod has failed, waiting for recovery")
 
-	case podsReady && podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
-		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
+	case podsReadyCond.Reason == kueue.WorkloadWaitForPodsRecovery:
+		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForPodsRecovery,
-			"All pods reached readiness and the workload is running")
+			"At least one pod has failed, waiting for recovery")
 
 	default:
-		log.V(2).Info("WARNING Unexpected PodsReady condition",
-			"Current PodsReady condition", podsReadyCond,
-			"Pods are ready", podsReady,
-		)
+		// handles both "WaitForPodsStart" and the old "PodsReady" reasons
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForPodsStart, "Not all pods are ready or succeeded")
+			kueue.WorkloadWaitForPodsStart,
+			"Not all pods are ready or succeeded")
 	}
 }
 
