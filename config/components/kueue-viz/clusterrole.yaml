@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-viz-backend-read-access
+  namespace: system
+rules:
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "events", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloadpriorityclass"]
+    verbs: ["get", "list", "watch"]
