@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
+	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -261,8 +263,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", "kube-system").
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request("cpu", "1").
-					Request("memory", "2G").
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "2Gi").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
 			})
@@ -280,6 +282,69 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Expect(k8sClient.Delete(ctx, testPod)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(testing.BeNotFoundError())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should suspend the pods of a deployment created in the test namespace", func() {
+			var testDeploy *appsv1.Deployment
+			ginkgo.By("creating a deployment without a queue name", func() {
+				testDeploy = testingdeploy.MakeDeployment("test-deploy", ns.Name).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "2Gi").
+					Replicas(2).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pods of the deployment are gated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
+							{Name: "kueue.x-k8s.io/admission"},
+						}))
+						g.Expect(pod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabel: "true"}))
+						g.Expect(pod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not suspend the pods created by a deployment in the kube-system namespace", func() {
+			var testDeploy *appsv1.Deployment
+			ginkgo.By("creating a deployment without a queue name in the kube-system namespace", func() {
+				testDeploy = testingdeploy.MakeDeployment("test-deploy", "kube-system").
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "2Gi").
+					Replicas(2).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pods of the deployment are running", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(2))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that deleting the deployment removes the pods", func() {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.Delete(ctx, testDeploy)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
