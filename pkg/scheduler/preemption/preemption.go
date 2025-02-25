@@ -224,11 +224,11 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 				return
 			}
 
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", target.WorkloadInfo.ClusterQueue))
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", target.WorkloadInfo.ClusterQueue))
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
 			metrics.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
 		} else {
-			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj))
+			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 		}
 		successfullyPreempted.Add(1)
 	})
@@ -253,7 +253,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // fits.
 func minimalPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*Target
@@ -359,7 +359,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
