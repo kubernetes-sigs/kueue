@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 	})
 
-	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
+	ginkgo.It("Should not manage a job without a queue-name submitted to an unmanaged namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
