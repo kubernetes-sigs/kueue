@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
 	})
 
-	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
+	ginkgo.It("Should not manage a job without a queue-name submitted to an unmanaged namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 		job := testingjob.MakeJob(jobName, "unmanaged-ns").Suspend(false).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should manage a job without a queue-name submittted to managed namespace", func() {
+	ginkgo.It("Should manage a job without a queue-name submitted to managed namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in a")
 		job := testingjob.MakeJob(jobName, ns.Name).Suspend(false).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
