@@ -1656,9 +1656,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)
-					g.Expect(cond).ToNot(gomega.BeNil())
-					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1771,9 +1769,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)
-					g.Expect(cond).ToNot(gomega.BeNil())
-					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1907,9 +1903,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)
-					g.Expect(cond).ToNot(gomega.BeNil())
-					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -33,6 +33,12 @@ func HaveConditionStatus(condition string, status metav1.ConditionStatus) types.
 	}
 }
 
+func HaveCondition(condition string) types.GomegaMatcher {
+	return &conditionMatcher{
+		condition: condition,
+	}
+}
+
 func HaveConditionStatusTrue(condition string) types.GomegaMatcher {
 	return HaveConditionStatus(condition, metav1.ConditionTrue)
 }
