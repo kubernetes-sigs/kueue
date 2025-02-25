@@ -170,11 +170,11 @@ type ControllerMetrics struct {
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
 
-	// CertDir is the directory that contains the server key and certificate.
-	// The server key and certificate
-	// must be named tls.key and tls.crt, respectively.
+	// UseTLS, if true, will provide tls validation for the prometheus endpoint
+	// False means that we will allow access to metrics to whoever has access to the ServiceAccount
+	// Default will be false
 	// +optional
-	CertDir string `json:"certDir,omitempty"`
+	UseTLS bool `json:"useTLS,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
