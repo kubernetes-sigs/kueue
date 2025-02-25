@@ -19,6 +19,7 @@ package job
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -1028,8 +1029,16 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 					// also updated due to setting of the job status.
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadAdmitted,
+							Status:  metav1.ConditionFalse,
+							Reason:  "NoReservation",
+							Message: "The workload has no reservation",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
 			ginkgo.By("Verify the PodsReady condition is added")
@@ -1043,7 +1052,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -1055,7 +1064,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -1066,7 +1075,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -1078,8 +1087,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("One pod ready, one terminating succeeded", podsReadyTestSpec{
@@ -1093,8 +1102,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("One pod ready, one succeeded", podsReadyTestSpec{
@@ -1106,8 +1115,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("One pod succeeded, one terminating succeeded", podsReadyTestSpec{
@@ -1120,8 +1129,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("All pods terminating succeeded", podsReadyTestSpec{
@@ -1133,8 +1142,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("All pods are succeeded", podsReadyTestSpec{
@@ -1145,15 +1154,15 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("All pods are succeeded; PodsReady=False before", podsReadyTestSpec{
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 			jobStatus: batchv1.JobStatus{
@@ -1163,8 +1172,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("One ready pod, one failed; PodsReady=True before", podsReadyTestSpec{
@@ -1175,8 +1184,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Active: 1,
@@ -1185,9 +1194,9 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForRecovery,
+				Message: "At least one pod has failed, waiting for recovery",
 			},
 		}),
 		ginkgo.Entry("Job suspended without ready pods; but PodsReady=True before", podsReadyTestSpec{
@@ -1198,8 +1207,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Failed: 2,
@@ -1208,7 +1217,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -1220,8 +1229,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: batchv1.JobStatus{
 				Active: 2,
@@ -1231,7 +1240,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -2066,26 +2075,29 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 })
 
-var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady with requeuing strategy is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		backoffBaseSeconds int32
-		backoffLimitCount  *int32
-		ns                 *corev1.Namespace
-		fl                 *kueue.ResourceFlavor
-		cq                 *kueue.ClusterQueue
-		lq                 *kueue.LocalQueue
+		backoffBaseSeconds              int32
+		backoffLimitCount               *int32
+		waitForPodsReadyTimeout         *metav1.Duration
+		waitForPodsReadyRecoveryTimeout *metav1.Duration
+		ns                              *corev1.Namespace
+		fl                              *kueue.ResourceFlavor
+		cq                              *kueue.ClusterQueue
+		lq                              *kueue.LocalQueue
 	)
 
 	ginkgo.JustBeforeEach(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:         true,
 			BlockAdmission: ptr.To(true),
-			Timeout:        &metav1.Duration{Duration: util.TinyTimeout},
+			Timeout:        waitForPodsReadyTimeout,
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: ptr.To(backoffBaseSeconds),
 				BackoffLimitCount:  backoffLimitCount,
 			},
+			RecoveryTimeout: waitForPodsReadyRecoveryTimeout,
 		}
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 			false,
@@ -2115,12 +2127,13 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.When("long backoffBaseSeconds", func() {
+	ginkgo.When("long backoffBaseSeconds and tiny waitForPodsReady.timeout", func() {
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 10
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: util.TinyTimeout}
 		})
 
-		ginkgo.It("should evict workload due pods ready timeout", func() {
+		ginkgo.It("should evict workload due waitForPodsReady.timeout", func() {
 			ginkgo.By("creating job")
 			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -2141,7 +2154,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2173,10 +2186,239 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		})
 	})
 
-	ginkgo.When("short backoffBaseSeconds", func() {
+	ginkgo.When("Job is running and a pod fails without .recoveryTimeout configured", func() {
+		ginkgo.BeforeEach(func() {
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyRecoveryTimeout = nil
+		})
+
+		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", func() {
+			ginkgo.By("creating job")
+			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			jobKey := client.ObjectKeyFromObject(job)
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+
+			ginkgo.By("setting quota reservation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("setting all job's pods to be ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 1
+				job.Status.Ready = ptr.To[int32](1)
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("failing one pod")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 0
+				job.Status.Ready = ptr.To[int32](0)
+				job.Status.Failed = 1
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the workload is still admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("A tiny recoveryTimeout is configured and a pod fails", func() {
+		ginkgo.BeforeEach(func() {
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.TinyTimeout}
+		})
+
+		ginkgo.It("should evict workload due waitForPodsReady.recoveryTimeout", func() {
+			ginkgo.By("creating job")
+			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			jobKey := client.ObjectKeyFromObject(job)
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+
+			ginkgo.By("setting quota reservation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("setting all job's pods to be ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 1
+				job.Status.Ready = ptr.To[int32](1)
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("failing one pod")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 0
+				job.Status.Ready = ptr.To[int32](0)
+				job.Status.Failed = 1
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the workload is evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadWaitForStart,
+						Message: "Not all pods are ready or succeeded",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("A long recoveryTimeout is configured and a pod fails", func() {
+		ginkgo.BeforeEach(func() {
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.LongTimeout}
+		})
+
+		ginkgo.It("should wait for .recoveryTimeout for a workload to recover", func() {
+			ginkgo.By("creating job")
+			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			jobKey := client.ObjectKeyFromObject(job)
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+
+			ginkgo.By("setting quota reservation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("setting all job's pods to be ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 1
+				job.Status.Ready = ptr.To[int32](1)
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("failing one pod")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 0
+				job.Status.Ready = ptr.To[int32](0)
+				job.Status.Failed = 1
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring workload has PodsReady=False condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadWaitForRecovery,
+						Message: "At least one pod has failed, waiting for recovery",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("recovering the pod")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				job.Status.Active = 1
+				job.Status.Ready = ptr.To[int32](1)
+				job.Status.Failed = 1
+				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadRecovered,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the workload is still admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("short backoffBaseSeconds and tiny .timeout", func() {
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 1
 			backoffLimitCount = ptr.To[int32](1)
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: util.TinyTimeout}
 		})
 
 		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
@@ -2209,7 +2451,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2256,7 +2498,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{

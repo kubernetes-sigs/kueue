@@ -2027,7 +2027,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
@@ -2054,7 +2054,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2104,7 +2104,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadPodsReady,
+						Reason:  kueue.WorkloadWaitForStart,
 						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
