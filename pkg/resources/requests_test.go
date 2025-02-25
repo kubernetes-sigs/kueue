@@ -80,6 +80,34 @@ func TestCountIn(t *testing.T) {
 			},
 			wantResult: 2,
 		},
+		"requests have Pods count and it is less than capacity": {
+			requests: Requests{
+				corev1.ResourcePods: 1,
+			},
+			capacity: Requests{
+				corev1.ResourcePods: 5,
+			},
+			wantResult: 4,
+		},
+		"requests have Pods count and it is more than capacity": {
+			requests: Requests{
+				corev1.ResourcePods: 2,
+			},
+			capacity: Requests{
+				corev1.ResourcePods: 1,
+			},
+			wantResult: 0,
+		},
+		"requests have Pods count and capacity doesn't have Pods count": {
+			requests: Requests{
+				corev1.ResourceCPU:  4,
+				corev1.ResourcePods: 4,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU: 8,
+			},
+			wantResult: 2,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
