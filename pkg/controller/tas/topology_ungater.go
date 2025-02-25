@@ -147,7 +147,7 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", req.NamespacedName.String())
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology Ungater")
 
 	wl := &kueue.Workload{}

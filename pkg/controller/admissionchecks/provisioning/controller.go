@@ -115,11 +115,15 @@ func NewController(client client.Client, record record.EventRecorder) (*Controll
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	wl := &kueue.Workload{}
-	log := ctrl.LoggerFrom(ctx)
+
 	err := c.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Workload")
+
 	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
 		return reconcile.Result{}, nil
 	}

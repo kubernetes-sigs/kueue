@@ -134,7 +134,7 @@ func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.Typ
 }
 
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("name", req.NamespacedName.Name)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile TAS Resource Flavor")
 
 	flv := &kueue.ResourceFlavor{}

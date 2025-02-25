@@ -62,12 +62,12 @@ type ACReconciler struct {
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
 
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
 	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueue.MultiKueueControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile AdmissionCheck")
 
 	newCondition := metav1.Condition{

@@ -91,8 +91,9 @@ func (r *CohortReconciler) Generic(e event.GenericEvent) bool {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch;create;update;patch;delete
 
 func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("cohort", req.Name)
-	log.V(2).Info("Reconciling Cohort")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Cohort")
+
 	var cohort kueue.Cohort
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
