@@ -68,7 +68,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile MultiKueue AdmissionCheck")
+	log.V(2).Info("Reconcile AdmissionCheck")
 
 	newCondition := metav1.Condition{
 		Type:               kueue.AdmissionCheckActive,

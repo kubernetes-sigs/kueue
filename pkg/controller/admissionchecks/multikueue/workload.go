@@ -155,7 +155,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile MultiKueue Workload")
+	log.V(2).Info("Reconcile Workload")
 
 	wl := &kueue.Workload{}
 	isDeleted := false

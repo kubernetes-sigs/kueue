@@ -122,7 +122,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Provisioning Workload")
+	log.V(2).Info("Reconcile Workload")
 
 	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
 		return reconcile.Result{}, nil
