@@ -363,7 +363,7 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 
 type PodSetWrapper struct{ kueue.PodSet }
 
-func MakePodSet(name string, count int) *PodSetWrapper {
+func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {
 	return &PodSetWrapper{
 		kueue.PodSet{
 			Name:  name,
@@ -532,7 +532,7 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
+func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
 	wrap := &AdmissionWrapper{kueue.Admission{
 		ClusterQueue: kueue.ClusterQueueReference(cq),
 	}}

@@ -62,7 +62,7 @@ func getProvisioningRequestNamePrefix(workloadName, checkName string) string {
 	return limitObjectName(fullName)
 }
 
-func getProvisioningRequestPodTemplateName(prName, podsetName string) string {
+func getProvisioningRequestPodTemplateName(prName string, podsetName kueue.PodSetReference) string {
 	fullName := fmt.Sprintf("%s-%s-%s", podTemplatesPrefix, prName, podsetName)
 	return limitObjectName(fullName)
 }

@@ -17,8 +17,6 @@ limitations under the License.
 package xgboostjob
 
 import (
-	"strings"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -411,7 +409,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
+						Name:  kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultRackTopologyLevel),
@@ -419,7 +417,7 @@ var _ = ginkgo.Describe("XGBoostJob controller when TopologyAwareScheduling enab
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),

@@ -1564,7 +1564,7 @@ workloads assigned to this LocalQueue.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the PodSet name.</p>
@@ -1630,7 +1630,7 @@ enabled.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>Name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
@@ -1717,6 +1717,28 @@ count: 2</li>
 </tbody>
 </table>
 
+## `PodSetReference`     {#kueue-x-k8s-io-v1beta1-PodSetReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PodSet](#kueue-x-k8s-io-v1beta1-PodSet)
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
+
+- [PodSetRequest](#kueue-x-k8s-io-v1beta1-PodSetRequest)
+
+- [PodSetUpdate](#kueue-x-k8s-io-v1beta1-PodSetUpdate)
+
+- [ReclaimablePod](#kueue-x-k8s-io-v1beta1-ReclaimablePod)
+
+
+<p>PodSetReference is the name of a PodSet.</p>
+
+
+
+
 ## `PodSetRequest`     {#kueue-x-k8s-io-v1beta1-PodSetRequest}
     
 
@@ -1732,7 +1754,7 @@ count: 2</li>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
@@ -1837,7 +1859,7 @@ result in failure during workload admission.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>Name of the PodSet to modify. Should match to one of the Workload's PodSets.</p>
@@ -2020,7 +2042,7 @@ re-queuing an evicted workload.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the PodSet name.</p>

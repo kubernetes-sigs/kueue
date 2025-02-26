@@ -25,7 +25,7 @@ import (
 // PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name               *string                                                  `json:"name,omitempty"`
+	Name               *kueuev1beta1.PodSetReference                            `json:"name,omitempty"`
 	Flavors            map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
 	ResourceUsage      *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
 	Count              *int32                                                   `json:"count,omitempty"`
@@ -41,7 +41,7 @@ func PodSetAssignment() *PodSetAssignmentApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *PodSetAssignmentApplyConfiguration) WithName(value string) *PodSetAssignmentApplyConfiguration {
+func (b *PodSetAssignmentApplyConfiguration) WithName(value kueuev1beta1.PodSetReference) *PodSetAssignmentApplyConfiguration {
 	b.Name = &value
 	return b
 }

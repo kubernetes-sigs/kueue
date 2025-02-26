@@ -18,7 +18,6 @@ package mpijob
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -1028,7 +1027,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
@@ -1036,7 +1035,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),
