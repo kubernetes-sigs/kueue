@@ -18,7 +18,6 @@ package preemption
 
 import (
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -46,7 +45,7 @@ func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQ
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
-		frsNeedPreemption: sets.New(fr),
+		frsNeedPreemption: NewFlavorResourceSet(fr),
 		requests:          resources.FlavorResourceQuantities{fr: quantity},
 	}) {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
