@@ -127,18 +127,18 @@ We will add the following field to the metrics option in the Kueue configuration
 // ControllerMetrics defines the metrics configs.
 type ControllerMetrics struct {
   ...
-	// UseTLS, if true, will provide tls validation for the prometheus endpoint
+	// UseExternalCerts, if true, will require one to provide certificates for the prometheus endpoint
 	// False means that we will allow access to metrics to whoever has access to the ServiceAccount
 	// Default will be false
 	// +optional
-	UseTLS bool `json:"useTLS,omitempty"`
+	UseExternalCerts bool `json:"useExternalCerts,omitempty"`
 }
 ```
 
 We will pass this options to the controller runtime `MetricsServer` option where the validation will be done by
 the controller runtime.
 
-We will validate that when internal certificates are specified (via cfg.InternalCertManagement) one cannot set UseTLS to true.
+We will validate that when internal certificates are specified (via cfg.InternalCertManagement) one cannot set UseExternalCerts to true.
 This is unsupported and will not be allowed.
 
 ### User Stories (Optional)
@@ -192,6 +192,28 @@ This is more secure option for deploying Kueue but it would require an external 
 certificate management solution.
 
 ## Design Details
+
+### Deployment changes
+
+#### Kustomize
+
+For kustomize based installation, we will add the following optional patches:
+
+- Certificate for metrics
+- Patch to deployment to mount volumes to the deployment
+- ServiceMonitor patches to enable tls checks
+
+These will be enabled similar to how we enable Cert Manager and Prometheus (uncomment those sections).
+
+#### Helm
+
+We will also provide the ability for our Helm charts to use this feature.
+
+The helm chart needs to provide the following abilities:
+
+- Ability to add volumes/volumeMounts to the deployment.
+- Ability to inject custom TlsConfigs for the ServiceMonitor.
+- Ability to provision a certificate for metrics using Cert Manager.
 
 ### KubeBuilder Recommendation
 
@@ -282,12 +304,12 @@ Following the kubebuilder examples, one would add the following example to the d
 
 ### Controller Changes
 
-To keep configurations minimal, we will require that the certificates be mounted to "/etc/k8s-metrics-server/metrics-certs" 
+To keep configurations minimal, we will require that the certificates be mounted to "/etc/kueue/metrics-certs" 
 and the tls certificate and key are called `tls.crt` and `tls.key`, respectively.
 
 ```golang
-	if cfg.Metrics.UseTLS {
-		metricsCertPath := "/etc/k8s-metrics-server/metrics-certs"
+	if cfg.Metrics.UseExternalCerts {
+		metricsCertPath := "/etc/kueue/metrics-certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
