@@ -1,4 +1,4 @@
-# The following manifests contain a self-signed issuer CR and a metrics certificate CR.
+# The following manifests contain a metrics certificate CR.
 # More document can be found at https://docs.cert-manager.io
 apiVersion: cert-manager.io/v1
 kind: Certificate
