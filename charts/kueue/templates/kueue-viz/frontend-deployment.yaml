@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest
+          image: '{{ .Values.kueueViz.frontend.image | default "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest" }}'
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
