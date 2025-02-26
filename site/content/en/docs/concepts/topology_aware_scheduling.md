@@ -18,7 +18,7 @@ We observe that the data centers have a hierarchical structure of their
 organizational units, like racks and blocks, where there are multiple nodes
 within a rack, and there are multiple racks within a block. Pods running within
 the same organizational unit have better network bandwidth than Pods on
-different units. We say that nods placed in different racks are more distant
+different units. We say that nodes placed in different racks are more distant
 than nodes placed within the same rack. Similarly, nodes placed in different
 blocks are more distant than two nodes within the same block.
 
