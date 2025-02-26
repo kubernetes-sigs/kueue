@@ -2128,7 +2128,9 @@ controller that integrates with the Workload object.</p>
    <p>nodeTaints are taints that the nodes associated with this ResourceFlavor
 have.
 Workloads' podsets must have tolerations for these nodeTaints in order to
-get assigned this ResourceFlavor during admission.</p>
+get assigned this ResourceFlavor during admission.
+Only the 'NoSchedule' and 'NoExecute' taint effects are evaluated,
+while 'PreferNoSchedule' is ignored.</p>
 <p>An example of a nodeTaint is
 cloud.provider.com/preemptible=&quot;true&quot;:NoSchedule</p>
 <p>nodeTaints can be up to 8 elements.</p>
