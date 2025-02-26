@@ -21,6 +21,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Motivation](#motivation)
   - [Existing Deployments Options](#existing-deployments-options)
   - [Future Deployment Options](#future-deployment-options)
+  - [Unsupported Deployment Options](#unsupported-deployment-options)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
@@ -258,7 +259,7 @@ Following the kubebuilder examples, one would add the following example to the d
 - op: add
   path: /spec/template/spec/containers/0/volumeMounts/-
   value:
-    mountPath: /tmp/k8s-metrics-server/metrics-certs
+    mountPath: /etc/k8s-metrics-server/metrics-certs
     name: metrics-certs
     readOnly: true
 
@@ -281,12 +282,12 @@ Following the kubebuilder examples, one would add the following example to the d
 
 ### Controller Changes
 
-To keep configurations minimal, we will require that the certificates be mounted to "/tmp/k8s-metrics-server/metrics-certs" 
+To keep configurations minimal, we will require that the certificates be mounted to "/etc/k8s-metrics-server/metrics-certs" 
 and the tls certificate and key are called `tls.crt` and `tls.key`, respectively.
 
 ```golang
 	if cfg.Metrics.UseTLS {
-		metricsCertPath := "/tmp/k8s-metrics-server/metrics-certs"
+		metricsCertPath := "/etc/k8s-metrics-server/metrics-certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
