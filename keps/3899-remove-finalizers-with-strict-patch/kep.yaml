@@ -1,0 +1,29 @@
+title: Remove finalizers using strict patch
+kep-number: 3899
+authors:
+  - "@mykysha"
+status: implementable
+creation-date: 2025-02-26
+reviewers:
+  - "@mimowo"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: beta
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.11"
+
+milestone:
+    beta: "v0.11"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: RemoveFinalizersWithStrictPatch
+disable-supported: true
