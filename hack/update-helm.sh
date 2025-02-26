@@ -428,6 +428,23 @@ done
 
 # Add kueue-viz templating on kueue-viz directory
 for output_file in "${DEST_KUEUE_VIZ_DIR}"/*.yaml; do
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "Deployment")')" ]; then
+    # Add Helm parameters for backend and frontend images with default values
+    deployment_name="$($YQ '.metadata.name' "$output_file")"
+if [ "$deployment_name" = "kueue-viz-backend" ]; then
+      original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
+      $YQ -N -i \
+        ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.backend.image | default \\\"$original_image\\\" }}\"" \
+        "$output_file"
+    fi
+    if [ "$deployment_name" = "kueue-viz-frontend" ]; then
+      original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
+      $YQ -N -i \
+        ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.frontend.image | default \\\"$original_image\\\" }}\"" \
+        "$output_file"
+    fi
+  fi
+
   $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
 
   if [ "$(< "$output_file" $YQ '.kind | select(. == "Ingress")')" ]; then
