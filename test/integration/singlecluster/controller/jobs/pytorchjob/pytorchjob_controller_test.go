@@ -17,8 +17,6 @@ limitations under the License.
 package pytorchjob
 
 import (
-	"strings"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -721,7 +719,7 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultRackTopologyLevel),
@@ -729,7 +727,7 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),

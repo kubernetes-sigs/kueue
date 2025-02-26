@@ -17,7 +17,6 @@ limitations under the License.
 package xgboostjob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -250,10 +249,10 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -280,13 +279,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").

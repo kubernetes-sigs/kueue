@@ -299,7 +299,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			}
 
 			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
-				return info.Name == roleHash
+				return string(info.Name) == roleHash
 			})
 			if podSetIndex == -1 {
 				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
@@ -666,7 +666,7 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
 		podSets := constructPodSets(&podInGroup)
-		podSets[0].Name = roleHash
+		podSets[0].Name = kueue.NewPodSetReference(roleHash)
 		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
 	}
@@ -689,7 +689,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 		podRoleFound := false
 		for psi := range resultPodSets {
-			if resultPodSets[psi].Name == roleHash {
+			if string(resultPodSets[psi].Name) == roleHash {
 				podRoleFound = true
 				resultPodSets[psi].Count++
 				break
@@ -698,7 +698,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 		if !podRoleFound {
 			podSet := constructPodSet(&podInGroup)
-			podSet.Name = roleHash
+			podSet.Name = kueue.NewPodSetReference(roleHash)
 
 			resultPodSets = append(resultPodSets, podSet)
 		}
@@ -1113,7 +1113,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 				roleHashErrors = append(roleHashErrors, err)
 				return false
 			}
-			return hash == ps.Name
+			return hash == string(ps.Name)
 		}
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
@@ -1229,14 +1229,14 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 			roleFound := false
 			for i := range result {
-				if result[i].Name == roleHash {
+				if string(result[i].Name) == roleHash {
 					result[i].Count++
 					roleFound = true
 				}
 			}
 
 			if !roleFound {
-				result = append(result, kueue.ReclaimablePod{Name: roleHash, Count: 1})
+				result = append(result, kueue.ReclaimablePod{Name: kueue.NewPodSetReference(roleHash), Count: 1})
 			}
 		}
 	}

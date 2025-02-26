@@ -42,7 +42,7 @@ var (
 )
 
 type PodSetInfo struct {
-	Name            string
+	Name            kueue.PodSetReference
 	Count           int32
 	Annotations     map[string]string
 	Labels          map[string]string

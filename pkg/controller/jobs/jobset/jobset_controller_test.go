@@ -216,10 +216,10 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -242,7 +242,7 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 						RequiredTopologyRequest("cloud.com/block").
@@ -250,7 +250,7 @@ func TestPodSets(t *testing.T) {
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj(),
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -273,10 +273,10 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[0].Name, 2).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
-					*utiltesting.MakePodSet(jobSet.Spec.ReplicatedJobs[1].Name, 6).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
