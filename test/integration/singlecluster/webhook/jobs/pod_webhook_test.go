@@ -103,11 +103,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				)
 
 				gomega.Expect(createdPod.Labels).To(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod should have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer set")
 			})
 
@@ -127,11 +127,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})
@@ -161,11 +161,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})
@@ -235,11 +235,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				)
 
 				gomega.Expect(createdPod.Labels).To(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod should have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer set")
 			})
 
@@ -259,11 +259,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})
