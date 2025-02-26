@@ -533,6 +533,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		}
 		var err error
 		if leaf.state, err = requests.CountIn(remainingCapacity); err != nil {
+			s.log.Info("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "requests", requests)
 			return err
 		}
 	}
