@@ -88,6 +88,18 @@ Option 3:
 - Kueue will use external certificates for metrics.
 - ServiceMonitor will verify the TLS certificates from a metrics secret created by external certificate solution.
 
+### Unsupported Deployment Options
+
+Not supported Option:
+
+- Admin deploys Kueue and Cert Manager
+- Sets InternalCertManagement to true
+- Cert manager is used to provision certificates for metrics
+- Internal cert rotation is used for webhook.
+- ServiceMonitor will verify the TLS certificates from a metrics secret.
+
+To block this option we will validate that one cannot fall into this scenario.
+
 ### Goals
 
 - Provide a way for metrics to verify tls certificates.
@@ -98,6 +110,8 @@ Option 3:
 
 It is important to secure metrics if they are enabled.
 We will not provide a way to disable this.
+
+- Allow for external certificates for metrics but internal certificates for webhooks.
 
 ## Proposal
 
@@ -122,6 +136,10 @@ type ControllerMetrics struct {
 
 We will pass this options to the controller runtime `MetricsServer` option where the validation will be done by
 the controller runtime.
+
+We will validate that when internal certificates are specified (via cfg.InternalCertManagement) one cannot set UseTLS to true.
+This is unsupported and will not be allowed.
+
 ### User Stories (Optional)
 
 <!--
