@@ -110,7 +110,7 @@ type ClusterQueueSpec struct {
 	//   and there are admitted Workloads in the ClusterQueue with lower priority.
 	//
 	// The preemption algorithm tries to find a minimal set of Workloads to
-	// preempt to accomomdate the pending Workload, preempting Workloads with
+	// preempt to accommodate the pending Workload, preempting Workloads with
 	// lower priority first.
 	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
