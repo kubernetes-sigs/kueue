@@ -49,7 +49,7 @@ function startup {
 function kind_load {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
-        docker pull "$E2E_TEST_IMAGE"
+        docker pull "$E2E_TEST_AGNHOST_IMAGE"
 	cluster_kind_load "$KIND_CLUSTER_NAME"
     fi
     docker pull "registry.k8s.io/jobset/jobset:$JOBSET_VERSION"

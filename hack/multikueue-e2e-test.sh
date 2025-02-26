@@ -71,7 +71,7 @@ function startup {
 function kind_load {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
-        docker pull "$E2E_TEST_IMAGE"
+        docker pull "$E2E_TEST_AGNHOST_IMAGE"
         cluster_kind_load "$MANAGER_KIND_CLUSTER_NAME"
         cluster_kind_load "$WORKER1_KIND_CLUSTER_NAME"
         cluster_kind_load "$WORKER2_KIND_CLUSTER_NAME"

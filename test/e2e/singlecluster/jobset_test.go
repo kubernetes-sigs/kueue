@@ -83,12 +83,11 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestSleepImage,
-						// Give it the time to be observed Active in the live status update step.
-						Args: []string{"1ms"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -165,11 +164,11 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
-						Image:       util.E2eTestSleepImage,
-						Args:        []string{"60s"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
