@@ -1967,7 +1967,7 @@ func TestAssignFlavors(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 			if tc.clusterQueueUsage != nil {
-				clusterQueue.AddUsage(tc.clusterQueueUsage)
+				clusterQueue.AddUsage(workload.Usage{Quota: tc.clusterQueueUsage})
 			}
 
 			if tc.secondaryClusterQueue != nil {
@@ -1975,7 +1975,7 @@ func TestAssignFlavors(t *testing.T) {
 				if secondaryClusterQueue == nil {
 					t.Fatalf("Failed to create secondary CQ snapshot")
 				}
-				secondaryClusterQueue.AddUsage(tc.secondaryClusterQueueUsage)
+				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
 			}
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{})
@@ -2125,10 +2125,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			otherClusterQueue := snapshot.ClusterQueues["other-clusterqueue"]
-			otherClusterQueue.AddUsage(tc.otherClusterQueueUsage)
+			otherClusterQueue.AddUsage(workload.Usage{Quota: tc.otherClusterQueueUsage})
 
 			testClusterQueue := snapshot.ClusterQueues["test-clusterqueue"]
-			testClusterQueue.AddUsage(tc.testClusterQueueUsage)
+			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
 			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})

@@ -44,8 +44,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.removeUsage(wl.FlavorResourceUsage())
-	cq.updateTASUsage(wl, subtract)
+	cq.removeUsage(wl.Usage())
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -53,8 +52,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.FlavorResourceUsage())
-	cq.updateTASUsage(wl, add)
+	cq.AddUsage(wl.Usage())
 }
 
 func (s *Snapshot) Log(log logr.Logger) {

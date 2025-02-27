@@ -174,16 +174,24 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+func (p *PodSetResources) SinglePodRequests() resources.Requests {
+	return p.Requests.ScaledDown(int64(p.Count))
+}
+
 type TopologyRequest struct {
 	Levels         []string
 	DomainRequests []TopologyDomainRequests
 }
 
 type TopologyDomainRequests struct {
-	Values   []string
-	Requests resources.Requests
+	Values            []string
+	SinglePodRequests resources.Requests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
+}
+
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
+	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -230,6 +238,15 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
 }
 
+// Usage returns the total resource usage for the workload, including regular
+// quota and TAS usage.
+func (i *Info) Usage() Usage {
+	return Usage{
+		Quota: i.FlavorResourceUsage(),
+		TAS:   i.TASUsage(),
+	}
+}
+
 // FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
 func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
@@ -265,15 +282,18 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
-	return slices.ContainsFunc(i.TotalRequests,
-		func(ps PodSetResources) bool {
+	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
 			return ps.TopologyRequest != nil
 		})
 }
 
 // TASUsage returns topology usage requested by the Workload
-func (i *Info) TASUsage() map[kueue.ResourceFlavorReference][]TopologyDomainRequests {
-	result := make(map[kueue.ResourceFlavorReference][]TopologyDomainRequests, 0)
+func (i *Info) TASUsage() TASUsage {
+	if !features.Enabled(features.TopologyAwareScheduling) || !i.IsUsingTAS() {
+		return nil
+	}
+	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
 		if ps.TopologyRequest != nil {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -410,13 +430,10 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				Levels: psa.TopologyAssignment.Levels,
 			}
 			for _, domain := range psa.TopologyAssignment.Domains {
-				domainRequests := setRes.Requests.Clone()
-				domainRequests.Divide(int64(setRes.Count))
-				domainRequests.Mul(int64(domain.Count))
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
-					Values:   domain.Values,
-					Requests: domainRequests,
-					Count:    domain.Count,
+					Values:            domain.Values,
+					SinglePodRequests: setRes.SinglePodRequests(),
+					Count:             domain.Count,
 				})
 			}
 		}

@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAvailable(t *testing.T) {
@@ -401,7 +402,7 @@ func TestAvailable(t *testing.T) {
 			// add usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.ClusterQueues[cqName].AddUsage(usage)
+					snapshot.ClusterQueues[cqName].AddUsage(workload.Usage{Quota: usage})
 				}
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
@@ -425,7 +426,7 @@ func TestAvailable(t *testing.T) {
 			// remove usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.ClusterQueues[cqName].removeUsage(usage)
+					snapshot.ClusterQueues[cqName].removeUsage(workload.Usage{Quota: usage})
 				}
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))

@@ -68,34 +68,44 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) {
-	for fr, q := range frq {
+func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
+	for fr, q := range usage.Quota {
 		addUsage(c, fr, q)
 	}
+	c.updateTASUsage(usage.TAS, add)
 }
 
-func (c *ClusterQueueSnapshot) removeUsage(frq resources.FlavorResourceQuantities) {
-	for fr, q := range frq {
+func (c *ClusterQueueSnapshot) removeUsage(usage workload.Usage) {
+	for fr, q := range usage.Quota {
 		removeUsage(c, fr, q)
 	}
+	c.updateTASUsage(usage.TAS, subtract)
 }
 
-func (c *ClusterQueueSnapshot) updateTASUsage(wi *workload.Info, op usageOp) {
-	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
-		for tasFlavor, tasUsage := range wi.TASUsage() {
+func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageOp) {
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for tasFlavor, tasUsage := range usage {
 			if tasFlvCache := c.TASFlavors[tasFlavor]; tasFlvCache != nil {
 				for _, tr := range tasUsage {
 					domainID := utiltas.DomainID(tr.Values)
-					tasFlvCache.updateTASUsage(domainID, tr.Requests, op)
+					tasFlvCache.updateTASUsage(domainID, tr.TotalRequests(), op)
 				}
 			}
 		}
 	}
 }
 
-func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantities) bool {
-	for fr, q := range frq {
+func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
+	for fr, q := range usage.Quota {
 		if c.Available(fr) < q {
+			return false
+		}
+	}
+	for tasFlavor, flvUsage := range usage.TAS {
+		// We assume the `tasFlavor` is already in the snapshot as this was
+		// already checked earlier during flavor assignment, and the set of
+		// flavors is immutable in snapshot.
+		if !c.TASFlavors[tasFlavor].Fits(flvUsage) {
 			return false
 		}
 	}

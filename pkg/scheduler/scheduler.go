@@ -330,10 +330,17 @@ type entry struct {
 	preemptionTargets     []*preemption.Target
 }
 
-// netUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
+func (e *entry) netUsage() workload.Usage {
+	return workload.Usage{
+		Quota: e.netQuotaUsage(),
+		TAS:   e.tasUsage(),
+	}
+}
+
+// netQuotaUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
 // When a workload is preempting, it subtracts the preempted resources from the resources
 // required, as the remaining quota is all we need from the CQ/Cohort.
-func (e *entry) netUsage() resources.FlavorResourceQuantities {
+func (e *entry) netQuotaUsage() resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		return e.assignment.Usage
 	}
@@ -348,6 +355,31 @@ func (e *entry) netUsage() resources.FlavorResourceQuantities {
 		}
 	}
 	return usage
+}
+
+func (e *entry) tasUsage() workload.TASUsage {
+	if !features.Enabled(features.TopologyAwareScheduling) || !e.IsUsingTAS() {
+		return nil
+	}
+	result := make(workload.TASUsage)
+	for _, psa := range e.assignment.PodSets {
+		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
+			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			for _, flv := range psa.Flavors {
+				if _, ok := result[flv.Name]; !ok {
+					result[flv.Name] = make(workload.TASFlavorUsage, 0)
+				}
+				for _, domain := range psa.TopologyAssignment.Domains {
+					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
+						Values:            domain.Values,
+						SinglePodRequests: singlePodRequests.Clone(),
+						Count:             domain.Count,
+					})
+				}
+			}
+		}
+	}
+	return result
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -392,7 +424,14 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
+	return workload.Usage{
+		Quota: quotaResourcesToReserve(e, cq),
+		TAS:   e.TASUsage(),
+	}
+}
+
+func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
