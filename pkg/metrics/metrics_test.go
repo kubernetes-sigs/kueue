@@ -173,3 +173,18 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
+
+func TestReportExternalFrameworkMetricsEnabled(t *testing.T) {
+	ReportExternalFrameworksSupported([]string{"test"})
+	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 1, "workload", "test")
+}
+
+func TestReportExternalFrameworkMetricsDisabled(t *testing.T) {
+	ReportExternalFrameworksSupported([]string{})
+	expectFilteredMetricsCount(t, ExternalFrameworksWorkloadCounter, 0)
+}
+
+func TestReportIntegrationsFrameworksSupported(t *testing.T) {
+	ReportIntegrationsFrameworksSupported([]string{"batch/job"})
+	expectFilteredMetricsCount(t, WorkloadIntegrationsCounter, 1, "workload", "batch/job")
+}
