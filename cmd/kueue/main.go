@@ -349,6 +349,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
+
+	// Set metrics for workloads enablement
+	metrics.ReportExternalFrameworksSupported(cfg.Integrations.ExternalFrameworks)
+	metrics.ReportIntegrationsFrameworksSupported(cfg.Integrations.Frameworks)
 }
 
 // setupProbeEndpoints registers the health endpoints
