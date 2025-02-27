@@ -198,8 +198,8 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	}
 
 	if psr.Count != 0 && psr.Count != newCount {
-		scaleDown(ret.Requests, int64(ret.Count))
-		scaleUp(ret.Requests, int64(newCount))
+		ret.Requests.Divide(int64(ret.Count))
+		ret.Requests.Mul(int64(newCount))
 		ret.Count = newCount
 	}
 	return ret
@@ -385,7 +385,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		}
 		setRes.Requests = resources.NewRequests(effectiveRequests)
-		scaleUp(setRes.Requests, int64(count))
+		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
 	return res
@@ -411,8 +411,8 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 			for _, domain := range psa.TopologyAssignment.Domains {
 				domainRequests := setRes.Requests.Clone()
-				scaleDown(domainRequests, int64(setRes.Count))
-				scaleUp(domainRequests, int64(domain.Count))
+				domainRequests.Divide(int64(setRes.Count))
+				domainRequests.Mul(int64(domain.Count))
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
 					Values:   domain.Values,
 					Requests: domainRequests,
@@ -424,8 +424,8 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		// If countAfterReclaim is lower then the admission count indicates that
 		// additional pods are marked as reclaimable, and the consumption should be scaled down.
 		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
-			scaleDown(setRes.Requests, int64(setRes.Count))
-			scaleUp(setRes.Requests, int64(countAfterReclaim))
+			setRes.Requests.Divide(int64(setRes.Count))
+			setRes.Requests.Mul(int64(countAfterReclaim))
 			setRes.Count = countAfterReclaim
 		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
@@ -433,18 +433,6 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		res = append(res, setRes)
 	}
 	return res
-}
-
-func scaleUp(r resources.Requests, f int64) {
-	for name := range r {
-		r[name] *= f
-	}
-}
-
-func scaleDown(r resources.Requests, f int64) {
-	for name := range r {
-		r[name] /= f
-	}
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
