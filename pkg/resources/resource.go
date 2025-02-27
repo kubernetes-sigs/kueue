@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"encoding/json"
+
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -27,4 +29,20 @@ type FlavorResource struct {
 	Resource corev1.ResourceName
 }
 
+func (fr FlavorResource) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(fr.Flavor) + " - " + string(fr.Resource))
+}
+
 type FlavorResourceQuantities map[FlavorResource]int64
+
+func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
+	temp := make(map[string]int64)
+	for flavourResource, num := range q {
+		keyJSON, err := json.Marshal(flavourResource)
+		if err != nil {
+			return nil, err
+		}
+		temp[string(keyJSON)] = num
+	}
+	return json.Marshal(temp)
+}
