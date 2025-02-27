@@ -19,8 +19,8 @@ package hierarchy
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
 // between them.
 type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
-	Cohorts       map[string]C
-	ClusterQueues map[string]CQ
+	cohorts       map[string]C
+	clusterQueues map[string]CQ
 	cohortFactory func(string) C
 	CycleChecker  CycleChecker
 }
@@ -38,11 +38,31 @@ func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(stri
 }
 
 func (m *Manager[CQ, C]) AddClusterQueue(cq CQ) {
-	m.ClusterQueues[cq.GetName()] = cq
+	m.clusterQueues[cq.GetName()] = cq
+}
+
+func (m *Manager[CQ, C]) GetClusterQueue(name string) CQ {
+  return m.clusterQueues[name]
+}
+
+func (m *Manager[CQ, C]) GetClusterQueueNames() []string {
+	clusterQueueNames := make([]string, 0, len(m.clusterQueues))
+	for k := range m.clusterQueues {
+		clusterQueueNames = append(clusterQueueNames, k)
+	}
+	return clusterQueueNames
+}
+
+func (m *Manager[CQ, C]) GetClusterQueuesCopy() map[string]CQ {
+	clusterQueuesCopy := make(map[string]CQ)
+	for k, v := range m.clusterQueues {
+		clusterQueuesCopy[k] = v
+	}
+	return clusterQueuesCopy
 }
 
 func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
-	cq := m.ClusterQueues[name]
+	cq := m.clusterQueues[name]
 	m.detachClusterQueueFromParent(cq)
 	if parentName != "" {
 		parent := m.getOrCreateCohort(parentName)
@@ -52,26 +72,46 @@ func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
 }
 
 func (m *Manager[CQ, C]) DeleteClusterQueue(name string) {
-	if cq, ok := m.ClusterQueues[name]; ok {
+	if cq, ok := m.clusterQueues[name]; ok {
 		m.detachClusterQueueFromParent(cq)
-		delete(m.ClusterQueues, name)
+		delete(m.clusterQueues, name)
 	}
 }
 
 func (m *Manager[CQ, C]) AddCohort(cohortName string) {
-	oldCohort, ok := m.Cohorts[cohortName]
+	oldCohort, ok := m.cohorts[cohortName]
 	if ok && oldCohort.isExplicit() {
 		return
 	}
 	if !ok {
-		m.Cohorts[cohortName] = m.cohortFactory(cohortName)
+		m.cohorts[cohortName] = m.cohortFactory(cohortName)
 	}
-	m.Cohorts[cohortName].markExplicit()
+	m.cohorts[cohortName].markExplicit()
+}
+
+func (m *Manager[CQ, C]) GetCohort(name string) C {
+  return m.cohorts[name]
+}
+
+func (m *Manager[CQ, C]) GetCohortNames() []string {
+	cohortNames := make([]string, 0, len(m.cohorts))
+	for k := range m.cohorts {
+		cohortNames = append(cohortNames, k)
+	}
+	return cohortNames
+}
+
+func (m *Manager[CQ, C]) GetCohortsCopy() map[string]C {
+	cohortCopy := make(map[string]C)
+	for k, v := range m.cohorts {
+		cohortCopy[k] = v
+	}
+	return cohortCopy
 }
 
 func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
 	m.resetCycleChecker()
-	cohort := m.Cohorts[name]
+	cohort := m.cohorts[name]
 	m.detachCohortFromParent(cohort)
 	if parentName != "" {
 		parent := m.getOrCreateCohort(parentName)
@@ -82,17 +122,17 @@ func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
 
 func (m *Manager[CQ, C]) DeleteCohort(name string) {
 	m.resetCycleChecker()
-	cohort, ok := m.Cohorts[name]
+	cohort, ok := m.cohorts[name]
 	if !ok {
 		return
 	}
-	delete(m.Cohorts, name)
+	delete(m.cohorts, name)
 	m.detachCohortFromParent(cohort)
 	if !cohort.hasChildren() {
 		return
 	}
 	implicitCohort := m.cohortFactory(name)
-	m.Cohorts[implicitCohort.GetName()] = implicitCohort
+	m.cohorts[implicitCohort.GetName()] = implicitCohort
 	m.transferChildren(cohort, implicitCohort)
 }
 
@@ -130,20 +170,20 @@ func (m *Manager[CQ, C]) detachCohortFromParent(cohort C) {
 }
 
 func (m *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
-	if _, ok := m.Cohorts[cohortName]; !ok {
-		m.Cohorts[cohortName] = m.cohortFactory(cohortName)
+	if _, ok := m.cohorts[cohortName]; !ok {
+		m.cohorts[cohortName] = m.cohortFactory(cohortName)
 	}
-	return m.Cohorts[cohortName]
+	return m.cohorts[cohortName]
 }
 
 func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 	if !cohort.isExplicit() && !cohort.hasChildren() {
-		delete(m.Cohorts, cohort.GetName())
+		delete(m.cohorts, cohort.GetName())
 	}
 }
 
 func (m *Manager[CQ, C]) resetCycleChecker() {
-	m.CycleChecker = CycleChecker{make(map[string]bool, len(m.Cohorts))}
+	m.CycleChecker = CycleChecker{make(map[string]bool, len(m.cohorts))}
 }
 
 type nodeBase interface {
