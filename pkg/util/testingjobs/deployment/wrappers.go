@@ -141,3 +141,9 @@ func (d *DeploymentWrapper) PodTemplateAnnotation(k, v string) *DeploymentWrappe
 func (d *DeploymentWrapper) PodTemplateSpecQueue(q string) *DeploymentWrapper {
 	return d.PodTemplateSpecLabel(constants.QueueLabel, q)
 }
+
+// PodTemplateSpecPriorityClass sets the priority class of the pod template spec of the Deployment
+func (d *DeploymentWrapper) PodTemplateSpecPriorityClass(priorityClassName string) *DeploymentWrapper {
+	d.Spec.Template.Spec.PriorityClassName = priorityClassName
+	return d
+}
