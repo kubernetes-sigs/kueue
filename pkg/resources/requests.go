@@ -130,3 +130,7 @@ func (req Requests) CountIn(capacity Requests) int32 {
 	}
 	return ptr.Deref(result, 0)
 }
+
+func (req Requests) FitsIn(capacity Requests) bool {
+	return req.CountIn(capacity) >= 1
+}

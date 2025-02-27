@@ -655,8 +655,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						FlavorQuotas,
 				).Cohort("some-cohort").Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported for cohorts.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name: "TAS do not support Preemption",

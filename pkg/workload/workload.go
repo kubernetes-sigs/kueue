@@ -238,6 +238,15 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
 }
 
+// Usage returns the total resource usage for the workload, including regular
+// quota and TAS usage.
+func (i *Info) Usage() Usage {
+	return Usage{
+		Quota: i.FlavorResourceUsage(),
+		TAS:   i.TASUsage(),
+	}
+}
+
 // FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
 func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
@@ -273,15 +282,18 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
-	return slices.ContainsFunc(i.TotalRequests,
-		func(ps PodSetResources) bool {
+	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
 			return ps.TopologyRequest != nil
 		})
 }
 
 // TASUsage returns topology usage requested by the Workload
-func (i *Info) TASUsage() map[kueue.ResourceFlavorReference][]TopologyDomainRequests {
-	result := make(map[kueue.ResourceFlavorReference][]TopologyDomainRequests, 0)
+func (i *Info) TASUsage() TASUsage {
+	if !features.Enabled(features.TopologyAwareScheduling) || !i.IsUsingTAS() {
+		return nil
+	}
+	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
 		if ps.TopologyRequest != nil {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
