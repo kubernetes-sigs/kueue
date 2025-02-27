@@ -18,7 +18,6 @@ package preemption
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -64,27 +63,6 @@ type Preemptor struct {
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
 }
 
-type FlavorResourceSet struct {
-	sets.Set[resources.FlavorResource]
-}
-
-func NewFlavorResourceSet(items ...resources.FlavorResource) FlavorResourceSet {
-	return FlavorResourceSet{sets.New(items...)}
-}
-
-func (p FlavorResourceSet) MarshalJSON() ([]byte, error) {
-	list := p.UnsortedList()
-	res := make([]string, len(list))
-	for i, fr := range list {
-		json, err := json.Marshal(fr)
-		if err != nil {
-			return nil, err
-		}
-		res[i] = string(json)
-	}
-	return json.Marshal(res)
-}
-
 type preemptionCtx struct {
 	log               logr.Logger
 	preemptor         workload.Info
@@ -92,7 +70,7 @@ type preemptionCtx struct {
 	snapshot          *cache.Snapshot
 	requests          resources.FlavorResourceQuantities
 	tasRequests       cache.WorkloadTASRequests
-	frsNeedPreemption FlavorResourceSet
+	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
 
 func New(
@@ -275,7 +253,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // fits.
 func minimalPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
+		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*Target
@@ -381,7 +359,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption, "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "allowBorrowingBelowPriority", allowBorrowingBelowPriority, "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
@@ -509,8 +487,8 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 	return cqHeap
 }
 
-func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) FlavorResourceSet {
-	resPerFlavor := NewFlavorResourceSet()
+func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {
+	resPerFlavor := sets.New[resources.FlavorResource]()
 	for _, ps := range assignment.PodSets {
 		for res, flvAssignment := range ps.Flavors {
 			if flvAssignment.Mode == flavorassigner.Preempt {
@@ -524,7 +502,7 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) FlavorR
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption FlavorResourceSet) []*workload.Info {
+func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 
@@ -570,11 +548,11 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 	return candidates
 }
 
-func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption FlavorResourceSet) bool {
+func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
 	if !cq.HasParent() {
 		return false
 	}
-	for fr := range frsNeedPreemption.Set {
+	for fr := range frsNeedPreemption {
 		if cq.Borrowing(fr) {
 			return true
 		}
@@ -582,7 +560,7 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption FlavorResou
 	return false
 }
 
-func workloadUsesResources(wl *workload.Info, frsNeedPreemption FlavorResourceSet) bool {
+func workloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
 	for _, ps := range wl.TotalRequests {
 		for res, flv := range ps.Flavors {
 			if frsNeedPreemption.Has(resources.FlavorResource{Flavor: flv, Resource: res}) {
@@ -610,7 +588,7 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 }
 
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
-	for fr := range preemptionCtx.frsNeedPreemption.Set {
+	for fr := range preemptionCtx.frsNeedPreemption {
 		if preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] >= preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal {
 			return false
 		}
