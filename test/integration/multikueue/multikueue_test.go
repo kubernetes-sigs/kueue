@@ -45,7 +45,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -1266,7 +1265,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should create a pod on worker if admitted", func() {
 		pod := testingpod.MakePod("pod1", managerNs.Name).
 			Queue(managerLq.Name).
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueSchedulingGate().
 			Obj()
 

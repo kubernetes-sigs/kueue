@@ -46,9 +46,7 @@ import (
 )
 
 const (
-	ManagedLabelKey              = constants.ManagedByKueueLabel
-	ManagedLabelValue            = "true"
-	PodFinalizer                 = ManagedLabelKey
+	PodFinalizer                 = constants.ManagedByKueueLabelKey
 	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
 	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
@@ -62,7 +60,7 @@ var (
 	metaPath                       = field.NewPath("metadata")
 	labelsPath                     = metaPath.Child("labels")
 	annotationsPath                = metaPath.Child("annotations")
-	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
+	managedLabelPath               = labelsPath.Key(constants.ManagedByKueueLabelKey)
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
 	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
@@ -211,7 +209,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if pod.pod.Labels == nil {
 			pod.pod.Labels = make(map[string]string)
 		}
-		pod.pod.Labels[ManagedLabelKey] = ManagedLabelValue
+		pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 
 		gate(&pod.pod)
 
@@ -299,8 +297,8 @@ func validateCommon(pod *Pod) field.ErrorList {
 func validateManagedLabel(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if managedLabel, ok := pod.pod.GetLabels()[ManagedLabelKey]; ok && managedLabel != ManagedLabelValue {
-		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", ManagedLabelValue)))
+	if managedLabel, ok := pod.pod.GetLabels()[constants.ManagedByKueueLabelKey]; ok && managedLabel != constants.ManagedByKueueLabelValue {
+		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", constants.ManagedByKueueLabelValue)))
 	}
 
 	return allErrs
@@ -308,10 +306,10 @@ func validateManagedLabel(pod *Pod) field.ErrorList {
 
 // warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
 func warningForPodManagedLabel(p *Pod) string {
-	managedLabel := p.pod.GetLabels()[ManagedLabelKey]
-	if managedLabel == ManagedLabelValue && jobframework.IsOwnerManagedByKueueForObject(p.Object()) {
+	managedLabel := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]
+	if managedLabel == constants.ManagedByKueueLabelValue && jobframework.IsOwnerManagedByKueueForObject(p.Object()) {
 		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
-			ManagedLabelKey, ManagedLabelValue)
+			constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 	}
 
 	return ""

@@ -163,7 +163,7 @@ func TestReconcile(t *testing.T) {
 			Namespace: TestNamespace,
 			Name:      "wl-check1-1",
 			Labels: map[string]string{
-				constants.ManagedByKueueLabel: "true",
+				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -194,7 +194,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	baseTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
-		Label(constants.ManagedByKueueLabel, "true").
+		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 		Containers(corev1.Container{
 			Name: "c",
 			Resources: corev1.ResourceRequirements{
@@ -212,7 +212,7 @@ func TestReconcile(t *testing.T) {
 		})
 
 	baseTemplate2 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps2", TestNamespace).
-		Label(constants.ManagedByKueueLabel, "true").
+		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 		Containers(corev1.Container{
 			Name: "c",
 			Resources: corev1.ResourceRequirements{
@@ -338,7 +338,7 @@ func TestReconcile(t *testing.T) {
 						Namespace: TestNamespace,
 						Name:      ProvisioningRequestName("wl", baseCheck.Name, 1),
 						Labels: map[string]string{
-							constants.ManagedByKueueLabel: "true",
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
@@ -661,7 +661,7 @@ func TestReconcile(t *testing.T) {
 				"wl-check1-1": {
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: map[string]string{
-							constants.ManagedByKueueLabel: "true",
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 						},
 					},
 					Spec: autoscaling.ProvisioningRequestSpec{
@@ -710,7 +710,7 @@ func TestReconcile(t *testing.T) {
 				"wl-check1-1": {
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: map[string]string{
-							constants.ManagedByKueueLabel: "true",
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 						},
 					},
 					Spec: autoscaling.ProvisioningRequestSpec{
@@ -1019,7 +1019,7 @@ func TestReconcile(t *testing.T) {
 						Namespace: TestNamespace,
 						Name:      "wl-check1-2",
 						Labels: map[string]string{
-							constants.ManagedByKueueLabel: "true",
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 						},
 						OwnerReferences: []metav1.OwnerReference{
 							{

@@ -40,7 +40,6 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -248,13 +247,13 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				NodeSelector(corev1.LabelArchStable, "arm64").
 				KueueFinalizer().
 				Obj()},
@@ -298,7 +297,7 @@ func TestReconciler(t *testing.T) {
 		"non-matching admitted workload is deleted and pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Obj()},
 			wantPods: nil,
@@ -330,14 +329,14 @@ func TestReconciler(t *testing.T) {
 		"the workload is created when queue name is set": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
@@ -381,13 +380,13 @@ func TestReconciler(t *testing.T) {
 		"pod is stopped when workload is evicted": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Queue("test-queue").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Queue("test-queue").
 				StatusConditions(corev1.PodCondition{
@@ -438,14 +437,14 @@ func TestReconciler(t *testing.T) {
 		"pod is finalized when it's succeeded": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
@@ -493,13 +492,13 @@ func TestReconciler(t *testing.T) {
 		"workload status condition is added even if the pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
@@ -538,12 +537,12 @@ func TestReconciler(t *testing.T) {
 		"pod without scheduling gate is terminated if workload is not admitted": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
@@ -583,7 +582,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -594,7 +593,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -627,7 +626,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -638,7 +637,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -650,7 +649,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -661,7 +660,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -701,7 +700,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -715,7 +714,7 @@ func TestReconciler(t *testing.T) {
 				// Other pods are created on second reconcile
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -755,7 +754,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -765,7 +764,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -776,7 +775,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -786,7 +785,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -826,7 +825,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -836,7 +835,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -863,7 +862,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -873,7 +872,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -911,7 +910,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -920,7 +919,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -930,7 +929,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -939,7 +938,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -983,7 +982,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -992,7 +991,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1002,7 +1001,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1011,7 +1010,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1066,7 +1065,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1075,7 +1074,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1084,7 +1083,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1093,7 +1092,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1135,7 +1134,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1144,7 +1143,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1154,7 +1153,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1162,7 +1161,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1215,14 +1214,14 @@ func TestReconciler(t *testing.T) {
 		"workload is not deleted if the pod in group has been deleted after admission": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Group("test-group").
 				GroupTotalCount("2").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Group("test-group").
 				GroupTotalCount("2").
@@ -1271,7 +1270,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1281,7 +1280,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1292,7 +1291,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1302,7 +1301,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1347,7 +1346,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					KueueFinalizer().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1356,7 +1355,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1427,7 +1426,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1437,7 +1436,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
@@ -1448,7 +1447,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1458,7 +1457,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
@@ -1475,7 +1474,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -1484,7 +1483,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -1529,7 +1528,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1538,7 +1537,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1548,7 +1547,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1557,7 +1556,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1617,7 +1616,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1626,7 +1625,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1635,7 +1634,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1644,7 +1643,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1670,7 +1669,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1679,7 +1678,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -1687,7 +1686,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1696,7 +1695,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1743,7 +1742,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1752,7 +1751,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1761,7 +1760,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1771,7 +1770,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -1779,7 +1778,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1787,7 +1786,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1843,7 +1842,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1854,7 +1853,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1922,7 +1921,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1933,7 +1932,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -2022,7 +2021,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2033,7 +2032,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2045,7 +2044,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2056,7 +2055,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2103,7 +2102,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2112,7 +2111,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2122,7 +2121,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2131,7 +2130,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2184,7 +2183,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2194,7 +2193,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2251,7 +2250,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2260,7 +2259,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2270,7 +2269,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -2278,7 +2277,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -2292,7 +2291,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2301,7 +2300,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2311,7 +2310,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2320,7 +2319,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2357,7 +2356,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2366,7 +2365,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2376,7 +2375,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2385,7 +2384,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -2408,7 +2407,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2417,7 +2416,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2426,7 +2425,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2438,7 +2437,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -2446,7 +2445,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
@@ -2454,7 +2453,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
@@ -2533,7 +2532,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2542,7 +2541,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2551,7 +2550,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2562,7 +2561,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2571,7 +2570,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2580,7 +2579,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2645,7 +2644,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2655,7 +2654,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2665,7 +2664,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2677,7 +2676,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2687,7 +2686,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2697,7 +2696,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2762,7 +2761,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2772,7 +2771,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2783,7 +2782,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2826,7 +2825,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2836,7 +2835,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2846,7 +2845,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2857,7 +2856,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2867,7 +2866,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2917,7 +2916,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2926,7 +2925,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2937,7 +2936,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3006,7 +3005,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3016,7 +3015,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3026,7 +3025,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3037,7 +3036,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3047,7 +3046,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3057,7 +3056,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3099,7 +3098,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3109,7 +3108,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
@@ -3118,7 +3117,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3129,7 +3128,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3139,7 +3138,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
@@ -3192,7 +3191,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3202,7 +3201,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
 					Group("test-group").
@@ -3214,7 +3213,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3224,7 +3223,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
 					Group("test-group").
@@ -3264,7 +3263,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("p1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("group").
@@ -3275,7 +3274,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("p2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("group").
@@ -3313,7 +3312,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3321,7 +3320,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3330,7 +3329,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement-for-pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3340,7 +3339,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3348,7 +3347,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3357,7 +3356,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement-for-pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3419,7 +3418,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3427,7 +3426,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3436,7 +3435,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3446,7 +3445,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3460,7 +3459,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3469,7 +3468,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3556,7 +3555,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3566,7 +3565,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3641,7 +3640,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3649,7 +3648,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3664,7 +3663,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("deleted").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3680,7 +3679,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3695,7 +3694,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3703,7 +3702,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3713,7 +3712,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3721,7 +3720,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
@@ -3735,7 +3734,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3750,7 +3749,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3758,7 +3757,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3825,7 +3824,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3833,7 +3832,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3848,7 +3847,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3858,7 +3857,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3866,7 +3865,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3881,7 +3880,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3926,7 +3925,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3941,7 +3940,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error-no-finalizer").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3955,7 +3954,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3965,7 +3964,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3980,7 +3979,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error-no-finalizer").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3994,7 +3993,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -4054,7 +4053,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with correct labels for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Label("toCopyKey", "toCopyValue").
 				Label("dontCopyKey", "dontCopyValue").
 				KueueFinalizer().
@@ -4096,7 +4095,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
@@ -4108,7 +4107,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("toCopyKey2", "toCopyValue2").
 					Label("dontCopyKey", "dontCopyValue").
@@ -4156,7 +4155,7 @@ func TestReconciler(t *testing.T) {
 		"reconciler returns error in case pod group pod index is bigger or equal pod group total count": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Group("test-group").
@@ -4169,7 +4168,7 @@ func TestReconciler(t *testing.T) {
 		"reconciler returns error in case pod group pod index is less than 0": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Group("test-group").
@@ -4183,7 +4182,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
@@ -4194,7 +4193,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "otherValue").
 					Label("toCopyKey2", "toCopyValue2").
 					Label("dontCopyKey", "dontCopyValue").
@@ -4214,7 +4213,7 @@ func TestReconciler(t *testing.T) {
 		"admission check message is recorded as event for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Obj()},
@@ -4294,7 +4293,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4303,7 +4302,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4384,7 +4383,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
@@ -4394,7 +4393,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4405,7 +4404,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4433,7 +4432,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
@@ -4443,7 +4442,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -4486,7 +4485,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4496,7 +4495,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4523,7 +4522,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4533,7 +4532,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4561,7 +4560,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4571,7 +4570,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4598,7 +4597,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4608,7 +4607,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4642,7 +4641,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4652,7 +4651,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4680,7 +4679,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4690,7 +4689,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Delete().
@@ -4725,7 +4724,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4735,7 +4734,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4770,7 +4769,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4780,7 +4779,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4822,7 +4821,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4832,7 +4831,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4872,7 +4871,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4882,7 +4881,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4922,7 +4921,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4932,7 +4931,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4973,7 +4972,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4983,7 +4982,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5025,7 +5024,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5035,7 +5034,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5068,7 +5067,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5078,7 +5077,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5112,7 +5111,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5122,7 +5121,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5141,7 +5140,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5157,7 +5156,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5207,7 +5206,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5217,7 +5216,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5237,7 +5236,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5253,7 +5252,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5303,7 +5302,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5313,7 +5312,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5334,7 +5333,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5350,7 +5349,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5495,7 +5494,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 
 	pod := *basePodWrapper.
 		Clone().
-		Label(constants.ManagedByKueueLabel, "true").
+		ManagedByKueueLabel().
 		KueueFinalizer().
 		StatusPhase(corev1.PodSucceeded).
 		StatusMessage("Job finished successfully").
@@ -5567,7 +5566,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	// Validate that pod has no finalizer after the second reconcile
 	wantPod := *basePodWrapper.
 		Clone().
-		Label(constants.ManagedByKueueLabel, "true").
+		ManagedByKueueLabel().
 		StatusPhase(corev1.PodSucceeded).
 		StatusMessage("Job finished successfully").
 		Obj()
@@ -5690,7 +5689,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	pods := []corev1.Pod{
 		*basePodWrapper.
 			Clone().
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			GroupTotalCount("2").
@@ -5699,7 +5698,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		*basePodWrapper.
 			Clone().
 			Name("pod2").
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			CreationTimestamp(now.Add(time.Minute)).
@@ -5708,7 +5707,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		*basePodWrapper.
 			Clone().
 			Name("excessPod").
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			CreationTimestamp(now.Add(time.Minute * 2)).

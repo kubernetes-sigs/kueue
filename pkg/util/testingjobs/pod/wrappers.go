@@ -151,6 +151,10 @@ func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) ManagedByKueueLabel() *PodWrapper {
+	return p.Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
+}
+
 func (p *PodWrapper) PodGroupServingAnnotation(enabled bool) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/pod-group-serving", strconv.FormatBool(enabled))
 }
@@ -191,7 +195,7 @@ func (p *PodWrapper) Finalizer(f string) *PodWrapper {
 
 // KueueFinalizer adds kueue finalizer to the Pod
 func (p *PodWrapper) KueueFinalizer() *PodWrapper {
-	return p.Finalizer(constants.ManagedByKueueLabel)
+	return p.Finalizer(constants.ManagedByKueueLabelKey)
 }
 
 // NodeSelector adds a node selector to the Pod.

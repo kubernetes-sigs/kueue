@@ -279,7 +279,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					Name:      requestName,
 					Namespace: wl.Namespace,
 					Labels: map[string]string{
-						constants.ManagedByKueueLabel: "true",
+						constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 					},
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
@@ -383,7 +383,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 			Name:      name,
 			Namespace: wl.Namespace,
 			Labels: map[string]string{
-				constants.ManagedByKueueLabel: "true",
+				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 		},
 		Template: ps.Template,

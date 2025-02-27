@@ -158,11 +158,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				)
 
 				gomega.Expect(createdPod.Labels).To(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod should have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer")
 
 				ginkgo.By("checking that workload is created for pod with the queue name")
@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer")
 
 				ginkgo.By("checking that workload is created for pod with the queue name")
@@ -375,11 +375,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					)
 
 					gomega.Expect(createdPod.Labels).NotTo(
-						gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+						gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 						"Pod shouldn't have the label",
 					)
 
-					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 						"Pod shouldn't have finalizer")
 
 					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(createdPod.Name, createdPod.UID), Namespace: ns.Name}
@@ -853,7 +853,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdPod := &corev1.Pod{}
 						g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, pod2LookupKey, createdPod))).Should(gomega.Succeed())
-						g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel))
+						g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -943,7 +943,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				createdPod := &corev1.Pod{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).To(gomega.Succeed())
-					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodFailed))
 
@@ -1113,12 +1113,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
-						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
 					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
-						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
 					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -1338,12 +1338,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("checking that workload is finalized when all pods in the group are deleted", func() {
 					createdPod := corev1.Pod{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod1), &createdPod)).To(gomega.Succeed())
-					controllerutil.RemoveFinalizer(&createdPod, constants.ManagedByKueueLabel)
+					controllerutil.RemoveFinalizer(&createdPod, constants.ManagedByKueueLabelKey)
 					gomega.Expect(k8sClient.Update(ctx, &createdPod)).To(gomega.Succeed())
 					gomega.Expect(k8sClient.Delete(ctx, &createdPod)).To(gomega.Succeed())
 
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), &createdPod)).To(gomega.Succeed())
-					controllerutil.RemoveFinalizer(&createdPod, constants.ManagedByKueueLabel)
+					controllerutil.RemoveFinalizer(&createdPod, constants.ManagedByKueueLabelKey)
 					gomega.Expect(k8sClient.Update(ctx, &createdPod)).To(gomega.Succeed())
 					gomega.Expect(k8sClient.Delete(ctx, &createdPod)).To(gomega.Succeed())
 
