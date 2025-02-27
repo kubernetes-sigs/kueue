@@ -791,7 +791,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 					finishReasonMessage := "Job finished successfully."
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, 5*util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
