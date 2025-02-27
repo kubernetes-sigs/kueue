@@ -83,7 +83,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, webhooks.WebhookConfiguration{FairSharingEnabled: fairSharing.Enable})
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
