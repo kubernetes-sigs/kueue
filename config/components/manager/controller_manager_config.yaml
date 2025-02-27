@@ -4,7 +4,9 @@ health:
   healthProbeBindAddress: :8081
 metrics:
   bindAddress: :8443
-# enableClusterQueueResources: true
+# Uncommented if you are using certificates with prometheus
+  protectMetricsWithTLS: true
+  enableClusterQueueResources: true
 webhook:
   port: 9443
 leaderElection:
