@@ -914,7 +914,7 @@ func TestSnapshot(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(context.Background(), wl)
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {

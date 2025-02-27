@@ -3447,7 +3447,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				err = cqCache.DeleteWorkload(&wl)
+				err = cqCache.DeleteWorkload(ctx, &wl)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
@@ -3808,7 +3808,7 @@ func TestResourcesToReserve(t *testing.T) {
 				quantity := resources.ResourceQuantity(fr.Resource, v)
 				admission := utiltesting.MakeAdmission("cq").Assignment(fr.Resource, fr.Flavor, quantity.String())
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
-				cqCache.AddOrUpdateWorkload(wl)
+				cqCache.AddOrUpdateWorkload(ctx, wl)
 				i++
 			}
 			snapshot, err := cqCache.Snapshot(ctx)
