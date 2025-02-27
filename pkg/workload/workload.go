@@ -174,16 +174,24 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+func (p *PodSetResources) SinglePodRequests() resources.Requests {
+	return p.Requests.ScaledDown(int64(p.Count))
+}
+
 type TopologyRequest struct {
 	Levels         []string
 	DomainRequests []TopologyDomainRequests
 }
 
 type TopologyDomainRequests struct {
-	Values   []string
-	Requests resources.Requests
+	Values            []string
+	SinglePodRequests resources.Requests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
+}
+
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
+	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -410,13 +418,10 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				Levels: psa.TopologyAssignment.Levels,
 			}
 			for _, domain := range psa.TopologyAssignment.Domains {
-				domainRequests := setRes.Requests.Clone()
-				domainRequests.Divide(int64(setRes.Count))
-				domainRequests.Mul(int64(domain.Count))
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
-					Values:   domain.Values,
-					Requests: domainRequests,
-					Count:    domain.Count,
+					Values:            domain.Values,
+					SinglePodRequests: setRes.SinglePodRequests(),
+					Count:             domain.Count,
 				})
 			}
 		}

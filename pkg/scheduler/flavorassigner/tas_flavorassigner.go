@@ -56,8 +56,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
 	psResources := wl.TotalRequests[podSetIndex]
-	singlePodRequests := psResources.Requests.Clone()
-	singlePodRequests.Divide(int64(psResources.Count))
+	singlePodRequests := psResources.SinglePodRequests()
 	podCount := psAssignment.Count
 	tasFlvr, err := onlyFlavor(psAssignment.Flavors)
 	if err != nil {
