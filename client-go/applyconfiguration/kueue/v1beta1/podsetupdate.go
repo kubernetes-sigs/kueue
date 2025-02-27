@@ -19,12 +19,13 @@ package v1beta1
 
 import (
 	v1 "k8s.io/client-go/applyconfigurations/core/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // PodSetUpdateApplyConfiguration represents a declarative configuration of the PodSetUpdate type for use
 // with apply.
 type PodSetUpdateApplyConfiguration struct {
-	Name         *string                           `json:"name,omitempty"`
+	Name         *kueuev1beta1.PodSetReference     `json:"name,omitempty"`
 	Labels       map[string]string                 `json:"labels,omitempty"`
 	Annotations  map[string]string                 `json:"annotations,omitempty"`
 	NodeSelector map[string]string                 `json:"nodeSelector,omitempty"`
@@ -40,7 +41,7 @@ func PodSetUpdate() *PodSetUpdateApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *PodSetUpdateApplyConfiguration) WithName(value string) *PodSetUpdateApplyConfiguration {
+func (b *PodSetUpdateApplyConfiguration) WithName(value kueuev1beta1.PodSetReference) *PodSetUpdateApplyConfiguration {
 	b.Name = &value
 	return b
 }

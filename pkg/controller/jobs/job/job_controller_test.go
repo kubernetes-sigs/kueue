@@ -812,7 +812,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+				PodLabel(kueuealpha.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodAnnotation(kueuealpha.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{

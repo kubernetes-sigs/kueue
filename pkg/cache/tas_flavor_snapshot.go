@@ -251,14 +251,14 @@ type TASPodSetRequests struct {
 type FailureInfo struct {
 	// PodSetName indicates the name of the PodSet for which computing the
 	// TAS assignment failed.
-	PodSetName string
+	PodSetName kueue.PodSetReference
 
 	// Reason indicates the reason why computing the TAS assignment failed.
 	Reason string
 }
 
 // the key in this map is PodSet name
-type TASAssignmentsResult map[string]tasPodSetAssignmentResult
+type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
 
 func (r TASAssignmentsResult) Failure() *FailureInfo {
 	for psName, psAssignment := range r {
@@ -281,7 +281,7 @@ type FlavorTASRequests []TASPodSetRequests
 // The simulateEmpty parameter allows to look for the assignment under the
 // assumption that all TAS workloads are preempted.
 func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool) TASAssignmentsResult {
-	result := make(map[string]tasPodSetAssignmentResult)
+	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
 		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty)
