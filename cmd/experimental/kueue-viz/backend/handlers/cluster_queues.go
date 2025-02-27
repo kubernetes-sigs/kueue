@@ -61,6 +61,7 @@ func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]interface
 
 		var cohort string
 		var resourceGroups []interface{}
+		fairSharing := make([]interface{}, 0)
 		if specExists {
 			cohort, _ = spec["cohort"].(string)
 			resourceGroups, _ = spec["resourceGroups"].([]interface{})
@@ -71,6 +72,10 @@ func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]interface
 			admittedWorkloads, _ = status["admittedWorkloads"].(int64)
 			pendingWorkloads, _ = status["pendingWorkloads"].(int64)
 			reservingWorkloads, _ = status["reservingWorkloads"].(int64)
+
+			if fairSharingSlice, ok := status["fairSharing"].([]interface{}); ok {
+				fairSharing = fairSharingSlice
+			}
 		}
 
 		// Extract flavors from resourceGroups
@@ -101,6 +106,7 @@ func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]interface
 			"pendingWorkloads":   pendingWorkloads,
 			"reservingWorkloads": reservingWorkloads,
 			"flavors":            flavors,
+			"fairSharing":        fairSharing,
 		})
 	}
 
@@ -155,6 +161,20 @@ func fetchClusterQueueDetails(dynamicClient dynamic.Interface, clusterQueueName 
 
 	// Attach the queues information to the ClusterQueue details
 	clusterQueueDetails := clusterQueue.Object
+
+	status, statusExists := clusterQueue.Object["status"].(map[string]interface{})
+	if statusExists {
+		fairSharingDetails := map[string]interface{}{}
+		if fairSharing, ok := status["Fair Sharing"].(map[string]interface{}); ok {
+			if weightedShare, exists := fairSharing["Weighted Share"]; exists {
+				fairSharingDetails["weightedShare"] = weightedShare
+			}
+		}
+		clusterQueueDetails["fairSharing"] = []interface{}{fairSharingDetails}
+	} else {
+		clusterQueueDetails["fairSharing"] = []interface{}{}
+	}
+
 	clusterQueueDetails["queues"] = queuesUsingClusterQueue
 
 	return clusterQueueDetails, nil
