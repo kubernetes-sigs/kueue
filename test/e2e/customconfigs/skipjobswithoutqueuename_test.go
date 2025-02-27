@@ -40,6 +40,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingsts "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -345,6 +346,69 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should suspend the pods of a StatefulSet created in the test namespace", func() {
+			var testSts *appsv1.StatefulSet
+			ginkgo.By("creating a StatefulSet without a queue name", func() {
+				testSts = testingsts.MakeStatefulSet("test-sts", ns.Name).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "2Gi").
+					Replicas(2).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pods of the StatefulSet are gated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
+							{Name: podcontroller.SchedulingGateName},
+						}))
+						g.Expect(pod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not suspend the pods created by a StatefulSet in the kube-system namespace", func() {
+			var testSts *appsv1.StatefulSet
+			ginkgo.By("creating a StatefulSet without a queue name in the kube-system namespace", func() {
+				testSts = testingsts.MakeStatefulSet("test-sts", "kube-system").
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "2Gi").
+					Replicas(2).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the pods of the StatefulSet are running", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(2))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that deleting the StatefulSet removes the pods", func() {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.Delete(ctx, testSts)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
