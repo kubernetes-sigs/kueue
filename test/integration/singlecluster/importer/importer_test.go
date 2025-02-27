@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Importer", func() {
 
 			pod3 := utiltestingpod.MakePod("pod3", ns.Name).
 				Queue("lq1").
-				Label(constants.ManagedByKueueLabel, "true").
+				Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 				Request(corev1.ResourceCPU, "2").
 				KueueSchedulingGate().
 				Obj()
