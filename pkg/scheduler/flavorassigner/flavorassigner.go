@@ -446,7 +446,7 @@ func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) 
 	}
 }
 
-func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(requests resources.PodGroupRequests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -468,7 +468,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
 	psID int,
-	requests resources.Requests,
+	requests resources.PodGroupRequests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
@@ -699,8 +699,8 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
-func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
-	filtered := make(resources.Requests)
+func filterRequestedResources(req resources.PodGroupRequests, allowList sets.Set[corev1.ResourceName]) resources.PodGroupRequests {
+	filtered := make(resources.PodGroupRequests)
 	for n, v := range req {
 		if allowList.Has(n) {
 			filtered[n] = v

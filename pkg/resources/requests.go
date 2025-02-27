@@ -28,58 +28,61 @@ import (
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
-type Requests map[corev1.ResourceName]int64
+// PodGroupRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
+// This is assumed to have multiple Pods (>= 1) resource requests.
+// Note that PodGroup is a soft group of Pods and does not require a set of Pods (=~ PodSet) belonging to
+// a single higher object like Job.
+type PodGroupRequests map[corev1.ResourceName]int64
 
-func NewRequests(rl corev1.ResourceList) Requests {
-	r := Requests{}
+func NewPodGroupRequests(rl corev1.ResourceList) PodGroupRequests {
+	r := PodGroupRequests{}
 	for name, quant := range rl {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
 }
 
-func (r Requests) Clone() Requests {
+func (r PodGroupRequests) Clone() PodGroupRequests {
 	return maps.Clone(r)
 }
 
-func (r Requests) ScaledUp(f int64) Requests {
+func (r PodGroupRequests) ScaledUp(f int64) PodGroupRequests {
 	ret := r.Clone()
 	ret.Mul(f)
 	return ret
 }
 
-func (r Requests) ScaledDown(f int64) Requests {
+func (r PodGroupRequests) ScaledDown(f int64) PodGroupRequests {
 	ret := r.Clone()
 	ret.Divide(f)
 	return ret
 }
 
-func (r Requests) Divide(f int64) {
+func (r PodGroupRequests) Divide(f int64) {
 	for k := range r {
 		r[k] /= f
 	}
 }
 
-func (r Requests) Mul(f int64) {
+func (r PodGroupRequests) Mul(f int64) {
 	for k := range r {
 		r[k] *= f
 	}
 }
 
-func (r Requests) Add(addRequests Requests) {
+func (r PodGroupRequests) Add(addRequests PodGroupRequests) {
 	for k, v := range addRequests {
 		r[k] += v
 	}
 }
 
-func (r Requests) Sub(subRequests Requests) {
+func (r PodGroupRequests) Sub(subRequests PodGroupRequests) {
 	for k, v := range subRequests {
 		r[k] -= v
 	}
 }
 
-func (r Requests) ToResourceList() corev1.ResourceList {
+func (r PodGroupRequests) ToResourceList() corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
 		ret[k] = ResourceQuantity(k, v)
@@ -115,9 +118,9 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-func (req Requests) CountIn(capacity Requests) int32 {
+func (r PodGroupRequests) CountIn(capacity PodGroupRequests) int32 {
 	var result *int32
-	for rName, rValue := range req {
+	for rName, rValue := range r {
 		capacity, found := capacity[rName]
 		if !found {
 			return 0
