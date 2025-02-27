@@ -233,7 +233,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		nodeLabels              map[string]string
 		nodes                   []corev1.Node
 		pods                    []corev1.Pod
-		requests                resources.Requests
+		requests                resources.PodGroupRequests
 		count                   int32
 		tolerations             []corev1.Toleration
 		wantAssignment          *kueue.TopologyAssignment
@@ -315,7 +315,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -356,7 +356,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -397,7 +397,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -439,7 +439,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -462,7 +462,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -486,7 +486,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -510,7 +510,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 3,
@@ -534,7 +534,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 3,
@@ -583,7 +583,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: []string{tasBlockLabel},
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 5,
@@ -612,7 +612,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 2,
@@ -636,7 +636,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   4,
@@ -650,7 +650,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -677,7 +677,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -704,7 +704,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -738,7 +738,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -769,7 +769,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 4000,
 			},
 			count:                   1,
@@ -782,7 +782,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   5,
@@ -796,7 +796,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceMemory: 1024,
 			},
 			count: 4,
@@ -820,7 +820,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 4,
@@ -851,7 +851,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 6,
@@ -889,7 +889,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 6,
@@ -927,7 +927,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   10,
@@ -953,7 +953,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-b",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   1,
@@ -980,7 +980,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -1015,7 +1015,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultThreeLevels,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   1,
@@ -1044,7 +1044,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 600,
 			},
 			count: 1,
@@ -1087,7 +1087,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 600,
 			},
 			count: 1,
@@ -1127,7 +1127,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 600,
 			},
 			count:                   1,
@@ -1157,7 +1157,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 600,
 			},
 			count:                   1,
@@ -1196,7 +1196,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 600,
 			},
 			count: 1,
@@ -1237,7 +1237,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   1,
@@ -1265,7 +1265,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   1,
@@ -1297,7 +1297,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:                   1,
@@ -1336,7 +1336,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 1000,
 			},
 			count: 1,
@@ -1379,7 +1379,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			levels: defaultOneLevel,
-			requests: resources.Requests{
+			requests: resources.PodGroupRequests{
 				corev1.ResourceCPU: 300,
 			},
 			count:                   1,
