@@ -330,10 +330,16 @@ type entry struct {
 	preemptionTargets     []*preemption.Target
 }
 
-// netUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
+func (e *entry) netUsage() workload.Usage {
+	return workload.Usage{
+		Quota: e.netQuotaUsage(),
+	}
+}
+
+// netQuotaUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
 // When a workload is preempting, it subtracts the preempted resources from the resources
 // required, as the remaining quota is all we need from the CQ/Cohort.
-func (e *entry) netUsage() resources.FlavorResourceQuantities {
+func (e *entry) netQuotaUsage() resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		return e.assignment.Usage
 	}
@@ -392,7 +398,13 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
+	return workload.Usage{
+		Quota: quotaResourcesToReserve(e, cq),
+	}
+}
+
+func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
