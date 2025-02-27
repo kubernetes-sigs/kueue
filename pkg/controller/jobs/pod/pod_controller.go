@@ -536,7 +536,7 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 func (p *Pod) Skip() bool {
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
-	if v, ok := p.pod.GetLabels()[ManagedLabelKey]; p.isFound && (!ok || v != ManagedLabelValue) {
+	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
 		return true
 	}
 	return false

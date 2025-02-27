@@ -149,7 +149,7 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 
 func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
 	p.Labels[controllerconstants.QueueLabel] = queue
-	p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+	p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	maps.Copy(p.Labels, addLabels)
 
 	err := c.Update(ctx, p)
@@ -170,7 +170,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 				continue
 			}
 			p.Labels[controllerconstants.QueueLabel] = queue
-			p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+			p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 			maps.Copy(p.Labels, addLabels)
 		}
 		err = c.Update(ctx, p)
