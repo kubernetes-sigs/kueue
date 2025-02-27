@@ -282,8 +282,8 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
-	return slices.ContainsFunc(i.TotalRequests,
-		func(ps PodSetResources) bool {
+	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
 			return ps.TopologyRequest != nil
 		})
 }
