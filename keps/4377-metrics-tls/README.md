@@ -27,7 +27,6 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
-    - [Story 2](#story-2)
   - [Notes](#notes)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -46,6 +45,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Opt in API](#opt-in-api)
 <!-- /toc -->
 
 ## Summary
@@ -117,32 +117,20 @@ We will not provide a way to disable this.
 
 - Allow for external certificates for metrics but internal certificates for webhooks.
 
+- Adopt Internal Cert Manager solution for metrics and provide self signed certificates.
+
+- Supporting APIService certificates
+
+APIService currently uses Insecure flags but there has been no effort made yet to enhance that for Cert manager. It would be good to have support for this but it is out of scope of this KEP.
+
 ## Proposal
 
-We want to provide a configurational option for metrics that allows one
-to use external certificates for the prometheus endpoint.
-
-The supported options above are already supported so we want to offer an opt in approach for metrics.
-
-We will add the following field to the metrics option in the Kueue configuration API.
-
-```golang
-// ControllerMetrics defines the metrics configs.
-type ControllerMetrics struct {
-  ...
-	// UseExternalCerts, if true, will require one to provide certificates for the prometheus endpoint
-	// False means that we will allow access to metrics to whoever has access to the ServiceAccount
-	// Default will be false
-	// +optional
-	UseExternalCerts bool `json:"useExternalCerts,omitempty"`
-}
-```
+We will require that if one is using external certificates and prometheus is enabled,
+one must use certificates for metrics. 
+We will effectively be disabling the use of controller runtime generated certificates if an external certificate solution is used.
 
 We will pass this options to the controller runtime `MetricsServer` option where the validation will be done by
 the controller runtime.
-
-We will validate that when internal certificates are specified (via cfg.InternalCertManagement) one cannot set UseExternalCerts to true.
-This is unsupported and will not be allowed.
 
 ### User Stories (Optional)
 
@@ -155,14 +143,9 @@ bogged down.
 
 #### Story 1
 
-As a cluster adminstration, I want to use Cert Manager for all certificates. I want to use external certificates for webhooks and metrics.
+As a cluster adminstration, I want to use an external certificate service for all certificates. 
+I want to use external certificates for webhooks and metrics.
 I am concerned with turning off tls verification for prometheus and I want to validate the certificates.
-
-#### Story 2
-
-As a cluster adminstration, I want to use Cert Manager for webhooks but I am not yet interested in protecting my metric endpoints.
-My cluster is contained in an internal network and I am not concerned with outsiders viewing my metrics endpoints.
-To keep my support levels lower, I am fine with using internal certificates for metrics but I still want to use Cert manager for all webhooks.
 
 ### Notes
 
@@ -311,7 +294,7 @@ To keep configurations minimal, we will require that the certificates be mounted
 and the tls certificate and key are called `tls.crt` and `tls.key`, respectively.
 
 ```golang
-	if cfg.Metrics.UseExternalCerts {
+	if !cfg.InternalCertManager {
 		metricsCertPath := "/etc/kueue/metrics-certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
@@ -378,4 +361,11 @@ This puts more support burden on upstream Kueue as we had a new pattern for cert
 
 ## Alternatives
 
-None.
+### Opt in API
+
+We proposed an API for metrics to use certificates. This would support the existing solutions but it causes a more complicated support issue.
+Generally, if one is using an external certificate service, they probably do not want to rely on internal certificates.
+
+Due to this, we decided to drop the support of using controller runtime certificates for those that are using Cert Manager.
+
+We keep the same behavior in the case that internal certificates are used.
