@@ -533,7 +533,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 		ginkgo.It("should allow to update the PodTemplate in LeaderWorkerSet", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				Request(corev1.ResourceCPU, "100m").

@@ -143,7 +143,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
 				Replicas(3).
 				Queue(lq.Name).
