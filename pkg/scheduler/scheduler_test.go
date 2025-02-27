@@ -3818,7 +3818,7 @@ func TestResourcesToReserve(t *testing.T) {
 			cqSnapshot := snapshot.ClusterQueues["cq"]
 
 			got := resourcesToReserve(e, cqSnapshot)
-			if !reflect.DeepEqual(tc.wantReserved, got) {
+			if !reflect.DeepEqual(tc.wantReserved, got.Quota) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}
 		})
