@@ -1,15 +1,15 @@
-{{- if .Values.enableCertManagerMetrics }}
+{{- if .Values.enableCertManager }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "kueue.fullname" . }}-serving-cert
+  name: {{ include "kueue.fullname" . }}-metrics-cert
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 spec:
   dnsNames:
   - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
-  - '{{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+  - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
   issuerRef:
     kind: Issuer
     name: {{ include "kueue.fullname" . }}-selfsigned-issuer

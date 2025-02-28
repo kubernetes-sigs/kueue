@@ -169,12 +169,6 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
-
-	// UseTLS, if true, will provide tls validation for the prometheus endpoint
-	// False means that we will allow access to metrics to whoever has access to the ServiceAccount
-	// Default will be false
-	// +optional
-	UseTLS bool `json:"useTLS,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
