@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains definitions of Provisioning Request related objects.
-package v1beta1
+// Package v1 contains definitions of Provisioning Request related objects.
+package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +27,7 @@ const (
 	// GroupName represents the group name for ProvisioningRequest resources.
 	GroupName = "autoscaling.x-k8s.io"
 	// GroupVersion represents the group name for ProvisioningRequest resources.
-	GroupVersion = "v1beta1"
+	GroupVersion = "v1"
 )
 
 // SchemeGroupVersion represents the group version object for ProvisioningRequest scheme.
