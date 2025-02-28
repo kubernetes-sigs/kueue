@@ -26,7 +26,8 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -56,7 +57,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
-				pod.SetupWebhook,
+				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -98,7 +99,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod should have scheduling gate",
 				)
 
@@ -122,7 +123,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 
@@ -156,7 +157,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 
@@ -191,7 +192,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
-				pod.SetupWebhook,
+				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -230,7 +231,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod should have scheduling gate",
 				)
 
@@ -254,7 +255,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 

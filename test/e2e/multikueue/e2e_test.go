@@ -48,6 +48,7 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -210,7 +211,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request("memory", "2G").
 				Queue(managerLq.Name).
 				Obj()
-				// Since it requires 2G of memory, this pod can only be admitted in worker 2.
+			// Since it requires 2G of memory, this pod can only be admitted in worker 2.
 
 			ginkgo.By("Creating the pod", func() {
 				gomega.Expect(k8sManagerClient.Create(ctx, pod)).Should(gomega.Succeed())
@@ -237,7 +238,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdPod := &corev1.Pod{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
-					g.Expect(utilpod.HasGate(createdPod, "kueue.x-k8s.io/admission")).To(gomega.BeTrue())
+					g.Expect(utilpod.HasGate(createdPod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			finishReason := "PodCompleted"
