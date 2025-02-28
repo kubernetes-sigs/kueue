@@ -5107,17 +5107,17 @@ func TestScheduleForTAS(t *testing.T) {
 }
 
 func TestScheduleForTASPreemption(t *testing.T) {
+	singleNode := testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("5"),
+			corev1.ResourceMemory: resource.MustParse("5Gi"),
+			corev1.ResourcePods:   resource.MustParse("10"),
+		}).
+		Ready()
 	defaultSingleNode := []corev1.Node{
-		*testingnode.MakeNode("x1").
-			Label("tas-node", "true").
-			Label(corev1.LabelHostname, "x1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("5"),
-				corev1.ResourceMemory: resource.MustParse("5Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
+		*singleNode.Clone().Obj(),
 	}
 	defaultTwoNodes := []corev1.Node{
 		*testingnode.MakeNode("x1").
@@ -5239,6 +5239,71 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`,
+				},
+			},
+		},
+		"With pods count usage pressure on nodes: only low priority workload is preempted": {
+			// This test case demonstrates the baseline scenario where there
+			// is only one low-priority workload and it gets preempted even if node has pods count usage pressure.
+			nodes: []corev1.Node{
+				*singleNode.Clone().
+					StatusAllocatable(corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}).
+					Obj(),
+			},
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("high-priority-waiting", "default").
+					Queue("tas-main").
+					Priority(3).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-priority-admitted", "default").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "5").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).Obj(),
+					).
+					Admitted(true).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			wantPreempted: sets.New("default/low-priority-admitted"),
+			wantLeft: map[string][]string{
+				"tas-main": {"default/high-priority-waiting"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
+					EventType: "Normal",
+					Reason:    "Preempted",
+					Message:   "Preempted to accommodate a workload (UID: ) due to prioritization in the ClusterQueue",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "high-priority-waiting"},
 					EventType: "Warning",
 					Reason:    "Pending",
 					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`,
