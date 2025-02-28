@@ -641,8 +641,8 @@ func TestDominantResourceShare(t *testing.T) {
 				i++
 			}
 
-			gotCache := make([]fairSharingResult, 0, len(snapshot.ClusterQueues)+len(snapshot.Cohorts))
-			for _, cq := range cache.hm.ClusterQueues {
+			gotCache := make([]fairSharingResult, 0, len(snapshot.GetClusterQueueNames())+len(snapshot.GetCohortNames()))
+			for _, cq := range cache.hm.GetClusterQueuesCopy() {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     cq.Name,
@@ -651,7 +651,7 @@ func TestDominantResourceShare(t *testing.T) {
 					DrName:   drName,
 				})
 			}
-			for _, cohort := range cache.hm.Cohorts {
+			for _, cohort := range cache.hm.GetCohortsCopy() {
 				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     cohort.Name,
@@ -664,8 +664,8 @@ func TestDominantResourceShare(t *testing.T) {
 				t.Errorf("dominantResourceShare cache mismatch: %s", diff)
 			}
 
-			gotSnapshot := make([]fairSharingResult, 0, len(snapshot.ClusterQueues)+len(snapshot.Cohorts))
-			for _, cq := range snapshot.ClusterQueues {
+			gotSnapshot := make([]fairSharingResult, 0, len(snapshot.GetClusterQueueNames())+len(snapshot.GetCohortNames()))
+			for _, cq := range snapshot.GetClusterQueuesCopy() {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     cq.Name,
@@ -674,7 +674,7 @@ func TestDominantResourceShare(t *testing.T) {
 					DrName:   drName,
 				})
 			}
-			for _, cohort := range snapshot.Cohorts {
+			for _, cohort := range snapshot.GetCohortsCopy() {
 				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     cohort.Name,

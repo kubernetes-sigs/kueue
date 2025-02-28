@@ -327,7 +327,7 @@ func TestManager(t *testing.T) {
 			t.Run("verify clusterqueues", func(t *testing.T) {
 				gotCqs := sets.New[string]()
 				gotEdges := make([]edge, 0, len(tc.wantCqEdge))
-				for _, cq := range mgr.ClusterQueues {
+				for _, cq := range mgr.GetClusterQueuesCopy() {
 					gotCqs.Insert(cq.GetName())
 					if cq.HasParent() {
 						gotEdges = append(gotEdges, edge{cq.GetName(), cq.Parent().GetName()})
@@ -345,7 +345,7 @@ func TestManager(t *testing.T) {
 				gotCqEdges := make([]edge, 0, len(tc.wantCqEdge))
 				gotCohortChildEdges := make([]edge, 0, len(tc.wantCohortEdge))
 				gotCohortParentEdges := make([]edge, 0, len(tc.wantCohortEdge))
-				for _, cohort := range mgr.Cohorts {
+				for _, cohort := range mgr.GetCohortsCopy() {
 					gotCohorts.Insert(cohort.GetName())
 					for _, cq := range cohort.ChildCQs() {
 						gotCqEdges = append(gotCqEdges, edge{cq.GetName(), cohort.GetName()})
@@ -408,7 +408,7 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("root")
 				m.UpdateCohortEdge("root", "root")
 				// we call HasCycle to test invalidation
-				m.CycleChecker.HasCycle(m.Cohorts["root"])
+				m.CycleChecker.HasCycle(m.GetCohort("root"))
 				m.UpdateCohortEdge("root", "")
 			},
 			wantCycles: map[string]bool{
@@ -435,7 +435,7 @@ func TestCycles(t *testing.T) {
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
 
 				// we call HasCycle to test invalidation
-				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+				m.CycleChecker.HasCycle(m.GetCohort("cohort-a"))
 
 				m.UpdateCohortEdge("cohort-a", "cohort-c")
 			},
@@ -451,7 +451,7 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("cohort-b")
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
-				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+				m.CycleChecker.HasCycle(m.GetCohort("cohort-a"))
 
 				m.UpdateCohortEdge("cohort-a", "")
 			},
@@ -466,7 +466,7 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("cohort-b")
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
-				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+				m.CycleChecker.HasCycle(m.GetCohort("cohort-a"))
 				m.DeleteCohort("cohort-b")
 			},
 			wantCycles: map[string]bool{
@@ -480,7 +480,7 @@ func TestCycles(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mgr := NewManager(newCohort)
 			tc.operations(mgr)
-			for _, cohort := range mgr.Cohorts {
+			for _, cohort := range mgr.GetCohortsCopy() {
 				got := mgr.CycleChecker.HasCycle(cohort)
 				if got != tc.wantCycles[cohort.GetName()] {
 					t.Errorf("-want +got: %v %v", tc.wantCycles[cohort.GetName()], got)

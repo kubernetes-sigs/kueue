@@ -58,7 +58,7 @@ func TestCohortLendable(t *testing.T) {
 		"example.com/gpu":  3,
 	}
 
-	lendable := calculateLendable(cache.hm.Cohorts["test-cohort"])
+	lendable := calculateLendable(cache.hm.GetCohort("test-cohort"))
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}
