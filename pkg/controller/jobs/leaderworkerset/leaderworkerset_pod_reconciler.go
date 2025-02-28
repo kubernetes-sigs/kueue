@@ -132,7 +132,7 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	}
 
 	pod.Annotations[podcontroller.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
-	pod.Annotations[podcontroller.RoleHashAnnotation] = kueue.DefaultPodSetName
+	pod.Annotations[podcontroller.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		if _, ok := pod.Annotations[leaderworkersetv1.LeaderPodNameAnnotationKey]; !ok {

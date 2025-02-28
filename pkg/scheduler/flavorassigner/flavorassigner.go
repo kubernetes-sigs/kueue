@@ -58,7 +58,7 @@ func (a *Assignment) Borrows() bool {
 	return a.Borrowing
 }
 
-func (a *Assignment) podSetAssignmentByName(psName string) *PodSetAssignment {
+func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSetAssignment {
 	if idx := slices.IndexFunc(a.PodSets, func(ps PodSetAssignment) bool { return ps.Name == psName }); idx != -1 {
 		return &a.PodSets[idx]
 	}
@@ -99,7 +99,7 @@ func (a *Assignment) Message() string {
 			builder.WriteString("; ")
 		}
 		builder.WriteString("couldn't assign flavors to pod set ")
-		builder.WriteString(ps.Name)
+		builder.WriteString(string(ps.Name))
 		builder.WriteString(": ")
 		builder.WriteString(ps.Status.Message())
 	}
@@ -177,7 +177,7 @@ func (s *Status) Equal(o *Status) bool {
 // .Flavors and .Status can't be empty at the same time, once PodSetAssignment
 // is fully calculated.
 type PodSetAssignment struct {
-	Name     string
+	Name     kueue.PodSetReference
 	Flavors  ResourceAssignment
 	Status   *Status
 	Requests corev1.ResourceList

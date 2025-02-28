@@ -836,7 +836,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if err != nil {
 		return nil
 	}
-	infoMap := slices.ToRefMap(info, func(psi *podset.PodSetInfo) string { return psi.Name })
+	infoMap := slices.ToRefMap(info, func(psi *podset.PodSetInfo) kueue.PodSetReference { return psi.Name })
 	runningPodSets := wl.Spec.DeepCopy().PodSets
 	canBePartiallyAdmitted := workload.CanBePartiallyAdmitted(wl)
 	for i := range runningPodSets {
@@ -1086,7 +1086,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			return nil, err
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			info.Labels[kueuealpha.PodSetLabel] = psAssignment.Name
+			info.Labels[kueuealpha.PodSetLabel] = string(psAssignment.Name)
 			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
 		}
 		for _, admissionCheck := range w.Status.AdmissionChecks {

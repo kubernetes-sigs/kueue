@@ -161,7 +161,8 @@ type Info struct {
 }
 
 type PodSetResources struct {
-	Name string
+	// Name is the name of the PodSet.
+	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
 	Requests resources.Requests
 	// Count indicates how many pods are in the podset.
@@ -358,19 +359,19 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
-func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
-	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (string, int32) {
+func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, int32) {
+func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
 	})
 }
 
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
+func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	totalCounts := podSetsCounts(wl)
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
@@ -381,8 +382,8 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func PodSetNameToTopologyRequest(wl *kueue.Workload) map[string]*kueue.PodSetTopologyRequest {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, *kueue.PodSetTopologyRequest) {
+func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*kueue.PodSetTopologyRequest {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, *kueue.PodSetTopologyRequest) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].TopologyRequest
 	})
 }
@@ -756,8 +757,8 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	ma := utilslices.ToMap(a, func(i int) (string, int32) { return a[i].Name, a[i].Count })
-	mb := utilslices.ToMap(b, func(i int) (string, int32) { return b[i].Name, b[i].Count })
+	ma := utilslices.ToMap(a, func(i int) (kueue.PodSetReference, int32) { return a[i].Name, a[i].Count })
+	mb := utilslices.ToMap(b, func(i int) (kueue.PodSetReference, int32) { return b[i].Name, b[i].Count })
 	return maps.Equal(ma, mb)
 }
 

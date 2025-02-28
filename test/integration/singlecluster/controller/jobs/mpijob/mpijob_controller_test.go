@@ -18,7 +18,6 @@ package mpijob
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -166,14 +165,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		admission := testing.MakeAdmission(clusterQueue.Name).
 			PodSets(
 				kueue.PodSetAssignment{
-					Name: "Launcher",
+					Name: kueue.NewPodSetReference("launcher"),
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
 					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
-					Name: "Worker",
+					Name: kueue.NewPodSetReference("worker"),
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
@@ -228,14 +227,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		admission = testing.MakeAdmission(clusterQueue.Name).
 			PodSets(
 				kueue.PodSetAssignment{
-					Name: "Launcher",
+					Name: kueue.NewPodSetReference("launcher"),
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
 					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
-					Name: "Worker",
+					Name: kueue.NewPodSetReference("worker"),
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
@@ -391,14 +390,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				admission := testing.MakeAdmission(clusterQueueAc.Name).
 					PodSets(
 						kueue.PodSetAssignment{
-							Name: "launcher",
+							Name: kueue.NewPodSetReference("launcher"),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "test-flavor",
 							},
 							Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 						},
 						kueue.PodSetAssignment{
-							Name: "worker",
+							Name: kueue.NewPodSetReference("worker"),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "test-flavor",
 							},
@@ -639,14 +638,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			admission := testing.MakeAdmission("foo").
 				PodSets(
 					kueue.PodSetAssignment{
-						Name: "Launcher",
+						Name: kueue.NewPodSetReference("launcher"),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
 						Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 					},
 					kueue.PodSetAssignment{
-						Name: "Worker",
+						Name: kueue.NewPodSetReference("worker"),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
@@ -1028,7 +1027,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
@@ -1036,7 +1035,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),

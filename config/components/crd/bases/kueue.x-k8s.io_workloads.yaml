@@ -8422,7 +8422,7 @@ spec:
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           maxLength: 63
-                          pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                         resourceUsage:
                           additionalProperties:
@@ -8581,6 +8581,8 @@ spec:
                           name:
                             description: Name of the PodSet to modify. Should match
                               to one of the Workload's PodSets.
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
                           nodeSelector:
                             additionalProperties:
@@ -8754,6 +8756,8 @@ spec:
                       type: integer
                     name:
                       description: name is the PodSet name.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                   required:
                   - count
@@ -8798,7 +8802,7 @@ spec:
                       description: name is the name of the podSet. It should match
                         one of the names in .spec.podSets.
                       maxLength: 63
-                      pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     resources:
                       additionalProperties:
