@@ -12,8 +12,8 @@ spec:
     path: /metrics
     port: https
     scheme: https
-    tlsConfig:
-      insecureSkipVerify: true
+    tlsConfig: {{- toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
+    {{- end }}
   selector:
     matchLabels:
     {{- include "kueue.labels" . | nindent 6 }}

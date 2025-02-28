@@ -67,6 +67,9 @@ spec:
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
+        {{- if .Values.controllerManager.manager.additionalVolumeMounts }}
+          {{- toYaml .Values.controllerManager.manager.additionalVolumeMounts | nindent 10 }} 
+        {{- end }}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
@@ -86,4 +89,6 @@ spec:
           secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
       - configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
-        name: manager-config
+      {{- if .Values.controllerManager.manager.additionalVolumes }}
+        {{- toYaml .Values.controllerManager.manager.additionalVolumes | nindent 8}}
+      {{- end }}
