@@ -13,7 +13,6 @@ spec:
     port: https
     scheme: https
     tlsConfig: {{- toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
-    {{- end }}
   selector:
     matchLabels:
     {{- include "kueue.labels" . | nindent 6 }}

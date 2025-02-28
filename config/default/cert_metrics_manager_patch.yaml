@@ -4,7 +4,7 @@
 - op: add
   path: /spec/template/spec/containers/0/volumeMounts/-
   value:
-    mountPath: /tmp/k8s-metrics-server/metrics-certs
+    mountPath: /etc/kueue/metrics-certs
     name: metrics-certs
     readOnly: true
 

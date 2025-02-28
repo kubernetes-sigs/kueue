@@ -67,8 +67,10 @@ spec:
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
-        {{- if .Values.controllerManager.manager.additionalVolumeMounts }}
-          {{- toYaml .Values.controllerManager.manager.additionalVolumeMounts | nindent 10 }} 
+        {{- if .Values.enableCertManager }}
+        - mountPath: /etc/kueue/metrics-certs
+          name: metrics-certs
+          readOnly: true
         {{- end }}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
@@ -87,8 +89,19 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
-      - configMap:
+      - name: manager-config
+        configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
-      {{- if .Values.controllerManager.manager.additionalVolumes }}
-        {{- toYaml .Values.controllerManager.manager.additionalVolumes | nindent 8}}
+      {{- if .Values.enableCertManager }}
+      - name: metrics-certs
+        secret:
+          secretName: {{ include "kueue.fullname" . }}-metrics-server-cert
+          optional: false
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
       {{- end }}
