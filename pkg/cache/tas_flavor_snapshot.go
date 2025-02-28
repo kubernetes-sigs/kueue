@@ -212,11 +212,13 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].freeCapacity.Sub(resources.Requests{corev1.ResourcePods: 1})
 }
 
-func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp) {
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
+	u := usage.Clone()
+	u.Add(resources.Requests{corev1.ResourcePods: int64(count)})
 	if op == add {
-		s.addTASUsage(domainID, usage)
+		s.addTASUsage(domainID, u)
 	} else {
-		s.removeTASUsage(domainID, usage)
+		s.removeTASUsage(domainID, u)
 	}
 }
 
@@ -321,7 +323,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool) (*kueue.TopologyAssignment, string) {
 	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
-	requests := tasPodSetRequests.SinglePodRequests
+	requests := tasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
 	count := tasPodSetRequests.Count
