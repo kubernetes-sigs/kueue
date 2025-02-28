@@ -452,7 +452,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
@@ -524,6 +524,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Call high priority group pods to complete", func() {
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0)
 			})
 
 			ginkgo.By("Verify the high priority group completes", func() {
