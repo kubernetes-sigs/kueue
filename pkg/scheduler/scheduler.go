@@ -333,6 +333,7 @@ type entry struct {
 func (e *entry) netUsage() workload.Usage {
 	return workload.Usage{
 		Quota: e.netQuotaUsage(),
+		TAS:   e.tasUsage(),
 	}
 }
 
@@ -354,6 +355,31 @@ func (e *entry) netQuotaUsage() resources.FlavorResourceQuantities {
 		}
 	}
 	return usage
+}
+
+func (e *entry) tasUsage() workload.TASUsage {
+	if !features.Enabled(features.TopologyAwareScheduling) || !e.IsUsingTAS() {
+		return nil
+	}
+	result := make(workload.TASUsage)
+	for _, psa := range e.assignment.PodSets {
+		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
+			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			for _, flv := range psa.Flavors {
+				if _, ok := result[flv.Name]; !ok {
+					result[flv.Name] = make(workload.TASFlavorUsage, 0)
+				}
+				for _, domain := range psa.TopologyAssignment.Domains {
+					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
+						Values:            domain.Values,
+						SinglePodRequests: singlePodRequests.Clone(),
+						Count:             domain.Count,
+					})
+				}
+			}
+		}
+	}
+	return result
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -401,6 +427,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
 	return workload.Usage{
 		Quota: quotaResourcesToReserve(e, cq),
+		TAS:   e.TASUsage(),
 	}
 }
 
