@@ -17,8 +17,8 @@ limitations under the License.
 package v1beta1
 
 const (
-	ResourceInUseFinalizerName = "kueue.x-k8s.io/resource-in-use"
-	DefaultPodSetName          = "main"
+	ResourceInUseFinalizerName                 = "kueue.x-k8s.io/resource-in-use"
+	DefaultPodSetName          PodSetReference = "main"
 )
 
 type StopPolicy string

@@ -17,7 +17,6 @@ limitations under the License.
 package pytorchjob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -244,10 +243,10 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -274,13 +273,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").

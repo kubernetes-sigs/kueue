@@ -253,10 +253,10 @@ func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		kueuealpha.PodSetLabel: psName,
+		kueuealpha.PodSetLabel: string(psName),
 	}, client.MatchingFields{
 		indexer.WorkloadNameKey: wlName,
 	}); err != nil {

@@ -134,7 +134,7 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 			count *= wgs.NumOfHosts
 		}
 		podSets = append(podSets, kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
+			Name:            kueue.NewPodSetReference(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),

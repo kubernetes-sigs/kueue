@@ -17,7 +17,6 @@ limitations under the License.
 package paddlejob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -252,10 +251,10 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -282,13 +281,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").

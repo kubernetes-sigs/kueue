@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
-				podSets[i] = *testing.MakePodSet(fmt.Sprintf("ps%d", i), podSetCount).Obj()
+				podSets[i] = *testing.MakePodSet(kueue.NewPodSetReference(fmt.Sprintf("ps%d", i)), podSetCount).Obj()
 			}
 			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
 			err := k8sClient.Create(ctx, workload)

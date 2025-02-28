@@ -149,7 +149,7 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 			}
 		}
 		podSets[psIndex] = kueue.PodSet{
-			Name:            fmt.Sprintf("%s-%v", aw.Name, psIndex),
+			Name:            kueue.NewPodSetReference(fmt.Sprintf("%s-%v", aw.Name, psIndex)),
 			Template:        *podSpecTemplates[psIndex],
 			Count:           awutils.Replicas(awPodSets[psIndex]),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), podIndexLabel, subGroupIndexLabel, subGroupCount),

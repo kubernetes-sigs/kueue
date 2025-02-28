@@ -121,7 +121,7 @@ func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
-			Name:     replicatedJob.Name,
+			Name:     kueue.NewPodSetReference(replicatedJob.Name),
 			Template: *replicatedJob.Template.Spec.Template.DeepCopy(),
 			Count:    podsCount(&replicatedJob),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template.ObjectMeta,
@@ -198,7 +198,7 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
 			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
-					Name:  spec.Name,
+					Name:  kueue.NewPodSetReference(spec.Name),
 					Count: status.Succeeded * podsCountPerReplica(spec),
 				})
 			}
