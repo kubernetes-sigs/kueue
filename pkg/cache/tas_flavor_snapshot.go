@@ -248,6 +248,10 @@ type TASPodSetRequests struct {
 	Flavor            kueue.ResourceFlavorReference
 }
 
+func (t *TASPodSetRequests) TotalRequests() resources.Requests {
+	return t.SinglePodRequests.ScaledUp(int64(t.Count))
+}
+
 type FailureInfo struct {
 	// PodSetName indicates the name of the PodSet for which computing the
 	// TAS assignment failed.
@@ -291,12 +295,10 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		}
 		for _, domain := range assignment.Domains {
 			domainID := utiltas.DomainID(domain.Values)
-			assumedDomainUsage := tr.SinglePodRequests.Clone()
-			assumedDomainUsage.Mul(int64(domain.Count))
 			if assumedUsage[domainID] == nil {
 				assumedUsage[domainID] = resources.Requests{}
 			}
-			assumedUsage[domainID].Add(assumedDomainUsage)
+			assumedUsage[domainID].Add(tr.TotalRequests())
 		}
 	}
 	return result
