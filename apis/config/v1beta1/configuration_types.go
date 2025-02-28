@@ -169,6 +169,21 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+
+	// LocalQueueMetrics configures whether metrics should be exposed per LocalQueue
+	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
+}
+
+type LocalQueueMetrics struct {
+	// Defaults to false
+	Enable bool `json:"enable,omitempty"`
+
+	// Select specific namespaces in which local queue metrics will be exposed
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+
+	// Select specific local queues which should have their metrics exposed based
+	// on a lable selector
+	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

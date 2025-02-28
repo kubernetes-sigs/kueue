@@ -346,7 +346,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		if err := manager.AddOrUpdateWorkload(w); err != nil {
+		if err := manager.AddOrUpdateWorkload(ctx, w); err != nil {
 			t.Errorf("Failed to add or update workload: %v", err)
 		}
 	}
@@ -396,7 +396,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 		t.Errorf("Unexpected workloads after setup (-want,+got):\n%s", diff)
 	}
 
-	manager.DeleteLocalQueue(q)
+	manager.DeleteLocalQueue(ctx, q)
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected workloads after deleting LocalQueue (-want,+got):\n%s", diff)
@@ -464,7 +464,7 @@ func TestAddWorkload(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			err := manager.AddOrUpdateWorkload(tc.workload)
+			err := manager.AddOrUpdateWorkload(context.Background(), tc.workload)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected AddWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -534,7 +534,7 @@ func TestStatus(t *testing.T) {
 	for _, wl := range workloads {
 		// We ignore the ErrClusterQueueDoesNotExist since we never set up ClusterQueue in this test,
 		// and the error should be occurred.
-		if err := manager.AddOrUpdateWorkload(&wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+		if err := manager.AddOrUpdateWorkload(ctx, &wl); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
 			t.Fatalf("Failed to add or update workloads: %v", err)
 		}
 	}
@@ -656,7 +656,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				}
 			}
 			if tc.inQueue {
-				_ = manager.AddOrUpdateWorkload(tc.workload)
+				_ = manager.AddOrUpdateWorkload(ctx, tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
 			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
@@ -810,11 +810,11 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				_ = manager.AddOrUpdateWorkload(w)
+				_ = manager.AddOrUpdateWorkload(ctx, w)
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			err := manager.UpdateWorkload(tc.workloads[0], wl)
+			err := manager.UpdateWorkload(ctx, tc.workloads[0], wl)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -928,7 +928,7 @@ func TestHeads(t *testing.T) {
 
 			go manager.CleanUpOnContext(ctx)
 			for _, wl := range tc.workloads {
-				if err := manager.AddOrUpdateWorkload(wl); err != nil {
+				if err := manager.AddOrUpdateWorkload(ctx, wl); err != nil {
 					t.Errorf("Failed to add or update workload: %v", err)
 				}
 			}
@@ -992,7 +992,7 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(ctx, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1032,7 +1032,7 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					if err := mgr.AddOrUpdateWorkload(&wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(ctx, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1055,7 +1055,7 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					wlCopy := wl.DeepCopy()
 					wlCopy.ResourceVersion = "old"
-					if err := mgr.UpdateWorkload(wlCopy, &wl); err != nil {
+					if err := mgr.UpdateWorkload(ctx, wlCopy, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
@@ -1237,7 +1237,7 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		if err := manager.AddOrUpdateWorkload(w); err != nil {
+		if err := manager.AddOrUpdateWorkload(ctx, w); err != nil {
 			t.Errorf("Failed to add or update workload: %v", err)
 		}
 	}

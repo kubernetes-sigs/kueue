@@ -393,6 +393,13 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 metrics will be reported.</p>
 </td>
 </tr>
+<tr><td><code>localQueueMetrics</code> <B>[Required]</B><br/>
+<a href="#LocalQueueMetrics"><code>LocalQueueMetrics</code></a>
+</td>
+<td>
+   <p>LocalQueueMetrics configures whether metrics should be exposed per LocalQueue</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -598,6 +605,45 @@ Defaults to kueue-webhook-service.</p>
 <td>
    <p>WebhookSecretName is the name of the Secret used to store CA and server certs.
 Defaults to kueue-webhook-server-cert.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueMetrics`     {#LocalQueueMetrics}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#ControllerMetrics)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Defaults to false</p>
+</td>
+</tr>
+<tr><td><code>namespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>Select specific namespaces in which local queue metrics will be exposed</p>
+</td>
+</tr>
+<tr><td><code>localQueueSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>Select specific local queues which should have their metrics exposed based
+on a lable selector</p>
 </td>
 </tr>
 </tbody>
