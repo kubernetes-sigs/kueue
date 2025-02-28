@@ -433,7 +433,6 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
 	fullAssignment := flvAssigner.Assign(log, nil)
-	var faPreemptionTargets []*preemption.Target
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -441,15 +440,13 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemptionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		if len(faPreemptionTargets) > 0 {
+			return fullAssignment, faPreemptionTargets
+		}
 	}
 
-	// if the feature gate is not enabled or we can preempt
-	if !features.Enabled(features.PartialAdmission) || len(faPreemptionTargets) > 0 {
-		return fullAssignment, faPreemptionTargets
-	}
-
-	if wl.CanBePartiallyAdmitted() {
+	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(log, nextCounts)
 			mode := assignment.RepresentativeMode()
