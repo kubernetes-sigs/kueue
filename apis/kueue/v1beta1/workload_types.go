@@ -17,6 +17,8 @@ limitations under the License.
 package v1beta1
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -129,12 +131,19 @@ type Admission struct {
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
 
+// PodSetReference is the name of a PodSet.
+// +kubebuilder:validation:MaxLength=63
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+type PodSetReference string
+
+func NewPodSetReference(name string) PodSetReference {
+	return PodSetReference(strings.ToLower(name))
+}
+
 type PodSetAssignment struct {
 	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	Name string `json:"name"`
+	Name PodSetReference `json:"name"`
 
 	// Flavors are the flavors assigned to the workload for each resource.
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
@@ -245,9 +254,7 @@ type TopologyDomainAssignment struct {
 type PodSet struct {
 	// name is the PodSet name.
 	// +kubebuilder:default=main
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	Name string `json:"name,omitempty"`
+	Name PodSetReference `json:"name,omitempty"`
 
 	// template is the Pod template.
 	//
@@ -410,7 +417,7 @@ type PodSetUpdate struct {
 	// Name of the PodSet to modify. Should match to one of the Workload's PodSets.
 	// +required
 	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+	Name PodSetReference `json:"name"`
 
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
@@ -433,7 +440,7 @@ type PodSetUpdate struct {
 
 type ReclaimablePod struct {
 	// name is the PodSet name.
-	Name string `json:"name"`
+	Name PodSetReference `json:"name"`
 
 	// count is the number of pods for which the requested resources are no longer needed.
 	// +kubebuilder:validation:Minimum=0
@@ -445,9 +452,7 @@ type PodSetRequest struct {
 	// +kubebuilder:default=main
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	Name string `json:"name"`
+	Name PodSetReference `json:"name"`
 
 	// resources is the total resources all the pods in the podset need to run.
 	//

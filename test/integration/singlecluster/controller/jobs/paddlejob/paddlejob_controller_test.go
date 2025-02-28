@@ -17,8 +17,6 @@ limitations under the License.
 package paddlejob
 
 import (
-	"strings"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -414,7 +412,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultRackTopologyLevel),
@@ -422,7 +420,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),

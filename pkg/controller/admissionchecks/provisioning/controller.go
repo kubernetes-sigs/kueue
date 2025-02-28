@@ -290,8 +290,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 			passProvReqParams(wl, req)
 
 			expectedPodSets := requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)
-			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) string { return p.Name })
-			podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) string { return ps.Name })
+			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
+			podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 			for _, psName := range expectedPodSets {
 				ps, psFound := podSetMap[psName]
 				psa, psaFound := psaMap[psName]
@@ -464,9 +464,9 @@ func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequ
 	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
 }
 
-func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []string {
+func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
 	resourcesSet := sets.New(resources...)
-	users := make([]string, 0, len(podSets))
+	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
 		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
@@ -658,7 +658,7 @@ func (c *Controller) syncCheckStates(
 
 func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
-	refMap := slices.ToMap(podSets, func(i int) (string, string) {
+	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {

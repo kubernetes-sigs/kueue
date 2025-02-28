@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
 
-					admission := testing.MakeAdmission("cq", container.Name).Obj()
+					admission := testing.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -620,7 +620,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			admission := testing.MakeAdmission("q", job.Spec.Template.Spec.Containers[0].Name).Obj()
+			admission := testing.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})

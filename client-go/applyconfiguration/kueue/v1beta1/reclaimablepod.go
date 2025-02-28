@@ -17,11 +17,15 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 // ReclaimablePodApplyConfiguration represents a declarative configuration of the ReclaimablePod type for use
 // with apply.
 type ReclaimablePodApplyConfiguration struct {
-	Name  *string `json:"name,omitempty"`
-	Count *int32  `json:"count,omitempty"`
+	Name  *kueuev1beta1.PodSetReference `json:"name,omitempty"`
+	Count *int32                        `json:"count,omitempty"`
 }
 
 // ReclaimablePodApplyConfiguration constructs a declarative configuration of the ReclaimablePod type for use with
@@ -33,7 +37,7 @@ func ReclaimablePod() *ReclaimablePodApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *ReclaimablePodApplyConfiguration) WithName(value string) *ReclaimablePodApplyConfiguration {
+func (b *ReclaimablePodApplyConfiguration) WithName(value kueuev1beta1.PodSetReference) *ReclaimablePodApplyConfiguration {
 	b.Name = &value
 	return b
 }
