@@ -393,15 +393,6 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 metrics will be reported.</p>
 </td>
 </tr>
-<tr><td><code>useTLS</code><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>UseTLS, if true, will provide tls validation for the prometheus endpoint
-False means that we will allow access to metrics to whoever has access to the ServiceAccount
-Default will be false</p>
-</td>
-</tr>
 </tbody>
 </table>
 
