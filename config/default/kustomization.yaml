@@ -59,7 +59,7 @@ patches:
 # - path: validating_webhookcainjection_patch.yaml
 
 # Uncomment the patches line if you enable Metrics and CertManager
-# [METRICS-WITH-CERTS] To enable metrics protected with certManager, uncomment the following line.
+# [CERTMANAGER] To enable metrics protected with certManager, uncomment the following line.
 # This patch will protect the metrics with certManager self-signed certs.
 # - path: cert_metrics_manager_patch.yaml
 #  target:
