@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-# This patch exposes 8443 port used by visibility service
-
-=======
 # This patch exposes 8443 port used by metrics service
->>>>>>> 5553ee653 (add kustomize support for binding metrics port)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,8 +12,4 @@ spec:
           ports:
           - containerPort: 8443
             name: metrics
-<<<<<<< HEAD
             protocol: TCP
-=======
-            protocol: TCP
->>>>>>> 5553ee653 (add kustomize support for binding metrics port)
