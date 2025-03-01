@@ -21,11 +21,12 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	clientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -83,22 +84,21 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 		}
 	}
 
-	setupChan := make(chan struct{}, 10)
+	var setupWg sync.WaitGroup
 
 	go func() {
 		for gvk := range discoveredCRDs {
-			setupChan <- struct{}{}
+			setupWg.Add(1)
 			go func(currentGVK schema.GroupVersionKind) {
-				defer func() { <-setupChan }()
+				defer setupWg.Done()
 
 				var matchedName string
 				var matchedCallbacks *IntegrationCallbacks
 				m.mu.RLock()
 				for name, cb := range m.integrations {
 					if options.EnabledFrameworks.Has(name) {
-						jobTypeStr := strings.ToLower(fmt.Sprintf("%T", cb.JobType))
-						if name == fmt.Sprintf("%s/%s", currentGVK.Group, strings.ToLower(currentGVK.Kind)) ||
-							strings.EqualFold(jobTypeStr, strings.ToLower(currentGVK.Kind)) {
+						jobGVK, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
+						if err == nil && jobGVK == currentGVK {
 							matchedName = name
 							matchedCallbacks = &cb
 							break
@@ -123,31 +123,33 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 							case <-ctx.Done():
 								return
 							case <-time.After(setupRetryDelay):
-								discoveredCRDs <- currentGVK
+								waitForAPI(ctx, mgr, log, currentGVK, func() {
+									setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...)
+								})
 							}
 						}()
 						return
 					}
 
 					log.Info("API verified, initializing controller", "gvk", currentGVK, "integration", matchedName)
-
 					setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...)
 				})
 			}(gvk)
 		}
+		setupWg.Wait()
 	}()
+
+	setupWg.Wait()
 
 	return m.forEach(func(name string, cb IntegrationCallbacks) error {
 		if !options.EnabledFrameworks.Has(name) {
 			return nil
 		}
-
 		if cb.CanSupportIntegration != nil {
 			if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
 				return fmt.Errorf("jobFrameworkName %q: integration not supported: %w", name, err)
 			}
 		}
-
 		return setupNoopWebhook(mgr, cb.JobType)
 	})
 }
@@ -392,6 +394,8 @@ func (m *integrationManager) setupStaticControllers(mgr ctrl.Manager, log logr.L
 			}
 			log.Info("API not available for static type", "gvk", gvk)
 		}
+
+		log.Info("Setting up webhook for static type", "gvk", gvk)
 		return nil
 	})
 }
