@@ -19,25 +19,30 @@ package jobframework
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	clientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	tools "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	clientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 const (
 	baseBackoffWaitForIntegration = 1 * time.Second
 	maxBackoffWaitForIntegration  = 2 * time.Minute
+	setupRetryDelay               = 5 * time.Second
+	maxSetupRetries               = 5
 )
 
 // SetupControllers setups all controllers and webhooks for integrations.
@@ -54,13 +59,18 @@ func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, op
 	capacity := len(options.EnabledFrameworks)
 	discoveredCRDs := make(chan schema.GroupVersionKind, capacity)
 
-	enabledFrameworks := ProcessOptions(opts...)
+	// Start watching CRDs for dynamic types dynamic
+	go watchCRDs(ctx, mgr, log, chan<- schema.GroupVersionKind(discoveredCRDs), options)
 
-	go watchCRDs(ctx, mgr, log, discoveredCRDs, enabledFrameworks)
+	// Setup controllers for static/built-in types immediately if any
+	if err := manager.setupStaticControllers(mgr, log, opts...); err != nil {
+		return err
+	}
+
 	return manager.setupControllersFromDiscoveredCRDs(ctx, mgr, log, discoveredCRDs, opts...)
 }
 
-func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs <-chan schema.GroupVersionKind, opts ...Option) error {
+func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
@@ -102,18 +112,26 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 					return
 				}
 
-				waitForAPI(ctx, mgr, log, currentGVK, func() {
-					log.Info("API available, initializing controller", "gvk", currentGVK)
-					if err := m.setupControllerAndWebhook(
-						mgr,
-						matchedName,
-						fmt.Sprintf("jobFrameworkName %q", currentGVK.Kind),
-						*matchedCallbacks,
-						options,
-						opts...,
-					); err != nil {
-						log.Error(err, "Controller setup failed", "gvk", currentGVK)
+				waitForAPI(ctx, mgr, log.WithValues("integration", matchedName), currentGVK, func() {
+					log.Info("API available, verifying readiness before initializing controller", "gvk", currentGVK, "integration", matchedName)
+
+					err := verifyAPIReady(ctx, mgr, mgr.GetClient(), mgr.GetScheme(), currentGVK)
+					if err != nil {
+						log.Error(err, "API verification failed, will retry", "gvk", currentGVK)
+						go func() {
+							select {
+							case <-ctx.Done():
+								return
+							case <-time.After(setupRetryDelay):
+								discoveredCRDs <- currentGVK
+							}
+						}()
+						return
 					}
+
+					log.Info("API verified, initializing controller", "gvk", currentGVK, "integration", matchedName)
+
+					setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...)
 				})
 			}(gvk)
 		}
@@ -134,6 +152,81 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 	})
 }
 
+// verifyAPIReady checks if the API server is ready to serve resources of the given GVK
+func verifyAPIReady(ctx context.Context, mgr ctrl.Manager, c client.Client, scheme *runtime.Scheme, gvk schema.GroupVersionKind) error {
+	if err := restMappingExists(mgr, gvk); err != nil {
+		return fmt.Errorf("REST mapping not available: %w", err)
+	}
+
+	listGVK := schema.GroupVersionKind{
+		Group:   gvk.Group,
+		Version: gvk.Version,
+		Kind:    gvk.Kind + "List",
+	}
+
+	listObj, err := scheme.New(listGVK)
+	if err != nil {
+		emptyObj, err := scheme.New(gvk)
+		if err != nil {
+			return fmt.Errorf("failed to create object for GVK %s: %w", gvk, err)
+		}
+
+		listType := reflect.TypeOf(emptyObj)
+		if listType.Kind() == reflect.Ptr {
+			listType.Elem()
+		}
+		listObj, err = scheme.New(listGVK)
+		if err != nil {
+			return fmt.Errorf("failed to create object for GVK %s: %w", listGVK, err)
+		}
+	}
+
+	err = c.List(ctx, listObj.(client.ObjectList), &client.ListOptions{Limit: 1})
+
+	if err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+		return fmt.Errorf("failed to list resources for GVK %s: %w", gvk, err)
+	}
+
+	return nil
+}
+
+func setupControllerWithRetry(ctx context.Context, mgr ctrl.Manager, log logr.Logger, m *integrationManager, name string, gvk schema.GroupVersionKind, cb IntegrationCallbacks, options Options, opts ...Option) {
+	fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", gvk.Kind)
+	retries := 0
+	backoff := setupRetryDelay
+
+	for retries < maxSetupRetries {
+		err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+		if err == nil {
+			log.Info("Controller setup successful", "gvk", gvk, "integration", name)
+			return
+		}
+
+		retries++
+		log.Error(err, "Controller setup failed, will retry",
+			"gvk", gvk,
+			"integration", name,
+			"attempt", retries,
+			"maxRetries", maxSetupRetries)
+
+		if retries >= maxSetupRetries {
+			log.Error(err, "Maximum controller setup retries reached",
+				"gvk", gvk,
+				"integration", name)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff = time.Duration(float64(backoff) * 1.5)
+			if backoff > maxBackoffWaitForIntegration {
+				backoff = maxBackoffWaitForIntegration
+			}
+		}
+	}
+}
 func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
 	if err := cb.NewReconciler(
 		mgr.GetClient(),
@@ -204,7 +297,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 	})
 }
 
-func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan schema.GroupVersionKind, opts Options) {
+func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan<- schema.GroupVersionKind, opts Options) {
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		log.Error(err, "Failed to create CRD client")
@@ -215,7 +308,7 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
 	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
 
-	crdInformer.AddEventHandler(tools.ResourceEventHandlerFuncs{
+	_, err = crdInformer.AddEventHandler(tools.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
 			gvk := schema.GroupVersionKind{
@@ -223,13 +316,15 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 				Version: crd.Spec.Versions[0].Name,
 				Kind:    crd.Spec.Names.Kind,
 			}
-
+			log.Info("CRD added", "gvk", gvk)
 			for _, condition := range crd.Status.Conditions {
-				if condition.Type == apiextensionsv1.Established &&
-					condition.Status == apiextensionsv1.ConditionTrue {
-					if opts.EnabledFrameworks.Has(fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))) {
+				if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+					frameworkKey := fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))
+					log.Info("CRD established", "gvk", gvk, "frameworkKey", frameworkKey)
+					if opts.EnabledFrameworks.Has(frameworkKey) {
+						log.Info("Framework enabled, waiting for API", "gvk", gvk)
 						go waitForAPI(ctx, mgr, log, gvk, func() {
-							log.Info("API now available, starting controller", "gvk", gvk)
+							log.Info("API now available, sending GVK", "gvk", gvk)
 							discoveredCRDs <- gvk
 						})
 						break
@@ -238,19 +333,21 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newCRD := newObj.(*apiextensionsv1.CustomResourceDefinition)
+			crd := newObj.(*apiextensionsv1.CustomResourceDefinition)
 			gvk := schema.GroupVersionKind{
-				Group:   newCRD.Spec.Group,
-				Version: newCRD.Spec.Versions[0].Name,
-				Kind:    newCRD.Spec.Names.Kind,
+				Group:   crd.Spec.Group,
+				Version: crd.Spec.Versions[0].Name,
+				Kind:    crd.Spec.Names.Kind,
 			}
-
-			for _, condition := range newCRD.Status.Conditions {
-				if condition.Type == apiextensionsv1.Established &&
-					condition.Status == apiextensionsv1.ConditionTrue {
-					if opts.EnabledFrameworks.Has(fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))) {
+			log.Info("CRD updated", "gvk", gvk)
+			for _, condition := range crd.Status.Conditions {
+				if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+					frameworkKey := fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))
+					log.Info("CRD established", "gvk", gvk, "frameworkKey", frameworkKey)
+					if opts.EnabledFrameworks.Has(frameworkKey) {
+						log.Info("Framework enabled, waiting for API", "gvk", gvk)
 						go waitForAPI(ctx, mgr, log, gvk, func() {
-							log.Info("API now available, starting controller", "gvk", gvk)
+							log.Info("API now available, sending GVK", "gvk", gvk)
 							discoveredCRDs <- gvk
 						})
 						break
@@ -259,7 +356,42 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			}
 		},
 	})
+	if err != nil {
+		log.Error(err, "Failed to add event handler to CRD informer")
+		close(discoveredCRDs)
+		return
+	}
 
 	factory.Start(ctx.Done())
-	factory.WaitForCacheSync(ctx.Done())
+	if !tools.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
+		log.Error(nil, "Failed to sync informer cache")
+		close(discoveredCRDs)
+		return
+	}
+	log.Info("CRD informer cache synced successfully")
+}
+
+func (m *integrationManager) setupStaticControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	options := ProcessOptions(opts...)
+	return m.forEach(func(name string, cb IntegrationCallbacks) error {
+		if !options.EnabledFrameworks.Has(name) {
+			return nil
+		}
+		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
+		gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
+		if err != nil {
+			return fmt.Errorf("%s: failed to get GVK: %w", fwkNamePrefix, err)
+		}
+		log.Info("Processing static integration", "name", name, "gvk", gvk)
+		if !strings.HasSuffix(gvk.Group, ".k8s.io") || gvk.Group == "batch" {
+			if err := restMappingExists(mgr, gvk); err == nil {
+				log.Info("API exists, setting up controller", "gvk", gvk)
+				return m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+			} else if !meta.IsNoMatchError(err) {
+				return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+			}
+			log.Info("API not available for static type", "gvk", gvk)
+		}
+		return nil
+	})
 }
