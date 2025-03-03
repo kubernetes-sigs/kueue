@@ -42,7 +42,7 @@ type Snapshot struct {
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
-	cq := s.ClusterQueues[wl.ClusterQueue]
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.removeUsage(wl.Usage())
 }
@@ -50,13 +50,13 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 // AddWorkload adds a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
-	cq := s.ClusterQueues[wl.ClusterQueue]
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	for name, cq := range s.ClusterQueues {
+	for name, cq := range s.ClusterQueues() {
 		cohortName := "<none>"
 		if cq.HasParent() {
 			cohortName = cq.Parent().Name
@@ -70,7 +70,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
 		)
 	}
-	for name, cohort := range s.Cohorts {
+	for name, cohort := range s.Cohorts() {
 		log.Info("Found cohort",
 			"cohort", name,
 			"resources", cohort.ResourceNode.SubtreeQuota,
@@ -88,13 +88,13 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
-	for _, cohort := range c.hm.Cohorts {
+	for _, cohort := range c.hm.Cohorts() {
 		if c.hm.CycleChecker.HasCycle(cohort) {
 			continue
 		}
 		snap.AddCohort(cohort.Name)
-		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
-		snap.Cohorts[cohort.Name].FairWeight = cohort.FairWeight
+		snap.Cohort(cohort.Name).ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohort(cohort.Name).FairWeight = cohort.FairWeight
 		if cohort.HasParent() {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
@@ -110,7 +110,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 			}
 		}
 	}
-	for _, cq := range c.hm.ClusterQueues {
+	for _, cq := range c.hm.ClusterQueues() {
 		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue

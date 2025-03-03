@@ -219,7 +219,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		cq := snapshot.ClusterQueues[e.ClusterQueue]
+		cq := snapshot.ClusterQueue(e.ClusterQueue)
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
 
@@ -337,7 +337,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
-		cq := snap.ClusterQueues[w.ClusterQueue]
+		cq := snap.ClusterQueue(w.ClusterQueue)
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
@@ -414,7 +414,7 @@ type partialAssignment struct {
 }
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	cq := snap.ClusterQueues[wl.ClusterQueue]
+	cq := snap.ClusterQueue(wl.ClusterQueue)
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
 	fullAssignment := flvAssigner.Assign(log, nil)
 
