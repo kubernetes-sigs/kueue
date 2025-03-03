@@ -42,7 +42,7 @@ func (m *Manager[CQ, C]) AddClusterQueue(cq CQ) {
 }
 
 func (m *Manager[CQ, C]) GetClusterQueue(name string) CQ {
-  return m.clusterQueues[name]
+	return m.clusterQueues[name]
 }
 
 func (m *Manager[CQ, C]) GetClusterQueueNames() []string {
@@ -90,7 +90,7 @@ func (m *Manager[CQ, C]) AddCohort(cohortName string) {
 }
 
 func (m *Manager[CQ, C]) GetCohort(name string) C {
-  return m.cohorts[name]
+	return m.cohorts[name]
 }
 
 func (m *Manager[CQ, C]) GetCohortsCopy() map[string]C {
@@ -176,6 +176,14 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 
 func (m *Manager[CQ, C]) resetCycleChecker() {
 	m.CycleChecker = CycleChecker{make(map[string]bool, len(m.cohorts))}
+}
+
+// A special constructor for using in tests
+func NewManagerForTest[CQ clusterQueueNode[C], C cohortNode[CQ, C]](cohorts map[string]C, clusterQueues map[string]CQ) Manager[CQ, C] {
+	return Manager[CQ, C]{
+		cohorts:       cohorts,
+		clusterQueues: clusterQueues,
+	}
 }
 
 type nodeBase interface {
