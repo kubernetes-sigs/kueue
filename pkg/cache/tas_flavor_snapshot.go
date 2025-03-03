@@ -411,23 +411,21 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		topDomain = sortedDomain[findMostAllocatedDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
-		results := []*domain{topDomain}
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)
 		}
 		if levelIdx > 0 {
 			return s.findLevelWithFitDomains(levelIdx-1, required, count)
 		}
-		lastIdx := 0
-		remainingCount := count - sortedDomain[lastIdx].state
-		for remainingCount > 0 && lastIdx < len(sortedDomain)-1 && sortedDomain[lastIdx].state > 0 {
-			lastIdx++
+		results := []*domain{}
+		remainingCount := count
+		for idx := 0; remainingCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].state > 0; idx++ {
 			offset := 0
-			if !features.Enabled(features.TASLeastAllocated) && sortedDomain[lastIdx].state >= remainingCount {
-				offset = findMostAllocatedDomainIdx(sortedDomain[lastIdx:], remainingCount)
+			if !features.Enabled(features.TASLeastAllocated) && sortedDomain[idx].state >= remainingCount {
+				offset = findMostAllocatedDomainIdx(sortedDomain[idx:], remainingCount)
 			}
-			results = append(results, sortedDomain[lastIdx+offset])
-			remainingCount -= sortedDomain[lastIdx].state
+			results = append(results, sortedDomain[idx+offset])
+			remainingCount -= sortedDomain[idx].state
 		}
 		if remainingCount > 0 {
 			return 0, nil, s.notFitMessage(count-remainingCount, count)
