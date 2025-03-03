@@ -68,6 +68,24 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
+// SimulateUsageRemoval the snapshot by removing the usage corresponding to the
+// list of workloads. It returns the function which can be used to restore
+// the usage.
+func (c *ClusterQueueSnapshot) SimulateUsageRemoval(workloads []*workload.Info) func() {
+	var usage []workload.Usage
+	for _, w := range workloads {
+		usage = append(usage, w.Usage())
+	}
+	for _, u := range usage {
+		c.removeUsage(u)
+	}
+	return func() {
+		for _, u := range usage {
+			c.AddUsage(u)
+		}
+	}
+}
+
 func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota {
 		addUsage(c, fr, q)
