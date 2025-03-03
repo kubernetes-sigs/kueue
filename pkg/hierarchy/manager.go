@@ -16,6 +16,8 @@ limitations under the License.
 
 package hierarchy
 
+import "maps"
+
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
 // between them.
 type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
@@ -54,11 +56,7 @@ func (m *Manager[CQ, C]) ClusterQueuesNames() []string {
 }
 
 func (m *Manager[CQ, C]) ClusterQueues() map[string]CQ {
-	clusterQueuesCopy := make(map[string]CQ)
-	for k, v := range m.clusterQueues {
-		clusterQueuesCopy[k] = v
-	}
-	return clusterQueuesCopy
+	return maps.Clone(m.clusterQueues)
 }
 
 func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
@@ -94,11 +92,7 @@ func (m *Manager[CQ, C]) Cohort(name string) C {
 }
 
 func (m *Manager[CQ, C]) Cohorts() map[string]C {
-	cohortCopy := make(map[string]C)
-	for k, v := range m.cohorts {
-		cohortCopy[k] = v
-	}
-	return cohortCopy
+	return maps.Clone(m.cohorts)
 }
 
 func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
