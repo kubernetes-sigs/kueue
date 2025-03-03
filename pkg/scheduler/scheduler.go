@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -210,7 +209,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
-	preemptedWorkloads := sets.New[string]()
+	preemptedWorkloads := make(preemptedWorkloads)
 	skippedPreemptions := make(map[string]int)
 	for i := range entries {
 		e := &entries[i]
@@ -233,11 +232,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 
 		// We skip multiple-preemptions per cohort if any of the targets are overlapping
-		pendingPreemptions := make([]string, 0, len(e.preemptionTargets))
-		for _, target := range e.preemptionTargets {
-			pendingPreemptions = append(pendingPreemptions, workload.Key(target.WorkloadInfo.Obj))
-		}
-		if preemptedWorkloads.HasAny(pendingPreemptions...) {
+		if preemptedWorkloads.hasAny(e.preemptionTargets) {
 			setSkipped(e, "Workload has overlapping preemption targets with another workload")
 			skippedPreemptions[cq.Name]++
 			continue
@@ -251,7 +246,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			continue
 		}
-		preemptedWorkloads.Insert(pendingPreemptions...)
+		preemptedWorkloads.insert(e.preemptionTargets)
 		cq.AddUsage(usage)
 
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
