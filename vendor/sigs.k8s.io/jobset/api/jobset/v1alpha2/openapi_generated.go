@@ -25,6 +25,7 @@ import (
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
 		"sigs.k8s.io/jobset/api/jobset/v1alpha2.Coordinator":         schema_jobset_api_jobset_v1alpha2_Coordinator(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn":           schema_jobset_api_jobset_v1alpha2_DependsOn(ref),
 		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicy":       schema_jobset_api_jobset_v1alpha2_FailurePolicy(ref),
 		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicyRule":   schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref),
 		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet":              schema_jobset_api_jobset_v1alpha2_JobSet(ref),
@@ -70,6 +71,36 @@ func schema_jobset_api_jobset_v1alpha2_Coordinator(ref common.ReferenceCallback)
 					},
 				},
 				Required: []string{"replicatedJob"},
+			},
+		},
+	}
+}
+
+func schema_jobset_api_jobset_v1alpha2_DependsOn(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DependsOn defines the dependency on the previous ReplicatedJob status.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name of the previous ReplicatedJob.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status defines the condition for the ReplicatedJob. Only Ready or Complete status can be set.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"name", "status"},
 			},
 		},
 	}
@@ -327,7 +358,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref common.ReferenceCallback) 
 					},
 					"startupPolicy": {
 						SchemaProps: spec.SchemaProps{
-							Description: "StartupPolicy, if set, configures in what order jobs must be started",
+							Description: "StartupPolicy, if set, configures in what order jobs must be started Deprecated: StartupPolicy is deprecated, please use the DependsOn API.",
 							Ref:         ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.StartupPolicy"),
 						},
 					},
@@ -506,12 +537,34 @@ func schema_jobset_api_jobset_v1alpha2_ReplicatedJob(ref common.ReferenceCallbac
 							Format:      "int32",
 						},
 					},
+					"dependsOn": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"name",
+								},
+								"x-kubernetes-list-type": "map",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "DependsOn is an optional list that specifies the preceding ReplicatedJobs upon which the current ReplicatedJob depends. If specified, the ReplicatedJob will be created only after the referenced ReplicatedJobs reach their desired state. The Order of ReplicatedJobs is defined by their enumeration in the slice. Note, that the first ReplicatedJob in the slice cannot use the DependsOn API. Currently, only a single item is supported in the DependsOn list. If JobSet is suspended the all active ReplicatedJobs will be suspended. When JobSet is resumed the Job sequence starts again. This API is mutually exclusive with the StartupPolicy API.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn"),
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"name", "template"},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/api/batch/v1.JobTemplateSpec"},
+			"k8s.io/api/batch/v1.JobTemplateSpec", "sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn"},
 	}
 }
 
