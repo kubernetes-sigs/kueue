@@ -379,7 +379,7 @@ func TestAvailable(t *testing.T) {
 			}
 			// before adding usage
 			{
-				clusterQueues := snapshot.GetClusterQueuesCopy()
+				clusterQueues := snapshot.ClusterQueues()
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				for _, cq := range clusterQueues {
@@ -403,9 +403,9 @@ func TestAvailable(t *testing.T) {
 			// add usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.GetClusterQueue(cqName).AddUsage(workload.Usage{Quota: usage})
+					snapshot.ClusterQueue(cqName).AddUsage(workload.Usage{Quota: usage})
 				}
-				clusterQueues := snapshot.GetClusterQueuesCopy()
+				clusterQueues := snapshot.ClusterQueues()
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				for _, cq := range clusterQueues {
@@ -428,9 +428,9 @@ func TestAvailable(t *testing.T) {
 			// remove usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.GetClusterQueue(cqName).removeUsage(workload.Usage{Quota: usage})
+					snapshot.ClusterQueue(cqName).removeUsage(workload.Usage{Quota: usage})
 				}
-				clusterQueues := snapshot.GetClusterQueuesCopy()
+				clusterQueues := snapshot.ClusterQueues()
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))
 				for _, cq := range clusterQueues {

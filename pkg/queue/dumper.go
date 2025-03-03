@@ -26,7 +26,7 @@ import (
 func (m *Manager) LogDump(log logr.Logger) {
 	m.Lock()
 	defer m.Unlock()
-	for name, cq := range m.hm.GetClusterQueuesCopy() {
+	for name, cq := range m.hm.ClusterQueues() {
 		pending, _ := cq.Dump()
 		inadmissible, _ := cq.DumpInadmissible()
 		log.Info("Found pending and inadmissible workloads in ClusterQueue",
@@ -41,7 +41,7 @@ func (m *Manager) LogDump(log logr.Logger) {
 func (m *Manager) Dump() map[string][]string {
 	m.Lock()
 	defer m.Unlock()
-	clusterQueues := m.hm.GetClusterQueuesCopy()
+	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (m *Manager) Dump() map[string][]string {
 func (m *Manager) DumpInadmissible() map[string][]string {
 	m.Lock()
 	defer m.Unlock()
-	clusterQueues := m.hm.GetClusterQueuesCopy()
+	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}

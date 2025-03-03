@@ -118,7 +118,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Could not re-add ClusterQueue: %v", err)
 	}
-	workloads := popNamesFromCQ(manager.hm.GetClusterQueue("cq"))
+	workloads := popNamesFromCQ(manager.hm.ClusterQueue("cq"))
 	wantWorkloads := []string{"/b", "/a"}
 	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
 		t.Errorf("Workloads popped in the wrong order from clusterQueue:\n%s", diff)
@@ -191,7 +191,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		"alpha": sets.New("cq1", "cq2"),
 	}
 	gotCohorts := make(map[string]sets.Set[string])
-	for name, cohort := range manager.hm.GetCohortsCopy() {
+	for name, cohort := range manager.hm.Cohorts() {
 		gotCohorts[name] = sets.New[string]()
 		for _, cq := range cohort.ChildCQs() {
 			gotCohorts[name].Insert(cq.GetName())
@@ -249,7 +249,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
-	if manager.requeueWorkloadsCohort(ctx, manager.hm.GetCohort("cohort-a")) {
+	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohort("cohort-a")) {
 		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
 }
@@ -359,7 +359,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 
 	// Verification.
 	workloadOrders := make(map[string][]string)
-	for name, cq := range manager.hm.GetClusterQueuesCopy() {
+	for name, cq := range manager.hm.ClusterQueues() {
 		workloadOrders[name] = popNamesFromCQ(cq)
 	}
 	wantWorkloadOrders := map[string][]string{
@@ -827,7 +827,7 @@ func TestUpdateWorkload(t *testing.T) {
 				} else if diff := cmp.Diff(wl, item.Obj); diff != "" {
 					t.Errorf("Object stored in queue differs (-want,+got):\n%s", diff)
 				}
-				cq := manager.hm.GetClusterQueue(q.ClusterQueue)
+				cq := manager.hm.ClusterQueue(q.ClusterQueue)
 				if cq != nil {
 					item := cq.Info(key)
 					if item == nil {
@@ -838,7 +838,7 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			queueOrder := make(map[string][]string)
-			for name, cq := range manager.hm.GetClusterQueuesCopy() {
+			for name, cq := range manager.hm.ClusterQueues() {
 				queueOrder[name] = popNamesFromCQ(cq)
 			}
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {

@@ -641,8 +641,8 @@ func TestDominantResourceShare(t *testing.T) {
 				i++
 			}
 
-			cacheClusterQueuesMap := cache.hm.GetClusterQueuesCopy()
-			cacheCohortsMap := cache.hm.GetCohortsCopy()
+			cacheClusterQueuesMap := cache.hm.ClusterQueues()
+			cacheCohortsMap := cache.hm.Cohorts()
 			gotCache := make([]fairSharingResult, 0, len(cacheClusterQueuesMap)+len(cacheCohortsMap))
 			for _, cq := range cacheClusterQueuesMap {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
@@ -666,8 +666,8 @@ func TestDominantResourceShare(t *testing.T) {
 				t.Errorf("dominantResourceShare cache mismatch: %s", diff)
 			}
 
-			snapshotClusterQueuesMap := snapshot.GetClusterQueuesCopy()
-			snapshotCohortsMap := snapshot.GetCohortsCopy()
+			snapshotClusterQueuesMap := snapshot.ClusterQueues()
+			snapshotCohortsMap := snapshot.Cohorts()
 			gotSnapshot := make([]fairSharingResult, 0, len(snapshotClusterQueuesMap)+len(snapshotCohortsMap))
 			for _, cq := range snapshotClusterQueuesMap {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)

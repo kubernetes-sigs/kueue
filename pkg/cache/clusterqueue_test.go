@@ -169,7 +169,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(
 				tc.wantLastAssignmentGeneration,
-				snapshot.GetClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
+				snapshot.ClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
 		})

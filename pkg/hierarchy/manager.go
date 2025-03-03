@@ -41,19 +41,19 @@ func (m *Manager[CQ, C]) AddClusterQueue(cq CQ) {
 	m.clusterQueues[cq.GetName()] = cq
 }
 
-func (m *Manager[CQ, C]) GetClusterQueue(name string) CQ {
+func (m *Manager[CQ, C]) ClusterQueue(name string) CQ {
 	return m.clusterQueues[name]
 }
 
-func (m *Manager[CQ, C]) GetClusterQueueNames() []string {
-	clusterQueueNames := make([]string, 0, len(m.clusterQueues))
+func (m *Manager[CQ, C]) ClusterQueuesNames() []string {
+	clusterQueuesNames := make([]string, 0, len(m.clusterQueues))
 	for k := range m.clusterQueues {
-		clusterQueueNames = append(clusterQueueNames, k)
+		clusterQueuesNames = append(clusterQueuesNames, k)
 	}
-	return clusterQueueNames
+	return clusterQueuesNames
 }
 
-func (m *Manager[CQ, C]) GetClusterQueuesCopy() map[string]CQ {
+func (m *Manager[CQ, C]) ClusterQueues() map[string]CQ {
 	clusterQueuesCopy := make(map[string]CQ)
 	for k, v := range m.clusterQueues {
 		clusterQueuesCopy[k] = v
@@ -89,11 +89,11 @@ func (m *Manager[CQ, C]) AddCohort(cohortName string) {
 	m.cohorts[cohortName].markExplicit()
 }
 
-func (m *Manager[CQ, C]) GetCohort(name string) C {
+func (m *Manager[CQ, C]) Cohort(name string) C {
 	return m.cohorts[name]
 }
 
-func (m *Manager[CQ, C]) GetCohortsCopy() map[string]C {
+func (m *Manager[CQ, C]) Cohorts() map[string]C {
 	cohortCopy := make(map[string]C)
 	for k, v := range m.cohorts {
 		cohortCopy[k] = v

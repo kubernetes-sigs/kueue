@@ -2659,7 +2659,7 @@ func TestSchedule(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			for cqName, c := range snapshot.GetClusterQueuesCopy() {
+			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
 					gotWorkloads = append(gotWorkloads, *w.Obj)
 					switch {
@@ -3466,7 +3466,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			for cqName, c := range snapshot.GetClusterQueuesCopy() {
+			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
 					switch {
 					case !workload.IsAdmitted(w.Obj):
@@ -3815,7 +3815,7 @@ func TestResourcesToReserve(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			cqSnapshot := snapshot.GetClusterQueue("cq")
+			cqSnapshot := snapshot.ClusterQueue("cq")
 
 			got := resourcesToReserve(e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got.Quota) {
@@ -5073,7 +5073,7 @@ func TestScheduleForTAS(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			gotAssignments := make(map[string]kueue.Admission)
-			for cqName, c := range snapshot.GetClusterQueuesCopy() {
+			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
 					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
 						continue
@@ -5645,7 +5645,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
 			gotAssignments := make(map[string]kueue.Admission)
-			for cqName, c := range snapshot.GetClusterQueuesCopy() {
+			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
 					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
 						continue
