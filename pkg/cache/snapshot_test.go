@@ -69,8 +69,9 @@ func TestSnapshot(t *testing.T) {
 					ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{},
+					map[string]*ClusterQueueSnapshot{
 						"a": {
 							Name:                          "a",
 							NamespaceSelector:             labels.Everything(),
@@ -100,7 +101,7 @@ func TestSnapshot(t *testing.T) {
 							FairWeight: oneQuantity,
 						},
 					},
-				},
+				),
 			},
 		},
 		"inactive clusterQueues": {
@@ -127,9 +128,10 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{},
-				},
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{},
+					map[string]*ClusterQueueSnapshot{},
+				),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
 						NodeLabel("a", "b").
@@ -226,11 +228,11 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"borrowing": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -354,7 +356,7 @@ func TestSnapshot(t *testing.T) {
 								Status:            active,
 							},
 						},
-					},
+					),
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 						"demand":  utiltesting.MakeResourceFlavor("demand").NodeLabel("instance", "demand").Obj(),
 						"spot":    utiltesting.MakeResourceFlavor("spot").NodeLabel("instance", "spot").Obj(),
@@ -372,8 +374,9 @@ func TestSnapshot(t *testing.T) {
 					}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{},
+					map[string]*ClusterQueueSnapshot{
 						"with-preemption": {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
@@ -388,7 +391,7 @@ func TestSnapshot(t *testing.T) {
 							FairWeight: oneQuantity,
 						},
 					},
-				},
+				),
 			},
 		},
 		"clusterQueue with fair sharing weight": {
@@ -396,8 +399,9 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeClusterQueue("with-preemption").FairWeight(resource.MustParse("3")).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{},
+					map[string]*ClusterQueueSnapshot{
 						"with-preemption": {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
@@ -409,7 +413,7 @@ func TestSnapshot(t *testing.T) {
 							FairWeight:                    resource.MustParse("3"),
 						},
 					},
-				},
+				),
 			},
 		},
 		"lendingLimit with 2 clusterQueues and 2 flavors(whenCanBorrow: Borrow)": {
@@ -471,11 +475,11 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lending": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -557,7 +561,7 @@ func TestSnapshot(t *testing.T) {
 								Status:            active,
 							},
 						},
-					},
+					),
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
 						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
@@ -626,11 +630,11 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lending": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -711,7 +715,7 @@ func TestSnapshot(t *testing.T) {
 								Status:            active,
 							},
 						},
-					},
+					),
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
 						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
@@ -745,8 +749,26 @@ func TestSnapshot(t *testing.T) {
 					).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{
+						"cohort": {
+							Name: "cohort",
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: 42_000, BorrowingLimit: nil, LendingLimit: nil},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  13_000,
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  25_000,
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
+								},
+							},
+							FairWeight: oneQuantity,
+						},
+					},
+					map[string]*ClusterQueueSnapshot{
 						"cq": {
 							Name:                          "cq",
 							AllocatableResourceGeneration: 2,
@@ -773,25 +795,7 @@ func TestSnapshot(t *testing.T) {
 							Status:            active,
 						},
 					},
-					Cohorts: map[string]*CohortSnapshot{
-						"cohort": {
-							Name: "cohort",
-							ResourceNode: ResourceNode{
-								Quotas: map[resources.FlavorResource]ResourceQuota{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
-									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
-									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: 42_000, BorrowingLimit: nil, LendingLimit: nil},
-								},
-								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}:  13_000,
-									{Flavor: "x86", Resource: corev1.ResourceCPU}:  25_000,
-									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
-								},
-							},
-							FairWeight: oneQuantity,
-						},
-					},
-				},
+				),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"arm":  utiltesting.MakeResourceFlavor("arm").Obj(),
 					"x86":  utiltesting.MakeResourceFlavor("x86").Obj(),
@@ -832,8 +836,19 @@ func TestSnapshot(t *testing.T) {
 					).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{
+						"nocycle": {
+							Name: "nocycle",
+							ResourceNode: ResourceNode{
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+								},
+							},
+							FairWeight: oneQuantity,
+						},
+					},
+					map[string]*ClusterQueueSnapshot{
 						"cq-nocycle": {
 							Name:                          "cq-nocycle",
 							AllocatableResourceGeneration: 2,
@@ -858,18 +873,7 @@ func TestSnapshot(t *testing.T) {
 							Status:            active,
 						},
 					},
-					Cohorts: map[string]*CohortSnapshot{
-						"nocycle": {
-							Name: "nocycle",
-							ResourceNode: ResourceNode{
-								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
-								},
-							},
-							FairWeight: oneQuantity,
-						},
-					},
-				},
+				),
 				InactiveClusterQueueSets: sets.New("cq-autocycle", "cq-a", "cq-b"),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"arm": utiltesting.MakeResourceFlavor("arm").Obj(),
@@ -881,14 +885,15 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-					Cohorts: map[string]*CohortSnapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[string]*CohortSnapshot{
 						"cohort": {
 							Name:       "cohort",
 							FairWeight: resource.MustParse("0.5"),
 						},
 					},
-				},
+					map[string]*ClusterQueueSnapshot{},
+				),
 			},
 		},
 	}
@@ -923,7 +928,7 @@ func TestSnapshot(t *testing.T) {
 			if diff := cmp.Diff(tc.wantSnapshot, *snapshot, snapCmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 			}
-			for _, cq := range snapshot.ClusterQueues {
+			for _, cq := range snapshot.ClusterQueues() {
 				for i := range cq.ResourceGroups {
 					rg := &cq.ResourceGroups[i]
 					for rName := range rg.CoveredResources {
@@ -997,7 +1002,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.hm.ClusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues() {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
@@ -1006,7 +1011,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
 	}
-	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Parent().ResourceNode.SubtreeQuota
+	initialCohortResources := initialSnapshot.ClusterQueue("c1").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
 		add    []string
@@ -1032,15 +1037,15 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"c1": {
 								Name:              "c1",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1059,7 +1064,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							"c2": {
 								Name:                          "c2",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1073,7 +1078,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1092,18 +1097,18 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[string]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1125,7 +1130,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
-								ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1139,7 +1144,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1158,18 +1163,18 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[string]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1191,7 +1196,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1204,7 +1209,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1291,7 +1296,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.hm.ClusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues() {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
@@ -1300,7 +1305,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
 	}
-	initialCohortResources := initialSnapshot.ClusterQueues["lend-a"].Parent().ResourceNode.SubtreeQuota
+	initialCohortResources := initialSnapshot.ClusterQueue("lend-a").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
 		add    []string
@@ -1324,15 +1329,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1347,7 +1352,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:              "lend-b",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1360,7 +1365,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1377,15 +1382,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1400,7 +1405,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1414,7 +1419,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1431,15 +1436,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1454,7 +1459,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1468,7 +1473,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1485,15 +1490,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1508,7 +1513,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1522,7 +1527,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1540,15 +1545,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1563,7 +1568,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1577,7 +1582,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1595,15 +1600,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1618,7 +1623,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:              "lend-b",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1631,7 +1636,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},
@@ -1649,15 +1654,15 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
-						Cohorts: map[string]*CohortSnapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[string]*CohortSnapshot{
 							"lend": cohort,
 						},
-						ClusterQueues: map[string]*ClusterQueueSnapshot{
+						map[string]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
 								ResourceNode: ResourceNode{
@@ -1672,7 +1677,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[string]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
 								AllocatableResourceGeneration: 1,
@@ -1686,7 +1691,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 						},
-					},
+					),
 				}
 			}(),
 		},

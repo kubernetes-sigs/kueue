@@ -1107,7 +1107,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
-			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues,
+			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
 				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
@@ -1115,8 +1115,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 
-			gotCohorts := make(map[string]sets.Set[string], len(cache.hm.Cohorts))
-			for name, cohort := range cache.hm.Cohorts {
+			cohorts := cache.hm.Cohorts()
+			gotCohorts := make(map[string]sets.Set[string], len(cohorts))
+			for name, cohort := range cohorts {
 				gotCohort := sets.New[string]()
 				for _, cq := range cohort.ChildCQs() {
 					gotCohort.Insert(cq.Name)
@@ -1681,7 +1682,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 			gotResult := make(map[string]result)
-			for name, cq := range cache.hm.ClusterQueues {
+			for name, cq := range cache.hm.ClusterQueues() {
 				gotResult[name] = result{
 					Workloads:     sets.KeySet(cq.Workloads),
 					UsedResources: cq.resourceNode.Usage,
@@ -2725,7 +2726,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				}
 			}
 			cacheQueues := make(map[string]*queue)
-			for _, cacheCQ := range cache.hm.ClusterQueues {
+			for _, cacheCQ := range cache.hm.ClusterQueues() {
 				for qKey, cacheQ := range cacheCQ.localQueues {
 					if _, ok := cacheQueues[qKey]; ok {
 						t.Fatalf("The cache have a duplicated localQueue %q across multiple clusterQueues", qKey)
@@ -2979,7 +2980,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
 				newWl := wl.DeepCopy()
 				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3002,7 +3003,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
 				newWl := wl.DeepCopy()
 				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3049,7 +3050,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl2 := cache.hm.ClusterQueues["two"].Workloads["/b"].Obj
+				wl2 := cache.hm.ClusterQueue("two").Workloads["/b"].Obj
 				newWl2 := wl2.DeepCopy()
 				apimeta.SetStatusCondition(&newWl2.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3072,7 +3073,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
 				return cache.DeleteWorkload(wl)
 			},
 			wantReady: true,
@@ -3089,7 +3090,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return cache.AssumeWorkload(wl)
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueue("one").Workloads["/a"].Obj
 				return cache.ForgetWorkload(wl)
 			},
 			wantReady: true,
@@ -3231,7 +3232,9 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			cache.hm.ClusterQueues = tc.clusterQueues
+			for _, cq := range tc.clusterQueues {
+				cache.hm.AddClusterQueue(cq)
+			}
 			cache.assumedWorkloads = tc.assumedWorkloads
 			if cache.IsAssumedOrAdmittedWorkload(tc.workload) != tc.expected {
 				t.Error("Unexpected response")
@@ -3542,7 +3545,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// cohort's SubtreeQuota contains resources from cq.
-		gotResource := cache.hm.Cohorts["cohort"].getResourceNode()
+		gotResource := cache.hm.Cohort("cohort").getResourceNode()
 		wantResource := ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
@@ -3579,7 +3582,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// cohort's SubtreeQuota contains resources from cq
-		gotResource := cache.hm.Cohorts["cohort"].getResourceNode()
+		gotResource := cache.hm.Cohort("cohort").getResourceNode()
 		wantResource := ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
@@ -3600,7 +3603,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// Cohort's SubtreeQuota no longer contains resources from CQ.
-		gotResource = cache.hm.Cohorts["cohort"].getResourceNode()
+		gotResource = cache.hm.Cohort("cohort").getResourceNode()
 		wantResource = ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
@@ -3646,10 +3649,10 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohorts["root1"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohorts["root2"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3671,10 +3674,10 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohorts["root1"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohorts["root2"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3708,7 +3711,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantRoot, cache.hm.Cohorts["root"].getResourceNode()); diff != "" {
+		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3739,7 +3742,7 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohorts["root"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3756,7 +3759,7 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohorts["root"].getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}

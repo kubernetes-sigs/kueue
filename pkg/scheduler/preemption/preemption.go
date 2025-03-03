@@ -124,7 +124,7 @@ type Target struct {
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
-	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
 	return p.getTargets(&preemptionCtx{
 		log:               log,
@@ -259,7 +259,7 @@ func minimalPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 	var targets []*Target
 	fits := false
 	for _, candWl := range candidates {
-		candCQ := preemptionCtx.snapshot.ClusterQueues[candWl.ClusterQueue]
+		candCQ := preemptionCtx.snapshot.ClusterQueue(candWl.ClusterQueue)
 		reason := kueue.InClusterQueueReason
 		if preemptionCtx.preemptorCQ != candCQ {
 			if !cqIsBorrowing(candCQ, preemptionCtx.frsNeedPreemption) {
@@ -472,7 +472,7 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 	for _, cand := range candidates {
 		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
 		if candCQ == nil {
-			cq := snapshot.ClusterQueues[cand.ClusterQueue]
+			cq := snapshot.ClusterQueue(cand.ClusterQueue)
 			share, _ := cq.DominantResourceShare()
 			candCQ = &candidateCQ{
 				cq:        cq,

@@ -26,7 +26,7 @@ import (
 func (m *Manager) LogDump(log logr.Logger) {
 	m.Lock()
 	defer m.Unlock()
-	for name, cq := range m.hm.ClusterQueues {
+	for name, cq := range m.hm.ClusterQueues() {
 		pending, _ := cq.Dump()
 		inadmissible, _ := cq.DumpInadmissible()
 		log.Info("Found pending and inadmissible workloads in ClusterQueue",
@@ -41,11 +41,12 @@ func (m *Manager) LogDump(log logr.Logger) {
 func (m *Manager) Dump() map[string][]string {
 	m.Lock()
 	defer m.Unlock()
-	if len(m.hm.ClusterQueues) == 0 {
+	clusterQueues := m.hm.ClusterQueues()
+	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string][]string, len(m.hm.ClusterQueues))
-	for key, cq := range m.hm.ClusterQueues {
+	dump := make(map[string][]string, len(clusterQueues))
+	for key, cq := range clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
 		}
@@ -61,11 +62,12 @@ func (m *Manager) Dump() map[string][]string {
 func (m *Manager) DumpInadmissible() map[string][]string {
 	m.Lock()
 	defer m.Unlock()
-	if len(m.hm.ClusterQueues) == 0 {
+	clusterQueues := m.hm.ClusterQueues()
+	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string][]string, len(m.hm.ClusterQueues))
-	for key, cq := range m.hm.ClusterQueues {
+	dump := make(map[string][]string, len(clusterQueues))
+	for key, cq := range clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements
 		}
