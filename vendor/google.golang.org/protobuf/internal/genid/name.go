@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build go1.21
-// +build go1.21
+package genid
 
-package versions
+const (
+	NoUnkeyedLiteral_goname  = "noUnkeyedLiteral"
+	NoUnkeyedLiteralA_goname = "XXX_NoUnkeyedLiteral"
 
-import "go/build/constraint"
-
-func init() {
-	ConstraintGoVersion = constraint.GoVersion
-}
+	BuilderSuffix_goname = "_builder"
+)

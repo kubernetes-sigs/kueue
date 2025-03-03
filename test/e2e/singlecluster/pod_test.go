@@ -452,7 +452,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
