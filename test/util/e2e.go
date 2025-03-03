@@ -190,8 +190,8 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 }
 
 func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
-	jcmKey := types.NamespacedName{Namespace: "appwrapper-system", Name: "appwrapper-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+	awmKey := types.NamespacedName{Namespace: "appwrapper-system", Name: "appwrapper-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, awmKey)
 }
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
