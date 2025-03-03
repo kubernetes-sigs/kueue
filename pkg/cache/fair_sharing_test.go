@@ -641,8 +641,10 @@ func TestDominantResourceShare(t *testing.T) {
 				i++
 			}
 
-			gotCache := make([]fairSharingResult, 0, len(snapshot.GetClusterQueueNames())+len(snapshot.GetCohortNames()))
-			for _, cq := range cache.hm.GetClusterQueuesCopy() {
+			cacheClusterQueuesMap := cache.hm.GetClusterQueuesCopy()
+			cacheCohortsMap := cache.hm.GetCohortsCopy()
+			gotCache := make([]fairSharingResult, 0, len(cacheClusterQueuesMap)+len(cacheCohortsMap))
+			for _, cq := range cacheClusterQueuesMap {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     cq.Name,
@@ -651,7 +653,7 @@ func TestDominantResourceShare(t *testing.T) {
 					DrName:   drName,
 				})
 			}
-			for _, cohort := range cache.hm.GetCohortsCopy() {
+			for _, cohort := range cacheCohortsMap {
 				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     cohort.Name,
@@ -664,8 +666,10 @@ func TestDominantResourceShare(t *testing.T) {
 				t.Errorf("dominantResourceShare cache mismatch: %s", diff)
 			}
 
-			gotSnapshot := make([]fairSharingResult, 0, len(snapshot.GetClusterQueueNames())+len(snapshot.GetCohortNames()))
-			for _, cq := range snapshot.GetClusterQueuesCopy() {
+			snapshotClusterQueuesMap := snapshot.GetClusterQueuesCopy()
+			snapshotCohortsMap := snapshot.GetCohortsCopy()
+			gotSnapshot := make([]fairSharingResult, 0, len(snapshotClusterQueuesMap)+len(snapshotCohortsMap))
+			for _, cq := range snapshotClusterQueuesMap {
 				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     cq.Name,
@@ -674,7 +678,7 @@ func TestDominantResourceShare(t *testing.T) {
 					DrName:   drName,
 				})
 			}
-			for _, cohort := range snapshot.GetCohortsCopy() {
+			for _, cohort := range snapshotCohortsMap {
 				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     cohort.Name,

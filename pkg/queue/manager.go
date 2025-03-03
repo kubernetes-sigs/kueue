@@ -600,10 +600,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
-  clusterQueueNames := m.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cqName := clusterQueueNames[i]
-    cq := m.hm.GetClusterQueue(cqName)
+	for cqName, cq := range m.hm.GetClusterQueuesCopy() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue

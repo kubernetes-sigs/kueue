@@ -93,14 +93,6 @@ func (m *Manager[CQ, C]) GetCohort(name string) C {
   return m.cohorts[name]
 }
 
-func (m *Manager[CQ, C]) GetCohortNames() []string {
-	cohortNames := make([]string, 0, len(m.cohorts))
-	for k := range m.cohorts {
-		cohortNames = append(cohortNames, k)
-	}
-	return cohortNames
-}
-
 func (m *Manager[CQ, C]) GetCohortsCopy() map[string]C {
 	cohortCopy := make(map[string]C)
 	for k, v := range m.cohorts {

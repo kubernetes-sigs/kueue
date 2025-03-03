@@ -192,9 +192,7 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 }
 
 func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if len(cq.WorkloadsNotReady) > 0 {
 			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", cq.Name))
 			return false
@@ -217,9 +215,7 @@ func (c *Cache) CleanUpOnContext(ctx context.Context) {
 func (c *Cache) updateClusterQueues() sets.Set[string] {
 	cqs := sets.New[string]()
 
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		prevStatus := cq.Status
 		// We call update on all ClusterQueues irrespective of which CQ actually use this flavor
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
@@ -238,9 +234,7 @@ func (c *Cache) ActiveClusterQueues() sets.Set[string] {
 	c.RLock()
 	defer c.RUnlock()
 	cqs := sets.New[string]()
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if cq.Status == active {
 			cqs.Insert(cq.Name)
 		}
@@ -355,7 +349,7 @@ func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueSta
 	if cq == nil {
 		return false
 	}
-	return cq != nil && cq.Status == status
+	return cq.Status == status
 }
 
 func (c *Cache) TerminateClusterQueue(name string) {
@@ -830,9 +824,7 @@ func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
 		return c.hm.GetClusterQueue(string(w.Status.Admission.ClusterQueue))
 	}
 	wKey := workload.Key(w)
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if cq.Workloads[wKey] != nil {
 			return cq
 		}
@@ -845,9 +837,7 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) [
 	defer c.RUnlock()
 	var cqs []string
 
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if cq.flavorInUse(flavor) {
 			cqs = append(cqs, cq.Name)
 		}
@@ -860,9 +850,7 @@ func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []stri
 	defer c.RUnlock()
 	var cqs []string
 
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		for _, tRef := range cq.tasFlavors {
 			if tRef == tName {
 				cqs = append(cqs, cq.Name)
@@ -877,9 +865,7 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
 	defer c.RUnlock()
 	var cqs []string
 
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if _, found := cq.AdmissionChecks[ac]; found {
 			cqs = append(cqs, cq.Name)
 		}
@@ -892,9 +878,7 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[strin
 	defer c.RUnlock()
 
 	cqs := sets.New[string]()
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if cq.NamespaceSelector.Matches(labels.Set(nsLabels)) {
 			cqs.Insert(cq.Name)
 		}

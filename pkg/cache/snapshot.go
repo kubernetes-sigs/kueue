@@ -56,10 +56,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	clusterQueueNames := s.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-		name := clusterQueueNames[i]
-    cq := s.GetClusterQueue(name)
+	for name, cq := range s.GetClusterQueuesCopy() {
 		cohortName := "<none>"
 		if cq.HasParent() {
 			cohortName = cq.Parent().Name
@@ -73,10 +70,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
 		)
 	}
-	cohortNames := s.GetCohortNames()
-	for i := range cohortNames {
-		name := cohortNames[i]
-    cohort := s.GetCohort(name)
+	for name, cohort := range s.GetCohortsCopy() {
 		log.Info("Found cohort",
 			"cohort", name,
 			"resources", cohort.ResourceNode.SubtreeQuota,
@@ -94,9 +88,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
-	cohortNames := c.hm.GetCohortNames()
-	for i := range cohortNames {
-    cohort := c.hm.GetCohort(cohortNames[i])
+	for _, cohort := range c.hm.GetCohortsCopy() {
 		if c.hm.CycleChecker.HasCycle(cohort) {
 			continue
 		}
@@ -118,9 +110,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 			}
 		}
 	}
-	clusterQueueNames := c.hm.GetClusterQueueNames()
-	for i := range clusterQueueNames {
-    cq := c.hm.GetClusterQueue(clusterQueueNames[i])
+	for _, cq := range c.hm.GetClusterQueuesCopy() {
 		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
