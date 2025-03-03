@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"testing"
 
@@ -238,8 +239,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		usage := e.netUsage()
-		if !cq.Fits(usage) {
+		usage := e.usage()
+		if !fits(cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 			setSkipped(e, "Workload no longer fits after processing another workload")
 			if mode == flavorassigner.Preempt {
 				skippedPreemptions[cq.Name]++
@@ -325,30 +326,8 @@ type entry struct {
 	preemptionTargets     []*preemption.Target
 }
 
-func (e *entry) netUsage() workload.Usage {
-	return workload.Usage{
-		Quota: e.netQuotaUsage(),
-	}
-}
-
-// netQuotaUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
-// When a workload is preempting, it subtracts the preempted resources from the resources
-// required, as the remaining quota is all we need from the CQ/Cohort.
-func (e *entry) netQuotaUsage() resources.FlavorResourceQuantities {
-	if e.assignment.RepresentativeMode() == flavorassigner.Fit {
-		return e.assignment.Usage
-	}
-
-	usage := maps.Clone(e.assignment.Usage)
-	for target := range e.preemptionTargets {
-		for fr, v := range e.preemptionTargets[target].WorkloadInfo.FlavorResourceUsage() {
-			if _, uses := usage[fr]; !uses {
-				continue
-			}
-			usage[fr] = max(0, usage[fr]-v)
-		}
-	}
-	return usage
+func (e *entry) usage() workload.Usage {
+	return workload.Usage{Quota: e.assignment.Usage}
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -390,6 +369,16 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemptedWorkloads, newTargets []*preemption.Target) bool {
+	workloads := slices.Collect(maps.Values(preemptedWorkloads))
+	for _, target := range newTargets {
+		workloads = append(workloads, target.WorkloadInfo)
+	}
+	revertUsage := cq.SimulateUsageRemoval(workloads)
+	defer revertUsage()
+	return cq.Fits(*usage)
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
