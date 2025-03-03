@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -108,6 +107,17 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LocalQueue")
 
+	// Check if metrics should no longer be recorded in case the namespace labels have changed which wouldn't
+	// be captured by the Update logic
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, &queueObj); !should {
+		metrics.ClearLocalQueueMetrics(
+			metrics.LocalQueueReference{
+				Name:      queueObj.Name,
+				Namespace: queueObj.Namespace,
+			},
+		)
+	}
+
 	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
 		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -130,6 +140,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
+	ctx := context.Background()
 	q, match := e.Object.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
@@ -145,11 +156,10 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 		}
 	}
 
-	if err := r.cache.AddLocalQueue(q); err != nil {
+	if err := r.cache.AddLocalQueue(ctx, q); err != nil {
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
-
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, q); should {
 		recordLocalQueueUsageMetrics(q)
 	}
 
@@ -157,23 +167,24 @@ func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
 }
 
 func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
+	ctx := context.Background()
 	q, match := e.Object.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
 		return true
 	}
-
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, q); should {
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(q))
 	}
 
 	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(q))
-	r.queues.DeleteLocalQueue(q)
-	r.cache.DeleteLocalQueue(q)
+	r.queues.DeleteLocalQueue(ctx, q)
+	r.cache.DeleteLocalQueue(ctx, q)
 	return true
 }
 
 func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
+	ctx := context.Background()
 	oldLq, oldIsLq := e.ObjectOld.(*kueue.LocalQueue)
 	newLq, newIsLq := e.ObjectNew.(*kueue.LocalQueue)
 	if !oldIsLq || !newIsLq {
@@ -183,7 +194,17 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 	log := r.log.WithValues("localQueue", klog.KObj(newLq))
 	log.V(2).Info("Queue update event")
 
-	if features.Enabled(features.LocalQueueMetrics) {
+	oldShould, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, oldLq)
+	newShould, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, newLq)
+
+	if oldShould && !newShould {
+		metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
+			Name:      oldLq.Name,
+			Namespace: oldLq.Namespace,
+		})
+	}
+
+	if newShould {
 		updateLocalQueueResourceMetrics(newLq)
 	}
 
@@ -196,7 +217,7 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 				log.Error(err, "Failed to update queue in the queueing system")
 			}
 		}
-		if err := r.cache.UpdateLocalQueue(oldLq, newLq); err != nil {
+		if err := r.cache.UpdateLocalQueue(ctx, oldLq, newLq); err != nil {
 			log.Error(err, "Failed to update localQueue in the cache")
 		}
 		return true
@@ -210,7 +231,7 @@ func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 
-	r.queues.DeleteLocalQueue(oldLq)
+	r.queues.DeleteLocalQueue(ctx, oldLq)
 
 	return true
 }
@@ -374,6 +395,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.FlavorsReservation = stats.ReservedResources
 	queue.Status.FlavorUsage = stats.AdmittedResources
 	queue.Status.Flavors = stats.Flavors
+	// TODO NOW: if labels change delete metrics
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:               kueue.LocalQueueActive,
@@ -382,7 +404,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			Message:            msg,
 			ObservedGeneration: queue.Generation,
 		})
-		if features.Enabled(features.LocalQueueMetrics) {
+		if should, _ := metrics.ShouldReportLocalMetrics(ctx, r.client, queue); should {
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
 				Name:      queue.Name,
 				Namespace: queue.Namespace,
