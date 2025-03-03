@@ -21,9 +21,9 @@ USER 65532:65532
 COPY --from=builder /kueue-viz /
 
 # Set environment variables
-ENV PORT=8080
+ENV PORT=8181
 # Expose the application port
-EXPOSE 8080
+EXPOSE 8181
 
 # Command to run the application
 ENTRYPOINT ["/kueue-viz"]
