@@ -124,7 +124,7 @@ CREATE_KIND_CLUSTER ?= true
 
 
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -146,6 +146,7 @@ run-test-e2e-singlecluster-%:
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		JOBSET_VERSION=$(JOBSET_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
