@@ -251,9 +251,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
 					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
-						{Name: "kueue.x-k8s.io/admission"},
+						{Name: podcontroller.SchedulingGateName},
 					}))
-					g.Expect(createdPod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+					g.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -305,11 +305,12 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
 						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
-							{Name: "kueue.x-k8s.io/admission"},
+							{Name: podcontroller.SchedulingGateName},
 						}))
-						g.Expect(pod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -368,11 +369,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					// If the first pod can't be scheduled, the second won't be created
+					g.Expect(pods.Items).Should(gomega.HaveLen(1))
 					for _, pod := range pods.Items {
 						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
 							{Name: podcontroller.SchedulingGateName},
 						}))
-						g.Expect(pod.ObjectMeta.Labels).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
