@@ -18,10 +18,8 @@ package mke2e
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"regexp"
-	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -765,7 +763,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a RayJob on worker if admitted", func() {
-			kuberayTestImage := getKuberayTestImage()
+			kuberayTestImage := util.GetKuberayTestImage()
 			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
 				Suspend(true).
@@ -793,7 +791,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 					finishReasonMessage := "Job finished successfully."
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, 5*util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
@@ -809,7 +807,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a RayCluster on worker if admitted", func() {
-			kuberayTestImage := getKuberayTestImage()
+			kuberayTestImage := util.GetKuberayTestImage()
 			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Suspend(true).
@@ -965,20 +963,6 @@ func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedNam
 		Reason:  kueue.WorkloadFinishedReasonSucceeded,
 		Message: finishReasonMessage,
 	}, util.IgnoreConditionTimestampsAndObservedGeneration))
-}
-
-func getKuberayTestImage() string {
-	var (
-		kuberayTestImage string
-		found            bool
-	)
-	if runtime.GOARCH == "arm64" {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
-	} else {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
-	}
-	gomega.Expect(found).To(gomega.BeTrue())
-	return kuberayTestImage
 }
 
 func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.Namespace, multiKueueAc *kueue.AdmissionCheck, kubernetesClients map[string]client.Client) {
