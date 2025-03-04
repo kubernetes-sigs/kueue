@@ -79,6 +79,8 @@ const (
 )
 
 // JobSetSpec defines the desired state of JobSet
+// +kubebuilder:validation:XValidation:rule="!(has(self.startupPolicy) && self.startupPolicy.startupPolicyOrder == 'InOrder' && self.replicatedJobs.exists(x, has(x.dependsOn)))",message="StartupPolicy and DependsOn APIs are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.replicatedJobs[0].dependsOn))",message="DependsOn can't be set for the first ReplicatedJob"
 type JobSetSpec struct {
 	// ReplicatedJobs is the group of jobs that will form the set.
 	// +listType=map
@@ -105,6 +107,7 @@ type JobSetSpec struct {
 	FailurePolicy *FailurePolicy `json:"failurePolicy,omitempty"`
 
 	// StartupPolicy, if set, configures in what order jobs must be started
+	// Deprecated: StartupPolicy is deprecated, please use the DependsOn API.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	StartupPolicy *StartupPolicy `json:"startupPolicy,omitempty"`
 
@@ -230,7 +233,45 @@ type ReplicatedJob struct {
 	// Jobs names will be in the format: <jobSet.name>-<spec.replicatedJob.name>-<job-index>
 	// +kubebuilder:default=1
 	Replicas int32 `json:"replicas,omitempty"`
+
+	// DependsOn is an optional list that specifies the preceding ReplicatedJobs upon which
+	// the current ReplicatedJob depends. If specified, the ReplicatedJob will be created
+	// only after the referenced ReplicatedJobs reach their desired state.
+	// The Order of ReplicatedJobs is defined by their enumeration in the slice.
+	// Note, that the first ReplicatedJob in the slice cannot use the DependsOn API.
+	// Currently, only a single item is supported in the DependsOn list.
+	// If JobSet is suspended the all active ReplicatedJobs will be suspended. When JobSet is
+	// resumed the Job sequence starts again.
+	// This API is mutually exclusive with the StartupPolicy API.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	// +kubebuilder:validation:MaxItems=1
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	DependsOn []DependsOn `json:"dependsOn,omitempty"`
 }
+
+// DependsOn defines the dependency on the previous ReplicatedJob status.
+type DependsOn struct {
+	// Name of the previous ReplicatedJob.
+	Name string `json:"name"`
+
+	// Status defines the condition for the ReplicatedJob. Only Ready or Complete status can be set.
+	// +kubebuilder:validation:Enum=Ready;Complete
+	Status DependsOnStatus `json:"status"`
+}
+
+type DependsOnStatus string
+
+const (
+	// DependencyReady means the Ready + Succeeded + Failed counter
+	// equals the number of child Jobs of the dependant ReplicatedJob.
+	DependencyReady DependsOnStatus = "Ready"
+
+	// DependencyComplete means the Succeeded counter
+	// equals the number of child Jobs of the dependant ReplicatedJob.
+	DependencyComplete DependsOnStatus = "Complete"
+)
 
 type Network struct {
 	// EnableDNSHostnames allows pods to be reached via their hostnames.
