@@ -52,7 +52,13 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingjob.MakeJobSet("jobset", ns.Name).Queue("indexed_job").Obj()
+			job := testingjob.MakeJobSet("jobset", ns.Name).Queue("indexed_job").
+				ReplicatedJobs(
+					testingjob.ReplicatedJobRequirements{
+						Name: "leader",
+					},
+				).
+				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
