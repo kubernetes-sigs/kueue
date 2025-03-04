@@ -38,6 +38,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -71,6 +72,10 @@ type preemptionCtx struct {
 	requests          resources.FlavorResourceQuantities
 	tasRequests       cache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
+
+	// tasResult is used to propagate the result from the successful
+	// workloadFits up, so that it can be used to update the assignment.
+	tasResult *cache.TASAssignmentsResult
 }
 
 func New(
@@ -123,10 +128,10 @@ type Target struct {
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
-func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
+func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) (flavorassigner.Assignment, []*Target) {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
-	return p.getTargets(&preemptionCtx{
+	preemptionCtx := &preemptionCtx{
 		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
@@ -134,7 +139,15 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 		requests:          assignment.TotalRequestsFor(&wl),
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
-	})
+	}
+	targets := p.getTargets(preemptionCtx)
+	if features.Enabled(features.TopologyAwareScheduling) && preemptionCtx.tasResult != nil && preemptionCtx.tasResult.Failure() == nil {
+		// We use the last successful TAS result, which was computed in the
+		// workloadFits function, to update the assignment instead of
+		// re-computing the TAS assignment.
+		assignment.UpdateForTASResult(*preemptionCtx.tasResult)
+	}
+	return assignment, targets
 }
 
 func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
@@ -583,8 +596,18 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false)
-	return tasResult.Failure() == nil
+	if features.Enabled(features.TopologyAwareScheduling) && len(preemptionCtx.tasRequests) > 0 {
+		// If the workload requests TAS we also need to check if there is enough
+		// of TAS capacity.
+		tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false)
+		if tasResult.Failure() == nil {
+			// We cache the successful results to capture the last successful
+			// TAS result to update the workload assignment.
+			preemptionCtx.tasResult = &tasResult
+		}
+		return tasResult.Failure() == nil
+	}
+	return true
 }
 
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {

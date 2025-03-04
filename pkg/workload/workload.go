@@ -281,17 +281,17 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-// IsUsingTAS returns information if the workload is using TAS
-func (i *Info) IsUsingTAS() bool {
-	return slices.ContainsFunc(i.TotalRequests,
-		func(ps PodSetResources) bool {
+// IsRequestingTAS returns information if the workload is requesting TAS
+func (i *Info) IsRequestingTAS() bool {
+	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
 			return ps.TopologyRequest != nil
 		})
 }
 
 // TASUsage returns topology usage requested by the Workload
 func (i *Info) TASUsage() TASUsage {
-	if !features.Enabled(features.TopologyAwareScheduling) || !i.IsUsingTAS() {
+	if !features.Enabled(features.TopologyAwareScheduling) || !i.IsRequestingTAS() {
 		return nil
 	}
 	result := make(TASUsage, 0)

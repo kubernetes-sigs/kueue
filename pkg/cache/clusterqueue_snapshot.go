@@ -119,6 +119,14 @@ func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
 			return false
 		}
 	}
+	for tasFlavor, flvUsage := range usage.TAS {
+		// We assume the `tasFlavor` is already in the snapshot as this was
+		// already checked earlier during flavor assignment, and the set of
+		// flavors is immutable in snapshot.
+		if !c.TASFlavors[tasFlavor].Fits(flvUsage) {
+			return false
+		}
+	}
 	return true
 }
 

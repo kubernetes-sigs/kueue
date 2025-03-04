@@ -322,7 +322,10 @@ type entry struct {
 }
 
 func (e *entry) usage() workload.Usage {
-	return workload.Usage{Quota: e.assignment.Usage}
+	return workload.Usage{
+		Quota: e.assignment.Usage,
+		TAS:   e.assignment.TASUsage(),
+	}
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -378,8 +381,20 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
+	if features.Enabled(features.TopologyAwareScheduling) && e.IsRequestingTAS() {
+		tasRequests := e.assignment.WorkloadsTopologyRequests(&e.Info, cq)
+		// In this scenario we don't have any preemption candidates, yet we need
+		// to reserve the TAS resources to avoid the situation when a lower
+		// priority workload further in the queue gets admitted and preempted
+		// in the next scheduling cycle by the waiting workload. To obtain
+		// a TAS assignment for reserving the resources we run the algorithm
+		// assuming the cluster is empty.
+		tasResult := cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
+		e.assignment.UpdateForTASResult(tasResult)
+	}
 	return workload.Usage{
 		Quota: quotaResourcesToReserve(e, cq),
+		TAS:   e.assignment.TASUsage(),
 	}
 }
 
@@ -419,9 +434,9 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		preemptionAssignment, faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, faPreemptionTargets
+			return preemptionAssignment, faPreemptionTargets
 		}
 	}
 
@@ -432,11 +447,10 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
-
 			if mode == flavorassigner.Preempt {
-				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
+				newAssignment, preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
-					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+					return &partialAssignment{assignment: newAssignment, preemptionTargets: preemptionTargets}, true
 				}
 			}
 			return nil, false

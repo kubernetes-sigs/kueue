@@ -274,10 +274,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
-			if c.HasParent() {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported for cohorts")
-			}
 			if len(c.multiKueueAdmissionChecks) > 0 {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with MultiKueue admission check")
@@ -312,9 +308,7 @@ func (c *clusterQueue) isTASViolated() bool {
 			return true
 		}
 	}
-	return c.HasParent() ||
-		len(c.multiKueueAdmissionChecks) > 0 ||
-		len(c.provisioningAdmissionChecks) > 0
+	return len(c.multiKueueAdmissionChecks) > 0 || len(c.provisioningAdmissionChecks) > 0
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
@@ -514,7 +508,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			removeUsage(c, fr, q)
 		}
 	}
-	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
+	if features.Enabled(features.TopologyAwareScheduling) && wi.IsRequestingTAS() {
 		for tasFlavor, tasUsage := range wi.TASUsage() {
 			if tasFlvCache := c.tasFlavorCache(tasFlavor); tasFlvCache != nil {
 				if m == 1 {
