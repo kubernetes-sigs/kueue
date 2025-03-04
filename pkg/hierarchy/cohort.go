@@ -45,6 +45,11 @@ func (c *Cohort[CQ, C]) ChildCohorts() []C {
 	return c.childCohorts.UnsortedList()
 }
 
+// ChildCount returns number of Cohorts + ClusterQueues.
+func (c *Cohort[CQ, C]) ChildCount() int {
+	return c.childCohorts.Len() + c.childCqs.Len()
+}
+
 func NewCohort[CQ, C nodeBase]() Cohort[CQ, C] {
 	return Cohort[CQ, C]{
 		childCohorts: sets.New[C](),
