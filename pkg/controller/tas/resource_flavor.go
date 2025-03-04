@@ -167,6 +167,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (r *rfReconciler) Create(event event.CreateEvent) bool {
+	time.Sleep(4 * time.Second)
 	rf, isRf := event.Object.(*kueue.ResourceFlavor)
 	if isRf {
 		return rf.Spec.TopologyName != nil

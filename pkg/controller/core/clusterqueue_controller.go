@@ -273,6 +273,7 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 // ClusterQueue associated with the event.
 
 func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
+	time.Sleep(3 * time.Second)
 	cq, match := e.Object.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.

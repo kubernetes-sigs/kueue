@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -127,6 +128,7 @@ func (r *topologyReconciler) Generic(event.GenericEvent) bool {
 }
 
 func (r *topologyReconciler) Create(e event.CreateEvent) bool {
+	time.Sleep(1 * time.Second)
 	topology, isTopology := e.Object.(*kueuealpha.Topology)
 	if !isTopology {
 		return true

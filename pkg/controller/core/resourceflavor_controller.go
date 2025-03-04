@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -121,6 +122,7 @@ func (r *ResourceFlavorReconciler) notifyWatchers(oldRF, newRF *kueue.ResourceFl
 }
 
 func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
+	time.Sleep(2 * time.Second)
 	flv, match := e.Object.(*kueue.ResourceFlavor)
 	if !match {
 		return false
