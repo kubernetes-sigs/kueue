@@ -198,12 +198,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries := s.nominate(ctx, headWorkloads, snapshot)
 
-	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
-	sort.Sort(entryOrdering{
-		enableFairSharing: s.fairSharing.Enable,
-		entries:           entries,
-		workloadOrdering:  s.workloadOrdering,
-	})
+	// 4. Create iterator which returns ordered entries.
+	var iterator entryIterator = makeIterator(entries, s.workloadOrdering, s.fairSharing.Enable)
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -212,8 +208,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// of other clusterQueues.
 	preemptedWorkloads := make(preemptedWorkloads)
 	skippedPreemptions := make(map[string]int)
-	for i := range entries {
-		e := &entries[i]
+	for iterator.hasNext() {
+		e := iterator.pop()
 		mode := e.assignment.RepresentativeMode()
 		if mode == flavorassigner.NoFit {
 			continue
@@ -533,11 +529,7 @@ func (e entryOrdering) Swap(i, j int) {
 	e.entries[i], e.entries[j] = e.entries[j], e.entries[i]
 }
 
-// Less is the ordering criteria:
-// 1. request under nominal quota before borrowing.
-// 2. fair sharing: lower DominantResourceShare first.
-// 3. higher priority first.
-// 4. FIFO on eviction or creation timestamp.
+// Less is the ordering criteria
 func (e entryOrdering) Less(i, j int) bool {
 	a := e.entries[i]
 	b := e.entries[j]
@@ -567,6 +559,43 @@ func (e entryOrdering) Less(i, j int) bool {
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
+}
+
+// entryInterator defines order that entries are returned.
+// pop->nil IFF hasNext->False
+type entryIterator interface {
+	pop() *entry
+	hasNext() bool
+}
+
+// classicalIterator returns entries ordered on:
+// 1. request under nominal quota before borrowing.
+// 2. fair sharing: lower DominantResourceShare first.
+// 3. higher priority first.
+// 4. FIFO on eviction or creation timestamp.
+type classicalIterator struct {
+	entries []entry
+}
+
+func (co *classicalIterator) hasNext() bool {
+	return len(co.entries) > 0
+}
+
+func (co *classicalIterator) pop() *entry {
+	head := &co.entries[0]
+	co.entries = co.entries[1:]
+	return head
+}
+
+func makeIterator(entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) *classicalIterator {
+	sort.Sort(entryOrdering{
+		entries:           entries,
+		enableFairSharing: enableFairSharing,
+		workloadOrdering:  workloadOrdering,
+	})
+	return &classicalIterator{
+		entries: entries,
+	}
 }
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
