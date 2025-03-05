@@ -1707,12 +1707,6 @@ func TestReconcile(t *testing.T) {
 				UID("uid").
 				Label(constants.WorklodUIDLabel, "uid").
 				Active(false).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadDeactivated,
-					Message: "The workload is deactivated",
-				}).
 				Obj(),
 		},
 
@@ -1745,12 +1739,6 @@ func TestReconcile(t *testing.T) {
 				UID("correct").
 				Label(constants.WorklodUIDLabel, "correct").
 				Active(false).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadDeactivated,
-					Message: "The workload is deactivated",
-				}).
 				Obj(),
 		},
 
@@ -1765,12 +1753,6 @@ func TestReconcile(t *testing.T) {
 				Label("other", "label").
 				Label(constants.WorklodUIDLabel, "uid").
 				Active(false).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadDeactivated,
-					Message: "The workload is deactivated",
-				}).
 				Obj(),
 		},
 
@@ -1807,12 +1789,6 @@ func TestReconcile(t *testing.T) {
 				Label("other", "label").
 				Label(constants.WorklodUIDLabel, "correct").
 				Active(false).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadDeactivated,
-					Message: "The workload is deactivated",
-				}).
 				Obj(),
 		},
 	}
