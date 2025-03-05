@@ -245,27 +245,33 @@ spec:
               preemption:
                 default: {}
                 description: |-
-                  preemption describes policies to preempt Workloads from this ClusterQueue
-                  or the ClusterQueue's cohort.
+                  ClusterQueuePreemption contains policies to preempt Workloads from this
+                  ClusterQueue or the ClusterQueue's cohort.
 
-                  Preemption can happen in two scenarios:
+                  Preemption may be configured to work in the following scenarios:
 
-                  - When a Workload fits within the nominal quota of the ClusterQueue, but
-                    the quota is currently borrowed by other ClusterQueues in the cohort.
-                    Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-                    reclaim its nominal quota.
-                  - When a Workload doesn't fit within the nominal quota of the ClusterQueue
-                    and there are admitted Workloads in the ClusterQueue with lower priority.
+                    - When a Workload fits within the nominal quota of the ClusterQueue, but
+                      the quota is currently borrowed by other ClusterQueues in the cohort.
+                      We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+                      reclaim its nominal quota. Configured using reclaimWithinCohort.
+                    - When a Workload doesn't fit within the nominal quota of the ClusterQueue
+                      and there are admitted Workloads in the ClusterQueue with lower priority.
+                      Configured using withinClusterQueue.
+                    - When a Workload may fit while both borrowing and preempting
+                      low priority workloads in the Cohort. Configured using borrowWithinCohort.
+                    - When FairSharing is enabled, to maintain fair distribution of
+                      unused resources. See FairSharing documentation.
 
                   The preemption algorithm tries to find a minimal set of Workloads to
-                  preempt to accommodate the pending Workload, preempting Workloads with
+                  preempt to accomomdate the pending Workload, preempting Workloads with
                   lower priority first.
                 properties:
                   borrowWithinCohort:
                     default: {}
                     description: |-
-                      borrowWithinCohort provides configuration to allow preemption within
-                      cohort while borrowing.
+                      BorrowWithinCohort contains configuration which allows to preempt workloads
+                      within cohort while borrowing. It only works with Classical Preemption,
+                      __not__ with Fair Sharing.
                     properties:
                       maxPriorityThreshold:
                         description: |-
