@@ -48,8 +48,8 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: prometheus-k8s
-  namespace: '{{ .Release.Namespace }}'
+  namespace: '{{ .Values.metrics.prometheusNamespace }}'
 - kind: ServiceAccount
   name: prometheus-operator
-  namespace: '{{ .Release.Namespace }}'
+  namespace: '{{ .Values.metrics.prometheusNamespace }}'
 {{- end }}
