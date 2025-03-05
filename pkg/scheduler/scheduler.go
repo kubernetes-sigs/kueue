@@ -381,17 +381,6 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
-	if features.Enabled(features.TopologyAwareScheduling) && e.IsRequestingTAS() {
-		tasRequests := e.assignment.WorkloadsTopologyRequests(&e.Info, cq)
-		// In this scenario we don't have any preemption candidates, yet we need
-		// to reserve the TAS resources to avoid the situation when a lower
-		// priority workload further in the queue gets admitted and preempted
-		// in the next scheduling cycle by the waiting workload. To obtain
-		// a TAS assignment for reserving the resources we run the algorithm
-		// assuming the cluster is empty.
-		tasResult := cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
-		e.assignment.UpdateForTASResult(tasResult)
-	}
 	return workload.Usage{
 		Quota: quotaResourcesToReserve(e, cq),
 		TAS:   e.assignment.TASUsage(),
@@ -424,6 +413,13 @@ type partialAssignment struct {
 }
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+	assignment, targets := s.getInitialAssignments(log, wl, snap)
+	cq := snap.ClusterQueue(wl.ClusterQueue)
+	updateAssignmentForTAS(cq, wl, assignment, targets)
+	return assignment, targets
+}
+
+func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
 	fullAssignment := flvAssigner.Assign(log, nil)
@@ -434,9 +430,9 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		preemptionAssignment, faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return preemptionAssignment, faPreemptionTargets
+			return fullAssignment, faPreemptionTargets
 		}
 	}
 
@@ -447,10 +443,11 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
+
 			if mode == flavorassigner.Preempt {
-				newAssignment, preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
+				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
-					return &partialAssignment{assignment: newAssignment, preemptionTargets: preemptionTargets}, true
+					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 				}
 			}
 			return nil, false
@@ -460,6 +457,31 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 		}
 	}
 	return fullAssignment, nil
+}
+
+func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment flavorassigner.Assignment, targets []*preemption.Target) {
+	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt && wl.IsRequestingTAS() {
+		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
+		var tasResult cache.TASAssignmentsResult
+		if len(targets) > 0 {
+			var targetWorkloads []*workload.Info
+			for _, target := range targets {
+				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
+			}
+			revertUsage := cq.SimulateUsageRemoval(targetWorkloads)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, false)
+			revertUsage()
+		} else {
+			// In this scenario we don't have any preemption candidates, yet we need
+			// to reserve the TAS resources to avoid the situation when a lower
+			// priority workload further in the queue gets admitted and preempted
+			// in the next scheduling cycle by the waiting workload. To obtain
+			// a TAS assignment for reserving the resources we run the algorithm
+			// assuming the cluster is empty.
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
+		}
+		assignment.UpdateForTASResult(tasResult)
+	}
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of

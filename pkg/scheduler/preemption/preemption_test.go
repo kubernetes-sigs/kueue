@@ -1860,7 +1860,7 @@ func TestPreemption(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			_, targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
@@ -2374,7 +2374,7 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			_, targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
+			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,
