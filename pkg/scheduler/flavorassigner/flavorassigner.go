@@ -53,6 +53,37 @@ type Assignment struct {
 	representativeMode *FlavorAssignmentMode
 }
 
+// UpdateForTASResult updates the Assignment with the TAS result
+func (assignment *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
+	for psName, psResult := range result {
+		psAssignment := assignment.podSetAssignmentByName(psName)
+		psAssignment.TopologyAssignment = psResult.TopologyAssignment
+	}
+}
+
+// TASUsage computes the TAS usage for the assignment
+func (assignment *Assignment) TASUsage() workload.TASUsage {
+	result := make(workload.TASUsage)
+	for _, psa := range assignment.PodSets {
+		if psa.TopologyAssignment != nil {
+			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			for _, flv := range psa.Flavors {
+				if _, ok := result[flv.Name]; !ok {
+					result[flv.Name] = make(workload.TASFlavorUsage, 0)
+				}
+				for _, domain := range psa.TopologyAssignment.Domains {
+					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
+						Values:            domain.Values,
+						SinglePodRequests: singlePodRequests.Clone(),
+						Count:             domain.Count,
+					})
+				}
+			}
+		}
+	}
+	return result
+}
+
 // Borrows return whether assignment requires borrowing.
 func (a *Assignment) Borrows() bool {
 	return a.Borrowing
@@ -414,10 +445,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.representativeMode = ptr.To(Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
-				for psName, psResult := range result {
-					psAssignment := assignment.podSetAssignmentByName(psName)
-					psAssignment.TopologyAssignment = psResult.TopologyAssignment
-				}
+				assignment.UpdateForTASResult(result)
 			}
 		}
 		if assignment.RepresentativeMode() == Preempt {
