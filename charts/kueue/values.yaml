@@ -134,10 +134,10 @@ managerConfig:
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
-    - name: https
+    - name: metrics
       port: 8443
       protocol: TCP
-      targetPort: https
+      targetPort: metrics
   type: ClusterIP
   annotations: {}
 webhookService:
