@@ -49,6 +49,9 @@ patches:
 # Expose port used by the visibility server
 - path: manager_visibility_patch.yaml
 
+# Expose port used by the metrics service
+- path: manager_metrics_patch.yaml
+
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
 # 'CERTMANAGER' needs to be enabled to use ca injection
