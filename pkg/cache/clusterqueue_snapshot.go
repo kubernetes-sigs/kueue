@@ -169,20 +169,23 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
-	return dominantResourceShare(c, nil)
+func (c *ClusterQueueSnapshot) DominantResourceShare() int {
+	share, _ := dominantResourceShare(c, nil)
+	return share
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq)
+func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) int {
+	share, _ := dominantResourceShare(c, wlReq)
+	return share
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
+func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) int {
 	without := maps.Clone(wlReq)
 	for fr, q := range without {
 		without[fr] = -q
 	}
-	return dominantResourceShare(c, without)
+	share, _ := dominantResourceShare(c, without)
+	return share
 }
 
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests

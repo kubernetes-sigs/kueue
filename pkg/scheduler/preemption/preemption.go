@@ -363,7 +363,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 	}
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
-	newNominatedShareValue, _ := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
+	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 	var targets []*Target
 	fits := false
 	var retryCandidates []*workload.Info
@@ -381,10 +381,10 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
+			newNominatedShareValue = preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
-				candCQ.share, _ = candCQ.cq.DominantResourceShare()
+				candCQ.share = candCQ.cq.DominantResourceShare()
 				cqHeap.PushIfNotPresent(candCQ)
 			}
 			continue
@@ -392,7 +392,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 
 		for i, candWl := range candCQ.workloads {
 			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
-			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
+			newCandShareVal := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
 			strategy := p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal)
 			if belowThreshold || strategy {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
@@ -473,7 +473,7 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
 		if candCQ == nil {
 			cq := snapshot.ClusterQueue(cand.ClusterQueue)
-			share, _ := cq.DominantResourceShare()
+			share := cq.DominantResourceShare()
 			candCQ = &candidateCQ{
 				cq:        cq,
 				share:     share,

@@ -318,7 +318,6 @@ type entry struct {
 	// and flavors assigned.
 	workload.Info
 	dominantResourceShare int
-	dominantResourceName  corev1.ResourceName
 	assignment            flavorassigner.Assignment
 	status                entryStatus
 	inadmissibleMsg       string
@@ -363,7 +362,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.fairSharing.Enable && e.assignment.RepresentativeMode() != flavorassigner.NoFit {
-				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
+				e.dominantResourceShare = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
 		}
 		entries = append(entries, e)
