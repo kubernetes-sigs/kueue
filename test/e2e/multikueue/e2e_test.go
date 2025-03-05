@@ -576,13 +576,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this appwrapper can only be admitted in worker 1.
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
 				Queue(managerLq.Name).
-				Component(testingjob.MakeJob("job-1", managerNs.Name).
+				Component(testingjob.MakeJob("aw-job", managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					Request(corev1.ResourceCPU, "1").
-					SetTypeMeta().Obj()).
+					Obj()).
 				Obj()
 
 			ginkgo.By("Creating the appwrapper", func() {
@@ -600,6 +600,21 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdAppWrapper := &awv1beta2.AppWrapper{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the appwrapper to have PodsReady condition", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdAppWrapper := &awv1beta2.AppWrapper{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+					gomega.Expect(createdAppWrapper.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:   string(awv1beta2.PodsReady),
+							Status: metav1.ConditionTrue,
+							Reason: "SufficientPodsReady",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration,
+						util.IgnoreConditionMessage)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
