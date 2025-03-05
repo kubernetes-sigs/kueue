@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -281,6 +282,23 @@ type tasPodSetAssignmentResult struct {
 }
 
 type FlavorTASRequests []TASPodSetRequests
+
+// Fits checks if the snapshot has enough capacity to accommodate the workload
+func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
+	for _, domainUsage := range flavorUsage {
+		domainID := utiltas.DomainID(domainUsage.Values)
+		leaf, found := s.leaves[domainID]
+		if !found {
+			return false
+		}
+		remainingCapacity := leaf.freeCapacity.Clone()
+		remainingCapacity.Sub(leaf.tasUsage)
+		if domainUsage.SinglePodRequests.CountIn(remainingCapacity) < domainUsage.Count {
+			return false
+		}
+	}
+	return true
+}
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.

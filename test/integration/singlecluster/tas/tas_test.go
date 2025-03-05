@@ -216,27 +216,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
-		ginkgo.It("should mark TAS ClusterQueue as inactive if used in cohort", func() {
-			clusterQueue = testing.MakeClusterQueue("cq").
-				ResourceGroup(
-					*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-				).Cohort("cohort").Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
-					{
-						Type:    kueue.ClusterQueueActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "NotSupportedWithTopologyAwareScheduling",
-						Message: `Can't admit new workloads: TAS is not supported for cohorts.`,
-					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.It("should mark TAS ClusterQueue as inactive if used with MultiKueue", func() {
 			admissionCheck = testing.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Obj()
 			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
@@ -952,6 +931,137 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1, wl2)
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+			})
+		})
+
+		ginkgo.When("Preemption is enabled within Cohort", func() {
+			var (
+				nodes         []corev1.Node
+				localQueueB   *kueue.LocalQueue
+				clusterQueueB *kueue.ClusterQueue
+			)
+			ginkgo.BeforeEach(func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("5"),
+							corev1.ResourceMemory: resource.MustParse("5Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("5"),
+							corev1.ResourceMemory: resource.MustParse("5Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+				topology = testing.MakeDefaultThreeLevelTopology("default")
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
+				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceMemory, "5Gi").Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+
+				clusterQueueB = testing.MakeClusterQueue("cluster-queue-b").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceMemory, "5Gi").Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueueB)).Should(gomega.Succeed())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueueB)
+
+				localQueueB = testing.MakeLocalQueue("local-queue-b", ns.Name).ClusterQueue(clusterQueueB.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, localQueueB)).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueueB)).Should(gomega.Succeed())
+
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueB, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should allow to borrow within cohort and reclaim the capacity", func() {
+				var wl1, wl2 *kueue.Workload
+				ginkgo.By("creating a workload which can fit only when borrowing quota", func() {
+					wl1 = testing.MakeWorkload("wl1", ns.Name).
+						PodSets(*testing.MakePodSet("worker", 2).
+							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "4").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("creating a workload in CQB which reclaims its quota", func() {
+					// Note that workload wl2 would still fit within regular quota
+					// without preempting wl1. However, there is only 1CPU left
+					// on both nodes, and so wl1 needs to be preempted  to allow
+					// scheduling of wl2.
+					wl2 = testing.MakeWorkload("wl2", ns.Name).
+						Priority(2).
+						PodSets(*testing.MakePodSet("worker", 1).
+							PreferredTopologyRequest(testing.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(localQueueB.Name).Request(corev1.ResourceCPU, "2").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the wl1 gets preempted and wl2 gets admitted", func() {
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueueB, 1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 				})
 			})
 		})
