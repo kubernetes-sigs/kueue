@@ -69,3 +69,4 @@ The following table lists the configurable parameters of the kueue chart and the
 | `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
 | `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
 | `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
+| `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
