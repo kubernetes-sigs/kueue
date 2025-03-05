@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -63,11 +63,11 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
-				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation().
+				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
@@ -83,12 +83,12 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
-				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation().
+				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
@@ -102,9 +102,9 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
-				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation().
+				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
@@ -115,11 +115,11 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
 				PodTemplateSpecQueue("default").
-				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
-				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation().
+				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
@@ -130,11 +130,11 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(pod.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
-				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
-				PodTemplateSpecPodGroupServingAnnotation(true).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation().
+				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
 				Obj(),
 		},
@@ -235,8 +235,8 @@ func TestValidateUpdate(t *testing.T) {
 			oldObj: &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-						pod.GroupNameLabel:   "group1",
+						constants.QueueLabel:        "queue1",
+						podconstants.GroupNameLabel: "group1",
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
@@ -253,8 +253,8 @@ func TestValidateUpdate(t *testing.T) {
 			newObj: &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-						pod.GroupNameLabel:   "group1",
+						constants.QueueLabel:        "queue1",
+						podconstants.GroupNameLabel: "group1",
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{

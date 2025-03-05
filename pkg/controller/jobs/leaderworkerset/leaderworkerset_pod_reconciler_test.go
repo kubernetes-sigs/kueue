@@ -29,7 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -70,13 +70,13 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
 		"shouldn't set default values without queue name": {
@@ -85,14 +85,14 @@ func TestPodReconciler(t *testing.T) {
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
 		"should set default values": {
@@ -103,8 +103,8 @@ func TestPodReconciler(t *testing.T) {
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -113,9 +113,9 @@ func TestPodReconciler(t *testing.T) {
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
 				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
-				Annotation(podcontroller.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 				Obj(),
 		},
 		"should set default values and priority class when has value": {
@@ -127,8 +127,8 @@ func TestPodReconciler(t *testing.T) {
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -138,9 +138,9 @@ func TestPodReconciler(t *testing.T) {
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
 				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
-				Annotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				Annotation(podcontroller.GroupServingAnnotation, "true").
-				Annotation(podcontroller.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 				Obj(),
 		},
 	}

@@ -27,7 +27,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -79,12 +79,12 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
 						)
-					g.Expect(createdStatefulSet.Spec.Template.Labels[pod.GroupNameLabel]).
+					g.Expect(createdStatefulSet.Spec.Template.Labels[podconstants.GroupNameLabel]).
 						To(
 							gomega.Equal(jobframework.GetWorkloadNameForOwnerWithGVK(createdStatefulSet.Name, "", appsv1.SchemeGroupVersion.WithKind("StatefulSet"))),
 							"Pod group name should be injected to pod template labels",
 						)
-					g.Expect(createdStatefulSet.Spec.Template.Annotations[pod.GroupTotalCountAnnotation]).
+					g.Expect(createdStatefulSet.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation]).
 						To(
 							gomega.Equal("1"),
 							"Pod group total count should be injected to pod template annotations",

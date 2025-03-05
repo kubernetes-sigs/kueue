@@ -33,7 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"

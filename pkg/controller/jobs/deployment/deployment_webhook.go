@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -77,7 +77,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		deployment.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
+		deployment.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}

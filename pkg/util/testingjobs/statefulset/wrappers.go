@@ -18,7 +18,6 @@ package statefulset
 
 import (
 	"fmt"
-	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -169,19 +168,19 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
 	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
 ) *StatefulSetWrapper {
 	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, gvk)
+	return ss.PodTemplateSpecLabel(podconstants.GroupNameLabel, gvk)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupTotalCountAnnotation, fmt.Sprint(replicas))
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation() *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue)
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation(enabled bool) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupServingAnnotation, strconv.FormatBool(enabled))
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation() *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
