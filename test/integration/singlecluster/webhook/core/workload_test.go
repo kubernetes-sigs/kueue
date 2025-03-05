@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -293,6 +294,13 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				nil),
+			ginkgo.Entry("invalid workload UID label (should only be set by controller)",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						Label(controllerconstants.WorklodUIDLabel, "uid").
+						Obj()
+				},
+				testing.BeForbiddenError()),
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
