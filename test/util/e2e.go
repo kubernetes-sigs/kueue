@@ -144,10 +144,11 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int) {
-	activePods := make([]corev1.Pod, 0)
+	var activePods []corev1.Pod
 	pods := corev1.PodList{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(namespace))).To(gomega.Succeed())
+		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
 			if (len(p.Status.PodIP) != 0 && p.Status.PodIP != "0.0.0.0") && (p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending) {
 				activePods = append(activePods, p)
