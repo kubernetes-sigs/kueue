@@ -167,3 +167,14 @@ func (j *ClusterWrapper) WorkloadPriorityClass(wpc string) *ClusterWrapper {
 	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
 	return j
 }
+
+func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *ClusterWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
+	}
+	return j
+}

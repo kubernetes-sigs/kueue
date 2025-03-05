@@ -30,6 +30,9 @@ const (
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
+	// VeryLongTimeout is meant for E2E tests involving Ray which starts ray-project images (over 2GB)
+	// and also synchronizes the cluster before it can be used
+	VeryLongTimeout = 3 * time.Minute
 	// StartUpTimeout is meant to be used for waiting for Kueue to startup, given
 	// that cert updates can take up to 3 minutes to propagate to the filesystem.
 	// Taken into account that after the certificates are ready, all Kueue's components

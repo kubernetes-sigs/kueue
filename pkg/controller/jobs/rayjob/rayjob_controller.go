@@ -60,7 +60,7 @@ func init() {
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups=ray.io,resources=rayjobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=ray.io,resources=rayjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=ray.io,resources=rayjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -137,11 +137,14 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	// submitter Job
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterJobPodSet := kueue.PodSet{
-			Name:  submitterJobPodSetName,
-			Count: 1,
+			Name:     submitterJobPodSetName,
+			Count:    1,
+			Template: *getSubmitterTemplate(j),
 		}
 
-		submitterJobPodSet.Template = *getSubmitterTemplate(j)
+		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
 		podSets = append(podSets, submitterJobPodSet)
 	}
 
