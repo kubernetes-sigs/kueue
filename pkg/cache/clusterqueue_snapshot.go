@@ -77,7 +77,7 @@ func (c *ClusterQueueSnapshot) SimulateUsageRemoval(workloads []*workload.Info) 
 		usage = append(usage, w.Usage())
 	}
 	for _, u := range usage {
-		c.removeUsage(u)
+		c.RemoveUsage(u)
 	}
 	return func() {
 		for _, u := range usage {
@@ -93,7 +93,7 @@ func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 	c.updateTASUsage(usage.TAS, add)
 }
 
-func (c *ClusterQueueSnapshot) removeUsage(usage workload.Usage) {
+func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota {
 		removeUsage(c, fr, q)
 	}
