@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 					Request(extraResource, "1").
 					Limit(extraResource, "1").
 					Suspend(false).
-					Image(util.E2eTestAgnHostImage, []string{"60s"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 					SetTypeMeta().Obj()).
 				Queue(localQueue.Name).
