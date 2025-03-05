@@ -142,7 +142,6 @@ func validateWorkloadUIDLabel(uid string, labels map[string]string) *field.Error
 		return field.Invalid(field.NewPath("metadata.labels").Child(constants.WorklodUIDLabel), gotUID, fmt.Sprintf("must equal metadata.UID %q", uid))
 	}
 	return nil
-
 }
 
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
