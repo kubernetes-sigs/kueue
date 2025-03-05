@@ -128,10 +128,10 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 }
 
-func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workload) error {
+func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workload) (updated bool, err error) {
 	metaUID := string(wl.ObjectMeta.UID)
 	if metaUID == "" {
-		return nil
+		return false, nil
 	}
 
 	labels := wl.Labels
@@ -143,9 +143,9 @@ func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workl
 	if !hasLabelUID || metaUID != labelUID {
 		labels[constants.WorklodUIDLabel] = metaUID
 		wl.Labels = labels
-		return r.client.Update(ctx, wl)
+		return true, r.client.Update(ctx, wl)
 	}
-	return nil
+	return false, nil
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
@@ -165,7 +165,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if err := r.updateUIDLabel(ctx, &wl); err != nil {
+	updated, err := r.updateUIDLabel(ctx, &wl)
+	if updated {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -243,7 +244,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	lq := kueue.LocalQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
+	err = r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
