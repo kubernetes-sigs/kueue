@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -2964,13 +2963,13 @@ func TestEntryOrdering(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
-			sort.Sort(entryOrdering{
-				entries:          tc.input,
-				workloadOrdering: tc.workloadOrdering},
-			)
+			iter := makeIterator(tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))
-			for i, e := range tc.input {
-				order[i] = e.Obj.Name
+			for i := range tc.input {
+				order[i] = iter.pop().Obj.Name
+			}
+			if iter.hasNext() {
+				t.Error("Expected iterator to be exhausted")
 			}
 			if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
 				t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
