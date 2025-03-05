@@ -134,7 +134,7 @@ func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workl
 		return nil
 	}
 
-	labels := wl.ObjectMeta.Labels
+	labels := wl.Labels
 	if labels == nil {
 		labels = map[string]string{}
 	}
@@ -143,8 +143,7 @@ func (r *WorkloadReconciler) updateUIDLabel(ctx context.Context, wl *kueue.Workl
 	if !hasLabelUID || metaUID != labelUID {
 		labels[constants.WorklodUIDLabel] = metaUID
 		wl.Labels = labels
-		err := r.client.Update(ctx, wl)
-		return err
+		return r.client.Update(ctx, wl)
 	}
 	return nil
 }

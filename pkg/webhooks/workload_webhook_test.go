@@ -28,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -214,9 +215,32 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			},
 		},
+		"workload UID label is not set correctly": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps", 1).Obj(),
+				).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "huh?").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels.kueue.x-k8s.io/workload-uid"), nil, ""),
+			},
+		},
+		"workload UID label is set correctly": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps", 1).Obj(),
+				).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Obj(),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			name := name
+			_ = name
 			gotErr := ValidateWorkload(tc.workload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
@@ -369,9 +393,71 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				State:              kueue.CheckStateReady,
 			}).Obj(),
 		},
+		"workload UID label not present then set to correct value": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Obj(),
+		},
+		"workload UID label not present then set to incorrect value": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "huh?").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels.kueue.x-k8s.io/workload-uid"), nil, ""),
+			},
+		},
+		"workload UID label is present then set to correct value": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Obj(),
+		},
+		"workload UID label is present then set to incorrect value": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "uid").
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("ps", 1).Obj(),
+			).
+				UID("uid").
+				Label(constants.WorklodUIDLabel, "huh?").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels.kueue.x-k8s.io/workload-uid"), nil, ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			name := name
+			_ = name
 			errList := ValidateWorkloadUpdate(tc.after, tc.before)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkloadUpdate() mismatch (-want +got):\n%s", diff)
