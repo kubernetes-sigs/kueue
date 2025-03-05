@@ -72,6 +72,8 @@ linters:
     - govet
     - loggercheck
     - misspell
+    - nilerr
+    - nilnesserr
     - nolintlint
     - perfsprint
     - revive
