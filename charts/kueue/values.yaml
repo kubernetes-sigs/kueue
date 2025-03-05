@@ -155,3 +155,6 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
+
+metrics:
+  prometheusNamespace: monitoring
