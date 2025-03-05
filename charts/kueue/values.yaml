@@ -153,3 +153,6 @@ webhookService:
 
 # kueue-viz dashboard
 enableKueueViz: false
+
+metrics:
+  prometheusNamespace: monitoring
