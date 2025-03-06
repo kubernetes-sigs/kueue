@@ -259,7 +259,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 		g.Expect(k8sClient.List(ctx, &pods, podListOpts)).To(gomega.Succeed())
 		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
-			if (len(p.Status.PodIP) != 0 && p.Status.PodIP != "0.0.0.0") && (p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending) {
+			if len(p.Status.PodIP) != 0 && p.Status.Phase == corev1.PodRunning {
 				activePods = append(activePods, p)
 			}
 		}
