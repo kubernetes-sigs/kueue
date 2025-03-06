@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -248,11 +249,14 @@ func RestartKueueController(ctx context.Context, k8sClient client.Client) {
 	rolloutOperatorDeployment(ctx, k8sClient, kcmKey)
 }
 
-func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int) {
+func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
+	podListOpts := &client.ListOptions{}
+	podListOpts.Namespace = namespace
+	podListOpts.ApplyOptions(opts)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(namespace))).To(gomega.Succeed())
+		g.Expect(k8sClient.List(ctx, &pods, podListOpts)).To(gomega.Succeed())
 		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
 			if (len(p.Status.PodIP) != 0 && p.Status.PodIP != "0.0.0.0") && (p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending) {
@@ -263,6 +267,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	for _, p := range activePods {
+		klog.V(3).Info("Terminating pod", "pod", klog.KObj(&p))
 		cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", p.Status.PodIP, exitCode)}
 		_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
 		// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
