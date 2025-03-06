@@ -47,7 +47,7 @@ type Assignment struct {
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage resources.FlavorResourceQuantities
+	Usage workload.Usage
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -59,10 +59,11 @@ func (assignment *Assignment) UpdateForTASResult(result cache.TASAssignmentsResu
 		psAssignment := assignment.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
 	}
+	assignment.Usage.TAS = assignment.computeTASUsage()
 }
 
 // TASUsage computes the TAS usage for the assignment
-func (assignment *Assignment) TASUsage() workload.TASUsage {
+func (assignment *Assignment) computeTASUsage() workload.TASUsage {
 	result := make(workload.TASUsage)
 	for _, psa := range assignment.PodSets {
 		if psa.TopologyAssignment != nil {
@@ -389,7 +390,9 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	}
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
-		Usage:   make(resources.FlavorResourceQuantities),
+		Usage: workload.Usage{
+			Quota: make(resources.FlavorResourceQuantities),
+		},
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
@@ -414,7 +417,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				// No need to compute again.
 				continue
 			}
-			flavors, status := a.findFlavorForPodSetResource(log, i, podSet.Requests, resName, assignment.Usage)
+			flavors, status := a.findFlavorForPodSetResource(log, i, podSet.Requests, resName, assignment.Usage.Quota)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status
@@ -482,7 +485,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			a.Borrowing = true
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
-		a.Usage[fr] += requests[resource]
+		a.Usage.Quota[fr] += requests[resource]
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
