@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -96,6 +97,11 @@ func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (a
 
 func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
+
+	if err := validateWorkloadUIDLabel(string(obj.UID), obj.Labels); err != nil {
+		allErrs = append(allErrs, err)
+	}
+
 	specPath := field.NewPath("spec")
 
 	variableCountPodSets := 0
@@ -121,6 +127,21 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
 
 	return allErrs
+}
+
+// validateWorkloadUIDLabels ensures either:
+//
+// 1. workloadUID label is not set in labels
+// 2. workloadUID label is set and matches uid
+func validateWorkloadUIDLabel(uid string, labels map[string]string) *field.Error {
+	if labels == nil {
+		return nil
+	}
+	gotUID, hasLabel := labels[constants.WorklodUIDLabel]
+	if hasLabel && gotUID != uid {
+		return field.Invalid(field.NewPath("metadata.labels").Child(constants.WorklodUIDLabel), gotUID, fmt.Sprintf("must equal metadata.UID %q", uid))
+	}
+	return nil
 }
 
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {

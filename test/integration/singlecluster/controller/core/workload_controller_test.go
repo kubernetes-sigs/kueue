@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -72,6 +73,20 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		clusterQueue = nil
 		localQueue = nil
 		updatedQueueWorkload = kueue.Workload{}
+	})
+
+	ginkgo.When("the workload is created", func() {
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.It("Should add the workload UID label", func() {
+			wl = testing.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Labels[controllerconstants.WorklodUIDLabel]).Should(gomega.Equal(string(updatedQueueWorkload.UID)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("the queue is not defined in the workload", func() {
