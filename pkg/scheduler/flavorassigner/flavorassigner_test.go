@@ -1961,7 +1961,7 @@ func TestAssignFlavors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			clusterQueue := snapshot.ClusterQueue(tc.clusterQueue.Name)
+			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
 
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
@@ -1971,7 +1971,7 @@ func TestAssignFlavors(t *testing.T) {
 			}
 
 			if tc.secondaryClusterQueue != nil {
-				secondaryClusterQueue := snapshot.ClusterQueue(tc.secondaryClusterQueue.Name)
+				secondaryClusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.secondaryClusterQueue.Name))
 				if secondaryClusterQueue == nil {
 					t.Fatalf("Failed to create secondary CQ snapshot")
 				}
@@ -2252,7 +2252,7 @@ func TestDeletedFlavors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			clusterQueue := snapshot.ClusterQueue(tc.clusterQueue.Name)
+			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
 			}

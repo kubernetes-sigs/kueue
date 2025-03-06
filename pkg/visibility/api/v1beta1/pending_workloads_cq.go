@@ -26,6 +26,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -68,7 +69,7 @@ func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runt
 	offset := pendingWorkloadOpts.Offset
 
 	wls := make([]visibility.PendingWorkload, 0, limit)
-	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(name)
+	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(kueue.ClusterQueueReference(name))
 	if pendingWorkloadsInfo == nil {
 		return nil, errors.NewNotFound(visibility.Resource("clusterqueue"), name)
 	}

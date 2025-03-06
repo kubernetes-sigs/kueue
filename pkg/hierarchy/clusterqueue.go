@@ -16,7 +16,9 @@ limitations under the License.
 
 package hierarchy
 
-type ClusterQueue[C nodeBase] struct {
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+type ClusterQueue[C nodeBase[kueue.CohortReference]] struct {
 	cohort C
 }
 

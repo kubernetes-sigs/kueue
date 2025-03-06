@@ -36,7 +36,7 @@ func DefaultQueueKey(namespace string) string {
 // LocalQueue is the internal implementation of kueue.LocalQueue.
 type LocalQueue struct {
 	Key          string
-	ClusterQueue string
+	ClusterQueue kueue.ClusterQueueReference
 
 	items map[string]*workload.Info
 }
@@ -51,7 +51,7 @@ func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 }
 
 func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
-	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
+	q.ClusterQueue = apiQueue.Spec.ClusterQueue
 }
 
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {

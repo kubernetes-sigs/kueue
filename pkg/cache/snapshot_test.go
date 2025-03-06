@@ -70,8 +70,8 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{},
-					map[string]*ClusterQueueSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 						"a": {
 							Name:                          "a",
 							NamespaceSelector:             labels.Everything(),
@@ -112,7 +112,7 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			wantSnapshot: Snapshot{
-				InactiveClusterQueueSets: sets.New("flavor-nonexistent-cq"),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("flavor-nonexistent-cq"),
 			},
 		},
 		"resourceFlavors": {
@@ -129,8 +129,8 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{},
-					map[string]*ClusterQueueSnapshot{},
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
 				),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
@@ -229,10 +229,10 @@ func TestSnapshot(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"borrowing": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -375,8 +375,8 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{},
-					map[string]*ClusterQueueSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 						"with-preemption": {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
@@ -400,8 +400,8 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{},
-					map[string]*ClusterQueueSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 						"with-preemption": {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
@@ -476,10 +476,10 @@ func TestSnapshot(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lending": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -631,10 +631,10 @@ func TestSnapshot(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lending": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
@@ -750,7 +750,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name: "cohort",
 							ResourceNode: ResourceNode{
@@ -768,7 +768,7 @@ func TestSnapshot(t *testing.T) {
 							FairWeight: oneQuantity,
 						},
 					},
-					map[string]*ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 						"cq": {
 							Name:                          "cq",
 							AllocatableResourceGeneration: 2,
@@ -837,7 +837,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{
 						"nocycle": {
 							Name: "nocycle",
 							ResourceNode: ResourceNode{
@@ -848,7 +848,7 @@ func TestSnapshot(t *testing.T) {
 							FairWeight: oneQuantity,
 						},
 					},
-					map[string]*ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 						"cq-nocycle": {
 							Name:                          "cq-nocycle",
 							AllocatableResourceGeneration: 2,
@@ -874,7 +874,7 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 				),
-				InactiveClusterQueueSets: sets.New("cq-autocycle", "cq-a", "cq-b"),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("cq-autocycle", "cq-a", "cq-b"),
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"arm": utiltesting.MakeResourceFlavor("arm").Obj(),
 				},
@@ -886,13 +886,13 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[string]*CohortSnapshot{
+					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name:       "cohort",
 							FairWeight: resource.MustParse("0.5"),
 						},
 					},
-					map[string]*ClusterQueueSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
 				),
 			},
 		},
@@ -1038,10 +1038,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name:              "c1",
 								Workloads:         make(map[string]*workload.Info),
@@ -1098,10 +1098,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[string]*workload.Info{
@@ -1164,10 +1164,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[string]*workload.Info{
@@ -1330,10 +1330,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1383,10 +1383,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1437,10 +1437,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1491,10 +1491,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1546,10 +1546,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1601,10 +1601,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),
@@ -1655,10 +1655,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				}
 				return Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[string]*CohortSnapshot{
+						map[kueue.CohortReference]*CohortSnapshot{
 							"lend": cohort,
 						},
-						map[string]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[string]*workload.Info),

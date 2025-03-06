@@ -156,7 +156,7 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue   string
+	ClusterQueue   kueue.ClusterQueueReference
 	LastAssignment *AssignmentClusterQueueState
 }
 
@@ -223,7 +223,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		Obj: w,
 	}
 	if w.Status.Admission != nil {
-		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
+		info.ClusterQueue = w.Status.Admission.ClusterQueue
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w, &options)
@@ -879,7 +879,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string) {
+func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
 	metrics.ReportEvictedWorkloads(cqName, reason)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)

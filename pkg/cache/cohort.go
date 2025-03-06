@@ -20,12 +20,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
 type cohort struct {
-	Name string
+	Name kueue.CohortReference
 	hierarchy.Cohort[*clusterQueue, *cohort]
 
 	resourceNode ResourceNode
@@ -33,7 +34,7 @@ type cohort struct {
 	FairWeight resource.Quantity
 }
 
-func newCohort(name string) *cohort {
+func newCohort(name kueue.CohortReference) *cohort {
 	return &cohort{
 		Name:         name,
 		Cohort:       hierarchy.NewCohort[*clusterQueue, *cohort](),
@@ -52,7 +53,7 @@ func (c *cohort) updateCohort(cycleChecker hierarchy.CycleChecker, apiCohort *ku
 	return updateCohortTreeResources(c, cycleChecker)
 }
 
-func (c *cohort) GetName() string {
+func (c *cohort) GetName() kueue.CohortReference {
 	return c.Name
 }
 
@@ -75,7 +76,7 @@ func (c *cohort) parentHRN() hierarchicalResourceNode {
 
 // implement hierarchy.CycleCheckable interface
 
-func (c *cohort) CCParent() hierarchy.CycleCheckable {
+func (c *cohort) CCParent() hierarchy.CycleCheckable[kueue.CohortReference] {
 	return c.Parent()
 }
 

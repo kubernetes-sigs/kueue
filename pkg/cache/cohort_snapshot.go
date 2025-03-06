@@ -19,11 +19,12 @@ package cache
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 )
 
 type CohortSnapshot struct {
-	Name string
+	Name kueue.CohortReference
 
 	ResourceNode ResourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
@@ -31,7 +32,7 @@ type CohortSnapshot struct {
 	FairWeight resource.Quantity
 }
 
-func (c *CohortSnapshot) GetName() string {
+func (c *CohortSnapshot) GetName() kueue.CohortReference {
 	return c.Name
 }
 

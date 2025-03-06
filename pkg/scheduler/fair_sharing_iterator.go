@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -66,7 +67,7 @@ func (f *fairSharingIterator) pop() *entry {
 	if !cq.HasParent() {
 		entry := f.cqToEntry[cq]
 		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
-			"clusterQueue", klog.KRef("", cq.GetName()),
+			"clusterQueue", klog.KRef("", string(cq.GetName())),
 			"workload", klog.KObj(entry.Obj))
 		delete(f.cqToEntry, cq)
 		return entry
@@ -75,7 +76,7 @@ func (f *fairSharingIterator) pop() *entry {
 	// CQ is part of a Cohort. We run a tournament, to select the
 	// most fair workload at each level.
 	root := cq.Parent().Root()
-	log := f.log.WithValues("rootCohort", klog.KRef("", root.GetName()))
+	log := f.log.WithValues("rootCohort", klog.KRef("", string(root.GetName())))
 
 	log.V(5).Info("Computing DominantResourceShare for tournament")
 	f.entryComparer.computeDRS(root, f.cqToEntry)
@@ -84,8 +85,8 @@ func (f *fairSharingIterator) pop() *entry {
 	entry := runTournament(root, f.entryComparer, f.cqToEntry)
 
 	log = log.WithValues(
-		"cohort", klog.KRef("", entry.clusterQueueSnapshot.Parent().GetName()),
-		"clusterQueue", klog.KRef("", entry.clusterQueueSnapshot.GetName()),
+		"cohort", klog.KRef("", string(entry.clusterQueueSnapshot.Parent().GetName())),
+		"clusterQueue", klog.KRef("", string(entry.clusterQueueSnapshot.GetName())),
 		"winningWorkload", klog.KObj(entry.Obj))
 
 	log.V(3).Info("Determined tournament winner")
@@ -154,7 +155,7 @@ func runTournament(cohort *cache.CohortSnapshot, ec entryComparer, cqToEntry map
 }
 
 type drsKey struct {
-	parentCohort string
+	parentCohort kueue.CohortReference
 	workloadKey  string
 }
 
@@ -163,7 +164,7 @@ type entryComparer struct {
 	workloadOrdering workload.Ordering
 }
 
-func (e *entryComparer) less(a, b *entry, parentCohort string) bool {
+func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
 	// 1: DRF

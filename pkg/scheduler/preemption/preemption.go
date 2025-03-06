@@ -96,7 +96,7 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, strin
 	p.applyPreemption = f
 }
 
-func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) []*workload.Info {
+func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue kueue.ClusterQueueReference) []*workload.Info {
 	result := make([]*workload.Info, 0, len(candidates))
 	for _, wi := range candidates {
 		if wi.ClusterQueue == clusterQueue {
@@ -106,7 +106,7 @@ func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) [
 	return result
 }
 
-func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue string, threshold int32) []*workload.Info {
+func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue kueue.ClusterQueueReference, threshold int32) []*workload.Info {
 	result := make([]*workload.Info, 0, len(candidates))
 	for _, wi := range candidates {
 		if wi.ClusterQueue == clusterQueue || priority.Priority(wi.Obj) < threshold {
@@ -224,7 +224,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 				return
 			}
 
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", target.WorkloadInfo.ClusterQueue))
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)))
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
 			metrics.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
 		} else {
@@ -463,14 +463,14 @@ type candidateCQ struct {
 func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
 	cqHeap := heap.New(
 		func(c *candidateCQ) string {
-			return c.cq.Name
+			return string(c.cq.Name)
 		},
 		func(c1, c2 *candidateCQ) bool {
 			return c1.share > c2.share
 		},
 	)
 	for _, cand := range candidates {
-		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
+		candCQ := cqHeap.GetByKey(string(cand.ClusterQueue))
 		if candCQ == nil {
 			cq := snapshot.ClusterQueue(cand.ClusterQueue)
 			share := cq.DominantResourceShare()
@@ -602,7 +602,7 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
 // 3. Workloads admitted more recently first.
-func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) func(int, int) bool {
+func candidatesOrdering(candidates []*workload.Info, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
 	return func(i, j int) bool {
 		a := candidates[i]
 		b := candidates[j]
