@@ -62,6 +62,9 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$KIND_CLUSTER_NAME"
     fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        install_kuberay "$KIND_CLUSTER_NAME"
+    fi
 }
 
 function kueue_deploy {

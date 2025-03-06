@@ -180,3 +180,21 @@ func (j *JobWrapper) Generation(num int64) *JobWrapper {
 func (j *JobWrapper) Clone() *JobWrapper {
 	return &JobWrapper{*j.DeepCopy()}
 }
+
+func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+	}
+	return j
+}
+
+func (j *JobWrapper) Entrypoint(e string) *JobWrapper {
+	j.Spec.Entrypoint = e
+	return j
+}

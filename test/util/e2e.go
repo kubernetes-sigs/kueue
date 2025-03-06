@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -57,6 +59,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	cfg.APIPath = "/api"
@@ -143,6 +148,11 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
 }
 
+func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	kroKey := types.NamespacedName{Namespace: "ray-system", Name: "kuberay-operator"}
+	waitForOperatorAvailability(ctx, k8sClient, kroKey)
+}
+
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int) {
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
@@ -169,4 +179,18 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
 		}
 	}
+}
+
+func GetKuberayTestImage() string {
+	var (
+		kuberayTestImage string
+		found            bool
+	)
+	if runtime.GOARCH == "arm64" {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
+	} else {
+		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
+	}
+	gomega.Expect(found).To(gomega.BeTrue())
+	return kuberayTestImage
 }
