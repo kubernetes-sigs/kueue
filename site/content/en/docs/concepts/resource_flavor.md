@@ -22,7 +22,9 @@ If the resources in your cluster are homogeneous, you can use an [empty Resource
 
 **Requires Kubernetes 1.23 or newer**
 
-This approach may be best for teams that wish to schedule pods onto the appropriate nodes automatically. However, a limitation arises when multiple types of specialized hardware are present, such as two different nvidia.com/gpu resources present in the cluster, i.e., T4 and A100 GPUs. The system may not differentiate between them, meaning the pods could be scheduled on any of both types of hardware.
+This approach may be best for teams that wish to schedule pods onto the appropriate nodes automatically.
+However, a limitation arises when multiple types of specialized hardware are present, such as two different nvidia.com/gpu resources present in the cluster, i.e., T4 and A100 GPUs.
+The system may not differentiate between them, meaning the pods could be scheduled on any of both types of hardware.
 
 To associate a ResourceFlavor with a subset of nodes of your cluster, you can configure the `.spec.nodeLabels` field with matching node labels that uniquely identify the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) (or equivalent controllers), make sure that the controller is configured to add those labels when adding new nodes.
 
