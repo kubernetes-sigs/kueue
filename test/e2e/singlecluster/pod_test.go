@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -518,7 +519,12 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Call high priority group pods to complete", func() {
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0)
+				selector, err := labels.Parse("kueue.x-k8s.io/pod-group-name=high-priority-group")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				listOpts := &client.ListOptions{
+					LabelSelector: selector,
+				}
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, listOpts)
 			})
 
 			ginkgo.By("Verify the high priority group completes", func() {
