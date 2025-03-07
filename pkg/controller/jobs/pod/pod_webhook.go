@@ -40,20 +40,10 @@ import (
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-)
-
-const (
-	PodFinalizer                 = constants.ManagedByKueueLabelKey
-	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
-	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
-	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
-	GroupServingAnnotation       = "kueue.x-k8s.io/pod-group-serving"
-	SuspendedByParentAnnotation  = "kueue.x-k8s.io/pod-suspending-parent"
-	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
-	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
 )
 
 var (
@@ -61,10 +51,10 @@ var (
 	labelsPath                     = metaPath.Child("labels")
 	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(constants.ManagedByKueueLabelKey)
-	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
+	groupNameLabelPath             = labelsPath.Key(podconstants.GroupNameLabel)
 	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
-	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
-	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
+	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
+	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
 
 	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
 )
@@ -131,7 +121,7 @@ func (p *Pod) addRoleHash() error {
 		return err
 	}
 
-	p.pod.Annotations[RoleHashAnnotation] = hash
+	p.pod.Annotations[podconstants.RoleHashAnnotation] = hash
 	return nil
 }
 
@@ -140,7 +130,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	_, suspend := pod.pod.GetAnnotations()[SuspendedByParentAnnotation]
+	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
@@ -204,7 +194,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if suspend {
-		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
+		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
 
 		if pod.pod.Labels == nil {
 			pod.pod.Labels = make(map[string]string)
@@ -273,7 +263,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 		allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
 	}
 
-	if _, suspendByParent := newPod.pod.Annotations[SuspendedByParentAnnotation]; !suspendByParent {
+	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
 		if warn := warningForPodManagedLabel(newPod); warn != "" {
 			warnings = append(warnings, warn)
 		}
@@ -318,22 +308,22 @@ func warningForPodManagedLabel(p *Pod) string {
 func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	gtc, gtcExists := p.pod.GetAnnotations()[GroupTotalCountAnnotation]
+	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
 	if podGroupName(p.pod) == "" {
 		if gtcExists {
 			return append(allErrs, field.Required(
 				groupNameLabelPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
 			))
 		}
 	} else {
-		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), GroupNameLabel)...)
+		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), podconstants.GroupNameLabel)...)
 
 		if !gtcExists {
 			return append(allErrs, field.Required(
 				groupTotalCountAnnotationPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
 			))
 		}
 	}

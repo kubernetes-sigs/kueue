@@ -34,7 +34,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -84,8 +84,8 @@ func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpe
 	if podTemplateSpec.Annotations == nil {
 		podTemplateSpec.Annotations = make(map[string]string, 1)
 	}
-	podTemplateSpec.Annotations[podcontroller.SuspendedByParentAnnotation] = FrameworkName
-	podTemplateSpec.Annotations[podcontroller.GroupServingAnnotation] = "true"
+	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1

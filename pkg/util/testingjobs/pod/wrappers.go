@@ -31,6 +31,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 // PodWrapper wraps a Pod.
@@ -124,12 +125,12 @@ func (p *PodWrapper) Namespace(n string) *PodWrapper {
 
 // Group updates the pod.GroupNameLabel of the Pod
 func (p *PodWrapper) Group(g string) *PodWrapper {
-	return p.Label("kueue.x-k8s.io/pod-group-name", g)
+	return p.Label(podconstants.GroupNameLabel, g)
 }
 
 // GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
 func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
-	return p.Annotation("kueue.x-k8s.io/pod-group-total-count", gtc)
+	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
@@ -155,18 +156,18 @@ func (p *PodWrapper) ManagedByKueueLabel() *PodWrapper {
 	return p.Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 }
 
-func (p *PodWrapper) PodGroupServingAnnotation(enabled bool) *PodWrapper {
-	return p.Annotation("kueue.x-k8s.io/pod-group-serving", strconv.FormatBool(enabled))
+func (p *PodWrapper) PodGroupServingAnnotation() *PodWrapper {
+	return p.Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue)
 }
 
 // RoleHash updates the pod.RoleHashAnnotation of the pod
 func (p *PodWrapper) RoleHash(h string) *PodWrapper {
-	return p.Annotation("kueue.x-k8s.io/role-hash", h)
+	return p.Annotation(podconstants.RoleHashAnnotation, h)
 }
 
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
-	return p.Gate("kueue.x-k8s.io/admission")
+	return p.Gate(podconstants.SchedulingGateName)
 }
 
 // TopologySchedulingGate adds kueue scheduling gate to the Pod

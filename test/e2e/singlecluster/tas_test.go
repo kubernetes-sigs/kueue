@@ -32,6 +32,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -336,7 +337,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			ginkgo.By("Creating the Pod", func() {
 				gomega.Expect(k8sClient.Create(ctx, p)).Should(gomega.Succeed())
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
-					corev1.PodSchedulingGate{Name: podcontroller.SchedulingGateName},
+					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 				))
 				gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
@@ -396,7 +397,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				for _, p := range group {
 					gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
 					gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
-						corev1.PodSchedulingGate{Name: podcontroller.SchedulingGateName},
+						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 						corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 					))
 					gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))

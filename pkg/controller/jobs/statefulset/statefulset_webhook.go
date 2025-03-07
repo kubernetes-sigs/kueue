@@ -34,7 +34,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -78,17 +78,17 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if ss.Spec.Template.Annotations == nil {
 			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		ss.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
+		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
 			if ss.Spec.Template.Labels == nil {
 				ss.Spec.Template.Labels = make(map[string]string, 2)
 			}
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
-			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
-			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
+			ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
+			ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
+			ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
+			ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
