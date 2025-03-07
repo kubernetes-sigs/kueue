@@ -34,6 +34,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -683,7 +684,7 @@ func TestValidateUpdate(t *testing.T) {
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Annotation(SuspendedByParentAnnotation, "job").
+				Annotation(podconstants.SuspendedByParentAnnotation, "job").
 				Obj(),
 		},
 		"pod with group name and no group total count": {
@@ -755,7 +756,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
@@ -772,12 +773,12 @@ func TestValidateUpdate(t *testing.T) {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "true").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, "true").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{

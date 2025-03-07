@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -91,7 +92,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
 				gomega.Expect(p.Spec.SchedulingGates).
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
-						Name: pod.SchedulingGateName}))
+						Name: podconstants.SchedulingGateName}))
 			}
 			ginkgo.By("Starting admission", func() {
 				// Verify that the Pods start with the appropriate selector.
@@ -139,7 +140,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					for _, origPod := range group[:2] {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: pod.SchedulingGateName}))
+						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 					}
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})

@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -346,7 +347,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -674,7 +675,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -682,7 +683,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload":                           "true",
+						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
 						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
@@ -707,7 +708,7 @@ func TestReconciler(t *testing.T) {
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("3").
-					Annotation(GroupFastAdmissionAnnotation, "true").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -721,7 +722,7 @@ func TestReconciler(t *testing.T) {
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("3").
-					Annotation(GroupFastAdmissionAnnotation, "true").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -729,14 +730,14 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload":                           "true",
+						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
 						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
@@ -798,7 +799,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -806,7 +807,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload": "true",
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
 					}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
@@ -848,14 +849,14 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(5).
 					Obj(),
 			},
@@ -885,14 +886,14 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
 			},
@@ -950,7 +951,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -964,7 +965,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -2084,7 +2085,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2331,7 +2332,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2339,7 +2340,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2406,7 +2407,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
@@ -2436,7 +2437,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2648,7 +2649,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*basePodWrapper.
@@ -2658,7 +2659,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
@@ -2669,7 +2670,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
@@ -2680,7 +2681,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*basePodWrapper.
@@ -2690,7 +2691,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
@@ -2701,7 +2702,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
@@ -2796,13 +2797,13 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3238,14 +3239,14 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4069,7 +4070,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -4127,7 +4128,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4135,7 +4136,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload": "true"}).
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Labels(map[string]string{
 						"toCopyKey1": "toCopyValue1",
 						"toCopyKey2": "toCopyValue2",
@@ -4238,7 +4239,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4268,7 +4269,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4324,7 +4325,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4351,7 +4352,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
