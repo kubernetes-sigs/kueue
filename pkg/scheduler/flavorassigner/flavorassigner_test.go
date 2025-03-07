@@ -110,10 +110,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    1_000,
 					{Flavor: "default", Resource: corev1.ResourceMemory}: utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"single flavor, fits tainted flavor": {
@@ -147,9 +147,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"single flavor, fits tainted flavor with toleration": {
@@ -175,9 +175,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"single flavor, used resources, doesn't fit": {
@@ -210,9 +210,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"multiple resource groups, fits": {
@@ -254,10 +254,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:      3_000,
 					{Flavor: "b_one", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
@@ -296,7 +296,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple resource groups with multiple resources, fits": {
@@ -342,11 +342,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
-				},
+				}},
 			},
 		},
 		"multiple resource groups with multiple resources, fits with different modes": {
@@ -411,11 +411,11 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
-				},
+				}},
 			},
 		},
 		"multiple resources in a group, doesn't fit": {
@@ -451,7 +451,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
@@ -481,9 +481,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 3_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, fits a node selector": {
@@ -531,9 +531,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, fits with node affinity": {
@@ -585,10 +585,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    1_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"multiple flavors, node affinity fits any flavor": {
@@ -647,9 +647,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, doesn't fit node affinity": {
@@ -697,7 +697,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple specs, fit different flavors": {
@@ -743,10 +743,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 3_000,
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 5_000,
-				},
+				}},
 			},
 		},
 		"multiple specs, fits borrowing": {
@@ -806,10 +806,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    10_000,
 					{Flavor: "default", Resource: corev1.ResourceMemory}: 5 * utiltesting.Gi,
-				},
+				}},
 			},
 		},
 		"not enough space to borrow": {
@@ -846,7 +846,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"past max, but can preempt in ClusterQueue": {
@@ -893,9 +893,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"past min, but can preempt in ClusterQueue": {
@@ -928,9 +928,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"past min, but can preempt in cohort and ClusterQueue": {
@@ -975,9 +975,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"can only preempt flavors that match affinity": {
@@ -1019,9 +1019,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"each podset requires preemption on a different flavor": {
@@ -1088,10 +1088,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 10,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:     2_000,
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 10_000,
-				},
+				}},
 			},
 		},
 		"resource not listed in clusterQueue": {
@@ -1117,7 +1117,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"num pods fit": {
@@ -1148,10 +1148,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-				},
+				}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1181,7 +1181,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"with reclaimable pods": {
@@ -1217,10 +1217,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-				},
+				}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1262,10 +1262,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
 					{Flavor: "one", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"preempt try next flavor": {
@@ -1302,10 +1302,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: "cpu"}:  9_000,
 					{Flavor: "two", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"borrow try next flavor, found the first flavor": {
@@ -1353,10 +1353,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"borrow try next flavor, found the second flavor": {
@@ -1404,10 +1404,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"borrow before try next flavor": {
@@ -1454,10 +1454,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
 					{Flavor: "one", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=Borrow": {
@@ -1512,9 +1512,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=Borrow": {
@@ -1569,9 +1569,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor": {
@@ -1620,9 +1620,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed, but borrowingLimit exceeds the quota available in the cohort": {
@@ -1656,7 +1656,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 				PodSets: []PodSetAssignment{
 					{
 						Name: kueue.DefaultPodSetName,
@@ -1718,10 +1718,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"lend try next flavor, found the first flavor": {
@@ -1769,10 +1769,10 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"quota exhausted, but can preempt in cohort and ClusterQueue": {
@@ -1819,10 +1819,10 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any": {
@@ -1870,9 +1870,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohor=Never": {
@@ -1916,9 +1916,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 	}
@@ -2185,9 +2185,9 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "flavor", Resource: corev1.ResourceCPU}: 3_000,
-				},
+				}},
 			},
 		},
 		"flavor not found": {
@@ -2213,7 +2213,7 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 	}

@@ -4183,7 +4183,7 @@ func TestResourcesToReserve(t *testing.T) {
 					},
 				},
 				Borrowing: tc.borrowing,
-				Usage:     tc.assignmentUsage,
+				Usage:     workload.Usage{Quota: tc.assignmentUsage},
 			}
 			e := &entry{assignment: assignment}
 			cl := utiltesting.NewClientBuilder().

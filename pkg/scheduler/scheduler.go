@@ -241,7 +241,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		usage := e.usage()
+		usage := e.assignmentUsage()
 		if !fits(cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 			setSkipped(e, "Workload no longer fits after processing another workload")
 			if mode == flavorassigner.Preempt {
@@ -327,11 +327,8 @@ type entry struct {
 	clusterQueueSnapshot *cache.ClusterQueueSnapshot
 }
 
-func (e *entry) usage() workload.Usage {
-	return workload.Usage{
-		Quota: e.assignment.Usage,
-		TAS:   e.assignment.TASUsage(),
-	}
+func (e *entry) assignmentUsage() workload.Usage {
+	return e.assignment.Usage
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -386,16 +383,16 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
 	return workload.Usage{
 		Quota: quotaResourcesToReserve(e, cq),
-		TAS:   e.assignment.TASUsage(),
+		TAS:   e.assignment.Usage.TAS,
 	}
 }
 
 func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
-		return e.assignment.Usage
+		return e.assignment.Usage.Quota
 	}
 	reservedUsage := make(resources.FlavorResourceQuantities)
-	for fr, usage := range e.assignment.Usage {
+	for fr, usage := range e.assignment.Usage.Quota {
 		cqQuota := cq.QuotaFor(fr)
 		if e.assignment.Borrowing {
 			if cqQuota.BorrowingLimit == nil {
@@ -418,7 +415,7 @@ type partialAssignment struct {
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	updateAssignmentForTAS(cq, wl, assignment, targets)
+	updateAssignmentForTAS(cq, wl, &assignment, targets)
 	return assignment, targets
 }
 
@@ -462,7 +459,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	return fullAssignment, nil
 }
 
-func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment flavorassigner.Assignment, targets []*preemption.Target) {
+func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt && wl.IsRequestingTAS() {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
 		var tasResult cache.TASAssignmentsResult

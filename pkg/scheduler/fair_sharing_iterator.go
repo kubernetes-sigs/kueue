@@ -200,7 +200,7 @@ func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry 
 		}
 		// We add workload's usage to CQ, so that all
 		// subsequent DRS include the admission of workload.
-		cq.AddUsage(entry.usage())
+		cq.AddUsage(entry.assignmentUsage())
 
 		// calculate DRS, with workload, for CQ.
 		dominantResourceShare := cq.DominantResourceShare()
@@ -215,7 +215,7 @@ func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry 
 			cohort = cohort.Parent()
 		}
 
-		cq.RemoveUsage(entry.usage())
+		cq.RemoveUsage(entry.assignmentUsage())
 	}
 }
 
