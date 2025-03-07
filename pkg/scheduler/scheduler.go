@@ -210,14 +210,20 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	skippedPreemptions := make(map[string]int)
 	for iterator.hasNext() {
 		e := iterator.pop()
-		mode := e.assignment.RepresentativeMode()
-		if mode == flavorassigner.NoFit {
-			continue
-		}
 
 		cq := snapshot.ClusterQueue(e.ClusterQueue)
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		if cq.HasParent() {
+			log = log.WithValues("parentCohort", klog.KRef("", cq.Parent().GetName()), "rootCohort", klog.KRef("", cq.Parent().Root().GetName()))
+		}
 		ctx := ctrl.LoggerInto(ctx, log)
+
+		mode := e.assignment.RepresentativeMode()
+		if mode == flavorassigner.NoFit {
+			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
+			continue
+		}
+		log.V(2).Info("Attempting to schedule workload")
 
 		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
 			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
