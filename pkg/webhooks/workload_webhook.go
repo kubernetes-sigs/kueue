@@ -202,7 +202,7 @@ func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *fi
 // we do not import it as dependency, see the comment:
 // https://github.com/kubernetes/kubernetes/issues/79384#issuecomment-505627280
 func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) field.ErrorList {
-	allErrors := field.ErrorList{}
+	var allErrors field.ErrorList
 	for i, toleration := range tolerations {
 		idxPath := fldPath.Index(i)
 		// validate the toleration key

@@ -360,11 +360,11 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 		}
 	}
 
-	return field.ErrorList{}
+	return nil
 }
 
 func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
 	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
 	groupName := podGroupName(pod.pod)
 	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
