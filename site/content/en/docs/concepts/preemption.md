@@ -48,7 +48,7 @@ status:
 The `Evicted` condition indicates that the Workload was evicted with a reason `Preempted`,
 whereas the `Preempted` condition gives more details about the preemption reason.
 
-More information about the preempting workload can be found by running `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID>`.
+The preempting workload can be found by running `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces`.
 
 ## Preemption algorithms
 
