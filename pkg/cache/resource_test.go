@@ -428,7 +428,7 @@ func TestAvailable(t *testing.T) {
 			// remove usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.ClusterQueue(cqName).removeUsage(workload.Usage{Quota: usage})
+					snapshot.ClusterQueue(cqName).RemoveUsage(workload.Usage{Quota: usage})
 				}
 				clusterQueues := snapshot.ClusterQueues()
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(clusterQueues))

@@ -199,7 +199,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Create iterator which returns ordered entries.
-	var iterator entryIterator = makeIterator(entries, s.workloadOrdering, s.fairSharing.Enable)
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, s.fairSharing.Enable)
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -313,12 +313,12 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	dominantResourceShare int
-	assignment            flavorassigner.Assignment
-	status                entryStatus
-	inadmissibleMsg       string
-	requeueReason         queue.RequeueReason
-	preemptionTargets     []*preemption.Target
+	assignment           flavorassigner.Assignment
+	status               entryStatus
+	inadmissibleMsg      string
+	requeueReason        queue.RequeueReason
+	preemptionTargets    []*preemption.Target
+	clusterQueueSnapshot *cache.ClusterQueueSnapshot
 }
 
 func (e *entry) usage() workload.Usage {
@@ -335,9 +335,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
-		cq := snap.ClusterQueue(w.ClusterQueue)
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
+		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
 			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
 			continue
@@ -345,11 +345,11 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = "The workload has failed admission checks"
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
-		} else if cq == nil {
+		} else if e.clusterQueueSnapshot == nil {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Could not obtain workload namespace: %v", err)
-		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
+		} else if !e.clusterQueueSnapshot.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
 		} else if err := workload.ValidateResources(&w); err != nil {
@@ -360,9 +360,6 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
-			if s.fairSharing.Enable && e.assignment.RepresentativeMode() != flavorassigner.NoFit {
-				e.dominantResourceShare = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
-			}
 		}
 		entries = append(entries, e)
 	}
@@ -551,9 +548,8 @@ func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload
 }
 
 type entryOrdering struct {
-	enableFairSharing bool
-	entries           []entry
-	workloadOrdering  workload.Ordering
+	entries          []entry
+	workloadOrdering workload.Ordering
 }
 
 func (e entryOrdering) Len() int {
@@ -576,12 +572,7 @@ func (e entryOrdering) Less(i, j int) bool {
 		return !aBorrows
 	}
 
-	// 2. Fair share, if enabled.
-	if e.enableFairSharing && a.dominantResourceShare != b.dominantResourceShare {
-		return a.dominantResourceShare < b.dominantResourceShare
-	}
-
-	// 3. Higher priority first if not disabled.
+	// 2. Higher priority first if not disabled.
 	if features.Enabled(features.PrioritySortingWithinCohort) {
 		p1 := priority.Priority(a.Obj)
 		p2 := priority.Priority(b.Obj)
@@ -590,7 +581,7 @@ func (e entryOrdering) Less(i, j int) bool {
 		}
 	}
 
-	// 4. FIFO.
+	// 3. FIFO.
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
@@ -601,6 +592,13 @@ func (e entryOrdering) Less(i, j int) bool {
 type entryIterator interface {
 	pop() *entry
 	hasNext() bool
+}
+
+func makeIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) entryIterator {
+	if enableFairSharing {
+		return makeFairSharingIterator(ctx, entries, workloadOrdering)
+	}
+	return makeClassicalIterator(entries, workloadOrdering)
 }
 
 // classicalIterator returns entries ordered on:
@@ -622,11 +620,10 @@ func (co *classicalIterator) pop() *entry {
 	return head
 }
 
-func makeIterator(entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) *classicalIterator {
+func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
 	sort.Sort(entryOrdering{
-		entries:           entries,
-		enableFairSharing: enableFairSharing,
-		workloadOrdering:  workloadOrdering,
+		entries:          entries,
+		workloadOrdering: workloadOrdering,
 	})
 	return &classicalIterator{
 		entries: entries,
