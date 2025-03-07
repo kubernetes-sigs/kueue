@@ -98,7 +98,7 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 // validateNodeTaints is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
 func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorList {
-	allErrors := field.ErrorList{}
+	var allErrors field.ErrorList
 
 	uniqueTaints := make(map[corev1.TaintEffect]sets.Set[string])
 
