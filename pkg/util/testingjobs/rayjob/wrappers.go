@@ -227,7 +227,7 @@ func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v
 	return j
 }
 
-func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *JobWrapper {
+func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args ...string) *JobWrapper {
 	if rayType == rayv1.HeadNode {
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
