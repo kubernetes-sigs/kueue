@@ -44,7 +44,6 @@ func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrder
 	f := fairSharingIterator{
 		cqToEntry: make(map[*cache.ClusterQueueSnapshot]*entry, len(entries)),
 		entryComparer: entryComparer{
-			drsValues:        make(map[drsKey]int),
 			workloadOrdering: workloadOrdering,
 		},
 		log: ctrl.LoggerFrom(ctx),
@@ -180,7 +179,7 @@ func (e *entryComparer) less(a, b *entry, parentCohort string) bool {
 // all children the parentCohort, to select the child with the lowest
 // DRS after admission of its nominated workload.
 func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry map[*cache.ClusterQueueSnapshot]*entry) {
-	ec.clearDrsValues()
+	ec.drsValues = make(map[drsKey]int)
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
@@ -204,12 +203,6 @@ func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry 
 		}
 
 		cq.RemoveUsage(entry.usage())
-	}
-}
-
-func (ec *entryComparer) clearDrsValues() {
-	for key := range ec.drsValues {
-		delete(ec.drsValues, key)
 	}
 }
 
