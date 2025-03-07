@@ -55,6 +55,7 @@ type ClusterQueueSnapshot struct {
 	hierarchy.ClusterQueue[*CohortSnapshot]
 
 	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+	tasOnly    bool
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -213,4 +214,8 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		}
 	}
 	return result
+}
+
+func (c *ClusterQueueSnapshot) IsTASOnly() bool {
+	return c.tasOnly
 }
