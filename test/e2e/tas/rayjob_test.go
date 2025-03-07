@@ -183,8 +183,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 						},
 					},
 				}).
-				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
-				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				Image(rayv1.HeadNode, kuberayTestImage).
+				Image(rayv1.WorkerNode, kuberayTestImage).
 				Obj()
 
 			gomega.Expect(k8sClient.Create(ctx, rayjob)).Should(gomega.Succeed())
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 })
 
 func readAssignedNodes(pods []corev1.Pod) set.Set[string] {
-	assignment := set.Set[string]{}
+	assignment := set.New[string]()
 	for _, pod := range pods {
 		if role := pod.Labels["ray.io/node-type"]; role == "worker" {
 			assignment = assignment.Insert(pod.Spec.NodeName)

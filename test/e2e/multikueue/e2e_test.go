@@ -773,8 +773,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
-				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
-				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				Image(rayv1.HeadNode, kuberayTestImage).
+				Image(rayv1.WorkerNode, kuberayTestImage).
 				Obj()
 
 			ginkgo.By("Creating the RayJob", func() {
