@@ -568,7 +568,8 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 
 
 <p>BorrowWithinCohort contains configuration which allows to preempt workloads
-within cohort while borrowing.</p>
+within cohort while borrowing. It only works with Classical Preemption,
+<strong>not</strong> with Fair Sharing.</p>
 
 
 <table class="table">
@@ -704,6 +705,23 @@ in the cluster queue.</p>
 
 <p>ClusterQueuePreemption contains policies to preempt Workloads from this
 ClusterQueue or the ClusterQueue's cohort.</p>
+<p>Preemption may be configured to work in the following scenarios:</p>
+<ul>
+<li>When a Workload fits within the nominal quota of the ClusterQueue, but
+the quota is currently borrowed by other ClusterQueues in the cohort.
+We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+reclaim its nominal quota. Configured using reclaimWithinCohort.</li>
+<li>When a Workload doesn't fit within the nominal quota of the ClusterQueue
+and there are admitted Workloads in the ClusterQueue with lower priority.
+Configured using withinClusterQueue.</li>
+<li>When a Workload may fit while both borrowing and preempting
+low priority workloads in the Cohort. Configured using borrowWithinCohort.</li>
+<li>When FairSharing is enabled, to maintain fair distribution of
+unused resources. See FairSharing documentation.</li>
+</ul>
+<p>The preemption algorithm tries to find a minimal set of Workloads to
+preempt to accomomdate the pending Workload, preempting Workloads with
+lower priority first.</p>
 
 
 <table class="table">
@@ -737,9 +755,7 @@ in the cohort that satisfy the fair sharing preemptionStrategies.</li>
 <a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohort"><code>BorrowWithinCohort</code></a>
 </td>
 <td>
-   <p>borrowWithinCohort provides configuration to allow preemption within
-cohort while borrowing.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>withinClusterQueue</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PreemptionPolicy"><code>PreemptionPolicy</code></a>
@@ -862,21 +878,7 @@ before borrowing or preempting in the flavor being evaluated.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption"><code>ClusterQueuePreemption</code></a>
 </td>
 <td>
-   <p>preemption describes policies to preempt Workloads from this ClusterQueue
-or the ClusterQueue's cohort.</p>
-<p>Preemption can happen in two scenarios:</p>
-<ul>
-<li>When a Workload fits within the nominal quota of the ClusterQueue, but
-the quota is currently borrowed by other ClusterQueues in the cohort.
-Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-reclaim its nominal quota.</li>
-<li>When a Workload doesn't fit within the nominal quota of the ClusterQueue
-and there are admitted Workloads in the ClusterQueue with lower priority.</li>
-</ul>
-<p>The preemption algorithm tries to find a minimal set of Workloads to
-preempt to accomomdate the pending Workload, preempting Workloads with
-lower priority first.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>admissionChecks</code><br/>
 <code>[]string</code>
