@@ -31,15 +31,15 @@ that is similar to the following:
 status:
   conditions:
   - lastTransitionTime: "2024-05-31T18:42:33Z"
-    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d)
-      in the ClusterQueue'
+    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d, JobUID: 639a596b-d05f-469c-bbd1-5788c9f13f16)
+      due to prioritization in the ClusterQueue'
     observedGeneration: 1
     reason: Preempted
     status: "True"
     type: Evicted
   - lastTransitionTime: "2024-05-31T18:42:33Z"
-    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d)
-      in the ClusterQueue'
+    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d, JobUID: 639a596b-d05f-469c-bbd1-5788c9f13f16)
+      due to prioritization in the ClusterQueue'
     reason: InClusterQueue
     status: "True"
     type: Preempted
@@ -47,6 +47,8 @@ status:
 
 The `Evicted` condition indicates that the Workload was evicted with a reason `Preempted`,
 whereas the `Preempted` condition gives more details about the preemption reason.
+
+More information about the preempting workload can be found by running `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID>`.
 
 ## Preemption algorithms
 
