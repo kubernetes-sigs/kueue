@@ -67,6 +67,11 @@ func (c *CohortSnapshot) subtreeClusterQueueCount() int {
 	return count
 }
 
+func (c *CohortSnapshot) DominantResourceShare() int {
+	share, _ := dominantResourceShare(c, nil)
+	return share
+}
+
 // The methods below implement hierarchicalResourceNode interface.
 
 func (c *CohortSnapshot) getResourceNode() ResourceNode {
