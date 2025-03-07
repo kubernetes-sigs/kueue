@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -63,8 +64,10 @@ func (f *fairSharingIterator) pop() *entry {
 
 	// CQ has no Cohort. We simply return its workload.
 	if !cq.HasParent() {
-		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort", "clusterQueue", cq.GetName())
 		entry := f.cqToEntry[cq]
+		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
+			"clusterQueue", klog.KRef("", cq.GetName()),
+			"workload", klog.KObj(entry.Obj))
 		delete(f.cqToEntry, cq)
 		return entry
 	}
@@ -72,11 +75,21 @@ func (f *fairSharingIterator) pop() *entry {
 	// CQ is part of a Cohort. We run a tournament, to select the
 	// most fair workload at each level.
 	root := cq.Parent().Root()
-	f.log.V(3).Info("Running tournament to decide next workload to consider in scheduling cycle", "rootCohort", root.GetName())
+	log := f.log.WithValues("rootCohort", klog.KRef("", root.GetName()))
 
+	log.V(5).Info("Computing DominantResourceShare for tournament")
 	f.entryComparer.computeDRS(root, f.cqToEntry)
-	f.entryComparer.logDRS(f.log)
+
+	log.V(3).Info("Running tournament to decide next workload to consider in scheduling cycle")
 	entry := runTournament(root, f.entryComparer, f.cqToEntry)
+
+	log = log.WithValues(
+		"cohort", klog.KRef("", entry.clusterQueueSnapshot.Parent().GetName()),
+		"clusterQueue", klog.KRef("", entry.clusterQueueSnapshot.GetName()),
+		"winningWorkload", klog.KObj(entry.Obj))
+
+	log.V(3).Info("Determined tournament winner")
+	f.entryComparer.logDrsValuesWhenVerbose(log)
 
 	delete(f.cqToEntry, entry.clusterQueueSnapshot)
 	return entry
@@ -206,7 +219,7 @@ func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry 
 	}
 }
 
-func (ec *entryComparer) logDRS(log logr.Logger) {
+func (ec *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(5); logV.Enabled() {
 		serializableDrs := make([]string, 0, len(ec.drsValues))
 		for k, v := range ec.drsValues {
