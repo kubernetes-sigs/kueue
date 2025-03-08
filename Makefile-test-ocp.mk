@@ -45,7 +45,6 @@ KUSTOMIZE_OCP_VERSION ?= $(shell $(GO_CMD) list -m -mod=mod -f '{{.Version}}' si
 GINKGO_OCP_VERSION ?= $(shell $(GO_CMD) list -m -mod=mod -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 YQ_OCP_VERSION ?= $(shell $(GO_CMD) list -m -mod=mod -f '{{.Version}}' github.com/mikefarah/yq/v4)
 ENVTEST_OCP_VERSION ?= $(shell $(GO_CMD) list -m -mod=mod -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
-GOTESTSUM_OCP_VERSION ?= $(shell $(GO_CMD) list -m -mod=mod -f '{{.Version}}' gotest.tools/gotestsum)
 
 KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize-ocp
@@ -60,12 +59,7 @@ ginkgo-ocp: ## Download ginkgo locally if necessary.
 ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
 .PHONY: envtest
 envtest-ocp: ## Download envtest-setup locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_OCP_VERSION)
-
-GOTESTSUM = $(PROJECT_DIR)/bin/gotestsum
-.PHONY: gotestsum
-gotestsum-ocp: ## Download gotestsum locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@$(GOTESTSUM_OCP_VERSION)
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install -mod=mod sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_OCP_VERSION)
 
 YQ = $(PROJECT_DIR)/bin/yq
 .PHONY: yq-ocp
@@ -73,8 +67,8 @@ yq-ocp: ## Download yq locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install -mod=mod github.com/mikefarah/yq/v4@$(YQ_OCP_VERSION)
 
 .PHONY: test-ocp
-test-ocp: gotestsum-ocp ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+test-ocp: ## Run tests.
+	${GO_CMD} run ./vendor/gotest.tools/gotestsum --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration-ocp
 test-integration-ocp: envtest-ocp ginkgo-ocp dep-crds-ocp kueuectl-ocp ginkgo-top-ocp ## Run integration tests for all singlecluster suites.
