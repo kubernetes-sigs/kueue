@@ -97,8 +97,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		name                string
 		operation           func(*Cache) error
 		clientObjects       []client.Object
-		wantClusterQueues   map[string]*clusterQueue
-		wantCohorts         map[string]sets.Set[string]
+		wantClusterQueues   map[kueue.ClusterQueueReference]*clusterQueue
+		wantCohorts         map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]
 		disableLendingLimit bool
 	}{
 		{
@@ -106,7 +106,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				return setup(cache)
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
@@ -165,9 +165,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e", "f"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("a", "b"),
+				"two": sets.New[kueue.ClusterQueueReference]("c", "e", "f"),
 			},
 		},
 		{
@@ -182,7 +182,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					AllocatableResourceGeneration: 1,
@@ -206,7 +206,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					AllocatableResourceGeneration: 1,
@@ -232,7 +232,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
@@ -291,9 +291,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e", "f"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("a", "b"),
+				"two": sets.New[kueue.ClusterQueueReference]("c", "e", "f"),
 			},
 		},
 		{
@@ -333,7 +333,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 4,
@@ -392,9 +392,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("b"),
-				"two": sets.New("a", "c", "e", "f"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("b"),
+				"two": sets.New[kueue.ClusterQueueReference]("a", "c", "e", "f"),
 			},
 		},
 		{
@@ -439,7 +439,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
@@ -478,8 +478,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("a"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("a"),
 			},
 		},
 		{
@@ -507,7 +507,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 4,
@@ -536,8 +536,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:             labels.Nothing(),
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"three": sets.New("a", "c"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"three": sets.New[kueue.ClusterQueueReference]("a", "c"),
 			},
 		},
 		{
@@ -556,7 +556,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
@@ -597,9 +597,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("b"),
-				"two": sets.New("c", "e", "f"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("b"),
+				"two": sets.New[kueue.ClusterQueueReference]("c", "e", "f"),
 			},
 		},
 		{
@@ -612,7 +612,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("nonexistent-flavor").Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
@@ -671,9 +671,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e", "f"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"one": sets.New[kueue.ClusterQueueReference]("a", "b"),
+				"two": sets.New[kueue.ClusterQueueReference]("c", "e", "f"),
 			},
 		},
 		{
@@ -701,7 +701,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -725,7 +725,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -740,7 +740,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{},
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
 		},
 		{
 			name: "add check after queue creation",
@@ -757,7 +757,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -772,7 +772,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{},
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
 		},
 		{
 			name: "remove check after queue creation",
@@ -790,7 +790,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.DeleteAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -805,7 +805,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{},
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
 		},
 		{
 			name: "inactivate check after queue creation",
@@ -823,7 +823,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionFalse).Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -838,7 +838,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight: oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{},
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
 		},
 		{
 			name: "add cluster queue after finished workloads",
@@ -874,7 +874,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"cq1": {
 					Name:                          "cq1",
 					NamespaceSelector:             labels.Everything(),
@@ -921,7 +921,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{},
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
 		},
 		{
 			name: "add CQ with multiple resource groups and flavors",
@@ -974,7 +974,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Obj()
 				return cache.AddClusterQueue(context.Background(), cq)
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -1038,7 +1038,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Obj()
 				return cache.AddClusterQueue(context.Background(), cq)
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -1056,7 +1056,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
-			wantCohorts: map[string]sets.Set[string]{
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
 				"cohort": nil,
 			},
 		},
@@ -1065,7 +1065,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
-				cache.DeleteCohort(cohort.Name)
+				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
 				return nil
 			},
 			wantCohorts: nil,
@@ -1078,10 +1078,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 				_ = cache.AddClusterQueue(context.Background(),
 					utiltesting.MakeClusterQueue("cq").Cohort("cohort").Obj())
-				cache.DeleteCohort(cohort.Name)
+				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
 				return nil
 			},
-			wantClusterQueues: map[string]*clusterQueue{
+			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"cq": {
 					Name:                          "cq",
 					NamespaceSelector:             labels.Everything(),
@@ -1092,8 +1092,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FairWeight:                    oneQuantity,
 				},
 			},
-			wantCohorts: map[string]sets.Set[string]{
-				"cohort": sets.New("cq"),
+			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
+				"cohort": sets.New[kueue.ClusterQueueReference]("cq"),
 			},
 		},
 	}
@@ -1116,9 +1116,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			}
 
 			cohorts := cache.hm.Cohorts()
-			gotCohorts := make(map[string]sets.Set[string], len(cohorts))
+			gotCohorts := make(map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference], len(cohorts))
 			for name, cohort := range cohorts {
-				gotCohort := sets.New[string]()
+				gotCohort := sets.New[kueue.ClusterQueueReference]()
 				for _, cq := range cohort.ChildCQs() {
 					gotCohort.Insert(cq.Name)
 				}
@@ -1197,8 +1197,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	steps := []struct {
 		name                 string
 		operation            func(cache *Cache) error
-		wantResults          map[string]result
-		wantAssumedWorkloads map[string]string
+		wantResults          map[kueue.ClusterQueueReference]result
+		wantAssumedWorkloads map[string]kueue.ClusterQueueReference
 		wantError            string
 	}{
 		{
@@ -1219,7 +1219,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1244,7 +1244,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return nil
 			},
 			wantError: "failed to add workload",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1268,7 +1268,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1293,7 +1293,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				return cache.UpdateWorkload(old, latest)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1322,7 +1322,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.UpdateWorkload(old, latest)
 			},
 			wantError: "old ClusterQueue doesn't exist",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1347,7 +1347,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.UpdateWorkload(old, latest)
 			},
 			wantError: "new ClusterQueue doesn't exist",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1371,7 +1371,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				return cache.UpdateWorkload(old, latest)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1392,7 +1392,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				return cache.DeleteWorkload(w)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1411,7 +1411,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltesting.MakeWorkload("a", "").Obj()
 				return cache.DeleteWorkload(w)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1431,7 +1431,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.DeleteWorkload(w)
 			},
 			wantError: "cluster queue not found",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1453,7 +1453,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.DeleteWorkload(w)
 			},
 			wantError: "cluster queue not found",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1474,7 +1474,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}).Obj()
 				return cache.DeleteWorkload(w)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1507,7 +1507,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b", "/d"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1523,7 +1523,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]string{
+			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
 				"/d": "one",
 				"/e": "two",
 			},
@@ -1540,7 +1540,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return nil
 			},
 			wantError: "cluster queue not found",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1552,7 +1552,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					Workloads: sets.New("/c"),
 				},
 			},
-			wantAssumedWorkloads: map[string]string{},
+			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{},
 		},
 		{
 			name: "forget",
@@ -1576,7 +1576,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := workloads[0]
 				return cache.ForgetWorkload(w)
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1592,7 +1592,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]string{
+			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
 				"/e": "two",
 			},
 		},
@@ -1608,7 +1608,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return nil
 			},
 			wantError: "the workload is not assumed",
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1646,7 +1646,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantResults: map[string]result{
+			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New("/a", "/b", "/d"),
 					UsedResources: resources.FlavorResourceQuantities{
@@ -1662,7 +1662,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]string{
+			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
 				"/e": "two",
 			},
 		},
@@ -1681,7 +1681,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			if diff := cmp.Diff(step.wantError, messageOrEmpty(gotError)); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			gotResult := make(map[string]result)
+			gotResult := make(map[kueue.ClusterQueueReference]result)
 			for name, cq := range cache.hm.ClusterQueues() {
 				gotResult[name] = result{
 					Workloads:     sets.KeySet(cq.Workloads),
@@ -1692,7 +1692,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 			if step.wantAssumedWorkloads == nil {
-				step.wantAssumedWorkloads = map[string]string{}
+				step.wantAssumedWorkloads = map[string]kueue.ClusterQueueReference{}
 			}
 			if diff := cmp.Diff(step.wantAssumedWorkloads, cache.assumedWorkloads); diff != "" {
 				t.Errorf("Unexpected assumed workloads (-want,+got):\n%s", diff)
@@ -2759,14 +2759,14 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 	tests := []struct {
 		name                       string
 		clusterQueues              []*kueue.ClusterQueue
-		wantInUseClusterQueueNames []string
+		wantInUseClusterQueueNames []kueue.ClusterQueueReference
 	}{
 		{
 			name: "single clusterQueue with flavor in use",
 			clusterQueues: []*kueue.ClusterQueue{
 				fooCq,
 			},
-			wantInUseClusterQueueNames: []string{fooCq.Name},
+			wantInUseClusterQueueNames: []kueue.ClusterQueueReference{kueue.ClusterQueueReference(fooCq.Name)},
 		},
 		{
 			name: "single clusterQueue with no flavor",
@@ -2781,7 +2781,10 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 				barCq,
 				fizzCq,
 			},
-			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name},
+			wantInUseClusterQueueNames: []kueue.ClusterQueueReference{
+				kueue.ClusterQueueReference(fooCq.Name),
+				kueue.ClusterQueueReference(fizzCq.Name),
+			},
 		},
 	}
 	for _, tc := range tests {
@@ -2797,7 +2800,7 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 			}
 
 			cqs := cache.ClusterQueuesUsingFlavor("x86")
-			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
+			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b kueue.ClusterQueueReference) bool {
 				return a < b
 			})); len(diff) != 0 {
 				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
@@ -2823,7 +2826,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 				},
 			}).Obj(),
 	}
-	wantCQs := sets.New("matching1", "matching2")
+	wantCQs := sets.New[kueue.ClusterQueueReference]("matching1", "matching2")
 
 	cache := New(utiltesting.NewFakeClient())
 	for _, cq := range clusterQueues {
@@ -3132,13 +3135,13 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 	tests := []struct {
 		name             string
 		clusterQueues    map[string]*clusterQueue
-		assumedWorkloads map[string]string
+		assumedWorkloads map[string]kueue.ClusterQueueReference
 		workload         workload.Info
 		expected         bool
 	}{
 		{
 			name:             "Workload Is Assumed and not Admitted",
-			assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
+			assumedWorkloads: map[string]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -3190,7 +3193,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 						},
 					}},
 				}},
-			assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
+			assumedWorkloads: map[string]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -3272,17 +3275,17 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 
 	cases := map[string]struct {
 		clusterQueues              []*kueue.ClusterQueue
-		wantInUseClusterQueueNames []string
+		wantInUseClusterQueueNames []kueue.ClusterQueueReference
 		check                      string
 	}{
 		"single clusterQueue with check in use": {
 			clusterQueues:              []*kueue.ClusterQueue{fooCq},
-			wantInUseClusterQueueNames: []string{fooCq.Name},
+			wantInUseClusterQueueNames: []kueue.ClusterQueueReference{kueue.ClusterQueueReference(fooCq.Name)},
 			check:                      "ac1",
 		},
 		"single clusterQueue with AdmissionCheckStrategy in use": {
 			clusterQueues:              []*kueue.ClusterQueue{strategyCq},
-			wantInUseClusterQueueNames: []string{strategyCq.Name},
+			wantInUseClusterQueueNames: []kueue.ClusterQueueReference{kueue.ClusterQueueReference(strategyCq.Name)},
 			check:                      "ac3",
 		},
 		"single clusterQueue with no checks": {
@@ -3296,8 +3299,12 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 				fizzCq,
 				strategyCq,
 			},
-			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name, strategyCq.Name},
-			check:                      "ac1",
+			wantInUseClusterQueueNames: []kueue.ClusterQueueReference{
+				kueue.ClusterQueueReference(fooCq.Name),
+				kueue.ClusterQueueReference(fizzCq.Name),
+				kueue.ClusterQueueReference(strategyCq.Name),
+			},
+			check: "ac1",
 		},
 	}
 	for name, tc := range cases {
@@ -3314,7 +3321,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 			}
 
 			cqs := cache.ClusterQueuesUsingAdmissionCheck(tc.check)
-			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
+			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b kueue.ClusterQueueReference) bool {
 				return a < b
 			})); len(diff) != 0 {
 				t.Errorf("Unexpected AdmissionCheck is in use by clusterQueues (-want,+got):\n%s", diff)
@@ -3337,7 +3344,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		clusterQueues    []*kueue.ClusterQueue
 		resourceFlavors  []*kueue.ResourceFlavor
 		admissionChecks  []*kueue.AdmissionCheck
-		clusterQueueName string
+		clusterQueueName kueue.ClusterQueueReference
 		terminate        bool
 		wantStatus       metav1.ConditionStatus
 		wantReason       string

@@ -102,7 +102,7 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client              client.Client
-	assumedWorkloads    map[string]string
+	assumedWorkloads    map[string]kueue.ClusterQueueReference
 	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking   bool
 	admissionChecks     map[string]AdmissionCheck
@@ -121,7 +121,7 @@ func New(client client.Client, opts ...Option) *Cache {
 	}
 	c := &Cache{
 		client:              client,
-		assumedWorkloads:    make(map[string]string),
+		assumedWorkloads:    make(map[string]kueue.ClusterQueueReference),
 		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:     make(map[string]AdmissionCheck),
 		podsReadyTracking:   options.podsReadyTracking,
@@ -136,7 +136,7 @@ func New(client client.Client, opts ...Option) *Cache {
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	cqImpl := &clusterQueue{
-		Name:                cq.Name,
+		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
 		localQueues:         make(map[string]*queue),
@@ -147,7 +147,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		tasCache:            &c.tasCache,
 	}
 	c.hm.AddClusterQueue(cqImpl)
-	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
 	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	for _, cq := range c.hm.ClusterQueues() {
 		if len(cq.WorkloadsNotReady) > 0 {
-			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", cq.Name))
+			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", string(cq.Name)))
 			return false
 		}
 	}
@@ -212,8 +212,8 @@ func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	c.podsReadyCond.Broadcast()
 }
 
-func (c *Cache) updateClusterQueues() sets.Set[string] {
-	cqs := sets.New[string]()
+func (c *Cache) updateClusterQueues() sets.Set[kueue.ClusterQueueReference] {
+	cqs := sets.New[kueue.ClusterQueueReference]()
 
 	for _, cq := range c.hm.ClusterQueues() {
 		prevStatus := cq.Status
@@ -230,10 +230,10 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 	return cqs
 }
 
-func (c *Cache) ActiveClusterQueues() sets.Set[string] {
+func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
 	c.RLock()
 	defer c.RUnlock()
-	cqs := sets.New[string]()
+	cqs := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range c.hm.ClusterQueues() {
 		if cq.Status == active {
 			cqs.Insert(cq.Name)
@@ -246,21 +246,21 @@ func (c *Cache) TASCache() *TASCache {
 	return &c.tasCache
 }
 
-func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] {
+func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] {
+func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) AddOrUpdateTopologyForFlavor(topology *kueuealpha.Topology, flv *kueue.ResourceFlavor) sets.Set[string] {
+func (c *Cache) AddOrUpdateTopologyForFlavor(topology *kueuealpha.Topology, flv *kueue.ResourceFlavor) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	levels := utiltas.Levels(topology)
@@ -269,14 +269,14 @@ func (c *Cache) AddOrUpdateTopologyForFlavor(topology *kueuealpha.Topology, flv 
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) DeleteTopologyForFlavor(flv kueue.ResourceFlavorReference) sets.Set[string] {
+func (c *Cache) DeleteTopologyForFlavor(flv kueue.ResourceFlavorReference) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	c.tasCache.Delete(flv)
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 
@@ -296,14 +296,14 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	delete(c.admissionChecks, ac.Name)
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) AdmissionChecksForClusterQueue(cqName string) []AdmissionCheck {
+func (c *Cache) AdmissionChecksForClusterQueue(cqName kueue.ClusterQueueReference) []AdmissionCheck {
 	c.RLock()
 	defer c.RUnlock()
 	cq := c.hm.ClusterQueue(cqName)
@@ -319,15 +319,15 @@ func (c *Cache) AdmissionChecksForClusterQueue(cqName string) []AdmissionCheck {
 	return acs
 }
 
-func (c *Cache) ClusterQueueActive(name string) bool {
+func (c *Cache) ClusterQueueActive(name kueue.ClusterQueueReference) bool {
 	return c.clusterQueueInStatus(name, active)
 }
 
-func (c *Cache) ClusterQueueTerminating(name string) bool {
+func (c *Cache) ClusterQueueTerminating(name kueue.ClusterQueueReference) bool {
 	return c.clusterQueueInStatus(name, terminating)
 }
 
-func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, string, string) {
+func (c *Cache) ClusterQueueReadiness(name kueue.ClusterQueueReference) (metav1.ConditionStatus, string, string) {
 	c.RLock()
 	defer c.RUnlock()
 	cq := c.hm.ClusterQueue(name)
@@ -341,7 +341,7 @@ func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, stri
 	return metav1.ConditionFalse, reason, msg
 }
 
-func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueStatus) bool {
+func (c *Cache) clusterQueueInStatus(name kueue.ClusterQueueReference, status metrics.ClusterQueueStatus) bool {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -352,7 +352,7 @@ func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueSta
 	return cq.Status == status
 }
 
-func (c *Cache) TerminateClusterQueue(name string) {
+func (c *Cache) TerminateClusterQueue(name kueue.ClusterQueueReference) {
 	c.Lock()
 	defer c.Unlock()
 	if cq := c.hm.ClusterQueue(name); cq != nil {
@@ -364,7 +364,7 @@ func (c *Cache) TerminateClusterQueue(name string) {
 // ClusterQueueEmpty indicates whether there's any active workload admitted by
 // the provided clusterQueue.
 // Return true if the clusterQueue doesn't exist.
-func (c *Cache) ClusterQueueEmpty(name string) bool {
+func (c *Cache) ClusterQueueEmpty(name kueue.ClusterQueueReference) bool {
 	c.RLock()
 	defer c.RUnlock()
 	cq := c.hm.ClusterQueue(name)
@@ -378,7 +378,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	c.Lock()
 	defer c.Unlock()
 
-	if oldCq := c.hm.ClusterQueue(cq.Name); oldCq != nil {
+	if oldCq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)); oldCq != nil {
 		return errors.New("ClusterQueue already exists")
 	}
 	cqImpl, err := c.newClusterQueue(cq)
@@ -422,12 +422,12 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	c.Lock()
 	defer c.Unlock()
-	cqImpl := c.hm.ClusterQueue(cq.Name)
+	cqImpl := c.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 	if cqImpl == nil {
 		return ErrCqNotFound
 	}
 	oldParent := cqImpl.Parent()
-	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
 	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
@@ -443,30 +443,32 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
-	curCq := c.hm.ClusterQueue(cq.Name)
+	cqName := kueue.ClusterQueueReference(cq.Name)
+	curCq := c.hm.ClusterQueue(cqName)
 	if curCq == nil {
 		return
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		for _, q := range c.hm.ClusterQueue(cq.Name).localQueues {
+		for _, q := range c.hm.ClusterQueue(cqName).localQueues {
 			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
 		}
 	}
-	c.hm.DeleteClusterQueue(cq.Name)
+	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
 func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
-	c.hm.AddCohort(apiCohort.Name)
-	cohort := c.hm.Cohort(apiCohort.Name)
+	cohortName := kueue.CohortReference(apiCohort.Name)
+	c.hm.AddCohort(cohortName)
+	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
-	c.hm.UpdateCohortEdge(apiCohort.Name, apiCohort.Spec.Parent)
+	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.Parent)
 	return cohort.updateCohort(c.hm.CycleChecker, apiCohort, oldParent)
 }
 
-func (c *Cache) DeleteCohort(cohortName string) {
+func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
 	c.hm.DeleteCohort(cohortName)
@@ -482,7 +484,7 @@ func (c *Cache) DeleteCohort(cohortName string) {
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(string(q.Spec.ClusterQueue))
+	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
 	if cq == nil {
 		return nil
 	}
@@ -492,7 +494,7 @@ func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(string(q.Spec.ClusterQueue))
+	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
 	if cq == nil {
 		return
 	}
@@ -505,11 +507,11 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	}
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(string(oldQ.Spec.ClusterQueue))
+	cq := c.hm.ClusterQueue(oldQ.Spec.ClusterQueue)
 	if cq != nil {
 		cq.deleteLocalQueue(oldQ)
 	}
-	cq = c.hm.ClusterQueue(string(newQ.Spec.ClusterQueue))
+	cq = c.hm.ClusterQueue(newQ.Spec.ClusterQueue)
 	if cq != nil {
 		return cq.addLocalQueue(newQ)
 	}
@@ -527,7 +529,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 		return false
 	}
 
-	clusterQueue := c.hm.ClusterQueue(string(w.Status.Admission.ClusterQueue))
+	clusterQueue := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
 	if clusterQueue == nil {
 		return false
 	}
@@ -548,7 +550,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 	if workload.HasQuotaReservation(oldWl) {
-		cq := c.hm.ClusterQueue(string(oldWl.Status.Admission.ClusterQueue))
+		cq := c.hm.ClusterQueue(oldWl.Status.Admission.ClusterQueue)
 		if cq == nil {
 			return errors.New("old ClusterQueue doesn't exist")
 		}
@@ -559,7 +561,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if !workload.HasQuotaReservation(newWl) {
 		return nil
 	}
-	cq := c.hm.ClusterQueue(string(newWl.Status.Admission.ClusterQueue))
+	cq := c.hm.ClusterQueue(newWl.Status.Admission.ClusterQueue)
 	if cq == nil {
 		return errors.New("new ClusterQueue doesn't exist")
 	}
@@ -617,7 +619,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCq)
 	}
 
-	cq := c.hm.ClusterQueue(string(w.Status.Admission.ClusterQueue))
+	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
 	if cq == nil {
 		return ErrCqNotFound
 	}
@@ -625,7 +627,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	if err := cq.addWorkload(w); err != nil {
 		return err
 	}
-	c.assumedWorkloads[k] = string(w.Status.Admission.ClusterQueue)
+	c.assumedWorkloads[k] = w.Status.Admission.ClusterQueue
 	return nil
 }
 
@@ -642,7 +644,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 		return errWorkloadNotAdmitted
 	}
 
-	cq := c.hm.ClusterQueue(string(w.Status.Admission.ClusterQueue))
+	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
 	if cq == nil {
 		return ErrCqNotFound
 	}
@@ -666,7 +668,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	c.RLock()
 	defer c.RUnlock()
 
-	cq := c.hm.ClusterQueue(cqObj.Name)
+	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqObj.Name))
 	if cq == nil {
 		return nil, ErrCqNotFound
 	}
@@ -733,7 +735,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	c.RLock()
 	defer c.RUnlock()
 
-	cqImpl := c.hm.ClusterQueue(string(qObj.Spec.ClusterQueue))
+	cqImpl := c.hm.ClusterQueue(qObj.Spec.ClusterQueue)
 	if cqImpl == nil {
 		return &LocalQueueUsageStats{}, nil
 	}
@@ -810,7 +812,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also clean up the assumed one.
-		if workload.HasQuotaReservation(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
+		if workload.HasQuotaReservation(w) && assumedCQName != w.Status.Admission.ClusterQueue {
 			if assumedCQ := c.hm.ClusterQueue(assumedCQName); assumedCQ != nil {
 				assumedCQ.deleteWorkload(w)
 			}
@@ -821,7 +823,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 
 func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
 	if workload.HasQuotaReservation(w) {
-		return c.hm.ClusterQueue(string(w.Status.Admission.ClusterQueue))
+		return c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
 	}
 	wKey := workload.Key(w)
 	for _, cq := range c.hm.ClusterQueues() {
@@ -832,10 +834,10 @@ func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
 	return nil
 }
 
-func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) []string {
+func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
-	var cqs []string
+	var cqs []kueue.ClusterQueueReference
 
 	for _, cq := range c.hm.ClusterQueues() {
 		if cq.flavorInUse(flavor) {
@@ -845,10 +847,10 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor kueue.ResourceFlavorReference) [
 	return cqs
 }
 
-func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []string {
+func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
-	var cqs []string
+	var cqs []kueue.ClusterQueueReference
 
 	for _, cq := range c.hm.ClusterQueues() {
 		for _, tRef := range cq.tasFlavors {
@@ -860,10 +862,10 @@ func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []stri
 	return cqs
 }
 
-func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
+func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
-	var cqs []string
+	var cqs []kueue.ClusterQueueReference
 
 	for _, cq := range c.hm.ClusterQueues() {
 		if _, found := cq.AdmissionChecks[ac]; found {
@@ -873,11 +875,11 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
 	return cqs
 }
 
-func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[string] {
+func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue.ClusterQueueReference] {
 	c.RLock()
 	defer c.RUnlock()
 
-	cqs := sets.New[string]()
+	cqs := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range c.hm.ClusterQueues() {
 		if cq.NamespaceSelector.Matches(labels.Set(nsLabels)) {
 			cqs.Insert(cq.Name)

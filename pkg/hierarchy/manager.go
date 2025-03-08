@@ -16,26 +16,30 @@ limitations under the License.
 
 package hierarchy
 
-import "maps"
+import (
+	"maps"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
 
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
 // between them.
 type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
-	cohorts       map[string]C
-	clusterQueues map[string]CQ
-	cohortFactory func(string) C
+	cohorts       map[kueue.CohortReference]C
+	clusterQueues map[kueue.ClusterQueueReference]CQ
+	cohortFactory func(kueue.CohortReference) C
 	CycleChecker  CycleChecker
 }
 
 // NewManager creates a new Manager. A newCohort function must
 // be provided to instantiate Cohorts in the case that a
 // ClusterQueue references a Cohort not backed by an API object.
-func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(string) C) Manager[CQ, C] {
+func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(kueue.CohortReference) C) Manager[CQ, C] {
 	return Manager[CQ, C]{
-		make(map[string]C),
-		make(map[string]CQ),
+		make(map[kueue.CohortReference]C),
+		make(map[kueue.ClusterQueueReference]CQ),
 		newCohort,
-		CycleChecker{make(map[string]bool)},
+		CycleChecker{make(map[kueue.CohortReference]bool)},
 	}
 }
 
@@ -43,23 +47,23 @@ func (m *Manager[CQ, C]) AddClusterQueue(cq CQ) {
 	m.clusterQueues[cq.GetName()] = cq
 }
 
-func (m *Manager[CQ, C]) ClusterQueue(name string) CQ {
+func (m *Manager[CQ, C]) ClusterQueue(name kueue.ClusterQueueReference) CQ {
 	return m.clusterQueues[name]
 }
 
-func (m *Manager[CQ, C]) ClusterQueuesNames() []string {
-	clusterQueuesNames := make([]string, 0, len(m.clusterQueues))
+func (m *Manager[CQ, C]) ClusterQueuesNames() []kueue.ClusterQueueReference {
+	clusterQueuesNames := make([]kueue.ClusterQueueReference, 0, len(m.clusterQueues))
 	for k := range m.clusterQueues {
 		clusterQueuesNames = append(clusterQueuesNames, k)
 	}
 	return clusterQueuesNames
 }
 
-func (m *Manager[CQ, C]) ClusterQueues() map[string]CQ {
+func (m *Manager[CQ, C]) ClusterQueues() map[kueue.ClusterQueueReference]CQ {
 	return maps.Clone(m.clusterQueues)
 }
 
-func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
+func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name kueue.ClusterQueueReference, parentName kueue.CohortReference) {
 	cq := m.clusterQueues[name]
 	m.detachClusterQueueFromParent(cq)
 	if parentName != "" {
@@ -69,14 +73,14 @@ func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
 	}
 }
 
-func (m *Manager[CQ, C]) DeleteClusterQueue(name string) {
+func (m *Manager[CQ, C]) DeleteClusterQueue(name kueue.ClusterQueueReference) {
 	if cq, ok := m.clusterQueues[name]; ok {
 		m.detachClusterQueueFromParent(cq)
 		delete(m.clusterQueues, name)
 	}
 }
 
-func (m *Manager[CQ, C]) AddCohort(cohortName string) {
+func (m *Manager[CQ, C]) AddCohort(cohortName kueue.CohortReference) {
 	oldCohort, ok := m.cohorts[cohortName]
 	if ok && oldCohort.isExplicit() {
 		return
@@ -87,15 +91,15 @@ func (m *Manager[CQ, C]) AddCohort(cohortName string) {
 	m.cohorts[cohortName].markExplicit()
 }
 
-func (m *Manager[CQ, C]) Cohort(name string) C {
+func (m *Manager[CQ, C]) Cohort(name kueue.CohortReference) C {
 	return m.cohorts[name]
 }
 
-func (m *Manager[CQ, C]) Cohorts() map[string]C {
+func (m *Manager[CQ, C]) Cohorts() map[kueue.CohortReference]C {
 	return maps.Clone(m.cohorts)
 }
 
-func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
+func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName kueue.CohortReference) {
 	m.resetCycleChecker()
 	cohort := m.cohorts[name]
 	m.detachCohortFromParent(cohort)
@@ -106,7 +110,7 @@ func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
 	}
 }
 
-func (m *Manager[CQ, C]) DeleteCohort(name string) {
+func (m *Manager[CQ, C]) DeleteCohort(name kueue.CohortReference) {
 	m.resetCycleChecker()
 	cohort, ok := m.cohorts[name]
 	if !ok {
@@ -155,7 +159,7 @@ func (m *Manager[CQ, C]) detachCohortFromParent(cohort C) {
 	}
 }
 
-func (m *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
+func (m *Manager[CQ, C]) getOrCreateCohort(cohortName kueue.CohortReference) C {
 	if _, ok := m.cohorts[cohortName]; !ok {
 		m.cohorts[cohortName] = m.cohortFactory(cohortName)
 	}
@@ -169,30 +173,30 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 }
 
 func (m *Manager[CQ, C]) resetCycleChecker() {
-	m.CycleChecker = CycleChecker{make(map[string]bool, len(m.cohorts))}
+	m.CycleChecker = CycleChecker{make(map[kueue.CohortReference]bool, len(m.cohorts))}
 }
 
 // A special constructor for using in tests
-func NewManagerForTest[CQ clusterQueueNode[C], C cohortNode[CQ, C]](cohorts map[string]C, clusterQueues map[string]CQ) Manager[CQ, C] {
+func NewManagerForTest[CQ clusterQueueNode[C], C cohortNode[CQ, C]](cohorts map[kueue.CohortReference]C, clusterQueues map[kueue.ClusterQueueReference]CQ) Manager[CQ, C] {
 	return Manager[CQ, C]{
 		cohorts:       cohorts,
 		clusterQueues: clusterQueues,
 	}
 }
 
-type nodeBase interface {
-	GetName() string
+type nodeBase[T comparable] interface {
+	GetName() T
 	comparable
 }
 
-type clusterQueueNode[C nodeBase] interface {
+type clusterQueueNode[C nodeBase[kueue.CohortReference]] interface {
 	Parent() C
 	HasParent() bool
 	setParent(C)
-	nodeBase
+	nodeBase[kueue.ClusterQueueReference]
 }
 
-type cohortNode[CQ, C nodeBase] interface {
+type cohortNode[CQ nodeBase[kueue.ClusterQueueReference], C nodeBase[kueue.CohortReference]] interface {
 	Parent() C
 	HasParent() bool
 	setParent(C)
@@ -206,5 +210,5 @@ type cohortNode[CQ, C nodeBase] interface {
 	ChildCQs() []CQ
 	isExplicit() bool
 	markExplicit()
-	nodeBase
+	nodeBase[kueue.CohortReference]
 }

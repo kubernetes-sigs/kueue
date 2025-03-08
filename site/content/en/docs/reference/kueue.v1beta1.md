@@ -821,7 +821,7 @@ resourceGroups can be up to 16.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
    <p>cohort that this ClusterQueue belongs to. CQs that belong to the
@@ -834,8 +834,6 @@ If empty, this ClusterQueue cannot borrow from any other ClusterQueue and
 vice versa.</p>
 <p>A cohort is a name that links CQs together, but it doesn't reference any
 object.</p>
-<p>Validation of a cohort name is equivalent to that of object names:
-subdomain in DNS (RFC 1123).</p>
 </td>
 </tr>
 <tr><td><code>queueingStrategy</code> <B>[Required]</B><br/>
@@ -1006,6 +1004,22 @@ instead.</p>
 </tr>
 </tbody>
 </table>
+
+## `CohortReference`     {#kueue-x-k8s-io-v1beta1-CohortReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+<p>CohortReference is the name of the Cohort.</p>
+<p>Validation of a cohort name is equivalent to that of object names:
+subdomain in DNS (RFC 1123).</p>
+
+
+
 
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     

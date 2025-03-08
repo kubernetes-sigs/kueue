@@ -22,6 +22,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 func TestManager(t *testing.T) {
@@ -328,9 +330,9 @@ func TestManager(t *testing.T) {
 				gotCqs := sets.New[string]()
 				gotEdges := make([]edge, 0, len(tc.wantCqEdge))
 				for _, cq := range mgr.ClusterQueues() {
-					gotCqs.Insert(cq.GetName())
+					gotCqs.Insert(string(cq.GetName()))
 					if cq.HasParent() {
-						gotEdges = append(gotEdges, edge{cq.GetName(), cq.Parent().GetName()})
+						gotEdges = append(gotEdges, edge{string(cq.GetName()), string(cq.Parent().GetName())})
 					}
 				}
 				if diff := cmp.Diff(tc.wantCqs, gotCqs); diff != "" {
@@ -346,15 +348,15 @@ func TestManager(t *testing.T) {
 				gotCohortChildEdges := make([]edge, 0, len(tc.wantCohortEdge))
 				gotCohortParentEdges := make([]edge, 0, len(tc.wantCohortEdge))
 				for _, cohort := range mgr.Cohorts() {
-					gotCohorts.Insert(cohort.GetName())
+					gotCohorts.Insert(string(cohort.GetName()))
 					for _, cq := range cohort.ChildCQs() {
-						gotCqEdges = append(gotCqEdges, edge{cq.GetName(), cohort.GetName()})
+						gotCqEdges = append(gotCqEdges, edge{string(cq.GetName()), string(cohort.GetName())})
 					}
 					for _, childCohort := range cohort.ChildCohorts() {
-						gotCohortChildEdges = append(gotCohortChildEdges, edge{childCohort.GetName(), cohort.GetName()})
+						gotCohortChildEdges = append(gotCohortChildEdges, edge{string(childCohort.GetName()), string(cohort.GetName())})
 					}
 					if cohort.HasParent() {
-						gotCohortParentEdges = append(gotCohortParentEdges, edge{cohort.GetName(), cohort.Parent().GetName()})
+						gotCohortParentEdges = append(gotCohortParentEdges, edge{string(cohort.GetName()), string(cohort.Parent().GetName())})
 					}
 				}
 				if diff := cmp.Diff(tc.wantCohorts, gotCohorts); diff != "" {
@@ -378,7 +380,7 @@ func TestCycles(t *testing.T) {
 	type M = Manager[*testClusterQueue, *testCohort]
 	cases := map[string]struct {
 		operations func(M)
-		wantCycles map[string]bool
+		wantCycles map[kueue.CohortReference]bool
 	}{
 		"no cycles": {
 			operations: func(m M) {
@@ -388,7 +390,7 @@ func TestCycles(t *testing.T) {
 				m.UpdateCohortEdge("left", "root")
 				m.UpdateCohortEdge("right", "root")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"root":  false,
 				"left":  false,
 				"right": false,
@@ -399,7 +401,7 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("root")
 				m.UpdateCohortEdge("root", "root")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"root": true,
 			},
 		},
@@ -411,7 +413,7 @@ func TestCycles(t *testing.T) {
 				m.CycleChecker.HasCycle(m.Cohort("root"))
 				m.UpdateCohortEdge("root", "")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"root": false,
 			},
 		},
@@ -422,7 +424,7 @@ func TestCycles(t *testing.T) {
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"cohort-a": true,
 				"cohort-b": true,
 			},
@@ -439,7 +441,7 @@ func TestCycles(t *testing.T) {
 
 				m.UpdateCohortEdge("cohort-a", "cohort-c")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"cohort-a": false,
 				"cohort-b": false,
 				"cohort-c": false,
@@ -455,7 +457,7 @@ func TestCycles(t *testing.T) {
 
 				m.UpdateCohortEdge("cohort-a", "")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"cohort-a": false,
 				"cohort-b": false,
 			},
@@ -469,7 +471,7 @@ func TestCycles(t *testing.T) {
 				m.CycleChecker.HasCycle(m.Cohort("cohort-a"))
 				m.DeleteCohort("cohort-b")
 			},
-			wantCycles: map[string]bool{
+			wantCycles: map[kueue.CohortReference]bool{
 				"cohort-a": false,
 				"cohort-b": false,
 			},
@@ -494,34 +496,34 @@ func TestCycles(t *testing.T) {
 }
 
 type testCohort struct {
-	name string
+	name kueue.CohortReference
 	Cohort[*testClusterQueue, *testCohort]
 }
 
-func newCohort(name string) *testCohort {
+func newCohort(name kueue.CohortReference) *testCohort {
 	return &testCohort{
 		name:   name,
 		Cohort: NewCohort[*testClusterQueue, *testCohort](),
 	}
 }
 
-func (t *testCohort) GetName() string {
+func (t *testCohort) GetName() kueue.CohortReference {
 	return t.name
 }
 
-func (t *testCohort) CCParent() CycleCheckable {
+func (t *testCohort) CCParent() CycleCheckable[kueue.CohortReference] {
 	return t.Parent()
 }
 
 type testClusterQueue struct {
-	name string
+	name kueue.ClusterQueueReference
 	ClusterQueue[*testCohort]
 }
 
-func newCq(name string) *testClusterQueue {
+func newCq(name kueue.ClusterQueueReference) *testClusterQueue {
 	return &testClusterQueue{name: name}
 }
 
-func (t *testClusterQueue) GetName() string {
+func (t *testClusterQueue) GetName() kueue.ClusterQueueReference {
 	return t.name
 }

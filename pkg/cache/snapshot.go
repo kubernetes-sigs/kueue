@@ -36,7 +36,7 @@ import (
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	InactiveClusterQueueSets sets.Set[string]
+	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
@@ -59,11 +59,11 @@ func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues() {
 		cohortName := "<none>"
 		if cq.HasParent() {
-			cohortName = cq.Parent().Name
+			cohortName = string(cq.Parent().Name)
 		}
 
 		log.Info("Found ClusterQueue",
-			"clusterQueue", klog.KRef("", name),
+			"clusterQueue", klog.KRef("", string(name)),
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
@@ -86,7 +86,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 	snap := Snapshot{
 		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
-		InactiveClusterQueueSets: sets.New[string](),
+		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
 	for _, cohort := range c.hm.Cohorts() {
 		if c.hm.CycleChecker.HasCycle(cohort) {
@@ -158,7 +158,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 	return cc
 }
 
-func newCohortSnapshot(name string) *CohortSnapshot {
+func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	return &CohortSnapshot{
 		Name:   name,
 		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),

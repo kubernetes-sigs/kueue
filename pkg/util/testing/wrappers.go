@@ -688,10 +688,10 @@ type CohortWrapper struct {
 	kueuealpha.Cohort
 }
 
-func MakeCohort(name string) *CohortWrapper {
+func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	return &CohortWrapper{kueuealpha.Cohort{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name: string(name),
 		},
 	}}
 }
@@ -700,7 +700,7 @@ func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
 	return &c.Cohort
 }
 
-func (c *CohortWrapper) Parent(parentName string) *CohortWrapper {
+func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
 	c.Cohort.Spec.Parent = parentName
 	return c
 }
@@ -746,7 +746,7 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 }
 
 // Cohort sets the borrowing cohort.
-func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueueWrapper {
 	c.Spec.Cohort = cohort
 	return c
 }

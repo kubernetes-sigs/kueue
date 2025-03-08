@@ -167,9 +167,9 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 	e.LastAssignment = nil
 }
 
-func reportSkippedPreemptions(p map[string]int) {
+func reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 	for cqName, count := range p {
-		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(cqName).Set(float64(count))
+		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(string(cqName)).Set(float64(count))
 	}
 }
 
@@ -207,14 +207,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
 	preemptedWorkloads := make(preemptedWorkloads)
-	skippedPreemptions := make(map[string]int)
+	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 	for iterator.hasNext() {
 		e := iterator.pop()
 
 		cq := snapshot.ClusterQueue(e.ClusterQueue)
-		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
 		if cq.HasParent() {
-			log = log.WithValues("parentCohort", klog.KRef("", cq.Parent().GetName()), "rootCohort", klog.KRef("", cq.Parent().Root().GetName()))
+			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
 		}
 		ctx := ctrl.LoggerInto(ctx, log)
 
@@ -337,7 +337,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
-		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
+		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
@@ -491,7 +491,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
-		ClusterQueue:      kueue.ClusterQueueReference(e.ClusterQueue),
+		ClusterQueue:      e.ClusterQueue,
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 
@@ -640,7 +640,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.BaseSSAWorkload(e.Obj)

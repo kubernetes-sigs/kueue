@@ -56,8 +56,8 @@ var snapCmpOpts = []cmp.Option{
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.CycleChecker{}),
 	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
-	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[string] {
-		result := make(sets.Set[string], len(s))
+	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[kueue.ClusterQueueReference] {
+		result := make(sets.Set[kueue.ClusterQueueReference], len(s))
 		for cq := range s {
 			result.Insert(cq.Name)
 		}
@@ -284,7 +284,7 @@ func TestPreemption(t *testing.T) {
 		cohorts             []*kueuealpha.Cohort
 		admitted            []kueue.Workload
 		incoming            *kueue.Workload
-		targetCQ            string
+		targetCQ            kueue.ClusterQueueReference
 		assignment          flavorassigner.Assignment
 		wantPreempted       sets.Set[string]
 		disableLendingLimit bool
@@ -1935,7 +1935,7 @@ func TestFairPreemptions(t *testing.T) {
 		strategies    []config.PreemptionStrategy
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
-		targetCQ      string
+		targetCQ      kueue.ClusterQueueReference
 		wantPreempted sets.Set[string]
 	}{
 		"reclaim nominal from user using the most": {

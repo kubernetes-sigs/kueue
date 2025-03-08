@@ -16,19 +16,21 @@ limitations under the License.
 
 package hierarchy
 
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+type CycleCheckable[T comparable] interface {
+	GetName() T
+	HasParent() bool
+	CCParent() CycleCheckable[T]
+}
+
 // cycleChecker checks for cycles in Cohorts, while memoizing the
 // result.
 type CycleChecker struct {
-	cycles map[string]bool
+	cycles map[kueue.CohortReference]bool
 }
 
-type CycleCheckable interface {
-	GetName() string
-	HasParent() bool
-	CCParent() CycleCheckable
-}
-
-func (c *CycleChecker) HasCycle(cohort CycleCheckable) bool {
+func (c *CycleChecker) HasCycle(cohort CycleCheckable[kueue.CohortReference]) bool {
 	if cycle, seen := c.cycles[cohort.GetName()]; seen {
 		return cycle
 	}

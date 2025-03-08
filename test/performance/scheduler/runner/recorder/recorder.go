@@ -34,9 +34,9 @@ import (
 
 type CQEvent struct {
 	Time      time.Time
-	Name      string
+	Name      kueue.ClusterQueueReference
 	ClassName string
-	Cohort    string
+	Cohort    kueue.CohortReference
 	UID       types.UID
 
 	CPUReservation     int64
@@ -69,8 +69,8 @@ var CQStateCsvHeader = []string{
 func (cqs *CQState) CsvRecord() []string {
 	monitoringTimeMs := cqs.LastEvent.Time.Sub(cqs.FirstEventTime).Milliseconds()
 	return []string{
-		cqs.LastEvent.Name,
-		cqs.LastEvent.Cohort,
+		string(cqs.LastEvent.Name),
+		string(cqs.LastEvent.Cohort),
 		cqs.LastEvent.ClassName,
 		strconv.FormatInt(cqs.LastEvent.CPUQuota, 10),
 		strconv.FormatInt(cqs.CPUUsed, 10),
@@ -154,13 +154,13 @@ func New(maxRecording time.Duration) *Recorder {
 }
 
 func (r *Recorder) recordCQEvent(ev *CQEvent) {
-	state, found := r.Store.CQ[ev.Name]
+	state, found := r.Store.CQ[string(ev.Name)]
 	if !found {
 		state = &CQState{
 			FirstEventTime: ev.Time,
 			LastEvent:      ev,
 		}
-		r.Store.CQ[ev.Name] = state
+		r.Store.CQ[string(ev.Name)] = state
 	} else {
 		if state.LastEvent.CPUUsage > 0 {
 			state.CPUUsed += state.LastEvent.CPUUsage * ev.Time.Sub(state.LastEvent.Time).Milliseconds()
@@ -449,7 +449,7 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 
 	r.cqEvChan <- &CQEvent{
 		Time:      time.Now(),
-		Name:      cq.Name,
+		Name:      kueue.ClusterQueueReference(cq.Name),
 		ClassName: cq.Labels[generator.ClassLabel],
 		Cohort:    cq.Spec.Cohort,
 		UID:       cq.UID,

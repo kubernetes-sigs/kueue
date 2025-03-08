@@ -32,7 +32,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	}
 	args := []any{
 		"workload", klog.KObj(e.Obj),
-		"clusterQueue", klog.KRef("", e.ClusterQueue),
+		"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
 		"status", e.status,
 		"reason", e.inadmissibleMsg,
 	}

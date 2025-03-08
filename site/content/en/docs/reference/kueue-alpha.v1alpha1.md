@@ -83,7 +83,7 @@ results in undefined behavior in 0.9</p>
     
   
 <tr><td><code>parent</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
    <p>Parent references the name of the Cohort's parent, if
