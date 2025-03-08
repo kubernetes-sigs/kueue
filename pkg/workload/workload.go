@@ -35,6 +35,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -879,10 +880,18 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string) {
+func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string, c client.Client) {
+	ctx := context.TODO()
+	logger := ctrl.LoggerFrom(ctx)
 	metrics.ReportEvictedWorkloads(cqName, reason)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
+		lqObj := &kueue.LocalQueue{}
+		err := c.Get(ctx, client.ObjectKey{Name: wl.Spec.QueueName, Namespace: wl.Namespace}, lqObj)
+		if err != nil {
+			logger.Error(err, "Could not get LocalQueue, skipping")
+		} else if should, _ := metrics.ShouldReportLocalMetrics(c, lqObj); should {
+			metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
+		}
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
 }

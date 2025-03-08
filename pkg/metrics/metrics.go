@@ -17,11 +17,17 @@ limitations under the License.
 package metrics
 
 import (
+	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -58,6 +64,67 @@ const (
 	// CQStatusTerminating means the clusterQueue is in pending deletion.
 	CQStatusTerminating ClusterQueueStatus = "terminating"
 )
+
+type LocalQueueMetricsConfig struct {
+	Enabled            bool
+	NamespaceSelector  *metav1.LabelSelector
+	LocalQueueSelector *metav1.LabelSelector
+}
+
+var lqMetricsConfigSingleton *LocalQueueMetricsConfig
+
+func SetLocalQueueMetrics(lqMetricsConfig *LocalQueueMetricsConfig) {
+	lqMetricsConfigSingleton = lqMetricsConfig
+}
+
+var once sync.Once
+
+func GetLocalQueueMetrics() *LocalQueueMetricsConfig {
+	if lqMetricsConfigSingleton == nil {
+		once.Do(
+			func() {
+				lqMetricsConfigSingleton = &LocalQueueMetricsConfig{}
+			})
+	}
+	return lqMetricsConfigSingleton
+}
+
+func ShouldReportLocalMetrics(c client.Client, q *kueue.LocalQueue) (bool, error) {
+	ctx := context.Background()
+	if !features.Enabled(features.LocalQueueMetrics) {
+		return false, nil
+	}
+
+	lqMetricsConfig := GetLocalQueueMetrics()
+	if !lqMetricsConfig.Enabled {
+		return false, nil
+	}
+
+	namespaceMatches := true
+	if lqMetricsConfig.NamespaceSelector != nil {
+		nsSelector, err := metav1.LabelSelectorAsSelector(lqMetricsConfig.NamespaceSelector)
+		if err != nil {
+			return false, fmt.Errorf("failed to convert namespace label selector: %w", err)
+		}
+		namespace := &corev1.Namespace{}
+		if err := c.Get(ctx, client.ObjectKey{Name: q.GetNamespace()}, namespace); err != nil {
+			return false, err
+		}
+		nsLabels := labels.Set(namespace.Labels)
+		namespaceMatches = nsSelector.Matches(nsLabels)
+	}
+
+	localQueueMatches := true
+	if lqMetricsConfig.LocalQueueSelector != nil {
+		lqSelector, err := metav1.LabelSelectorAsSelector(lqMetricsConfig.LocalQueueSelector)
+		if err != nil {
+			return false, fmt.Errorf("failed to conver local queue label selector: %w", err)
+		}
+		lqLabels := labels.Set(q.Labels)
+		localQueueMatches = lqSelector.Matches(lqLabels)
+	}
+	return namespaceMatches && localQueueMatches, nil
+}
 
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
@@ -626,7 +693,7 @@ func Register() {
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
 	)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if GetLocalQueueMetrics().Enabled {
 		RegisterLQMetrics()
 	}
 }

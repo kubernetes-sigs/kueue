@@ -48,7 +48,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -211,7 +210,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
-				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message)
+				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message, r.client)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -260,7 +259,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
-			if features.Enabled(features.LocalQueueMetrics) {
+			if should, _ := metrics.ShouldReportLocalMetrics(r.client, &lq); should {
 				metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(&wl), queuedWaitTime)
 				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
 			}
@@ -396,7 +395,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return false, client.IgnoreNotFound(err)
 	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
+	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message, r.client)
 	return true, nil
 }
 
@@ -434,7 +433,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			cqName := string(lq.Spec.ClusterQueue)
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
 				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
-				if features.Enabled(features.LocalQueueMetrics) {
+				if should, _ := metrics.ShouldReportLocalMetrics(r.client, lq); should {
 					metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), kueue.WorkloadEvictedByLocalQueueStopped)
 				}
 			}
@@ -482,7 +481,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 		if err == nil {
-			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
+			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message, r.client)
 		}
 		return true, client.IgnoreNotFound(err)
 	}
@@ -562,7 +561,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
+		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message, r.client)
 	}
 	return 0, client.IgnoreNotFound(err)
 }

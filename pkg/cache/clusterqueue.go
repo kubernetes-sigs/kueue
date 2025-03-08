@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -30,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -86,6 +89,7 @@ type clusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 
 	tasCache *TASCache
+	client   client.Client
 }
 
 func (c *clusterQueue) GetName() string {
@@ -498,6 +502,8 @@ func (q *queue) reportActiveWorkloads() {
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+	ctx := context.TODO()
+	logger := ctrl.LoggerFrom(ctx)
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
@@ -532,7 +538,12 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
+		lqKeySlice := strings.Split(lq.key, "/")
+		lqObject := &kueue.LocalQueue{}
+		err := c.client.Get(ctx, client.ObjectKey{Name: lqKeySlice[1], Namespace: lqKeySlice[0]}, lqObject)
+		if err != nil {
+			logger.Error(err, "Could not get LocalQueue, skipping")
+		} else if should, _ := metrics.ShouldReportLocalMetrics(c.tasCache.client, lqObject); should {
 			lq.reportActiveWorkloads()
 		}
 	}
@@ -579,7 +590,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(c.tasCache.client, q); should {
 		qImpl.reportActiveWorkloads()
 	}
 	return nil
@@ -587,7 +598,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if should, _ := metrics.ShouldReportLocalMetrics(c.tasCache.client, q); should {
 		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
 	}
 	delete(c.localQueues, qKey)
