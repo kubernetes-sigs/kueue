@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -187,6 +188,29 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl3)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
 		})
+
+		ginkgo.It("Should include job UID in preemption condition when the label is set", func() {
+			ginkgo.By("Creating a low priority Workload")
+			lowWl := testing.MakeWorkload("low", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, lowWl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a high priority Workload with JobUID label")
+			highWl := testing.MakeWorkload("high", ns.Name).
+				Label(constants.JobUIDLabel, "job-uid").
+				Queue(q.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, highWl)).To(gomega.Succeed())
+
+			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "job-uid")
+		})
 	})
 
 	ginkgo.Context("In a ClusterQueue that is part of a cohort", func() {
@@ -278,8 +302,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 			ginkgo.By("Verify the Preempted condition", func() {
-				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl)
-				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclamationReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
+				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl, string(alphaMidWl.UID), "UNKNOWN")
+				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclamationReason, metav1.ConditionTrue, betaMidWl, alphaMidWl, string(alphaMidWl.UID), "UNKNOWN")
 				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, kueue.InClusterQueueReason, 1)
 				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, kueue.InCohortReclamationReason, 1)
 				util.ExpectPreemptedWorkloadsTotalMetric(betaCQ.Name, kueue.InClusterQueueReason, 0)
@@ -297,7 +321,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -307,7 +331,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -689,7 +713,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, aStandardVeryHighWl)).To(gomega.Succeed())
 
-			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl)
+			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl, string(aStandardVeryHighWl.UID), "UNKNOWN")
 			util.ExpectPreemptedWorkloadsTotalMetric(aStandardCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 1)
 			util.ExpectPreemptedWorkloadsTotalMetric(aBestEffortCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 0)
 

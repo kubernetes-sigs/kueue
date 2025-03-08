@@ -5630,7 +5630,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
 					EventType: "Normal",
 					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: ) due to prioritization in the ClusterQueue",
+					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5695,7 +5695,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
 					EventType: "Normal",
 					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: ) due to prioritization in the ClusterQueue",
+					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "high-priority-waiting"},
@@ -5781,7 +5781,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
 					EventType: "Normal",
 					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: ) due to prioritization in the ClusterQueue",
+					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5869,7 +5869,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
 					EventType: "Normal",
 					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: ) due to prioritization in the ClusterQueue",
+					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
