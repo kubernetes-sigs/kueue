@@ -137,7 +137,7 @@ metricsService:
     - name: metrics
       port: 8443
       protocol: TCP
-      targetPort: metrics
+      targetPort: 8443
   type: ClusterIP
   annotations: {}
 webhookService:
