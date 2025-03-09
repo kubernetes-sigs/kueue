@@ -21,7 +21,9 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	autoscalingv1 "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	autoscalingv1beta1 "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -58,8 +60,12 @@ func indexWorkloadsChecks(obj client.Object) []string {
 }
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
-		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
+	// Check v1 first and then if not found fall back to v1beta1
+	v1err := indexer.IndexField(ctx, &autoscalingv1.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner)
+	if v1err != nil {
+		if betaerr := indexer.IndexField(ctx, &autoscalingv1beta1.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); betaerr != nil {
+			return fmt.Errorf("setting index on provisionRequest owner: %w", betaerr)
+		}
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
 		return fmt.Errorf("setting index on workloads checks: %w", err)
@@ -72,12 +78,29 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func ServerSupportsProvisioningRequest(mgr manager.Manager) error {
-	gvk, err := apiutil.GVKForObject(&autoscaling.ProvisioningRequest{}, mgr.GetScheme())
-	if err != nil {
-		return err
+	gvk, gvkErr := ServerProvisionRequestGVK(mgr)
+	if gvkErr != nil {
+		return gvkErr
 	}
-	if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+	if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 		return err
 	}
 	return nil
+}
+
+func ServerProvisionRequestGVK(mgr manager.Manager) (schema.GroupVersionKind, error) {
+	gvkv1, errv1 := apiutil.GVKForObject(&autoscalingv1.ProvisioningRequest{}, mgr.GetScheme())
+	gvkbeta, errbeta := apiutil.GVKForObject(&autoscalingv1beta1.ProvisioningRequest{}, mgr.GetScheme())
+	if errv1 != nil && errbeta == nil {
+		// found beta but not v1; pick beta
+		return gvkbeta, errbeta
+	} else if errv1 == nil && errbeta != nil {
+		// v1 found but not v1 beta; pick v1
+		return gvkv1, errv1
+	} else if errv1 == nil && errbeta == nil {
+		// both apis are found, pick v1
+		return gvkv1, errv1
+	} else {
+		return schema.GroupVersionKind{}, fmt.Errorf("unable to find provision requests for v1beta1 or v1")
+	}
 }

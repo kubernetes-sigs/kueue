@@ -32,7 +32,8 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	autoscalingv1 "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	autoscalingv1beta1 "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -88,7 +89,8 @@ func init() {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
-	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(autoscalingv1.AddToScheme(scheme))
+	utilruntime.Must(autoscalingv1beta1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
