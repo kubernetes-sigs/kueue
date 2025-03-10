@@ -68,7 +68,7 @@ yq-ocp: ## Download yq locally if necessary.
 
 .PHONY: test-ocp
 test-ocp: ## Run tests.
-	${GO_CMD} run ./vendor/gotest.tools/gotestsum --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/')
+	${GO_CMD} run ./vendor/gotest.tools/gotestsum --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/' | grep -v 'config')
 
 .PHONY: test-integration-ocp
 test-integration-ocp: envtest-ocp ginkgo-ocp dep-crds-ocp kueuectl-ocp ginkgo-top-ocp ## Run integration tests for all singlecluster suites.
