@@ -19,6 +19,8 @@ package resources
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -27,6 +29,7 @@ func TestCountIn(t *testing.T) {
 		requests   Requests
 		capacity   Requests
 		wantResult int32
+		wantError  error
 	}{
 		"requests equal capacity": {
 			requests: Requests{
@@ -80,10 +83,25 @@ func TestCountIn(t *testing.T) {
 			},
 			wantResult: 2,
 		},
+		"requests have 2 or more Pods count": {
+			requests: Requests{
+				corev1.ResourceCPU:  2,
+				corev1.ResourcePods: 2,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU:  5,
+				corev1.ResourcePods: 10,
+			},
+			wantResult: 0,
+			wantError:  errorRequestsHasTwoOrMorePodsCount,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResult := tc.requests.CountIn(tc.capacity)
+			gotResult, err := tc.requests.CountIn(tc.capacity)
+			if diff := cmp.Diff(tc.wantError, err, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("unexpected error (-want,+got\n):%s", diff)
+			}
 			if tc.wantResult != gotResult {
 				t.Errorf("unexpected result, want=%d, got=%d", tc.wantResult, gotResult)
 			}
