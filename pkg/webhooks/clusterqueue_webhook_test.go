@@ -40,6 +40,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		clusterQueue        *kueue.ClusterQueue
 		wantErr             field.ErrorList
 		disableLendingLimit bool
+		enableFairSharing   bool
 	}{
 		{
 			name: "built-in resources with qualified names",
@@ -323,6 +324,72 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "FairSharing disabled and borrowWithinCohort allowed",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					},
+				},
+			},
+			enableFairSharing: false,
+		},
+		{
+			name: "FairSharing and borrowWithinCohort disallowed",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					},
+				},
+			},
+			enableFairSharing: true,
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("preemption"), "", ""),
+			},
+		},
+		{
+			name: "FairSharing and borrowWithinCohort=Never allowed",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyNever,
+						},
+					},
+				},
+			},
+			enableFairSharing: true,
+		},
+		{
+			name: "FairSharing valid with reclaimWithinCohort and withinClusterQueue",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					},
+				},
+			},
+			enableFairSharing: true,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -330,7 +397,8 @@ func TestValidateClusterQueue(t *testing.T) {
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
-			gotErr := ValidateClusterQueue(tc.clusterQueue)
+			webhook := ClusterQueueWebhook{fairSharingEnabled: tc.enableFairSharing}
+			gotErr := webhook.validateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
 			}
@@ -361,7 +429,8 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := ValidateClusterQueueUpdate(tc.newClusterQueue)
+			webhook := ClusterQueueWebhook{}
+			gotErr := webhook.validateClusterQueue(tc.newClusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
 			}
