@@ -482,6 +482,14 @@ type PodSetTopologyRequest struct {
   // +optional
   Preferred *string `json:"preferred,omitempty"`
 
+	// relaxed indicates the topology assignment for the PodSet should be,
+	// computed using the Relaxed algorithm. Indicated by the
+	// `kueue.x-k8s.io/podset-relaxed-topology` PodSet's annotation.
+	//
+	// +optional
+	// +kubebuilder:validation:Type=boolean
+	Relaxed *bool `json:"relaxed,omitempty"`
+
   // PodIndexLabel indicates the name of the label indexing the pods.
   // For example, in the context of
   // - kubernetes job this is: kubernetes.io/job-completion-index
@@ -659,7 +667,10 @@ Kueue packs pods on domains starting from the domains with the most free capacit
 - `ConditionalBestFit` - Kueue chooses the domain with the least available resources. It promotes minimizing resource fragmentation, and higher node utilization over compact placement. This algorithm is used for PodSet with the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set.
 
 By default Kueue uses the `MostAllocated` algorithm. To use `LeastAllocated` algorithm, a user needs to set the feature gate `TASLeastAllocated` to `true`.
-To use `ConditionalBestFit` algorithm, a PodSet needs to have the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set. To default this annotation for all Workloads in the cluster a user can set the feature gate `TASImplicitDefaultRelaxed` to `true`.
+
+To use `ConditionalBestFit` algorithm, a PodSet needs to have the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set.
+To use the algorithm for all Workloads in the cluster, a user can set the feature gate `TASImplicitDefaultRelaxed` to `true`,
+which will set `podSetTopologyRequest.relaxed` to `true`.
 
 ### Enforcing the assignment
 
