@@ -63,36 +63,35 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 	ginkgo.When("Delete Topology", func() {
 		var (
-			topology *kueuealpha.Topology
+			tasFlavor *kueue.ResourceFlavor
+			topology  *kueuealpha.Topology
 		)
 
-		ginkgo.BeforeEach(func() {
-			topology = testing.MakeDefaultOneLevelTopology("topology")
-			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
-		})
-
 		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
 
-		ginkgo.It("should allow to delete topology", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		ginkgo.When("ResourceFlavor does not exist", func() {
+			ginkgo.BeforeEach(func() {
+				topology = testing.MakeDefaultOneLevelTopology("topology")
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+			})
+
+			ginkgo.It("should allow to delete topology", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			})
 		})
 
-		ginkgo.When("ResourceFlavor exist", func() {
-			var (
-				tasFlavor *kueue.ResourceFlavor
-			)
-
+		ginkgo.When("ResourceFlavor exists", func() {
 			ginkgo.BeforeEach(func() {
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 					NodeLabel("node-group", "tas").
 					TopologyName(topology.Name).Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
-			})
 
-			ginkgo.AfterEach(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				topology = testing.MakeDefaultOneLevelTopology("topology")
+				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should not allow to delete topology", func() {
@@ -106,9 +105,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("delete topology", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Delete(ctx, topology)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, topology)).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("check topology still present", func() {
