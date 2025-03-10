@@ -809,6 +809,49 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				})
 			})
+
+			ginkgo.It("should admit workload using TAS without explicit TAS annotation", func() {
+				var wl1, wl2 *kueue.Workload
+				ginkgo.By("creating a workload without explicit TAS annotation which can fit", func() {
+					wl1 = testing.MakeWorkload("wl1", ns.Name).
+						PodSets(*testing.MakePodSet("worker", 2).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x1"}},
+								{Count: 1, Values: []string{"x2"}},
+							},
+						},
+					))
+				})
+
+				ginkgo.By("creating the second workload without explicit TAS annotation which cannot fit", func() {
+					wl2 = testing.MakeWorkload("wl2", ns.Name).
+						PodSets(*testing.MakePodSet("worker-2", 3).
+							Obj()).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the wl2 has not been admitted", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("finish wl1 and verify wl2 can fit now", func() {
+					util.FinishWorkloads(ctx, k8sClient, wl1)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				})
+			})
 		})
 
 		ginkgo.When("Preemption is enabled within ClusterQueue", func() {
