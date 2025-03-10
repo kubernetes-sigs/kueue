@@ -40,40 +40,28 @@ To guarantee that the Pods in the [Workload](/docs/concepts/workload) run on the
    This occurs if the Workload didn't specify the `ResourceFlavor` labels already as part of its nodeSelector.
 
      For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the labels to the `.spec.template.spec.nodeSelector` field.
-     This guarantees that the workload's Pods can only be scheduled on the nodes targeted by the flavor that Kueue assigned to the Workload.
+     This guarantees that the Workload's Pods can only be scheduled on the nodes targeted by the flavor that Kueue assigned to the Workload.
 
    - Kueue adds the tolerations to the underlying Workload Pod templates.
 
      For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the tolerations to the `.spec.template.spec.tolerations` field.
-     This allows that the workloads Pods to be scheduled on nodes having specific taints.
+     This allows the Workload's Pods to be scheduled on nodes having specific taints.
 
 A sample ResourceFlavor of this type looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: "spot"
-spec:
-  nodeLabels:
-    instance-type: spot
-  tolerations:
-  - key: "spot-taint" ## The key of the node taint.
-    operator: "Exists"
-    effect: "NoSchedule" ## Supported effects are NoSchedule, NoExecute, and PreferNoSchedule.
-```
+{{< include "examples/admin/resource-flavor-tolerations.yaml" "yaml" >}}
 
-When defining a ResourceFlavor as above, you can set the following values:
-- The `.metadata.name` field to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
+When defining a ResourceFlavor as above, you should set the following values:
+- The `.metadata.name` field, which is required to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
 - `spec.nodeLabels` associates the ResourceFlavor with a node or subset of nodes.
 - `spec.tolerations` adds the specified tolerations to the pods that require GPUs.
 
 
 ## ResourceFlavor taints for user-selective scheduling
 
-This approach may be best for teams that wish to schedule their workload to a specific hardware type selectively.
+This approach may be best for teams that wish to schedule their Workload to a specific hardware type selectively.
 An additional ResourceFlavor can be created per type of special hardware with a different set of taints and tolerations.
-The user can then add the tolerations to their workload to schedule the pods onto the appropriate node.
+The user can then add the tolerations to their Workload to schedule the pods onto the appropriate node.
 
 By adding the taint at the ResourceFlavor level, we ensure that only workloads that explicitly tolerate that taint can consume the quota.
 
@@ -85,22 +73,10 @@ As opposed to the behavior for [ResourceFlavor tolerations for automatic schedul
 
 A sample ResourceFlavor looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: "spot"
-spec:
-  nodeLabels:
-    instance-type: spot
-  nodeTaints:
-  - effect: NoSchedule ## Supported effects are NoSchedule and NoExecute, while PreferNoSchedule is ignored.
-    key: spot
-    value: "true"
-```
+{{< include "examples/admin/resource-flavor-taints.yaml" "yaml" >}}
 
-When defining a ResourceFlavor as above, you can set the following values:
-- The `.metadata.name` field to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
+When defining a ResourceFlavor as above, you should set the following values:
+- The `.metadata.name` field, which is required to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
 - `spec.nodeLabels` associates the ResourceFlavor with a node or subset of nodes.
 - `spec.nodeTaints` restricts usage of a ResourceFlavor.
 These taints should typically match the taints of the Nodes associated with the ResourceFlavor.
@@ -110,12 +86,7 @@ These taints should typically match the taints of the Nodes associated with the 
 If your cluster has homogeneous resources, or if you don't need to manage quotas for the different flavors of a resource separately, you can create a ResourceFlavor without any labels or taints.
 Such ResourceFlavor is called an empty ResourceFlavor and its definition looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: default-flavor
-```
+{{< include "examples/admin/resource-flavor-empty.yaml" "yaml" >}}
 
 ## What's next?
 
