@@ -18,11 +18,11 @@ package cache
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -245,64 +245,65 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].tasUsage.Sub(usage)
 }
 
-func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[string]resources.Requests {
-	freeCapacityPerDomain := make(map[string]resources.Requests)
+func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID]resources.Requests {
+	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		freeCapacityPerDomain[string(domainID)] = leaf.freeCapacity.Clone()
+		freeCapacityPerDomain[domainID] = leaf.freeCapacity.Clone()
 	}
 
 	return freeCapacityPerDomain
 }
 
-func (s *TASFlavorSnapshot) tasUsagePerDomain() map[string]resources.Requests {
-	tasUsagePerDomain := make(map[string]resources.Requests)
+func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]resources.Requests {
+	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		tasUsagePerDomain[string(domainID)] = leaf.tasUsage.Clone()
+		tasUsagePerDomain[domainID] = leaf.tasUsage.Clone()
 	}
 
 	return tasUsagePerDomain
 }
 
-func (s *TASFlavorSnapshot) PrettyPrintFreeCapacityPerDomain() string {
+type domainCapacityDetails struct {
+	FreeCapacity map[corev1.ResourceName]string `json:"freeCapacity"`
+	TasUsage     map[corev1.ResourceName]string `json:"tasUsage"`
+}
+
+func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 	freeCapacityPerDomain := s.freeCapacityPerDomain()
 	tasUsagePerDomain := s.tasUsagePerDomain()
 
-	// Pretty-print the free capacities
-	var prettyDomains []string
+	details := make(map[utiltas.TopologyDomainID]domainCapacityDetails, len(s.leaves))
 
-	// Sort domain keys lexicographically
 	for _, domain := range slices.Sorted(maps.Keys(freeCapacityPerDomain)) {
 		freeCapacity := freeCapacityPerDomain[domain]
 		tasUsage := tasUsagePerDomain[domain]
 
-		// Pretty-print freeCapacity
-		var freeCapacityDetails []string
+		freeCapacityDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(freeCapacity)) {
 			value := freeCapacity[resourceName]
-			prettyValue := resources.ResourceQuantityString(resourceName, value)
-			freeCapacityDetails = append(freeCapacityDetails, fmt.Sprintf("%s: %s", resourceName, prettyValue))
+			freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
 		}
 
-		// Pretty-print tasUsage
-		var tasUsageDetails []string
+		tasUsageDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(tasUsage)) {
 			value := tasUsage[resourceName]
-			prettyValue := resources.ResourceQuantityString(resourceName, value)
-			tasUsageDetails = append(tasUsageDetails, fmt.Sprintf("%s: %s", resourceName, prettyValue))
+			tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
 		}
 
-		// Format freeCapacity and tasUsage into the output string for this domain
-		prettyDomains = append(prettyDomains, fmt.Sprintf("%s={\nfreeCapacity: %s\ntasUsage: %s\n}",
-			domain,
-			strings.Join(freeCapacityDetails, "; "),
-			strings.Join(tasUsageDetails, "; "),
-		))
+		details[domain] = domainCapacityDetails{
+			FreeCapacity: freeCapacityDetails,
+			TasUsage:     tasUsageDetails,
+		}
 	}
 
-	// Join all domains together with commas and newlines
-	return strings.Join(prettyDomains, ",\n")
+	jsonBytes, err := json.Marshal(details)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
 }
 
 type TASPodSetRequests struct {

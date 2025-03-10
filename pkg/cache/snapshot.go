@@ -82,10 +82,19 @@ func (s *Snapshot) Log(log logr.Logger) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		for cqName, cq := range s.ClusterQueues() {
 			for tasFlavor, tasSnapshot := range cq.TASFlavors {
+				freeCapacityPerDomain, err := tasSnapshot.SerializeFreeCapacityPerDomain()
+				if err != nil {
+					log.Error(err, "Failed to serialize TAS snapshot free capacity",
+						"clusterQueue", cqName,
+						"resourceFlavor", tasFlavor,
+					)
+					continue
+				}
+
 				log.Info("TAS Snapshot Free Capacity",
 					"clusterQueue", cqName,
 					"resourceFlavor", tasFlavor,
-					"freeCapacityPerDomain", tasSnapshot.PrettyPrintFreeCapacityPerDomain(),
+					"freeCapacityPerDomain", freeCapacityPerDomain,
 				)
 			}
 		}

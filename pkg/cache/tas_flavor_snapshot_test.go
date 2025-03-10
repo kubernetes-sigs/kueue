@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -34,29 +35,33 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
 				},
 				tasUsage: resources.Requests{
-					corev1.ResourceCPU:    500,
 					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
+					corev1.ResourceCPU:    500,
 				},
 			},
 			"domain1": &leafDomain{
 				freeCapacity: resources.Requests{
-					corev1.ResourceCPU:    2000,
 					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
+					corev1.ResourceCPU:    2000,
 					"nvidia.com/gpu":      1,
 				},
 				tasUsage: resources.Requests{
 					corev1.ResourceCPU:    500,
-					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
 					"nvidia.com/gpu":      1,
+					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
 				},
 			},
 		},
 	}
 
-	expected := "domain1={\nfreeCapacity: cpu: 2; memory: 4Gi; nvidia.com/gpu: 1\ntasUsage: cpu: 500m; memory: 2Gi; nvidia.com/gpu: 1\n},\ndomain2={\nfreeCapacity: cpu: 1; memory: 2Gi\ntasUsage: cpu: 500m; memory: 1Gi\n}"
+	expected := `{"domain1":{"freeCapacity":{"cpu":"2","memory":"4Gi","nvidia.com/gpu":"1"},"tasUsage":{"cpu":"500m","memory":"2Gi","nvidia.com/gpu":"1"}},"domain2":{"freeCapacity":{"cpu":"1","memory":"2Gi"},"tasUsage":{"cpu":"500m","memory":"1Gi"}}}`
+	var wantErr error
 
-	got := snapshot.PrettyPrintFreeCapacityPerDomain()
+	got, gotErr := snapshot.SerializeFreeCapacityPerDomain()
+	if diff := cmp.Diff(wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
+		t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+	}
 	if diff := cmp.Diff(expected, got); diff != "" {
-		t.Errorf("PrettyPrintFreeCapacityPerDomain() mismatch (-expected +got):\n%s", diff)
+		t.Errorf("SerializeFreeCapacityPerDomain() mismatch (-expected +got):\n%s", diff)
 	}
 }
