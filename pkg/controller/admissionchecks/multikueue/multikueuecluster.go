@@ -400,7 +400,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
 	// get the kubeconfig
