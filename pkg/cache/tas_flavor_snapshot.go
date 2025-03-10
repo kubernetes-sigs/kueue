@@ -18,6 +18,7 @@ package cache
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -242,6 +243,67 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Sub(usage)
+}
+
+func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID]resources.Requests {
+	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
+
+	for domainID, leaf := range s.leaves {
+		freeCapacityPerDomain[domainID] = leaf.freeCapacity.Clone()
+	}
+
+	return freeCapacityPerDomain
+}
+
+func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]resources.Requests {
+	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
+
+	for domainID, leaf := range s.leaves {
+		tasUsagePerDomain[domainID] = leaf.tasUsage.Clone()
+	}
+
+	return tasUsagePerDomain
+}
+
+type domainCapacityDetails struct {
+	FreeCapacity map[corev1.ResourceName]string `json:"freeCapacity"`
+	TasUsage     map[corev1.ResourceName]string `json:"tasUsage"`
+}
+
+func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
+	freeCapacityPerDomain := s.freeCapacityPerDomain()
+	tasUsagePerDomain := s.tasUsagePerDomain()
+
+	details := make(map[utiltas.TopologyDomainID]domainCapacityDetails, len(s.leaves))
+
+	for _, domain := range slices.Sorted(maps.Keys(freeCapacityPerDomain)) {
+		freeCapacity := freeCapacityPerDomain[domain]
+		tasUsage := tasUsagePerDomain[domain]
+
+		freeCapacityDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
+		for _, resourceName := range slices.Sorted(maps.Keys(freeCapacity)) {
+			value := freeCapacity[resourceName]
+			freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+		}
+
+		tasUsageDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
+		for _, resourceName := range slices.Sorted(maps.Keys(tasUsage)) {
+			value := tasUsage[resourceName]
+			tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+		}
+
+		details[domain] = domainCapacityDetails{
+			FreeCapacity: freeCapacityDetails,
+			TasUsage:     tasUsageDetails,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(details)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
 }
 
 type TASPodSetRequests struct {
