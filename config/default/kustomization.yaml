@@ -29,7 +29,7 @@ resources:
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 # - ../components/certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-#- ../components/prometheus
+# - ../components/prometheus
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 
@@ -57,6 +57,13 @@ patches:
 # 'CERTMANAGER' needs to be enabled to use ca injection
 # - path: mutating_webhookcainjection_patch.yaml
 # - path: validating_webhookcainjection_patch.yaml
+
+# Uncomment the patches line if you enable Metrics and CertManager
+# [CERTMANAGER] To enable metrics protected with certManager, uncomment the following line.
+# This patch will protect the metrics with certManager self-signed certs.
+# - path: cert_metrics_manager_patch.yaml
+#  target:
+#    kind: Deployment
 
 
 # the following config is for teaching kustomize how to do var substitution

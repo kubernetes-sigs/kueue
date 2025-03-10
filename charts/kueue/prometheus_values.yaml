@@ -4,9 +4,9 @@
 nameOverride: ""
 fullnameOverride: ""
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
-enablePrometheus: false
+enablePrometheus: true
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
-enableCertManager: false
+enableCertManager: true
 # Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
 # Customize controllerManager
@@ -98,10 +98,8 @@ managerConfig:
     #    - key: kubernetes.io/metadata.name
     #      operator: NotIn
     #      values: [ kube-system, kueue-system ]
-    #internalCertManagement:
-    #  enable: false
-    #  webhookServiceName: ""
-    #  webhookSecretName: ""
+    internalCertManagement:
+      enable: false
     integrations:
       frameworks:
       - "batch/job"
@@ -134,7 +132,7 @@ managerConfig:
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
-    - name: metrics
+    - name: https
       port: 8443
       protocol: TCP
       targetPort: 8443
@@ -153,3 +151,22 @@ webhookService:
 
 # kueue-viz dashboard
 enableKueueViz: false
+
+metrics:
+  prometheusNamespace: monitoring
+# tls configs for serviceMonitor
+  serviceMonitor:
+    tlsConfig:
+      serverName: kueue-controller-manager-metrics-service.kueue-system.svc
+      insecureSkipVerify: false
+      ca:
+        secret:
+          name: kueue-metrics-server-cert
+          key: ca.crt
+      cert:
+        secret:
+          name: kueue-metrics-server-cert
+          key: tls.crt
+      keySecret:
+        name: kueue-metrics-server-cert
+        key: tls.key
