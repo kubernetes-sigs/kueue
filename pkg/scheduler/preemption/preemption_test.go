@@ -41,6 +41,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -2449,5 +2450,37 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 			Flavors: assignments,
 			Count:   1,
 		}},
+	}
+}
+
+func TestPreemptionMessage(t *testing.T) {
+	cases := []struct {
+		preemptor *kueue.Workload
+		reason    string
+		want      string
+	}{
+		{
+			preemptor: &kueue.Workload{},
+			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			reason:    kueue.InClusterQueueReason,
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
+		},
+	}
+	for _, tc := range cases {
+		got := preemptionMessage(tc.preemptor, tc.reason)
+		if got != tc.want {
+			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
+		}
 	}
 }

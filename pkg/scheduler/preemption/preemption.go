@@ -38,6 +38,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -204,6 +205,24 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "fair sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
+	"": "UNKNOWN",
+}
+
+func preemptionMessage(preemptor *kueue.Workload, reason string) string {
+	var wUID, jUID string
+	if preemptor == nil || preemptor.UID == "" {
+		wUID = "UNKNOWN"
+	} else {
+		wUID = string(preemptor.UID)
+	}
+	uid, ok := preemptor.Labels[constants.JobUIDLabel]
+	if !ok || uid == "" {
+		jUID = "UNKNOWN"
+	} else {
+		jUID = uid
+	}
+
+	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", wUID, jUID, HumanReadablePreemptionReasons[reason])
 }
 
 // IssuePreemptions marks the target workloads as evicted.
@@ -216,7 +235,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.WorkloadInfo.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) due to %s", preemptor.Obj.UID, HumanReadablePreemptionReasons[target.Reason])
+			message := preemptionMessage(preemptor.Obj, target.Reason)
 			err := p.applyPreemption(ctx, target.WorkloadInfo.Obj, target.Reason, message)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
