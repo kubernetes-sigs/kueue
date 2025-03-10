@@ -92,6 +92,11 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 						log.Error(err, "Failed to setup controller and webhook for job framework")
 					}
 				})
+				// Webhook must be registered now.
+				// The controller-runtime silently ignores attempts to add a webhook to an already registered endpoint.
+				if err := cb.SetupWebhook(mgr, opts...); err != nil {
+					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
+				}
 			} else {
 				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 					return err
