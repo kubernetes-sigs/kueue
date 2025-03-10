@@ -1660,7 +1660,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue
 			matchingNS         *corev1.Namespace
-			chName             string
+			chName             kueue.CohortReference
 		)
 
 		ginkgo.BeforeEach(func() {

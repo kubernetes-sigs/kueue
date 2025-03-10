@@ -34,7 +34,7 @@ import (
 )
 
 type ClusterQueueSnapshot struct {
-	Name              string
+	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -157,7 +157,7 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 	return potentialAvailable(c, fr)
 }
 
-func (c *ClusterQueueSnapshot) GetName() string {
+func (c *ClusterQueueSnapshot) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }
 

@@ -19,6 +19,8 @@ package queue
 import (
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // LogDump dumps the pending and inadmissible workloads for each ClusterQueue into the log,
@@ -30,7 +32,7 @@ func (m *Manager) LogDump(log logr.Logger) {
 		pending, _ := cq.Dump()
 		inadmissible, _ := cq.DumpInadmissible()
 		log.Info("Found pending and inadmissible workloads in ClusterQueue",
-			"clusterQueue", klog.KRef("", name),
+			"clusterQueue", klog.KRef("", string(name)),
 			"pending", pending,
 			"inadmissible", inadmissible)
 	}
@@ -38,14 +40,14 @@ func (m *Manager) LogDump(log logr.Logger) {
 
 // Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
-func (m *Manager) Dump() map[string][]string {
+func (m *Manager) Dump() map[kueue.ClusterQueueReference][]string {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string][]string, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]string, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
@@ -59,14 +61,14 @@ func (m *Manager) Dump() map[string][]string {
 
 // DumpInadmissible is a dump of the inadmissible workloads list.
 // Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[string][]string {
+func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]string {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string][]string, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]string, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements

@@ -48,7 +48,7 @@ var (
 // clusterQueue is the internal implementation of kueue.clusterQueue that
 // holds admitted workloads.
 type clusterQueue struct {
-	Name              string
+	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -88,7 +88,7 @@ type clusterQueue struct {
 	tasCache *TASCache
 }
 
-func (c *clusterQueue) GetName() string {
+func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }
 
@@ -485,8 +485,8 @@ func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount))
-	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
+	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(c.admittedWorkloadsCount))
+	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(len(c.Workloads)))
 }
 
 func (q *queue) reportActiveWorkloads() {

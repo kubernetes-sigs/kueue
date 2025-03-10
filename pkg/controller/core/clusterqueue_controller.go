@@ -65,7 +65,7 @@ type ClusterQueueReconciler struct {
 	log                                  logr.Logger
 	qManager                             *queue.Manager
 	cache                                *cache.Cache
-	snapshotsQueue                       workqueue.TypedInterface[string]
+	snapshotsQueue                       workqueue.TypedInterface[kueue.ClusterQueueReference]
 	wlUpdateCh                           chan event.GenericEvent
 	rfUpdateCh                           chan event.GenericEvent
 	acUpdateCh                           chan event.GenericEvent
@@ -144,7 +144,7 @@ func NewClusterQueueReconciler(
 		log:                                  ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:                             qMgr,
 		cache:                                cache,
-		snapshotsQueue:                       workqueue.NewTyped[string](),
+		snapshotsQueue:                       workqueue.NewTyped[kueue.ClusterQueueReference](),
 		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
@@ -185,14 +185,14 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 		}
 	} else {
-		if !r.cache.ClusterQueueTerminating(cqObj.Name) {
-			r.cache.TerminateClusterQueue(cqObj.Name)
+		if !r.cache.ClusterQueueTerminating(kueue.ClusterQueueReference(cqObj.Name)) {
+			r.cache.TerminateClusterQueue(kueue.ClusterQueueReference(cqObj.Name))
 		}
 
 		if controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
 			// The clusterQueue is being deleted, remove the finalizer only if
 			// there are no active reserving workloads.
-			if r.cache.ClusterQueueEmpty(cqObj.Name) {
+			if r.cache.ClusterQueueEmpty(kueue.ClusterQueueReference(cqObj.Name)) {
 				controllerutil.RemoveFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
 				if err := r.client.Update(ctx, &cqObj); err != nil {
 					return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -203,7 +203,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	newCQObj := cqObj.DeepCopy()
-	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(newCQObj.Name)
+	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(kueue.ClusterQueueReference(newCQObj.Name))
 	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -495,9 +495,9 @@ func (h *cqWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q w
 }
 
 func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
-	var name string
+	var name kueue.ClusterQueueReference
 	if workload.HasQuotaReservation(w) {
-		name = string(w.Status.Admission.ClusterQueue)
+		name = w.Status.Admission.ClusterQueue
 	} else {
 		var ok bool
 		name, ok = h.qManager.ClusterQueueForWorkload(w)
@@ -507,7 +507,7 @@ func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *r
 	}
 	return &reconcile.Request{
 		NamespacedName: types.NamespacedName{
-			Name: name,
+			Name: string(name),
 		},
 	}
 }
@@ -526,7 +526,7 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
 	newNs := e.ObjectNew.(*corev1.Namespace)
 	newMatchingCqs := h.cache.MatchingClusterQueues(newNs.Labels)
-	cqs := sets.New[string]()
+	cqs := sets.New[kueue.ClusterQueueReference]()
 	for cq := range newMatchingCqs {
 		if !oldMatchingCqs.Has(cq) {
 			cqs.Insert(cq)
@@ -564,7 +564,7 @@ func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEven
 		for _, cq := range cqs {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name: cq,
+					Name: string(cq),
 				}}
 			q.Add(req)
 		}
@@ -598,7 +598,7 @@ func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEven
 		for _, cq := range cqs {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name: cq,
+					Name: string(cq),
 				}}
 			q.Add(req)
 		}
@@ -627,7 +627,7 @@ func (h *cqTopologyHandler) Generic(_ context.Context, e event.GenericEvent, q w
 	for _, cq := range cqs {
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name: cq,
+				Name: string(cq),
 			}}
 		q.Add(req)
 	}
@@ -752,7 +752,7 @@ func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kue
 	if !r.isVisibilityEnabled() {
 		return nil
 	}
-	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+	pendingWorkloads := r.qManager.GetSnapshot(kueue.ClusterQueueReference(cq.Name))
 	if cq.Status.PendingWorkloadsStatus == nil ||
 		cq.Status.PendingWorkloadsStatus.Head == nil ||
 		!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
@@ -803,16 +803,16 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 
 	startTime := r.clock.Now()
 	defer func() {
-		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", cqName), "elapsed", time.Since(startTime))
+		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", string(cqName)), "elapsed", time.Since(startTime))
 	}()
 
 	defer r.snapshotsQueue.Done(cqName)
 
 	if r.qManager.UpdateSnapshot(cqName, r.queueVisibilityClusterQueuesMaxCount) {
-		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", cqName))
+		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", string(cqName)))
 		r.snapUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: cqName,
+				Name: string(cqName),
 			},
 		}}
 	}

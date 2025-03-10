@@ -772,7 +772,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(tc.cq.Name)
+			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(kueue.ClusterQueueReference(tc.cq.Name))
 			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
 				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
 			}

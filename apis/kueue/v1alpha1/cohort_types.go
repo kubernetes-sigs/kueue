@@ -34,11 +34,7 @@ type CohortSpec struct {
 	// Cohort, including ClusterQueues, until the cycle is
 	// removed.  We prevent further admission while the cycle
 	// exists.
-	//
-	//+kubebuilder:validation:MaxLength=253
-	//+kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	//
-	Parent string `json:"parent,omitempty"`
+	Parent kueuebeta.CohortReference `json:"parent,omitempty"`
 
 	// ResourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources
