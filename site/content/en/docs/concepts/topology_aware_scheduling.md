@@ -100,14 +100,12 @@ to a TAS ResourceFlavor.
 
 ### Limitations
 
-Currently, there are multiple limitations for the compatibility of the feature
-with other features. In particular, a ClusterQueue referencing a TAS Resource
-Flavor (with the `.spec.topologyName` field) is marked as inactive in the
-following scenarios:
-- the CQ is in cohort (`.spec.cohort` is set)
-- the CQ is using [preemption](preemption.md)
-- the CQ is using [MultiKueue](multikueue.md) or
-  [ProvisioningRequest](/docs/admission-check-controllers/provisioning/) admission checks
+Currently, there are limitations for the compatibility of TAS with other
+features. In particular, a ClusterQueue referencing a TAS Resource
+Flavor (with the `.spec.topologyName` field) is marked as inactive if also
+using [MultiKueue](multikueue.md) or
+[ProvisioningRequest](/docs/admission-check-controllers/provisioning/) admission
+checks.
 
 These usage scenarios are considered to be supported in the future releases
 of Kueue.
