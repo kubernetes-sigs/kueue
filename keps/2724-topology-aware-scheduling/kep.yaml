@@ -32,6 +32,7 @@ milestone:
 feature-gates:
   - name: TopologyAwareScheduling
   - name: TASLeastAllocated
+  - name: TASImplicitDefaultRelaxed
 disable-supported: true
 
 # The following PRR answers are required at beta release
