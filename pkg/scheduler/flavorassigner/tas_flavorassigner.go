@@ -29,16 +29,15 @@ import (
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
 func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
-	isTASOnly := cq.IsTASOnly()
 	tasRequests := make(cache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
-		if podSet.TopologyRequest != nil || isTASOnly {
+		if isTASRequested(&podSet, cq) {
 			psAssignment := a.podSetAssignmentByName(podSet.Name)
 			if psAssignment.Status.IsError() {
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			isTASImplied := podSet.TopologyRequest == nil && isTASOnly
+			isTASImplied := isTASImplied(&podSet, cq)
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
 				psAssignment.error(err)
@@ -112,7 +111,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 		}
 	}
 	// If this is a TAS-only CQ, then no TopologyRequest is ok
-	if ps.TopologyRequest == nil && cq.IsTASOnly() {
+	if isTASImplied(ps, cq) {
 		return nil
 	}
 	// For PodSets which don't use TAS skip resource flavors which are only for TAS
@@ -120,4 +119,16 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 		return ptr.To(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
 	}
 	return nil
+}
+
+// isTASImplied returns true if TAS is requested implicitly - there is no
+// explicit
+func isTASImplied(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
+	return ps.TopologyRequest == nil && cq.IsTASOnly()
+}
+
+// isTASRequested checks if TAS is requested for the input PodSet, either
+// explicitly or implicitly.
+func isTASRequested(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
+	return ps.TopologyRequest != nil || cq.IsTASOnly()
 }
