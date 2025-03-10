@@ -603,7 +603,7 @@ func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorN
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -612,7 +612,7 @@ func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource strin
 }
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -621,7 +621,7 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 }
 
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())

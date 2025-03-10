@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal("cohort"))
+					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta1.CohortReference("cohort")))
 					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta1.StrictFIFO))
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{
 						MatchLabels: map[string]string{"fooX": "barX", "fooY": "barY"},
@@ -392,7 +392,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal("cohort"))
+					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta1.CohortReference("cohort")))
 					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta1.StrictFIFO))
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{
 						MatchLabels: map[string]string{"fooX": "barX", "fooY": "barY"},
