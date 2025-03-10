@@ -23,12 +23,15 @@ import (
 	"runtime"
 	"time"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	apiAdmissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -66,6 +69,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
 	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = cmv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueuealpha.AddToScheme(scheme.Scheme)
@@ -293,4 +299,41 @@ func GetKuberayTestImage() string {
 	}
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
+}
+
+func WaitForCertificateReady(ctx context.Context, c client.Client, name, namespace string, timeout time.Duration) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		cert := &cmv1.Certificate{}
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cert)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "Certificate should exist")
+		g.Expect(cert.Status.Conditions).To(
+			gomega.ContainElement(gomega.And(
+				gomega.HaveField("Type", cmv1.CertificateConditionReady),
+				gomega.HaveField("Status", cmmeta.ConditionTrue),
+			)),
+			"Certificate should be ready",
+		)
+	}, timeout, 5*time.Second).Should(gomega.Succeed())
+}
+
+func WaitForWebhookCABundleReady(ctx context.Context, c client.Client, timeout time.Duration) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		// Check MutatingWebhookConfiguration
+		mutatingWebhook := &apiAdmissionregistrationv1.MutatingWebhookConfiguration{}
+		err := c.Get(ctx, client.ObjectKey{Name: "kueue-mutating-webhook-configuration"}, mutatingWebhook)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "MutatingWebhookConfiguration should exist")
+
+		for _, webhook := range mutatingWebhook.Webhooks {
+			g.Expect(webhook.ClientConfig.CABundle).NotTo(gomega.BeEmpty(), "CA bundle should be injected")
+		}
+
+		// Check ValidatingWebhookConfiguration
+		validatingWebhook := &apiAdmissionregistrationv1.ValidatingWebhookConfiguration{}
+		err = c.Get(ctx, client.ObjectKey{Name: "kueue-validating-webhook-configuration"}, validatingWebhook)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "ValidatingWebhookConfiguration should exist")
+
+		for _, webhook := range validatingWebhook.Webhooks {
+			g.Expect(webhook.ClientConfig.CABundle).NotTo(gomega.BeEmpty(), "CA bundle should be injected")
+		}
+	}, timeout, 1*time.Second).Should(gomega.Succeed())
 }

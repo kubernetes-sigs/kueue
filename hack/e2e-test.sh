@@ -71,6 +71,9 @@ function kind_load {
     if [[ -n ${KUBERAY_VERSION:-} ]]; then
         install_kuberay "$KIND_CLUSTER_NAME"
     fi
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+        install_cert_manager "$KIND_CLUSTER_NAME"
+    fi
 }
 
 function kueue_deploy {
