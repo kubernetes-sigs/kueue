@@ -984,8 +984,9 @@ k8s.io/apiserver/plugin/pkg/audit/webhook
 k8s.io/apiserver/plugin/pkg/authenticator/token/webhook
 k8s.io/apiserver/plugin/pkg/authorizer/webhook
 k8s.io/apiserver/plugin/pkg/authorizer/webhook/metrics
-# k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240813092541-aec7b75bb683
-## explicit; go 1.22.0
+# k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20241223120612-2cbd4fd7ab57
+## explicit; go 1.23.0
+k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1
 k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1
 # k8s.io/cli-runtime v0.32.2
 ## explicit; go 1.23.0
