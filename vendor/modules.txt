@@ -287,7 +287,7 @@ github.com/pkg/errors
 ## explicit; go 1.23.0
 github.com/project-codeflare/appwrapper/api/v1beta2
 github.com/project-codeflare/appwrapper/pkg/utils
-# github.com/prometheus/client_golang v1.21.0
+# github.com/prometheus/client_golang v1.21.1
 ## explicit; go 1.21
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil/header
