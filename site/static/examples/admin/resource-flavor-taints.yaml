@@ -1,0 +1,11 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "spot"
+spec:
+  nodeLabels:
+    instance-type: spot
+  nodeTaints:
+  - effect: NoSchedule ## Supported effects are NoSchedule and NoExecute, while PreferNoSchedule is ignored.
+    key: spot
+    value: "true"
