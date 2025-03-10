@@ -430,12 +430,9 @@ const (
   // among multiple topology domains.
   PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
 
-  // PodSetRelaxedTopologyAnnotation indicates that a PodSet requires
-  // Topology Aware Scheduling, but it promotes filling up nodes to maximum over
-  // compact placement. The pods have lower chance of being scheduled on the same
-  // node, but it mitigates resource fragmentation, and can lead to better
-  // node utilization. Recommended for PodSets that don't require heave inter pod
-  // communication
+  // PodSetRelaxedTopologyAnnotation indicates that a PodSet requires no topology.
+  // Kueue admits the PodSet if there's enough free capacity anywhere in the cluster.
+  // Recommended for PodSets that don't require inter pod communication
   PodSetRelaxedTopologyAnnotation = "kueue.x-k8s.io/podset-relaxed-topology"
 )
 ```
@@ -659,10 +656,10 @@ For a given PodSet Kueue:
 Kueue packs pods on domains starting from the domains with the most free capacity. However, Kueue can operate in three modes when it comes to choosing the last domain if there is more than one capable of accommodating the remaining pods:
 - `MostAllocated` - Kueue chooses the domain with the least available resource that is capable of accommodating all the pods to mitigate resource fragmentation
 - `LeastAllocated` - Kueue chooses the domain that has the most available resources, providing better nodes utilization
-- `Relaxed` - Kueue chooses the domain with least available resources. It promotes minimizing resource fragmentation, and higher node utilization over compact placement. This is signalized by the `kueue.x-k8s.io/podset-relaxed-topology: true` PodSet annotation.
+- `ConditionalBestFit` - Kueue chooses the domain with the least available resources. It promotes minimizing resource fragmentation, and higher node utilization over compact placement. This algorithm is used for PodSet with the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set.
 
 By default Kueue uses the `MostAllocated` algorithm. To use `LeastAllocated` algorithm, a user needs to set the feature gate `TASLeastAllocated` to `true`.
-To use `Relaxed` algorithm, a PodSet needs to have the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set. To default this annotation for all Workloads in the cluster a user can set the feature gate `TASImplicitDefaultRelaxed` to `true`.
+To use `ConditionalBestFit` algorithm, a PodSet needs to have the `kueue.x-k8s.io/podset-relaxed-topology: true` annotation set. To default this annotation for all Workloads in the cluster a user can set the feature gate `TASImplicitDefaultRelaxed` to `true`.
 
 ### Enforcing the assignment
 
