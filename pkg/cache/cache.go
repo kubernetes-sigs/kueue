@@ -766,6 +766,14 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
+					if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+						if topology, ok := c.tasCache.flavors[rgFlavor]; ok {
+							flavor.Topology = &kueue.Topology{
+								Name:   topology.TopologyName,
+								Levels: topology.Levels,
+							}
+						}
+					}
 				}
 				flavors = append(flavors, flavor)
 			}

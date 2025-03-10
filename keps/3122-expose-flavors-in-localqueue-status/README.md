@@ -102,6 +102,31 @@ type LocalQueueFlavorStatus struct {
   // +kubebuilder:validation:MaxItems=8
   // +optional
   NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
+
+  // topologyName is the name of the topology.
+  // +optional
+  TopologyName *TopologyReference `json:"topologyName,omitempty"`
+}
+```
+
+Add `Topology` API object:
+
+```go
+type Topology struct {
+	// name is the name of the topology.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	Name TopologyReference `json:"name"`
+
+	// levels define the levels of topology.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Levels []string `json:"levels,omitempty"`
 }
 ```
 
