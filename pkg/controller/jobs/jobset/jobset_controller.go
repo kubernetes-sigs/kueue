@@ -144,7 +144,7 @@ func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetsInfo[index]
 		if err := podset.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
-			return nil
+			return err
 		}
 	}
 	return nil
