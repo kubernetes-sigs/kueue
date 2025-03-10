@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -158,7 +159,11 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 }
 
 func (s *TASFlavorSnapshot) isLowestLevelNode() bool {
-	return s.levelKeys[len(s.levelKeys)-1] == corev1.LabelHostname
+	return s.lowestLevel() == corev1.LabelHostname
+}
+
+func (s *TASFlavorSnapshot) lowestLevel() string {
+	return s.levelKeys[len(s.levelKeys)-1]
 }
 
 // initialize prepares the topology tree structure. This structure holds
@@ -311,6 +316,7 @@ type TASPodSetRequests struct {
 	SinglePodRequests resources.Requests
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
+	Implied           bool
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
@@ -402,13 +408,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	tasPodSetRequests TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool) (*kueue.TopologyAssignment, string) {
-	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
 	requests := tasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
 	count := tasPodSetRequests.Count
-	required := topologyRequest.Required != nil
-	key := levelKey(topologyRequest)
+	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
+	key := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
 	if key == nil {
 		return nil, "topology level not specified"
 	}
@@ -454,7 +459,24 @@ func (s *TASFlavorSnapshot) resolveLevelIdx(levelKey string) (int, bool) {
 	return levelIdx, true
 }
 
+func isRequired(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.Required != nil
+}
+
+func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRequests) *string {
+	if key := levelKey(tasRequests.PodSet.TopologyRequest); key != nil {
+		return key
+	}
+	if tasRequests.Implied {
+		return ptr.To(s.lowestLevel())
+	}
+	return nil
+}
+
 func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
+	if topologyRequest == nil {
+		return nil
+	}
 	if topologyRequest.Required != nil {
 		return topologyRequest.Required
 	} else if topologyRequest.Preferred != nil {
