@@ -29,15 +29,17 @@ import (
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
 func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
+	isTASOnly := cq.IsTASOnly()
 	tasRequests := make(cache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
-		if podSet.TopologyRequest != nil {
+		if podSet.TopologyRequest != nil || isTASOnly {
 			psAssignment := a.podSetAssignmentByName(podSet.Name)
 			if psAssignment.Status.IsError() {
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, i)
+			isTASImplied := podSet.TopologyRequest == nil && isTASOnly
+			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
 				psAssignment.error(err)
 			} else {
@@ -51,6 +53,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	wl *workload.Info,
 	cq *cache.ClusterQueueSnapshot,
+	isTASImplied bool,
 	podSetIndex int) (*cache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
@@ -71,6 +74,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		SinglePodRequests: singlePodRequests,
 		PodSet:            podSet,
 		Flavor:            *tasFlvr,
+		Implied:           isTASImplied,
 	}, nil
 }
 
@@ -106,6 +110,10 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 			// Skip flavors which don't have the requested level
 			return ptr.To(fmt.Sprintf("Flavor %q does not contain the requested level", flavor.Name))
 		}
+	}
+	// If this is a TAS-only CQ, then no TopologyRequest is ok
+	if ps.TopologyRequest == nil && cq.IsTASOnly() {
+		return nil
 	}
 	// For PodSets which don't use TAS skip resource flavors which are only for TAS
 	if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {
