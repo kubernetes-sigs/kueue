@@ -430,8 +430,15 @@ const (
   // at the highest topology level, then it gets admitted as distributed
   // among multiple topology domains.
   PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
+
+  // PodSetUnconstrainedTopologyAnnotation indicates that a PodSet requires no topology.
+  // Kueue admits the PodSet if there's enough free capacity anywhere in the cluster.
+  // Recommended for PodSets that don't require inter pod communication
+  PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 )
 ```
+
+The annotations are mutually exclusive and shouldn't be combined.
 
 ### Validation
 
@@ -477,6 +484,14 @@ type PodSetTopologyRequest struct {
   //
   // +optional
   Preferred *string `json:"preferred,omitempty"`
+
+  // Unconstrained indicates the topology assignment for the PodSet should be,
+  // computed using the Unconstrained algorithm. Indicated by the
+  // `kueue.x-k8s.io/podset-unconstrained-topology` PodSet's annotation.
+  //
+  // +optional
+  // +kubebuilder:validation:Type=boolean
+  Unconstrained *bool `json:"Unconstrained,omitempty"`
 
   // PodIndexLabel indicates the name of the label indexing the pods.
   // For example, in the context of
@@ -663,11 +678,21 @@ For a given PodSet Kueue:
   level. Kueue starts the search from the specified level, but if the PodSet
   does not fit, then it tries higher levels in the hierarchy.
 
-Kueue packs pods on domains starting from the domains with the most free capacity. However, Kueue can operate in two modes when it comes to choosing the last domain if there is more than one capable of accommodating the remaining pods:
-- `MostAllocated` - Kueue chooses the domain with the least available resource that is capable of accommodating all the pods to mitigate resource fragmentation
-- `LeastAllocated` - Kueue chooses the domain that has the most available resources, providing better nodes utilization
+Kueue packs pods on domains with different algorithms, depending on the annotation and chosen profile:
+- `MostFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity;
+- `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
+- `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity, but tries to optimize the last domain to leave as few free resources as possible.
 
-By default Kueue uses the `MostAllocated` algorithm. To use `LeastAllocated` algorithm, a user needs to set the feature gate `TASLeastAllocated` to `true`
+Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
+
+| featuregate/annotation                | preferred      | required       | unconstrained  |
+| ------------------------------------- | -------------- | -------------- | -------------- |
+| None                                  | BestFit         | BestFit         | BestFit         |
+| TASProfileLeastAllocated (deprecated) | LeastAllocated | LeastAllocated | LeastAllocated |
+| TASProfileMixed                       | BestFit         | BestFit         | LeastFreeCapacity         |
+| TASProfileLeastFreeCapacity           | LeastFreeCapacity         | LeastFreeCapacity         | LeastFreeCapacity         |
+
+Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
 
 ### Enforcing the assignment
 
