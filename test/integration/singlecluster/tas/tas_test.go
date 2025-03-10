@@ -810,7 +810,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should admit workload which fits", func() {
+			ginkgo.It("should admit workload using TAS without explicit TAS annotation", func() {
 				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating a workload without explicit TAS annotation which can fit", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
