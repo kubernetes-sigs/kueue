@@ -8,7 +8,7 @@ require (
 	github.com/gohugoio/hugo v0.145.0
 	github.com/golangci/golangci-lint v1.64.6
 	github.com/mikefarah/yq/v4 v4.45.1
-	github.com/onsi/ginkgo/v2 v2.22.2
+	github.com/onsi/ginkgo/v2 v2.23.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.12.0
 	helm.sh/helm/v3 v3.17.1
