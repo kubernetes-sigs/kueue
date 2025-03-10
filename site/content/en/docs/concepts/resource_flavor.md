@@ -49,19 +49,7 @@ To guarantee that the Pods in the [Workload](/docs/concepts/workload) run on the
 
 A sample ResourceFlavor of this type looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: "spot"
-spec:
-  nodeLabels:
-    instance-type: spot
-  tolerations:
-  - key: "spot-taint" ## The key of the node taint.
-    operator: "Exists"
-    effect: "NoSchedule" ## Supported effects are NoSchedule, NoExecute, and PreferNoSchedule.
-```
+{{< include "examples/admin/resource-flavor-tolerations.yaml" "yaml" >}}
 
 When defining a ResourceFlavor as above, you can set the following values:
 - The `.metadata.name` field to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
@@ -85,19 +73,7 @@ As opposed to the behavior for [ResourceFlavor tolerations for automatic schedul
 
 A sample ResourceFlavor looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: "spot"
-spec:
-  nodeLabels:
-    instance-type: spot
-  nodeTaints:
-  - effect: NoSchedule ## Supported effects are NoSchedule and NoExecute, while PreferNoSchedule is ignored.
-    key: spot
-    value: "true"
-```
+{{< include "examples/admin/resource-flavor-taints.yaml" "yaml" >}}
 
 When defining a ResourceFlavor as above, you can set the following values:
 - The `.metadata.name` field to reference a ResourceFlavor from a [ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
@@ -110,12 +86,7 @@ These taints should typically match the taints of the Nodes associated with the 
 If your cluster has homogeneous resources, or if you don't need to manage quotas for the different flavors of a resource separately, you can create a ResourceFlavor without any labels or taints.
 Such ResourceFlavor is called an empty ResourceFlavor and its definition looks like the following:
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: default-flavor
-```
+{{< include "examples/admin/resource-flavor-empty.yaml" "yaml" >}}
 
 ## What's next?
 
