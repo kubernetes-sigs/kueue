@@ -137,6 +137,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ResourceQuotaApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceUsage"):
 		return &kueuev1beta1.ResourceUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("Topology"):
+		return &kueuev1beta1.TopologyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta1.TopologyAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
