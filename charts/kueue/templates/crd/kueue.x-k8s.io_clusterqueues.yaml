@@ -582,7 +582,7 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               fairSharing:
-                description: FairSharing contains the information about the current
+                description: fairSharing contains the information about the current
                   status of fair sharing.
                 properties:
                   weightedShare:

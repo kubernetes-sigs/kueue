@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -3824,5 +3825,77 @@ func TestSnapshotError(t *testing.T) {
 	_, gotErr := cache.Snapshot(ctx)
 	if diff := cmp.Diff(connectionRefusedErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 		t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+	}
+}
+
+func TestClusterQueueAncestors(t *testing.T) {
+	testCases := map[string]struct {
+		cohorts       []*kueuealpha.Cohort
+		cq            *kueue.ClusterQueue
+		wantAncestors []kueue.CohortReference
+		wantErr       error
+	}{
+		"without cohort": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+		},
+		"cohort not found": {
+			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+		},
+		"one level": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Obj(),
+			},
+			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+		},
+		"two level": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Obj(),
+				utiltesting.MakeCohort("left").Parent("root").Obj(),
+				utiltesting.MakeCohort("right").Parent("root").Obj(),
+			},
+			cq:            utiltesting.MakeClusterQueue("cq").Cohort("left").Obj(),
+			wantAncestors: []kueue.CohortReference{"left"},
+		},
+		"three levels": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Obj(),
+				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
+				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
+				utiltesting.MakeCohort("second-left").Parent("first-left").Obj(),
+				utiltesting.MakeCohort("second-right").Parent("first-left").Obj(),
+			},
+			cq:            utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
+			wantAncestors: []kueue.CohortReference{"second-left", "first-left"},
+		},
+		"with cycle": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Parent("second-right").Obj(),
+				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
+				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
+				utiltesting.MakeCohort("second-left").Parent("first-left").Obj(),
+				utiltesting.MakeCohort("second-right").Parent("first-left").Obj(),
+			},
+			cq:      utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
+			wantErr: ErrCohortHasCycle,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			client := utiltesting.NewClientBuilder().Build()
+			cache := New(client)
+			for _, cohort := range tc.cohorts {
+				_ = cache.AddOrUpdateCohort(cohort)
+			}
+
+			gotAncestors, gotErr := cache.ClusterQueueAncestors(tc.cq)
+
+			if diff := cmp.Diff(tc.wantAncestors, gotAncestors); diff != "" {
+				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+			}
+		})
 	}
 }

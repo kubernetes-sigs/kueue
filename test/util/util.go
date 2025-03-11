@@ -64,6 +64,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -596,6 +597,15 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 
 func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value int64) {
 	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int64(v)).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectCohortWeightedShareMetric(cohort *kueuealpha.Cohort, value int64) {
+	metric := metrics.CohortWeightedShare.WithLabelValues(cohort.Name)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())

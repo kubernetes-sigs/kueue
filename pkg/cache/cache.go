@@ -46,6 +46,8 @@ import (
 )
 
 var (
+	ErrCohortNotFound      = errors.New("cohort not found")
+	ErrCohortHasCycle      = errors.New("cohort has a cycle")
 	ErrCqNotFound          = errors.New("cluster queue not found")
 	errQNotFound           = errors.New("queue not found")
 	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
@@ -686,6 +688,56 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	return stats, nil
+}
+
+type CohortUsageStats struct {
+	WeightedShare int64
+}
+
+func (c *Cache) CohortStats(cohortObj *kueuealpha.Cohort) (*CohortUsageStats, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	cohort := c.hm.Cohort(kueue.CohortReference(cohortObj.Name))
+	if cohort == nil {
+		return nil, ErrCohortNotFound
+	}
+
+	stats := &CohortUsageStats{}
+	if c.fairSharingEnabled {
+		weightedShare, _ := dominantResourceShare(cohort, nil)
+		stats.WeightedShare = int64(weightedShare)
+	}
+
+	return stats, nil
+}
+
+// ClusterQueueAncestors returns all ancestors (Cohorts), excluding the root,
+// for a given ClusterQueue. If the ClusterQueue contains a Cohort cycle, it
+// returns ErrCohortHasCycle.
+func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.CohortReference, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	if cqObj.Spec.Cohort == "" {
+		return nil, nil
+	}
+
+	cohort := c.hm.Cohort(cqObj.Spec.Cohort)
+	if cohort == nil {
+		return nil, nil
+	}
+	if hierarchy.HasCycle(cohort) {
+		return nil, ErrCohortHasCycle
+	}
+
+	var ancestors []kueue.CohortReference
+	for cohort != nil && cohort.HasParent() {
+		ancestors = append(ancestors, cohort.Name)
+		cohort = cohort.Parent()
+	}
+
+	return ancestors, nil
 }
 
 func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
