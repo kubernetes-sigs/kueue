@@ -85,18 +85,19 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				if !meta.IsNoMatchError(err) {
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 				}
-				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
-				go waitForAPI(ctx, mgr, log, gvk, func() {
-					log.Info("API now available, starting controller and webhook", "gvk", gvk)
-					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
-						log.Error(err, "Failed to setup controller and webhook for job framework")
-					}
-				})
-				// Webhook must be registered now.
-				// The controller-runtime silently ignores attempts to add a webhook to an already registered endpoint.
+				// Webhook must be registered now; controller can be registered later.
+				// The issue is that the controller-runtime silently ignores attempts to update the webhook
+				// for an endpoint that already has one and we don't want the NoopWebhook to be installed.
 				if err := cb.SetupWebhook(mgr, opts...); err != nil {
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
+				logger.Info("No matching API in the server for job framework, deferring setting up controller")
+				go waitForAPI(ctx, mgr, log, gvk, func() {
+					log.Info("API now available, starting controller", "gvk", gvk)
+					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+						log.Error(err, "Failed to setup controller for job framework")
+					}
+				})
 			} else {
 				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 					return err
