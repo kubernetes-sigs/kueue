@@ -1050,6 +1050,11 @@ func (in *PodSetTopologyRequest) DeepCopyInto(out *PodSetTopologyRequest) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.Unconstrained != nil {
+		in, out := &in.Unconstrained, &out.Unconstrained
+		*out = new(bool)
+		**out = **in
+	}
 	if in.PodIndexLabel != nil {
 		in, out := &in.PodIndexLabel, &out.PodIndexLabel
 		*out = new(string)

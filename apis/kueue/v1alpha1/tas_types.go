@@ -38,6 +38,14 @@ const (
 	// among multiple topology domains.
 	PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
 
+	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet requires
+	// Topology Aware Scheduling, but it promotes filling up nodes in use over
+	// compact placement. The pods have lower chance of being scheduled on the same
+	// node, but it mitigates resource fragmentation, and can lead to better
+	// node utilization. Recommended for PodSets that don't require heave inter pod
+	// communication
+	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
+
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected
 	// into the Pod. For the Pod-based integrations the gate is added in webhook
