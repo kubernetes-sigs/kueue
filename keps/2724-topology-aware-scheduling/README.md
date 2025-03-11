@@ -431,8 +431,8 @@ const (
   // among multiple topology domains.
   PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
 
-  // PodSetUnconstrainedTopologyAnnotation indicates that a PodSet requires does not have any topology requirements.
-  // Kueue admits the PodSet if there's enough free capacity anywhere in the cluster.
+  // PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+  // Kueue admits the PodSet if there's enough free capacity available.
   // Recommended for PodSets that don't require pod-to-pod communication
   PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 )
@@ -455,7 +455,7 @@ the rules is deactivated):
   Job spec.
 - the annotations `kueue.x-k8s.io/podset-required-topology`,
   `kueue.x-k8s.io/podset-preferred-topology`, and `kueue.x-k8s.io/podset-unconstrained-topology`
-  are mutually exclusive and shouldn't be combined.
+  are mutually exclusive.
 
 
 ### Internal APIs
@@ -487,8 +487,8 @@ type PodSetTopologyRequest struct {
   // +optional
   Preferred *string `json:"preferred,omitempty"`
 
-  // Unconstrained indicates that Kueue attempts to fit the PodSet within the entire available capacity,
-  // disregarding whether the nodes belong to the same domain.
+  // unconstrained indicates that Kueue has freedom to schedule the PodSet within
+  // the entire available capacity, regardless of domain placement.
   // This is indicated by the `kueue.x-k8s.io/podset-unconstrained-topology` PodSet annotation.
   //
   // +optional
@@ -692,12 +692,12 @@ Kueue places pods on domains with different algorithms, depending on the annotat
 
 Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
 
-| featuregate/annotation                  | preferred         | required          | unconstrained     |
-| --------------------------------------- | ----------------- | ----------------- | ----------------- |
-| None                                    | BestFit           | BestFit           | BestFit           |
-| TASProfileMostFreeCapacity (deprecated) | MostFreeCapacity  | MostFreeCapacity  | MostFreeCapacity  |
-| TASProfileMixed (deprecated)            | BestFit           | BestFit           | LeastFreeCapacity |
-| TASProfileLeastFreeCapacity (deprecated)| LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+| featuregate/annotation                   | preferred         | required          | unconstrained     |
+| ---------------------------------------- | ----------------- | ----------------- | ----------------- |
+| None                                     | BestFit           | BestFit           | BestFit           |
+| TASProfileMostFreeCapacity (deprecated)  | MostFreeCapacity  | MostFreeCapacity  | MostFreeCapacity  |
+| TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
 Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
 Those feature gates are experimental, and for collecting users feedback. Based on the feedback we will introduce TAS configuration
