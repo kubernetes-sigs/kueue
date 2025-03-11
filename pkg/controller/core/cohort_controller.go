@@ -28,32 +28,71 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
+
+type CohortReconcilerOptions struct {
+	FairSharingEnabled bool
+}
+
+type CohortReconcilerOption func(*CohortReconcilerOptions)
+
+func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.FairSharingEnabled = enabled
+	}
+}
 
 // CohortReconciler is responsible for synchronizing the in-memory
 // representation of Cohorts in cache.Cache and queue.Manager with
 // Cohort Kubernetes objects.
 type CohortReconciler struct {
-	client   client.Client
-	log      logr.Logger
-	cache    *cache.Cache
-	qManager *queue.Manager
+	client             client.Client
+	log                logr.Logger
+	cache              *cache.Cache
+	qManager           *queue.Manager
+	fairSharingEnabled bool
+	cqUpdateCh         chan event.GenericEvent
 }
 
-func NewCohortReconciler(client client.Client, cache *cache.Cache, qManager *queue.Manager) CohortReconciler {
-	return CohortReconciler{client, ctrl.Log.WithName("cohort-reconciler"), cache, qManager}
+func NewCohortReconciler(
+	client client.Client,
+	cache *cache.Cache,
+	qManager *queue.Manager,
+	opts ...CohortReconcilerOption,
+) *CohortReconciler {
+	options := CohortReconcilerOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	return &CohortReconciler{
+		client:             client,
+		log:                ctrl.Log.WithName("cohort-reconciler"),
+		cache:              cache,
+		qManager:           qManager,
+		fairSharingEnabled: options.FairSharingEnabled,
+		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
+	}
 }
 
 func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
+	cqHandler := &cohortCqHandler{
+		client: r.client,
+		cache:  r.cache,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Cohort{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
@@ -110,5 +149,77 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
 	}
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
-	return ctrl.Result{}, nil
+
+	err := r.updateCohortStatusIfChanged(ctx, &cohort)
+	return ctrl.Result{}, err
+}
+
+func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	oldStatus := cohort.Status.DeepCopy()
+
+	stats, err := r.cache.CohortStats(cohort)
+	if err != nil {
+		log.Error(err, "Failed getting cohort usage from cache")
+		// This is likely because the cohort was recently removed,
+		// but we didn't process that event yet.
+		return err
+	}
+
+	if r.fairSharingEnabled {
+		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare)
+		if cohort.Status.FairSharing == nil {
+			cohort.Status.FairSharing = &v1beta1.FairSharingStatus{}
+		}
+		cohort.Status.FairSharing.WeightedShare = stats.WeightedShare
+	} else {
+		cohort.Status.FairSharing = nil
+	}
+
+	if !equality.Semantic.DeepEqual(cohort.Status, oldStatus) {
+		return r.client.Status().Update(ctx, cohort)
+	}
+
+	return nil
+}
+
+func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *v1beta1.ClusterQueue) {
+	// if clusterQueue is nil, it's a delete event.
+	if newCQ == nil {
+		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
+		return
+	}
+
+	r.cqUpdateCh <- event.GenericEvent{Object: newCQ}
+}
+
+type cohortCqHandler struct {
+	client client.Client
+	cache  *cache.Cache
+}
+
+func (h *cohortCqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cohortCqHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cohortCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cq, isCQ := e.Object.(*v1beta1.ClusterQueue)
+	if !isCQ {
+		return
+	}
+
+	ancestors, err := h.cache.ClusterQueueAncestors(cq)
+	if err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.Cohort)
+	}
+	for _, ancestor := range ancestors {
+		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(ancestor)}})
+	}
 }

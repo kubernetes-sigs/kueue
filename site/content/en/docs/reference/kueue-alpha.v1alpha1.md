@@ -63,6 +63,12 @@ results in undefined behavior in 0.9</p>
 <td>
    <span class="text-muted">No description provided.</span></td>
 </tr>
+<tr><td><code>status</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CohortStatus"><code>CohortStatus</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
 </tbody>
 </table>
 
@@ -125,6 +131,30 @@ will be rejected by the webhook.</p>
    <p>fairSharing defines the properties of the Cohort when
 participating in FairSharing. The values are only relevant
 if FairSharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `CohortStatus`     {#kueue-x-k8s-io-v1alpha1-CohortStatus}
+    
+
+**Appears in:**
+
+- [Cohort](#kueue-x-k8s-io-v1alpha1-Cohort)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
+</td>
+<td>
+   <p>FairSharing contains the information about the current status of fair sharing.</p>
 </td>
 </tr>
 </tbody>

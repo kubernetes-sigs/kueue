@@ -369,6 +369,19 @@ If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 the maximum possible share value.`,
 		}, []string{"cluster_queue"},
 	)
+
+	CohortWeightedShare = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_weighted_share",
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal 
+quota to the lendable resources in the Cohort, among all the resources provided by 
+the Cohort, and divided by the weight.
+If zero, it means that the usage of the Cohort is below the nominal quota.
+If the Cohort has a weight of zero, this will return 9223372036854775807,
+the maximum possible share value.`,
+		}, []string{"cohort"},
+	)
 )
 
 func generateExponentialBuckets(count int) []float64 {
@@ -538,6 +551,10 @@ func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
 	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
 }
 
+func ReportCohortWeightedShare(cohort string, weightedShare int64) {
+	CohortWeightedShare.WithLabelValues(cohort).Set(float64(weightedShare))
+}
+
 func ClearClusterQueueResourceMetrics(cqName string) {
 	lbls := prometheus.Labels{
 		"cluster_queue": cqName,
@@ -625,6 +642,7 @@ func Register() {
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
+		CohortWeightedShare,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
