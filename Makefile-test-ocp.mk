@@ -1,7 +1,6 @@
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 ARTIFACTS ?= $(PROJECT_DIR)/bin
-ENVTEST_OCP_VERSION ?= 1.32
 
 ifeq ($(shell uname),Darwin)
     GOFLAGS ?= -ldflags=-linkmode=internal
@@ -21,8 +20,8 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # test flags
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.32
+# ENVTEST_OCP_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_OCP_K8S_VERSION ?= 1.32
 
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
@@ -74,10 +73,10 @@ test-ocp: ## Run tests.
 .PHONY: test-integration-ocp
 .PHONY: test-integration-ocp
 test-integration-ocp: envtest-ocp ginkgo-ocp kueuectl-ocp ginkgo-top-ocp ## Run integration tests for all singlecluster suites.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_OCP_VERSION) --bin-dir $(PROJECT_DIR)/bin -p path)" \
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_OCP_K8S_VERSION) --bin-dir $(PROJECT_DIR)/bin -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
-	ENVTEST_K8S_VERSION=$(ENVTEST_OCP_VERSION) \
+	ENVTEST_K8S_VERSION=$(ENVTEST_OCP_K8S_VERSION) \
 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
