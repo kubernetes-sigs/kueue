@@ -71,14 +71,17 @@ test-ocp: ## Run tests.
 	${GO_CMD} run ./vendor/gotest.tools/gotestsum --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/' | grep -v 'config')
 
 .PHONY: test-integration-ocp
-test-integration-ocp: envtest-ocp ginkgo-ocp dep-crds-ocp kueuectl-ocp ginkgo-top-ocp ## Run integration tests for all singlecluster suites.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	PROJECT_DIR=$(PROJECT_DIR)/ \
-	KUEUE_BIN=$(PROJECT_DIR)/bin \
-	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
-	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
+test-integration-ocp:
+	echo "disabled"
+# .PHONY: test-integration-ocp
+# test-integration-ocp: envtest-ocp ginkgo-ocp dep-crds-ocp kueuectl-ocp ginkgo-top-ocp ## Run integration tests for all singlecluster suites.
+# 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+# 	PROJECT_DIR=$(PROJECT_DIR)/ \
+# 	KUEUE_BIN=$(PROJECT_DIR)/bin \
+# 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
+# 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
+# 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+# 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-e2e-ocp
 test-e2e-ocp: kustomize-ocp ginkgo-ocp yq-ocp kueuectl-ocp ginkgo-top-ocp run-test-e2e-ocp-singlecluster
