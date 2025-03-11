@@ -28,6 +28,6 @@ testbin/*
 .netlify
 
 # Directory with CRDs for dependencies
-dep-crds
+# dep-crds
 
 kueue.yaml

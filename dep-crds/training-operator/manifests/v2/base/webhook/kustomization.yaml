@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - manifests.yaml
+patches:
+  - path: patch.yaml
+    target:
+      group: admissionregistration.k8s.io
+      version: v1
+      kind: ValidatingWebhookConfiguration
+configurations:
+  - kustomizeconfig.yaml
+# TODO (andreyvelich): Move it to overlays once we copy the JobSet manifests.
+namespace: kubeflow-system

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mpi-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mpi-operator
+  template:
+    metadata:
+      labels:
+        app: mpi-operator
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - args:
+        - -alsologtostderr
+        image: mpioperator/mpi-operator:latest
+        name: mpi-operator
+      serviceAccountName: mpi-operator
