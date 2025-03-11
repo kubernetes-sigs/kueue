@@ -179,6 +179,8 @@ leaderworkerset-operator-crd-ocp: ## Copy the CRDs from the leaderworkerset-oper
 	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
+# Run this to generate new CRDs when the dependencies change.
+# Commit dep-crds
 .PHONY: dep-crds-ocp
 dep-crds-ocp: mpi-operator-crd-ocp kf-training-operator-crd-ocp ray-operator-crd-ocp jobset-operator-crd-ocp leaderworkerset-operator-crd-ocp cluster-autoscaler-crd-ocp appwrapper-crd-ocp appwrapper-manifests-ocp kf-training-operator-manifests-ocp ray-operator-manifests-ocp## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
