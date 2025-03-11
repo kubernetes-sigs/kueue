@@ -651,6 +651,9 @@ if it had the `podset-preferred-topology` annotation pointing to the lowest
 topology level defined in the Topology referenced by the selected TAS flavor.
 We call it "implicit default" as the annotation isn't persisted.
 
+To change the implicit default from `podset-preferred-topology` to `podset-unconstrained-topology`
+a user can switch on the `TASImplicitDefaultUnconstrained` feature gate.
+
 ### Computing the assignment
 
 The extended PodSet assignment is set on admitting the workload. In order to
