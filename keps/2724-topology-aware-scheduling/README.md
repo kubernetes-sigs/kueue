@@ -27,6 +27,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
   - [Internal APIs](#internal-apis)
+  - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Test Plan](#test-plan)
@@ -620,6 +621,20 @@ The above API does not support [Story 2](#story-2). We will defer the support
 for [Beta](#beta). The initial approach for the design is left in the
 [Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
 section.
+
+### Implicit defaulting of TAS annotations
+
+Requiring to set the TAS annotations (see [User facing API](#user-facing-api))
+on every PodSet creates a friction for adoption of TAS, and a point of failure.
+
+In order to reduce friction we assume that TAS is used for scheduling workloads
+targetting CQs with only TAS Resource Flavors (RFs with the `spec.topologyName`
+field specified).
+
+A PodSet scheduled with TAS without the explicit annotation is handled as
+if it had the `podset-preferred-topology` annotation pointing to the lowest
+topology level defined in the Topology referenced by the selected TAS flavor.
+We call it "implicit default" as the annotation isn't persisted.
 
 ### Computing the assignment
 
