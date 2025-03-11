@@ -161,6 +161,9 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
 			if len(p.Status.PodIP) != 0 && p.Status.Phase == corev1.PodRunning {
+				cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/readyz\"", p.Status.PodIP)}
+				_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
 				activePods = append(activePods, p)
 			}
 		}
