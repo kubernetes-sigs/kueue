@@ -508,7 +508,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			removeUsage(c, fr, q)
 		}
 	}
-	if features.Enabled(features.TopologyAwareScheduling) && wi.IsRequestingTAS() {
+	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
 		for tasFlavor, tasUsage := range wi.TASUsage() {
 			if tasFlvCache := c.tasFlavorCache(tasFlavor); tasFlvCache != nil {
 				if m == 1 {
@@ -626,4 +626,15 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 
 func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
+}
+
+func (c *clusterQueue) isTASOnly() bool {
+	for _, rg := range c.ResourceGroups {
+		for _, fName := range rg.Flavors {
+			if _, found := c.tasFlavors[fName]; !found {
+				return false
+			}
+		}
+	}
+	return true
 }
