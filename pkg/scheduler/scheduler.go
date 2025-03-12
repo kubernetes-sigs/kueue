@@ -206,7 +206,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
-	preemptedWorkloads := make(preemptedWorkloads)
+	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 	for iterator.hasNext() {
 		e := iterator.pop()
@@ -235,7 +235,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 
 		// We skip multiple-preemptions per cohort if any of the targets are overlapping
-		if preemptedWorkloads.hasAny(e.preemptionTargets) {
+		if preemptedWorkloads.HasAny(e.preemptionTargets) {
 			setSkipped(e, "Workload has overlapping preemption targets with another workload")
 			skippedPreemptions[cq.Name]++
 			continue
@@ -249,7 +249,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			continue
 		}
-		preemptedWorkloads.insert(e.preemptionTargets)
+		preemptedWorkloads.Insert(e.preemptionTargets)
 		cq.AddUsage(usage)
 
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
@@ -369,7 +369,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries
 }
 
-func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemptedWorkloads, newTargets []*preemption.Target) bool {
+func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
