@@ -41,7 +41,7 @@ import (
 )
 
 var (
-	gvk = awv1beta2.GroupVersion.WithKind("AppWrapper")
+	gvk = awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)
 
 	FrameworkName = "workload.codeflare.dev/appwrapper"
 
@@ -86,7 +86,7 @@ func NewJob() jobframework.GenericJob {
 }
 
 func isAppWrapper(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "AppWrapper" && strings.HasPrefix(owner.APIVersion, gvk.Group)
+	return owner.Kind == awv1beta2.AppWrapperKind && strings.HasPrefix(owner.APIVersion, gvk.Group)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

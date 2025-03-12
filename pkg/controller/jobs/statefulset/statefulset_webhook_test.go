@@ -440,7 +440,7 @@ func TestValidateUpdate(t *testing.T) {
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				WithOwnerReference(metav1.OwnerReference{
 					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       "AppWrapper",
+					Kind:       awv1beta2.AppWrapperKind,
 					Controller: ptr.To(true),
 				}).
 				Queue("test-queue").
@@ -457,7 +457,7 @@ func TestValidateUpdate(t *testing.T) {
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				WithOwnerReference(metav1.OwnerReference{
 					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       "AppWrapper",
+					Kind:       awv1beta2.AppWrapperKind,
 					Controller: ptr.To(true),
 				}).
 				Queue("test-queue").
