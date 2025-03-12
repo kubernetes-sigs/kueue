@@ -433,7 +433,10 @@ const (
 
   // PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
   // Kueue admits the PodSet if there's enough free capacity available.
-  // Recommended for PodSets that don't require pod-to-pod communication
+  // Recommended for PodSets that don't require pod-to-pod communication, but want
+  // to leverage TAS capabilities improve accuracy of admitting jobs
+  //
+  // +kubebuilder:validation:Type=boolean
   PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 )
 ```
@@ -688,7 +691,8 @@ For a given PodSet Kueue:
 Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
 - `MostFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity;
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
-- `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity, but tries to optimize the last domain to leave as few free resources as possible.
+- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity, 
+but tries to optimize the last selected domain at any given level, in order to leave as few free resources as possible.
 
 Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
 
@@ -700,8 +704,10 @@ Selection of the algorithm depends on TAS profiles expressed by feature gates, a
 | TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
 Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
-Those feature gates are experimental, and for collecting users feedback. Based on the feedback we will introduce TAS configuration
-that covers those use cases.
+
+We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
+Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
+Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
 
 ### Enforcing the assignment
 
