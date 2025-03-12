@@ -29,6 +29,7 @@
   - [Internal APIs](#internal-apis)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
+    - [Example](#example)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -691,8 +692,19 @@ For a given PodSet Kueue:
 Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
 - `MostFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity;
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
-- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity, 
-but tries to optimize the last selected domain at any given level, in order to leave as few free resources as possible.
+- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
+However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
+
+#### Example
+Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
+
+Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes and select the first two nodes,
+each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule, the difference between the algorithms becomes apparent:
+- The `BestFit` algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
+- The `MostFreeCapacity` algorithm simply selects the node with the most remaining free capacity, which is 2 in this case.
+
+The `LeastFreeCapacity` algorithm iterates over the nodes in reverse order.
+Consequently, it selects the nodes with 1, 2, 3, and 3 available pods, reserving capacity for only 1 pod on the last node.
 
 Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
 
