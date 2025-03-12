@@ -1,0 +1,4 @@
+resources:
+  - manager.yaml
+# TODO (andreyvelich): Move it to overlays once we copy the JobSet manifests.
+namespace: kubeflow-system

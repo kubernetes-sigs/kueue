@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - ../../base/crds
+  - ../../base/manager
+  - ../../base/rbac
+  - ../../base/webhook
+  # TODO (andreyvelich): JobSet should support kubeflow-system namespace.
+  - https://github.com/kubernetes-sigs/jobset/releases/download/v0.6.0/manifests.yaml
+images:
+  - name: kubeflow/training-operator-v2
+    newTag: latest
+secretGenerator:
+  - name: training-operator-v2-webhook-cert
+    namespace: kubeflow-system
+    options:
+      disableNameSuffixHash: true

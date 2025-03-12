@@ -1,0 +1,41 @@
+# Adds namespace to all resources.
+namespace: appwrapper-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: appwrapper-
+
+labels:
+- pairs:
+    app.kubernetes.io/name: appwrapper
+    app.kubernetes.io/component: controller
+  includeTemplates: true
+- pairs:
+    control-plane: controller-manager
+  includeSelectors: true
+
+resources:
+- config.yaml
+- ../crd
+- ../rbac
+- ../manager
+- ../internalcert
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
+# crd/kustomization.yaml
+- ../webhook
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+#- ../prometheus
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
+
+patches:
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
+# crd/kustomization.yaml
+- path: manager_webhook_patch.yaml
+
+# Add aggregate labels to rbacs
+- path: editor_role_patch.yaml
+- path: viewer_role_patch.yaml

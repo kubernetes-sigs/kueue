@@ -1,0 +1,33 @@
+apiVersion: kubeflow.org/v2alpha1
+kind: ClusterTrainingRuntime
+metadata:
+  name: torch-distributed
+  labels:
+    training.kubeflow.org/phase: pre-training
+spec:
+  mlPolicy:
+    numNodes: 1
+    torch:
+      numProcPerNode: auto
+  template:
+    spec:
+      replicatedJobs:
+        - name: trainer-node
+          template:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: trainer
+                      image: pytorch/pytorch:2.5.0-cuda12.4-cudnn9-runtime
+                      command:
+                        - /bin/bash
+                        - -c
+                        - |
+                          echo "Torch Distributed Runtime"
+
+                          echo "--------------------------------------"
+                          echo "Torch Default Runtime Env"
+                          env | grep PET_
+
+                          pip list
