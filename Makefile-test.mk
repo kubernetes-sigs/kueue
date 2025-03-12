@@ -235,3 +235,12 @@ ginkgo-top:
 	cd $(PROJECT_DIR)/hack/internal/tools && \
 	go mod download && \
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/ginkgo-top ./ginkgo-top
+
+.PHONY: setup-e2e-env
+setup-e2e-env: kustomize yq gomod-download dep-crds kueuectl ## Setup environment for e2e tests without running tests.
+	@echo "Setting up environment for e2e tests"
+
+.PHONY: test-e2e-viz
+test-e2e-viz: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-viz.sh

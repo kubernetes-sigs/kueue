@@ -137,35 +137,35 @@ function cluster_kind_load_image {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k test/e2e/config/default
+    kubectl apply --server-side --force-conflicts -k test/e2e/config/default
 }
 
 #$1 - cluster name
 function install_appwrapper {
     cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${APPWRAPPER_MANIFEST}"
+    kubectl apply  -k "${APPWRAPPER_MANIFEST}"
 }
 
 #$1 - cluster name
 function install_jobset {
     cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${JOBSET_MANIFEST}"
+    kubectl apply --force-conflicts --server-side -f "${JOBSET_MANIFEST}"
 }
 
 #$1 - cluster name
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST}"
+    kubectl apply --force-conflicts --server-side -k "${KUBEFLOW_MANIFEST}"
 }
 
 #$1 - cluster name
 function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    kubectl apply --force-conflicts --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
 #$1 - cluster name
