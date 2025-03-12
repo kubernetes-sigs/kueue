@@ -479,14 +479,16 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	if topologyRequest == nil {
 		return nil
 	}
-	if topologyRequest.Required != nil {
+	switch {
+	case topologyRequest.Required != nil:
 		return topologyRequest.Required
-	} else if topologyRequest.Preferred != nil {
+	case topologyRequest.Preferred != nil:
 		return topologyRequest.Preferred
-	} else if isUnconstrained(topologyRequest) {
+	case isUnconstrained(topologyRequest):
 		return ptr.To(s.lowestLevel())
+	default:
+		return nil
 	}
-	return nil
 }
 
 func isUnconstrained(tr *kueue.PodSetTopologyRequest) bool {
