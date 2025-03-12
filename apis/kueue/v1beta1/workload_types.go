@@ -104,6 +104,14 @@ type PodSetTopologyRequest struct {
 	// +optional
 	Preferred *string `json:"preferred,omitempty"`
 
+	// unconstrained indicates the topology assignment for the PodSet should be,
+	// computed using the Unconstrained algorithm. Indicated by the
+	// `kueue.x-k8s.io/podset-unconstrained-topology` PodSet's annotation.
+	//
+	// +optional
+	// +kubebuilder:validation:Type=boolean
+	Unconstrained *bool `json:"unconstrained,omitempty"`
+
 	// PodIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
 	// - kubernetes job this is: kubernetes.io/job-completion-index

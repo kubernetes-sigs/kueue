@@ -1832,6 +1832,15 @@ indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
 annotation.</p>
 </td>
 </tr>
+<tr><td><code>unconstrained</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>unconstrained indicates the topology assignment for the PodSet should be,
+computed using the Unconstrained algorithm. Indicated by the
+<code>kueue.x-k8s.io/podset-unconstrained-topology</code> PodSet's annotation.</p>
+</td>
+</tr>
 <tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
