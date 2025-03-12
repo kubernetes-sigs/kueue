@@ -194,6 +194,10 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
+func (q *queue) GetLabels() map[string]string {
+	return q.labels
+}
+
 func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	for _, cq := range c.hm.ClusterQueues() {
 		if len(cq.WorkloadsNotReady) > 0 {
@@ -395,6 +399,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
+			labels:             q.Labels,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 		}
@@ -445,6 +450,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
+		// eagerly delete metrics
 		for _, q := range c.hm.ClusterQueue(cqName).localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
 			metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
@@ -479,6 +485,11 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
 	}
+}
+
+func (c *Cache) LocalQueueFromCache(cqRef kueue.ClusterQueueReference, lqKey string) *queue {
+	cq := c.hm.ClusterQueues()[cqRef]
+	return cq.localQueues[lqKey]
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {

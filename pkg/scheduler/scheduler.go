@@ -513,25 +513,25 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	}
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
-
+	shouldReportLqMetrics := s.shouldWLReportLQMetrics(ctx, newWorkload)
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-			if features.Enabled(features.LocalQueueMetrics) {
+			if shouldReportLqMetrics {
 				metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 			}
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-				if features.Enabled(features.LocalQueueMetrics) {
+				if shouldReportLqMetrics {
 					metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 				if len(newWorkload.Status.AdmissionChecks) > 0 {
 					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
-					if features.Enabled(features.LocalQueueMetrics) {
+					if shouldReportLqMetrics {
 						metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
 					}
 				}
@@ -556,6 +556,20 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 
 func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
 	return workload.ApplyAdmissionStatus(ctx, s.client, w, false, s.clock)
+}
+
+func (s *Scheduler) shouldWLReportLQMetrics(ctx context.Context, wl *kueue.Workload) bool {
+	log := ctrl.LoggerFrom(ctx)
+	if !metrics.LocalQueueMetricsEnabled() {
+		return false
+	}
+	lq := kueue.LocalQueue{}
+	err := s.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
+	if err != nil {
+		log.Error(err, "Could not get LocalQueue for WL")
+		return false
+	}
+	return metrics.ShouldReportLocalMetrics(lq.Labels)
 }
 
 type entryOrdering struct {

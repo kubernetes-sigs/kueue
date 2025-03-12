@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -419,6 +420,45 @@ the maximum possible share value.`,
 	)
 )
 
+type LocalQueueMetricsConfig struct {
+	Enabled            bool
+	LocalQueueSelector labels.Selector
+}
+
+var lqMetricsConfigSingleton *LocalQueueMetricsConfig
+
+func SetLocalQueueMetrics(lqMetricsConfig *LocalQueueMetricsConfig) {
+	lqMetricsConfigSingleton = lqMetricsConfig
+}
+
+func GetLocalQueueMetrics() *LocalQueueMetricsConfig {
+	if lqMetricsConfigSingleton == nil {
+		SetLocalQueueMetrics(&LocalQueueMetricsConfig{})
+	}
+	return lqMetricsConfigSingleton
+}
+
+func LocalQueueMetricsEnabled() bool {
+	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton.Enabled
+}
+
+func ShouldReportLocalMetrics(lqLabels map[string]string) bool {
+	if !features.Enabled(features.LocalQueueMetrics) {
+		return false
+	}
+
+	lqMetricsConfig := GetLocalQueueMetrics()
+	if !lqMetricsConfig.Enabled {
+		return false
+	}
+	localQueueMatches := true
+	if lqMetricsConfig.LocalQueueSelector != nil {
+		lqLblSet := labels.Set(lqLabels)
+		localQueueMatches = lqMetricsConfig.LocalQueueSelector.Matches(lqLblSet)
+	}
+	return localQueueMatches
+}
+
 func generateExponentialBuckets(count int) []float64 {
 	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
 }
@@ -693,7 +733,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 	)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if features.Enabled(features.LocalQueueMetrics) && GetLocalQueueMetrics().Enabled {
 		RegisterLQMetrics()
 	}
 }

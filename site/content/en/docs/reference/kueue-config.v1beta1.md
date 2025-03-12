@@ -449,6 +449,13 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 metrics will be reported.</p>
 </td>
 </tr>
+<tr><td><code>localQueueMetrics</code><br/>
+<a href="#LocalQueueMetrics"><code>LocalQueueMetrics</code></a>
+</td>
+<td>
+   <p>Configuration for exposing LocalQueue Metrics</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -661,6 +668,39 @@ Defaults to kueue-webhook-service.</p>
 <td>
    <p>WebhookSecretName is the name of the Secret used to store CA and server certs.
 Defaults to kueue-webhook-server-cert.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `LocalQueueMetrics`     {#LocalQueueMetrics}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#ControllerMetrics)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enabled</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Allows admin to disable LocalQueueMetrics without altering defined selectors
+defaults to true</p>
+</td>
+</tr>
+<tr><td><code>localQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>Optional field which ensures LocalQueue metrics are only gathered for local queues
+which match the defined selector. Leaving this empty matches all LocalQueues.</p>
 </td>
 </tr>
 </tbody>
