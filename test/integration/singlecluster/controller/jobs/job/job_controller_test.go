@@ -2708,7 +2708,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 		})
 	})
 
-	ginkgo.It("should default the .unconstrained field if the TASImplicitDefaultUnconstrained gate is set", func() {
+	ginkgo.It("should implicitly default the .unconstrained field if the TASImplicitDefaultUnconstrained gate is set", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASImplicitDefaultUnconstrained, true)
 
 		job := testingjob.MakeJob("job", ns.Name).
@@ -2722,17 +2722,37 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 		wl := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
 
-		ginkgo.By("verify the workload is created with appropriate TopologyRequest", func() {
+		ginkgo.By("verify the workload is created without .unconstrained", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
 					Name:  kueue.DefaultPodSetName,
 					Count: 1,
-					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Unconstrained: ptr.To(true),
-						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
-					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload is admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		ginkgo.By("verify admission for the workload", func() {
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					&kueue.TopologyAssignment{
+						Levels:  []string{tasBlockLabel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
+					},
+				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -20,11 +20,9 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
@@ -32,22 +30,20 @@ func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGr
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
 
-	if requiredFound || preferredFound || unconstrainedFound || features.Enabled(features.TASImplicitDefaultUnconstrained) {
+	if requiredFound || preferredFound || unconstrainedFound {
 		psTopologyReq := &kueue.PodSetTopologyRequest{
 			PodIndexLabel:      podIndexLabel,
 			SubGroupIndexLabel: subGroupIndexLabel,
 			SubGroupCount:      subGroupCount,
 		}
-		if requiredFound {
+		switch {
+		case requiredFound:
 			psTopologyReq.Required = &requiredValue
-		} else if preferredFound {
+		case preferredFound:
 			psTopologyReq.Preferred = &preferredValue
-		}
-		if unconstrainedFound {
+		case unconstrainedFound:
 			unconstrained, _ := strconv.ParseBool(unconstrained)
 			psTopologyReq.Unconstrained = &unconstrained
-		} else if features.Enabled(features.TASImplicitDefaultUnconstrained) {
-			psTopologyReq.Unconstrained = ptr.To(true)
 		}
 		return psTopologyReq
 	}

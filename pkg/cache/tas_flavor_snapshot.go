@@ -492,7 +492,7 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 }
 
 func isUnconstrained(tr *kueue.PodSetTopologyRequest) bool {
-	return tr != nil && tr.Unconstrained != nil && *tr.Unconstrained
+	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || features.Enabled(features.TASImplicitDefaultUnconstrained)
 }
 
 // findBestFitDomainIdx finds an index of the first domain with the lowest
