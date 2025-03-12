@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
@@ -111,7 +111,9 @@ const ResourceFlavorDetail = () => {
                 {queues?.map((queue) => (
                   <React.Fragment key={queue.queueName}>
                     <TableRow>
-                      <TableCell rowSpan={queue.quota.length}>{queue.queueName}</TableCell>
+                      <TableCell rowSpan={queue.quota.length}>
+                        <Link to={`/cluster-queue/${queue.queueName}`}>{queue.queueName}</Link>
+                      </TableCell>
                       <TableCell>{queue.quota[0].resource}</TableCell>
                       <TableCell>{queue.quota[0].nominalQuota}</TableCell>
                     </TableRow>
