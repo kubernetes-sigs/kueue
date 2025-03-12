@@ -375,10 +375,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 	return strategies
 }
 
-func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info) []*Target {
-	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
-	}
+func (p *Preemptor) runFirstStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info) (bool, []*Target, []*workload.Info) {
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
 	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
@@ -435,30 +432,46 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*
 			}
 		}
 	}
-	if !fits && len(p.fsStrategies) > 1 {
-		// Try next strategy if the previous strategy wasn't enough
-		cqHeap = cqHeapFromCandidates(retryCandidates, true, preemptionCtx.snapshot)
+	return fits, targets, retryCandidates
+}
 
-		for cqHeap.Len() > 0 && !fits {
-			candCQ := cqHeap.Pop()
-			// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
-			// in which case the last parameter for the strategy function is irrelevant.
-			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
-				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
-				candWl := candCQ.workloads[0]
-				preemptionCtx.snapshot.RemoveWorkload(candWl)
-				targets = append(targets, &Target{
-					WorkloadInfo: candWl,
-					Reason:       kueue.InCohortFairSharingReason,
-				})
-				if workloadFits(preemptionCtx, true) {
-					fits = true
-				}
-				// No requeueing because there doesn't seem to be an scenario where
-				// it's possible to apply rule S2-b more than once in a CQ.
+func (p *Preemptor) runSecondStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
+	// Try next strategy if the previous strategy wasn't enough
+	cqHeap := cqHeapFromCandidates(retryCandidates, true, preemptionCtx.snapshot)
+	fits := false
+	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.requests)
+	for cqHeap.Len() > 0 && !fits {
+		candCQ := cqHeap.Pop()
+		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
+		// in which case the last parameter for the strategy function is irrelevant.
+		if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
+			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+			candWl := candCQ.workloads[0]
+			preemptionCtx.snapshot.RemoveWorkload(candWl)
+			targets = append(targets, &Target{
+				WorkloadInfo: candWl,
+				Reason:       kueue.InCohortFairSharingReason,
+			})
+			if workloadFits(preemptionCtx, true) {
+				fits = true
 			}
+			// No requeueing because there doesn't seem to be an scenario where
+			// it's possible to apply rule S2-b more than once in a CQ.
 		}
 	}
+	return fits, targets
+}
+
+func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info) []*Target {
+	if logV := preemptionCtx.log.V(5); logV.Enabled() {
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
+	}
+
+	fits, targets, retryCandidates := p.runFirstStrategy(preemptionCtx, candidates)
+	if !fits && len(p.fsStrategies) > 1 {
+		fits, targets = p.runSecondStrategy(retryCandidates, preemptionCtx, targets)
+	}
+
 	if !fits {
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
