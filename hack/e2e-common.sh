@@ -22,7 +22,7 @@ export YQ="$ROOT_DIR"/bin/yq
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
 if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
-    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/standalone
+    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
     APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
