@@ -772,6 +772,20 @@ func TestValidateFeatureGates(t *testing.T) {
 
 			errorStr: "feature gates for CLI and configuration cannot both specified",
 		},
+		"cannot specify more than one TAS profile using GateMap": {
+			featureGateMap: map[string]bool{"TASProfileMostFreeCapacity": true,
+				"TASProfileLeastFreeCapacity": true},
+			errorStr: "Cannot use more than one TAS profiles",
+		},
+		"cannot specify more than one TAS profile using GatesCLI": {
+			featureGatesCLI: "TASProfileMostFreeCapacity:true,TASProfileMixed:true",
+			errorStr:        "Cannot use more than one TAS profiles",
+		},
+		"cannot set TAS profile with TAS disabled": {
+			featureGateMap: map[string]bool{"TASProfileMostFreeCapacity": true,
+				"TopologyAwareScheduling": true},
+			errorStr: "Cannot use a TAS profile with TAS disabled",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

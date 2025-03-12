@@ -30,12 +30,20 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	var allErrs field.ErrorList
 	requiredValue, requiredFound := replicaMetadata.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	_, unconstrainedFound := replicaMetadata.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+	annotationFoundCount := 0
+	for _, found := range []bool{requiredFound, preferredFound, unconstrainedFound} {
+		if found {
+			annotationFoundCount++
+		}
+	}
 	annotationsPath := replicaPath.Child("annotations")
-	if requiredFound && preferredFound {
+	if annotationFoundCount > 1 {
 		allErrs = append(allErrs, field.Invalid(annotationsPath, field.OmitValueType{},
-			fmt.Sprintf("must not contain both %q and %q",
+			fmt.Sprintf("must not contain more than one topology annotation: [%q, %q, %q]",
 				kueuealpha.PodSetRequiredTopologyAnnotation,
-				kueuealpha.PodSetPreferredTopologyAnnotation),
+				kueuealpha.PodSetPreferredTopologyAnnotation,
+				kueuealpha.PodSetUnconstrainedTopologyAnnotation),
 		))
 	}
 	if requiredFound {

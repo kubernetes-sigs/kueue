@@ -17,17 +17,22 @@ limitations under the License.
 package jobframework
 
 import (
+	"strconv"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
 
-	if requiredFound || preferredFound {
+	if requiredFound || preferredFound || unconstrainedFound {
 		psTopologyReq := &kueue.PodSetTopologyRequest{
 			PodIndexLabel:      podIndexLabel,
 			SubGroupIndexLabel: subGroupIndexLabel,
@@ -35,8 +40,14 @@ func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGr
 		}
 		if requiredFound {
 			psTopologyReq.Required = &requiredValue
-		} else {
+		} else if preferredFound {
 			psTopologyReq.Preferred = &preferredValue
+		}
+		if unconstrainedFound {
+			unconstrained, _ := strconv.ParseBool(unconstrained)
+			psTopologyReq.Unconstrained = &unconstrained
+		} else if features.Enabled(features.TASImplicitDefaultUnconstrained) {
+			psTopologyReq.Unconstrained = ptr.To(true)
 		}
 		return psTopologyReq
 	}

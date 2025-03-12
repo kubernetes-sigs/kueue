@@ -150,7 +150,25 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
-	TASLeastAllocated featuregate.Feature = "TASLeastAllocated"
+	TASProfileMostFreeCapacity featuregate.Feature = "TASProfileMostFreeCapacity"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable to set use LeastAlloactedFit algorithm for TAS
+	TASProfileLeastFreeCapacity featuregate.Feature = "TASProfileLeastFreeCapacity"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable to set use LeastAlloactedFit algorithm for TAS
+	TASProfileMixed featuregate.Feature = "TASProfileMixed"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable to set implicit PodSetTopologyRequeste default to `.unconstrained=&true`
+	TASImplicitDefaultUnconstrained featuregate.Feature = "TASImplicitDefaultUnconstrained"
 )
 
 func init() {
@@ -231,8 +249,17 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	TASLeastAllocated: {
+	TASProfileMostFreeCapacity: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	TASProfileLeastFreeCapacity: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	TASProfileMixed: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	TASImplicitDefaultUnconstrained: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -98,7 +98,8 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
-				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)}.ToAggregate(),
+				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 		},
 	}
 
@@ -148,7 +149,8 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
-				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)},
+				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 		},
 	}
 
