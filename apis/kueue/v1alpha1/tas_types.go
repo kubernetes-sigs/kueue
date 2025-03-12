@@ -40,8 +40,8 @@ const (
 
 	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
 	// Kueue admits the PodSet if there's enough free capacity available.
-	// Recommended for PodSets that don't require pod-to-pod communication, but want
-	// to leverage TAS capabilities improve accuracy of admitting jobs
+	// Recommended for PodSets that don't need low-latency or high-throughput pod-to-pod communication,
+	// but want to leverage TAS capabilities improve accuracy of admitting jobs
 	//
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
