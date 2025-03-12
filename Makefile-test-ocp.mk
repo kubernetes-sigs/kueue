@@ -68,6 +68,12 @@ yq-ocp: ## Download yq locally if necessary.
 
 .PHONY: test-ocp
 test-ocp: ## Run tests.
+# Configs were filtered out due to a failure
+# Running this in openshift CI we are hitting failures in the unit tests
+# due to how kueue grabs the namespace for default configs
+# Kueue will read the serviceaccount for the pod
+# and this seems to break in OCP Prow
+# We added "grep -v 'config'" to filter out those unit tests
 	${GO_CMD} run ./vendor/gotest.tools/gotestsum --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/' | grep -v 'config')
 
 .PHONY: test-integration-ocp
