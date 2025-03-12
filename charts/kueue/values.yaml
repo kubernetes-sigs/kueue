@@ -150,7 +150,9 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
+
 # kueue-viz dashboard
 enableKueueViz: false
+
 metrics:
   prometheusNamespace: monitoring

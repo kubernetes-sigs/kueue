@@ -38,12 +38,10 @@ const (
 	// among multiple topology domains.
 	PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
 
-	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet requires
-	// Topology Aware Scheduling, but it promotes filling up nodes in use over
-	// compact placement. The pods have lower chance of being scheduled on the same
-	// node, but it mitigates resource fragmentation, and can lead to better
-	// node utilization. Recommended for PodSets that don't require heave inter pod
-	// communication
+	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+	// Kueue admits the PodSet if there's enough free capacity available.
+	// Recommended for PodSets that don't require pod-to-pod communication, but want
+	// to leverage TAS capabilities improve accuracy of admitting jobs
 	//
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
