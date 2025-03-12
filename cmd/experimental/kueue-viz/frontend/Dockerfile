@@ -34,5 +34,3 @@ EXPOSE 8080
 # Use the start script
 ENTRYPOINT ["/app/start.sh"]
 
-
-
