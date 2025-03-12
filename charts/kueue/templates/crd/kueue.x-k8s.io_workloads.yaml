@@ -8329,6 +8329,12 @@ spec:
                             SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
                             within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
                           type: string
+                        unconstrained:
+                          description: |-
+                            unconstrained indicates the topology assignment for the PodSet should be,
+                            computed using the Unconstrained algorithm. Indicated by the
+                            `kueue.x-k8s.io/podset-unconstrained-topology` PodSet's annotation.
+                          type: boolean
                       type: object
                   required:
                   - count
