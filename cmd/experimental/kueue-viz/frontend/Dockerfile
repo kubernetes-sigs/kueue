@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+# Install ALL dependencies (including dev dependencies needed for build)
+RUN npm install
 
 # Copy source files
 COPY . .
@@ -22,15 +22,17 @@ FROM node:23 AS runtime
 WORKDIR /app
 
 # Install serve for production static file serving
-RUN npm install -g serve react-inject-env
+RUN npm install -g serve
 
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 EXPOSE 8080
 
-# Use serve instead of http-server for better performance
-ENTRYPOINT ["sh", "-c", "npx react-inject-env set && serve -s build -l 8080"]
+# Use the start script
+ENTRYPOINT ["/app/start.sh"]
 
 
 

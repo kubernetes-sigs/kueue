@@ -1,3 +1,7 @@
+#!/bin/sh
+
+# Generate env.js with runtime environment variables
+cat << EOF > ./build/env.js
 /*
 Copyright 2024 The Kubernetes Authors.
 
@@ -14,9 +18,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-window.env = window.env || {
-  VITE_WEBSOCKET_URL: 'ws://localhost:8080',
-  REACT_APP_WEBSOCKET_URL: 'ws://localhost:8080'
+window.env = {
+  VITE_WEBSOCKET_URL: "${REACT_APP_WEBSOCKET_URL:-ws://localhost:8080}",
+  REACT_APP_WEBSOCKET_URL: "${REACT_APP_WEBSOCKET_URL:-ws://localhost:8080}"
 };
+EOF
 
-
+# Start the server
+exec serve -s build -l 8080 
