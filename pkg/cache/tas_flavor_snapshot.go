@@ -518,8 +518,13 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains)
+	if useLeastFreeCapacityAlgorithm(unconstrained) {
+		// start from the domain with the least amount of free resources
+		slices.Reverse(sortedDomain)
+	}
+
 	topDomain := sortedDomain[0]
-	if !features.Enabled(features.TASMostFreeCapacity) && topDomain.state >= count {
+	if useBestFitAlgorithm(unconstrained) && topDomain.state >= count {
 		// optimize the potentially last domain
 		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
@@ -534,7 +539,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		remainingCount := count
 		for idx := 0; remainingCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].state > 0; idx++ {
 			offset := 0
-			if !features.Enabled(features.TASMostFreeCapacity) && sortedDomain[idx].state >= remainingCount {
+			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].state >= remainingCount {
 				// optimize the last domain
 				offset = findBestFitDomainIdx(sortedDomain[idx:], remainingCount)
 			}
@@ -549,11 +554,34 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	return levelIdx, []*domain{topDomain}, ""
 }
 
+func useBestFitAlgorithm(unconstrained bool) bool {
+	if features.Enabled(features.TASProfileMostFreeCapacity) ||
+		features.Enabled(features.TASProfileLeastFreeCapacity) ||
+		(unconstrained && features.Enabled(features.TASProfileMixed)) {
+		// following the matrix from KEP#2724
+		return false
+	}
+	return true
+}
+
+func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
+	if features.Enabled(features.TASProfileLeastFreeCapacity) ||
+		(unconstrained && features.Enabled(features.TASProfileMixed)) {
+		// following the matrix from KEP#2724
+		return true
+	}
+	return false
+}
+
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
+	if useLeastFreeCapacityAlgorithm(unconstrained) {
+		// start from the domain with the least amount of free resources
+		slices.Reverse(domains)
+	}
 	for i, domain := range domains {
-		if !features.Enabled(features.TASMostFreeCapacity) && domain.state >= remainingCount {
+		if useBestFitAlgorithm(unconstrained) && domain.state >= remainingCount {
 			// optimize the last domain
 			mostAllocatedIdx := findBestFitDomainIdx(domains[i:], remainingCount)
 			domain = domains[i+mostAllocatedIdx]
