@@ -101,7 +101,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 					Obj(),
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
-					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 					Obj(),
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
@@ -116,7 +116,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 					Obj(),
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
-					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 					Obj(),
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
@@ -132,7 +132,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 					Obj(),
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
-					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind("AppWrapper")).
+					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 					Obj(),
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
