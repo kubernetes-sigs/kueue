@@ -178,13 +178,24 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
-	metrics.Register()
-
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()
 	}
 
+	if features.Enabled(features.LocalQueueMetrics) && cfg.Metrics.LocalQueueMetrics != nil {
+		// metav1 with empty selectors returns selector which matches everything which is what is desired
+		lqLabelSelector, err := metav1.LabelSelectorAsSelector(cfg.Metrics.LocalQueueMetrics.LocalQueueSelector)
+		if err != nil {
+			setupLog.Error(err, "failed to convert local queue label selector")
+		}
+		metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:            true,
+			LocalQueueSelector: lqLabelSelector,
+		})
+	}
+
+	metrics.Register()
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))

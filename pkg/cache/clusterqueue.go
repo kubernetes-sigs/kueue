@@ -106,6 +106,7 @@ type queue struct {
 	key                string
 	reservingWorkloads int
 	admittedWorkloads  int
+	labels             map[string]string
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
 }
@@ -532,7 +533,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
+		if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(lq.labels) {
 			lq.reportActiveWorkloads()
 		}
 	}
@@ -564,6 +565,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl := &queue{
 		key:                qKey,
 		reservingWorkloads: 0,
+		labels:             q.Labels,
 		totalReserved:      make(resources.FlavorResourceQuantities),
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
@@ -579,7 +581,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		}
 	}
 	c.localQueues[qKey] = qImpl
-	if features.Enabled(features.LocalQueueMetrics) {
+	if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(qImpl.labels) {
 		qImpl.reportActiveWorkloads()
 	}
 	return nil

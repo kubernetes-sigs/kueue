@@ -505,25 +505,25 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	}
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
-
+	lq := s.queues.GetLQSnapshot(workload.QueueKey(newWorkload))
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-			if features.Enabled(features.LocalQueueMetrics) {
+			if features.Enabled(features.LocalQueueMetrics) && lq != nil && metrics.ShouldReportLocalMetrics(lq.Labels) {
 				metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 			}
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-				if features.Enabled(features.LocalQueueMetrics) {
+				if features.Enabled(features.LocalQueueMetrics) && lq != nil && metrics.ShouldReportLocalMetrics(lq.Labels) {
 					metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 				if len(newWorkload.Status.AdmissionChecks) > 0 {
 					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
-					if features.Enabled(features.LocalQueueMetrics) {
+					if features.Enabled(features.LocalQueueMetrics) && lq != nil && metrics.ShouldReportLocalMetrics(lq.Labels) {
 						metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
 					}
 				}
