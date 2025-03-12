@@ -1,19 +1,36 @@
-#Build the React app
-FROM node:23 AS build
+# Build stage
+FROM node:23 AS builder
 
-ENV NPM_CONFIG_CACHE=/tmp/.npm-cache
+# Set working directory
 WORKDIR /app
+
+# Copy package files
 COPY package*.json ./
-RUN npm install
+
+# Install dependencies
+RUN npm install --production
+
+# Copy source files
 COPY . .
 
-# Build the production-ready static files
+# Build the app
 RUN npm run build
-RUN mkdir -p build && touch build/env.js && chmod ugo+rw -R build/ $NPM_CONFIG_CACHE
+
+# Runtime stage
+FROM node:23 AS runtime
+
+WORKDIR /app
+
+# Install serve for production static file serving
+RUN npm install -g serve react-inject-env
+
+# Copy only the built files from builder
+COPY --from=builder /app/build ./build
+
 EXPOSE 8080
 
-# Use react-inject-env to be able to inject env vars at runtime
-ENTRYPOINT npx react-inject-env set && npx http-server build
+# Use serve instead of http-server for better performance
+ENTRYPOINT ["sh", "-c", "npx react-inject-env set && serve -s build -l 8080"]
 
 
 

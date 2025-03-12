@@ -9,20 +9,21 @@
     "build": "SKIP_PREFLIGHT_CHECK=true react-scripts build"
   },
   "dependencies": {
-    "@emotion/react": "^11.0.0",
-    "@emotion/styled": "^11.0.0",
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^6.4.6",
     "@mui/material": "^6.4.6",
     "axios": "^1.7.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.2",
-    "react-scripts": "^5.0.0",
+    "react-scripts": "5.0.1",
     "react-toastify": "^11.0.2"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
-    "react-inject-env": "^2.1.0"
+    "react-inject-env": "^2.1.0",
+    "serve": "^14.2.1"
   },
   "browserslist": {
     "production": [
