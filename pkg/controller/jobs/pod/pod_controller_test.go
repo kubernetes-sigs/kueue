@@ -139,6 +139,7 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},

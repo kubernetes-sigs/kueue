@@ -245,9 +245,11 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},

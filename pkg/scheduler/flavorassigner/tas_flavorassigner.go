@@ -94,7 +94,7 @@ func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
 
 func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
 	// For PodSets which require TAS skip resource flavors which don't support it
-	if ps.TopologyRequest != nil {
+	if isTASRequestedExplicitly(ps) {
 		if flavor.Spec.TopologyName == nil {
 			return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
 		}
@@ -115,7 +115,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 		return nil
 	}
 	// For PodSets which don't use TAS skip resource flavors which are only for TAS
-	if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {
+	if !isTASRequestedExplicitly(ps) && flavor.Spec.TopologyName != nil {
 		return ptr.To(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
 	}
 	return nil
@@ -124,11 +124,16 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 // isTASImplied returns true if TAS is requested implicitly - there is no
 // explicit
 func isTASImplied(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
-	return ps.TopologyRequest == nil && cq.IsTASOnly()
+	return !isTASRequestedExplicitly(ps) && cq.IsTASOnly()
 }
 
 // isTASRequested checks if TAS is requested for the input PodSet, either
 // explicitly or implicitly.
 func isTASRequested(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
-	return ps.TopologyRequest != nil || cq.IsTASOnly()
+	return isTASRequestedExplicitly(ps) || cq.IsTASOnly()
+}
+
+func isTASRequestedExplicitly(ps *kueue.PodSet) bool {
+	return ps.TopologyRequest != nil &&
+		(ps.TopologyRequest.Required != nil || ps.TopologyRequest.Preferred != nil)
 }

@@ -27,7 +27,7 @@ func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGr
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 
-	if requiredFound || preferredFound {
+	if requiredFound || preferredFound || podIndexLabel != nil {
 		psTopologyReq := &kueue.PodSetTopologyRequest{
 			PodIndexLabel:      podIndexLabel,
 			SubGroupIndexLabel: subGroupIndexLabel,
@@ -35,7 +35,7 @@ func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGr
 		}
 		if requiredFound {
 			psTopologyReq.Required = &requiredValue
-		} else {
+		} else if preferredFound {
 			psTopologyReq.Preferred = &preferredValue
 		}
 		return psTopologyReq
