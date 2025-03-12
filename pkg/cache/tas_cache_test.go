@@ -116,6 +116,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			Ready().
 			Obj(),
 	}
+	//nolint:gocritic:dupword
 	//       b1           b2
 	//       |             |
 	//       r1           r1
