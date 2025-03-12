@@ -14,16 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scheduler
+package preemption
 
 import (
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type preemptedWorkloads map[string]*workload.Info
+type PreemptedWorkloads map[string]*workload.Info
 
-func (p preemptedWorkloads) hasAny(newTargets []*preemption.Target) bool {
+func (p PreemptedWorkloads) HasAny(newTargets []*Target) bool {
 	for _, target := range newTargets {
 		if _, found := p[workload.Key(target.WorkloadInfo.Obj)]; found {
 			return true
@@ -32,7 +31,7 @@ func (p preemptedWorkloads) hasAny(newTargets []*preemption.Target) bool {
 	return false
 }
 
-func (p preemptedWorkloads) insert(newTargets []*preemption.Target) {
+func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 	for _, target := range newTargets {
 		p[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
 	}
