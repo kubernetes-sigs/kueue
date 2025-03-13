@@ -414,6 +414,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	count := tasPodSetRequests.Count
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	key := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
+	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest)
 	if key == nil {
 		return nil, "topology level not specified"
 	}
@@ -426,24 +427,25 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
-	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count)
+	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, unconstrained)
 	if len(reason) > 0 {
 		return nil, reason
 	}
 
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
 	// topology domains at each level
-	currFitDomain = s.updateCountsToMinimum(currFitDomain, count)
+	// if unconstrained is set, we'll only do it once
+	currFitDomain = s.updateCountsToMinimum(currFitDomain, count, unconstrained)
 	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
 		lowerFitDomains := s.lowerLevelDomains(currFitDomain)
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
-		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
+		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count, unconstrained)
 	}
 	return s.buildAssignment(currFitDomain), ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
-	key := levelKey(r)
+	key := s.levelKey(r)
 	if key == nil {
 		return false
 	}
@@ -464,7 +466,7 @@ func isRequired(tr *kueue.PodSetTopologyRequest) bool {
 }
 
 func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRequests) *string {
-	if key := levelKey(tasRequests.PodSet.TopologyRequest); key != nil {
+	if key := s.levelKey(tasRequests.PodSet.TopologyRequest); key != nil {
 		return key
 	}
 	if tasRequests.Implied {
@@ -473,16 +475,24 @@ func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRe
 	return nil
 }
 
-func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
+func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
 	if topologyRequest == nil {
 		return nil
 	}
-	if topologyRequest.Required != nil {
+	switch {
+	case topologyRequest.Required != nil:
 		return topologyRequest.Required
-	} else if topologyRequest.Preferred != nil {
+	case topologyRequest.Preferred != nil:
 		return topologyRequest.Preferred
+	case isUnconstrained(topologyRequest):
+		return ptr.To(s.lowestLevel())
+	default:
+		return nil
 	}
-	return nil
+}
+
+func isUnconstrained(tr *kueue.PodSetTopologyRequest) bool {
+	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || features.Enabled(features.TASImplicitDefaultUnconstrained)
 }
 
 // findBestFitDomainIdx finds an index of the first domain with the lowest
@@ -501,7 +511,7 @@ func findBestFitDomainIdx(domains []*domain, count int32) int {
 	return bestFitIdx
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32, unconstrained bool) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
@@ -510,20 +520,22 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
 	if !features.Enabled(features.TASMostFreeCapacity) && topDomain.state >= count {
+		// optimize the potentially last domain
 		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
 	if topDomain.state < count {
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)
 		}
-		if levelIdx > 0 {
-			return s.findLevelWithFitDomains(levelIdx-1, required, count)
+		if levelIdx > 0 && !unconstrained {
+			return s.findLevelWithFitDomains(levelIdx-1, required, count, unconstrained)
 		}
 		results := []*domain{}
 		remainingCount := count
 		for idx := 0; remainingCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].state > 0; idx++ {
 			offset := 0
 			if !features.Enabled(features.TASMostFreeCapacity) && sortedDomain[idx].state >= remainingCount {
+				// optimize the last domain
 				offset = findBestFitDomainIdx(sortedDomain[idx:], remainingCount)
 			}
 			results = append(results, sortedDomain[idx+offset])
@@ -532,18 +544,19 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		if remainingCount > 0 {
 			return 0, nil, s.notFitMessage(count-remainingCount, count)
 		}
-		return 0, results, ""
+		return levelIdx, results, ""
 	}
 	return levelIdx, []*domain{topDomain}, ""
 }
 
-func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32) []*domain {
+func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
 		if !features.Enabled(features.TASMostFreeCapacity) && domain.state >= remainingCount {
-			bestFitIdx := findBestFitDomainIdx(domains[i:], remainingCount)
-			domain = domains[i+bestFitIdx]
+			// optimize the last domain
+			mostAllocatedIdx := findBestFitDomainIdx(domains[i:], remainingCount)
+			domain = domains[i+mostAllocatedIdx]
 		}
 
 		if domain.state >= remainingCount {

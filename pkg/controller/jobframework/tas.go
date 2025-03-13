@@ -17,6 +17,8 @@ limitations under the License.
 package jobframework
 
 import (
+	"strconv"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -26,17 +28,22 @@ import (
 func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
 
-	if requiredFound || preferredFound {
+	if requiredFound || preferredFound || unconstrainedFound {
 		psTopologyReq := &kueue.PodSetTopologyRequest{
 			PodIndexLabel:      podIndexLabel,
 			SubGroupIndexLabel: subGroupIndexLabel,
 			SubGroupCount:      subGroupCount,
 		}
-		if requiredFound {
+		switch {
+		case requiredFound:
 			psTopologyReq.Required = &requiredValue
-		} else {
+		case preferredFound:
 			psTopologyReq.Preferred = &preferredValue
+		case unconstrainedFound:
+			unconstrained, _ := strconv.ParseBool(unconstrained)
+			psTopologyReq.Unconstrained = &unconstrained
 		}
 		return psTopologyReq
 	}
