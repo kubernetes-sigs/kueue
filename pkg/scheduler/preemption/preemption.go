@@ -70,7 +70,7 @@ type preemptionCtx struct {
 	preemptor         workload.Info
 	preemptorCQ       *cache.ClusterQueueSnapshot
 	snapshot          *cache.Snapshot
-	requests          resources.FlavorResourceQuantities
+	workloadUsage     workload.Usage
 	tasRequests       cache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
@@ -133,9 +133,12 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
-		requests:          assignment.TotalRequestsFor(&wl),
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
+		workloadUsage: workload.Usage{
+			Quota: assignment.TotalRequestsFor(&wl),
+			TAS:   wl.TASUsage(),
+		},
 	})
 }
 
@@ -368,9 +371,8 @@ func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
 func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
-	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
-	preemptorNewShare := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(requests))
+	preemptorNewShare := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.workloadUsage.Quota))
 	var targets []*Target
 	var retryCandidates []*workload.Info
 	for cqHeap.Len() > 0 {
@@ -386,7 +388,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			if workloadFits(preemptionCtx, true) {
 				return true, targets, nil
 			}
-			preemptorNewShare = fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(requests))
+			preemptorNewShare = fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.workloadUsage.Quota))
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
 				candCQ.share = fairsharing.TargetOldShare(candCQ.cq.DominantResourceShare())
@@ -427,7 +429,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 // (fits, targets).
 func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
 	cqHeap := cqHeapFromCandidates(retryCandidates, true, preemptionCtx.snapshot)
-	preemptorNewShare := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.requests))
+	preemptorNewShare := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.workloadUsage.Quota))
 	for cqHeap.Len() > 0 {
 		candCQ := cqHeap.Pop()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
@@ -590,7 +592,7 @@ func workloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
-	for fr, v := range preemptionCtx.requests {
+	for fr, v := range preemptionCtx.workloadUsage.Quota {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
