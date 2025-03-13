@@ -2602,6 +2602,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASImplicitDefaultUnconstrained, false)
 		for _, node := range nodes {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
