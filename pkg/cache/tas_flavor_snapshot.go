@@ -414,7 +414,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	count := tasPodSetRequests.Count
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	key := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
-	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest)
+	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
 	if key == nil {
 		return nil, "topology level not specified"
 	}
@@ -484,15 +484,15 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 		return topologyRequest.Required
 	case topologyRequest.Preferred != nil:
 		return topologyRequest.Preferred
-	case isUnconstrained(topologyRequest):
+	case ptr.Deref(topologyRequest.Unconstrained, false):
 		return ptr.To(s.lowestLevel())
 	default:
 		return nil
 	}
 }
 
-func isUnconstrained(tr *kueue.PodSetTopologyRequest) bool {
-	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || features.Enabled(features.TASImplicitDefaultUnconstrained)
+func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequests) bool {
+	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || tasRequests.Implied
 }
 
 // findBestFitDomainIdx finds an index of the first domain with the lowest

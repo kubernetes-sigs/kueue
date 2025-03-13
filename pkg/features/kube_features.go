@@ -163,12 +163,6 @@ const (
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
-
-	// owner: @pbundyra
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
-	//
-	// Enable to set implicit PodSetTopologyRequeste default to `.unconstrained=&true`
-	TASImplicitDefaultUnconstrained featuregate.Feature = "TASImplicitDefaultUnconstrained"
 )
 
 func init() {
@@ -257,9 +251,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
-	},
-	TASImplicitDefaultUnconstrained: {
-		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
