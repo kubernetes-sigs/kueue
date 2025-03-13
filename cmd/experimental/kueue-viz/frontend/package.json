@@ -3,26 +3,30 @@
   "version": "1.0.0",
   "private": true,
   "description": "Frontend dashboard for visualizing Kueue status",
-  "main": "src/index.js",
+  "main": "src/index.jsx",
+  "type": "module",
   "scripts": {
-    "start": "SKIP_PREFLIGHT_CHECK=true react-scripts start",
-    "build": "SKIP_PREFLIGHT_CHECK=true react-scripts build"
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check-unused": "depcheck"
   },
   "dependencies": {
-    "@emotion/react": "^11.0.0",
-    "@emotion/styled": "^11.0.0",
-    "@mui/icons-material": "^6.4.6",
-    "@mui/material": "^6.4.6",
-    "axios": "^1.7.9",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.7",
+    "@mui/material": "^6.4.7",
+    "axios": "^1.8.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.2",
-    "react-scripts": "^5.0.0",
-    "react-toastify": "^11.0.2"
+    "react-router-dom": "^7.3.0",
+    "react-toastify": "^11.0.5"
   },
   "devDependencies": {
-    "@babel/plugin-proposal-private-property-in-object": "7.21.11",
-    "react-inject-env": "^2.1.0"
+    "@vitejs/plugin-react": "^4.3.4",
+    "depcheck": "^1.4.7",
+    "serve": "^14.2.4",
+    "vite": "^6.2.1"
   },
   "browserslist": {
     "production": [
