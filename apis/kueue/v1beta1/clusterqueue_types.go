@@ -97,21 +97,6 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
-	// preemption describes policies to preempt Workloads from this ClusterQueue
-	// or the ClusterQueue's cohort.
-	//
-	// Preemption can happen in two scenarios:
-	//
-	// - When a Workload fits within the nominal quota of the ClusterQueue, but
-	//   the quota is currently borrowed by other ClusterQueues in the cohort.
-	//   Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-	//   reclaim its nominal quota.
-	// - When a Workload doesn't fit within the nominal quota of the ClusterQueue
-	//   and there are admitted Workloads in the ClusterQueue with lower priority.
-	//
-	// The preemption algorithm tries to find a minimal set of Workloads to
-	// preempt to accomomdate the pending Workload, preempting Workloads with
-	// lower priority first.
 	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
@@ -422,6 +407,24 @@ type FlavorFungibility struct {
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
+//
+// Preemption may be configured to work in the following scenarios:
+//
+//   - When a Workload fits within the nominal quota of the ClusterQueue, but
+//     the quota is currently borrowed by other ClusterQueues in the cohort.
+//     We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+//     reclaim its nominal quota. Configured using reclaimWithinCohort.
+//   - When a Workload doesn't fit within the nominal quota of the ClusterQueue
+//     and there are admitted Workloads in the ClusterQueue with lower priority.
+//     Configured using withinClusterQueue.
+//   - When a Workload may fit while both borrowing and preempting
+//     low priority workloads in the Cohort. Configured using borrowWithinCohort.
+//   - When FairSharing is enabled, to maintain fair distribution of
+//     unused resources. See FairSharing documentation.
+//
+// The preemption algorithm tries to find a minimal set of Workloads to
+// preempt to accomomdate the pending Workload, preempting Workloads with
+// lower priority first.
 // +kubebuilder:validation:XValidation:rule="!(self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
@@ -444,8 +447,6 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
-	// borrowWithinCohort provides configuration to allow preemption within
-	// cohort while borrowing.
 	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
@@ -473,7 +474,8 @@ const (
 )
 
 // BorrowWithinCohort contains configuration which allows to preempt workloads
-// within cohort while borrowing.
+// within cohort while borrowing. It only works with Classical Preemption,
+// __not__ with Fair Sharing.
 type BorrowWithinCohort struct {
 	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
 	// Possible values are:
