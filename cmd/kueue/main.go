@@ -18,10 +18,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -39,6 +41,7 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -152,6 +155,26 @@ func main() {
 		BindAddress:    cfg.Metrics.BindAddress,
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	}
+
+	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
+		metricsCertPath := "/etc/kueue/metrics/certs"
+		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath)
+
+		var err error
+		metricsCertWatcher, err := certwatcher.New(
+			filepath.Join(metricsCertPath, "tls.crt"),
+			filepath.Join(metricsCertPath, "tls.key"),
+		)
+		if err != nil {
+			setupLog.Error(err, "Unable to initialize metrics certificate watcher")
+			os.Exit(1)
+		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
 	}
 	options.Metrics = metricsServerOptions
 
