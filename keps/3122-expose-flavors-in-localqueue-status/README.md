@@ -103,9 +103,13 @@ type LocalQueueFlavorStatus struct {
   // +optional
   NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
 
-  // topologyName is the name of the topology.
+  // topology is the topology that associated with this ResourceFlavor.
+  //
+  // This is an alpha field and requires enabling the TopologyAwareScheduling
+  // feature gate.
+  //
   // +optional
-  TopologyName *TopologyReference `json:"topologyName,omitempty"`
+  Topology *Topology `json:"topology,omitempty"`
 }
 ```
 
@@ -113,20 +117,20 @@ Add `Topology` API object:
 
 ```go
 type Topology struct {
-	// name is the name of the topology.
-	//
-	// +required
-	// +kubebuilder:validation:Required
-	Name TopologyReference `json:"name"`
+  // name is the name of the topology.
+  //
+  // +required
+  // +kubebuilder:validation:Required
+  Name TopologyReference `json:"name"`
 
-	// levels define the levels of topology.
-	//
-	// +required
-	// +listType=atomic
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
-	Levels []string `json:"levels,omitempty"`
+  // levels define the levels of topology.
+  //
+  // +required
+  // +listType=atomic
+  // +kubebuilder:validation:Required
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=8
+  Levels []string `json:"levels"`
 }
 ```
 

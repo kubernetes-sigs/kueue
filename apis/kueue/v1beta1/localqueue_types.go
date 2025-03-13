@@ -79,7 +79,6 @@ type LocalQueueFlavorStatus struct {
 	// This is an alpha field and requires enabling the TopologyAwareScheduling
 	// feature gate.
 	//
-	// +featureGate=TopologyAwareScheduling
 	// +optional
 	Topology *Topology `json:"topology,omitempty"`
 }
@@ -98,7 +97,7 @@ type Topology struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
-	Levels []string `json:"levels,omitempty"`
+	Levels []string `json:"levels"`
 }
 
 // LocalQueueStatus defines the observed state of LocalQueue
