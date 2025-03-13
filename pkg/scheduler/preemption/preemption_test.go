@@ -2342,6 +2342,25 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ: "a",
 		},
+		"can preempt within cluster queue when no cohort": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").Priority(1000).Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+			),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

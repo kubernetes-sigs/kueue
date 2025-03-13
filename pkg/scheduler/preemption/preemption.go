@@ -144,6 +144,9 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
 		return nil
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
+	if p.enableFairSharing {
+		return fairPreemptions(preemptionCtx, candidates, p.fsStrategies)
+	}
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, preemptionCtx.preemptorCQ.Name)
 
@@ -158,9 +161,6 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
 		return minimalPreemptions(preemptionCtx, candidates, true, nil)
 	}
 
-	if p.enableFairSharing {
-		return fairPreemptions(preemptionCtx, candidates, p.fsStrategies)
-	}
 	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
 	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
