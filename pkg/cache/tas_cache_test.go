@@ -414,7 +414,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
-		"unconstrained; 5 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
+		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
 			nodes: scatteredNodes,
 			topologyRequest: kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
@@ -423,7 +423,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count: 5,
+			count: 6,
 			wantAssignment: &kueue.TopologyAssignment{
 				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
@@ -434,15 +434,15 @@ func TestFindTopologyAssignment(t *testing.T) {
 						},
 					},
 					{
-						Count: 1,
+						Count: 2,
 						Values: []string{
-							"x2",
+							"x4",
 						},
 					},
 				},
 			},
 		},
-		"unconstrained; 5 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; MostFreeCapacityFit": {
+		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; MostFreeCapacityFit": {
 			nodes: scatteredNodes,
 			topologyRequest: kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
@@ -451,7 +451,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count: 5,
+			count: 6,
 			wantAssignment: &kueue.TopologyAssignment{
 				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
@@ -462,7 +462,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 						},
 					},
 					{
-						Count: 1,
+						Count: 2,
 						Values: []string{
 							"x4",
 						},
