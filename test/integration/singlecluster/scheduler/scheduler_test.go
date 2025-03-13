@@ -1503,8 +1503,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			ginkgo.By("cohorts created")
-			cohortRight := testing.MakeCohort("left").Parent("root").Obj()
-			cohortLeft := testing.MakeCohort("right").Parent("root").Obj()
+			cohortLeft := testing.MakeCohort("left").Parent("root").Obj()
+			cohortRight := testing.MakeCohort("right").Parent("root").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cohortLeft)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, cohortRight)).Should(gomega.Succeed())
 
