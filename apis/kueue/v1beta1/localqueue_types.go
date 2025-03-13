@@ -73,6 +73,31 @@ type LocalQueueFlavorStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
+
+	// topology is the topology that associated with this ResourceFlavor.
+	//
+	// This is an alpha field and requires enabling the TopologyAwareScheduling
+	// feature gate.
+	//
+	// +optional
+	Topology *Topology `json:"topology,omitempty"`
+}
+
+type Topology struct {
+	// name is the name of the topology.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	Name TopologyReference `json:"name"`
+
+	// levels define the levels of topology.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Levels []string `json:"levels"`
 }
 
 // LocalQueueStatus defines the observed state of LocalQueue
