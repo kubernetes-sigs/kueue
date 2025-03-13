@@ -156,3 +156,6 @@ enableKueueViz: false
 
 metrics:
   prometheusNamespace: monitoring
+  serviceMonitor:
+    tlsConfig:
+      insecureSkipVerify: true
