@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -111,6 +112,69 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU:    resource.MustParse("2"),
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
 				corev1.ResourcePods:   resource.MustParse("40"),
+			}).
+			Ready().
+			Obj(),
+	}
+	//nolint:dupword // suppress duplicate r1 word
+	//       b1           b2
+	//       |             |
+	//       r1           r1
+	//     /  |  \       /  \
+	//   x1  x2  x3     x4  x5
+	scatteredNodes := []corev1.Node{
+		*testingnode.MakeNode("b1-r1-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r1-x2").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r1-x3").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x4").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x5").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x5").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
 			}).
 			Ready().
 			Obj(),
@@ -226,17 +290,17 @@ func TestFindTopologyAssignment(t *testing.T) {
 
 	cases := map[string]struct {
 		// TODO: remove after dropping the TASMostFreeCapacity feature gate
-		enableTASMostFreeCapacity bool
-		wantReason                string
-		topologyRequest           kueue.PodSetTopologyRequest
-		levels                    []string
-		nodeLabels                map[string]string
-		nodes                     []corev1.Node
-		pods                      []corev1.Pod
-		requests                  resources.Requests
-		count                     int32
-		tolerations               []corev1.Toleration
-		wantAssignment            *kueue.TopologyAssignment
+		enableFeatureGates []featuregate.Feature
+		wantReason         string
+		topologyRequest    kueue.PodSetTopologyRequest
+		levels             []string
+		nodeLabels         map[string]string
+		nodes              []corev1.Node
+		pods               []corev1.Pod
+		requests           resources.Requests
+		count              int32
+		tolerations        []corev1.Toleration
+		wantAssignment     *kueue.TopologyAssignment
 	}{
 		// TODO: remove suffixes MostFreeCapacity/BestFit after dropping the TASMostFreeCapacity feature gate
 		"minimize the number of used racks before optimizing the number of nodes; MostFreeCapacity": {
@@ -348,7 +412,64 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
+		},
+		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
+			nodes: scatteredNodes,
+			topologyRequest: kueue.PodSetTopologyRequest{
+				Unconstrained: ptr.To(true),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 4,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
+		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; MostFreeCapacityFit": {
+			nodes: scatteredNodes,
+			topologyRequest: kueue.PodSetTopologyRequest{
+				Unconstrained: ptr.To(true),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 4,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; 4 pods fit into one host each; MostFreeCapacity": {
 			nodes: binaryTreesNodes,
@@ -389,7 +510,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; 4 pods fit into one host each; BestFit": {
 			nodes: binaryTreesNodes,
@@ -430,7 +551,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"host required; single Pod fits in the host; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
@@ -454,7 +574,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"host required; single Pod fits in the host; BestFit": {
 			nodes: defaultNodes,
@@ -477,7 +597,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"rack required; single Pod fits in a rack; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
@@ -502,7 +621,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"rack required; multiple Pods fits in a rack; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -526,7 +645,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"rack required; multiple Pods fit in a rack; BestFit": {
 			nodes: defaultNodes,
@@ -550,7 +669,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"block preferred; Pods fit in 2 blocks; BestFit": {
 			nodes: []corev1.Node{
@@ -604,7 +722,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"rack required; multiple Pods fit in some racks; BestFit": {
 			nodes: defaultNodes,
@@ -628,7 +745,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"rack required; too many pods to fit in any rack; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -639,9 +755,10 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     4,
-			wantReason:                `topology "default" allows to fit only 3 out of 4 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:      4,
+			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
+
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; single Pod fits in a block; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
@@ -669,7 +786,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; single Pod fits in a block and a single rack; BestFit": {
 			nodes: defaultNodes,
@@ -696,7 +813,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"block required; single Pod fits in a block spread across two racks; BestFit": {
 			nodes: defaultNodes,
@@ -730,7 +846,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: false,
 		},
 		"block required; Pods fit in a block spread across two racks; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -761,7 +876,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; single Pod which cannot be split; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -772,9 +887,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 4000,
 			},
-			count:                     1,
-			wantReason:                `topology "default" doesn't allow to fit any of 1 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block required; too many Pods to fit requested; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -785,9 +900,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     5,
-			wantReason:                `topology "default" allows to fit only 4 out of 5 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              5,
+			wantReason:         `topology "default" allows to fit only 4 out of 5 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"rack required; single Pod requiring memory; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
@@ -812,7 +927,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"rack preferred; but only block can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -843,7 +958,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"rack preferred; but only multiple blocks can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -881,7 +996,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block preferred; but only multiple blocks can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -919,7 +1034,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"block preferred; but the workload cannot be accommodate in entire topology; MostFreeCapacity": {
 			nodes: defaultNodes,
@@ -930,9 +1045,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     10,
-			wantReason:                `topology "default" allows to fit only 7 out of 10 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              10,
+			wantReason:         `topology "default" allows to fit only 7 out of 10 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"only nodes with matching labels are considered; no matching node; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -956,9 +1071,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     1,
-			wantReason:                "no topology domains at level: kubernetes.io/hostname",
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         "no topology domains at level: kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"only nodes with matching labels are considered; matching node is found; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -995,7 +1110,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"only nodes with matching levels are considered; no host label on node; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1018,9 +1133,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     1,
-			wantReason:                "no topology domains at level: cloud.com/topology-rack",
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         "no topology domains at level: cloud.com/topology-rack",
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"don't consider unscheduled Pods when computing capacity; MostFreeCapacity": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
@@ -1059,7 +1174,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"don't consider terminal pods when computing the capacity; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1102,7 +1217,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"include usage from pending scheduled non-TAS pods, blocked assignment; MostFreeCapacity": {
 			// there is not enough free capacity on the only node x1
@@ -1130,9 +1245,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 600,
 			},
-			count:                     1,
-			wantReason:                `topology "default" doesn't allow to fit any of 1 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"include usage from running non-TAS pods, blocked assignment; MostFreeCapacity": {
 			// there is not enough free capacity on the only node x1
@@ -1160,9 +1274,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 600,
 			},
-			count:                     1,
-			wantReason:                `topology "default" doesn't allow to fit any of 1 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"include usage from running non-TAS pods, found free capacity on another node; MostFreeCapacity": {
 			// there is not enough free capacity on the node x1 as the
@@ -1211,7 +1325,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"no assignment as node is not ready; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1240,9 +1354,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     1,
-			wantReason:                "no topology domains at level: kubernetes.io/hostname",
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         "no topology domains at level: kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"no assignment as node is unschedulable; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1268,9 +1382,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     1,
-			wantReason:                "no topology domains at level: kubernetes.io/hostname",
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         "no topology domains at level: kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"skip node which has untolerated taint; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1300,9 +1414,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:                     1,
-			wantReason:                `topology "default" doesn't allow to fit any of 1 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"allow to schedule on node with tolerated taint; MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1351,7 +1465,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
-			enableTASMostFreeCapacity: true,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 		"no assignment as node does not have enough allocatable pods (.status.allocatable['pods']); MostFreeCapacity": {
 			nodes: []corev1.Node{
@@ -1382,16 +1496,18 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 300,
 			},
-			count:                     1,
-			wantReason:                `topology "default" doesn't allow to fit any of 1 pod(s)`,
-			enableTASMostFreeCapacity: true,
+			count:              1,
+			wantReason:         `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASMostFreeCapacity},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			// TODO: remove after dropping the TASMostFreeCapacity feature gate
-			features.SetFeatureGateDuringTest(t, features.TASMostFreeCapacity, tc.enableTASMostFreeCapacity)
+			// TODO: remove after dropping the TAS profiles feature gates
+			for _, gate := range tc.enableFeatureGates {
+				features.SetFeatureGateDuringTest(t, gate, true)
+			}
 
 			initialObjects := make([]client.Object, 0)
 			for i := range tc.nodes {

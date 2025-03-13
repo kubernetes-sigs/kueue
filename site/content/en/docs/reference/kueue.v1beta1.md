@@ -1832,6 +1832,15 @@ indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
 annotation.</p>
 </td>
 </tr>
+<tr><td><code>unconstrained</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+the entire available capacity, without constraints on the compactness of the placement.
+This is indicated by the <code>kueue.x-k8s.io/podset-unconstrained-topology</code> PodSet annotation.</p>
+</td>
+</tr>
 <tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>

@@ -104,6 +104,14 @@ type PodSetTopologyRequest struct {
 	// +optional
 	Preferred *string `json:"preferred,omitempty"`
 
+	// unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+	// the entire available capacity, without constraints on the compactness of the placement.
+	// This is indicated by the `kueue.x-k8s.io/podset-unconstrained-topology` PodSet annotation.
+	//
+	// +optional
+	// +kubebuilder:validation:Type=boolean
+	Unconstrained *bool `json:"unconstrained,omitempty"`
+
 	// PodIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
 	// - kubernetes job this is: kubernetes.io/job-completion-index
