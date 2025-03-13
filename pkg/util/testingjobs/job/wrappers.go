@@ -76,6 +76,16 @@ func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
+	j.Spec.BackoffLimitPerIndex = ptr.To(limit)
+	return j
+}
+
+func (j *JobWrapper) CompletionMode(mode batchv1.CompletionMode) *JobWrapper {
+	j.Spec.CompletionMode = &mode
+	return j
+}
+
 func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
 	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
