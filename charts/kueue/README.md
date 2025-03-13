@@ -48,6 +48,12 @@ NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
 kueue-controller-manager       1/1     1            1           7s
 ```
 
+##### Cert Manager
+
+Kueue has support for third-party certificates.
+One can enable this by setting `enableCertManager` to true.
+This will use certManager to generate a secret, inject the CABundles and set up the tls.
+
 ### Configuration
 
 The following table lists the configurable parameters of the kueue chart and their default values.
@@ -82,3 +88,4 @@ The following table lists the configurable parameters of the kueue chart and the
 | `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
 | `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
 | `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
+| `metrics.serviceMonitor.tlsConfig`                     | service monitor for prometheus                         | abbr.                                       |
