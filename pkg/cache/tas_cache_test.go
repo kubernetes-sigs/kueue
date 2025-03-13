@@ -292,7 +292,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		// TODO: remove after dropping the TASMostFreeCapacity feature gate
 		enableFeatureGates []featuregate.Feature
 		wantReason         string
-		topologyRequest    kueue.PodSetTopologyRequest
+		topologyRequest    *kueue.PodSetTopologyRequest
 		levels             []string
 		nodeLabels         map[string]string
 		nodes              []corev1.Node
@@ -375,7 +375,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -453,7 +453,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -518,7 +518,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -540,7 +540,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; 2 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; LeastFreeCapacity": {
 			nodes: scatteredNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -567,9 +567,34 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
+		"no annotation; implied default to unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
+			nodes:  scatteredNodes,
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 4,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
 		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
 			nodes: scatteredNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -597,7 +622,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; MostFreeCapacityFit": {
 			nodes: scatteredNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -626,7 +651,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; a single pod fits into each host; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -648,7 +673,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; a single pod fits into each host; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -671,7 +696,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileLeastFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -694,7 +719,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Unconstrained: ptr.To(true),
 			},
 			levels: defaultThreeLevels,
@@ -717,7 +742,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; 4 pods fit into one host each; MostFreeCapacity": {
 			nodes: binaryTreesNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -758,7 +783,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; 4 pods fit into one host each; BestFit": {
 			nodes: binaryTreesNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -799,7 +824,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"host required; single Pod fits in the host; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -822,7 +847,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"host required; single Pod fits in the host; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -845,7 +870,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"host required; single Pod fits in the host; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -867,7 +892,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"host required; single Pod fits in the host; BestFit; TASProfileMixed": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -890,7 +915,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"host preferred; single Pod fits in the host; BestFit; TASProfileMixed": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
@@ -914,7 +939,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"rack required; single Pod fits in a rack; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -938,7 +963,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; single Pod fits in a rack; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultThreeLevels,
@@ -961,7 +986,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack preferred; multiple Pods fits in multiple racks; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -992,7 +1017,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fits in a rack; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1016,7 +1041,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fit in a rack; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1064,7 +1089,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: []string{tasBlockLabel},
@@ -1092,7 +1117,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; multiple Pods fit in some racks; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1115,7 +1140,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack required; too many pods to fit in any rack; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1130,7 +1155,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"block required; single Pod fits in a block; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1157,7 +1182,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod fits in a block; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -1180,7 +1205,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; two Pods fits in a block; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultThreeLevels,
@@ -1209,7 +1234,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod fits in a block and a single rack; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1235,7 +1260,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod fits in a block spread across two racks; BestFit": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1268,7 +1293,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; Pods fit in a block spread across two racks; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1299,7 +1324,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; single Pod which cannot be split; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1312,7 +1337,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block required; too many Pods to fit requested; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1326,7 +1351,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		"rack required; single Pod requiring memory; MostFreeCapacity": {
 			// TODO: remove after dropping the TASMostFreeCapacity feature gate
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1350,7 +1375,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack preferred; but only block can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1381,7 +1406,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"rack preferred; but only multiple blocks can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasRackLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1419,7 +1444,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block preferred; but only multiple blocks can accommodate the workload; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1457,7 +1482,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		},
 		"block preferred; but the workload cannot be accommodate in entire topology; MostFreeCapacity": {
 			nodes: defaultNodes,
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred: ptr.To(tasBlockLabel),
 			},
 			levels: defaultTwoLevels,
@@ -1480,7 +1505,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					}).
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1507,7 +1532,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1545,7 +1570,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(tasRackLabel),
 			},
 			levels: defaultThreeLevels,
@@ -1574,7 +1599,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1617,7 +1642,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1657,7 +1682,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1686,7 +1711,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1725,7 +1750,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultOneLevel,
@@ -1763,7 +1788,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					}).
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1791,7 +1816,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Unschedulable().
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1823,7 +1848,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					}).
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1862,7 +1887,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 				},
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1905,7 +1930,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Request(corev1.ResourceCPU, "300m").
 					Obj(),
 			},
-			topologyRequest: kueue.PodSetTopologyRequest{
+			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required: ptr.To(corev1.LabelHostname),
 			},
 			nodeLabels: map[string]string{
@@ -1950,7 +1975,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			tasInput := TASPodSetRequests{
 				PodSet: &kueue.PodSet{
 					Name:            kueue.DefaultPodSetName,
-					TopologyRequest: &tc.topologyRequest,
+					TopologyRequest: tc.topologyRequest,
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Tolerations: tc.tolerations,
@@ -1959,6 +1984,9 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 				SinglePodRequests: tc.requests,
 				Count:             tc.count,
+			}
+			if tc.topologyRequest == nil {
+				tasInput.Implied = true
 			}
 			flavorTASRequests := []TASPodSetRequests{tasInput}
 			wantResult := make(TASAssignmentsResult)
