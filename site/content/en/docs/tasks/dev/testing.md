@@ -1,9 +1,9 @@
 ---
-title: "Running tests"
+title: "Running and debugging tests"
 linkTitle: "Running tests"
 weight: 25
 description: >
-  Running tests in Kueue
+  Running and debugging tests
 ---
 
 ## Running presubmission verification tests
@@ -28,18 +28,30 @@ go test ./pkg/webhooks -run TestValidateClusterQueue
 
 ### Running unit tests with race detection
 
+Use `-race` to enable Go's built-in race detector:
+```shell
+go test ./pkg/scheduler/preemption/ -race
+```
+
+### Running unit tests with stress
+
+To run unit tests in a loop and collect failures:
 ```shell
 # install go stress
 go install golang.org/x/tools/cmd/stress@latest
-# recompile with race instrumentation
-go test ./pkg/scheduler/preemption/ -race -c
+# compile tests (you can add -race for race detection)
+go test ./pkg/scheduler/preemption/ -c
 # it loops and reports failures
 stress ./preemption.test -test.run TestPreemption
 ```
 
 ## Running integration tests
 
-For running subset of tests see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+```shell
+make test-integration
+```
+
+For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ### Increase logging verbosity
 You can change log level in the framework (for example, change -3 to -5 to increase verbosity):
@@ -52,10 +64,19 @@ var setupLogger = sync.OnceFunc(func() {
 
 ## Running e2e tests using custom build
 ```shell
-make kind-image-build test-e2e
+make kind-image-build
+make test-e2e
+make test-tas-e2e
+make test-e2e-customconfigs
+make test-multikueue-e2e
 ```
 
-For running subset of tests see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+You can also change `kind` version by modifying `E2E_KIND_VERSION` variable:
+```shell
+E2E_KIND_VERSION=kindest/node:v1.32.0 make test-e2e
+```
+
+For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ## Debug tests in VSCode
 It is possible to debug unit and integration tests in VSCode.
@@ -66,12 +87,16 @@ func TestValidateClusterQueue(t *testing.T) {
 ```
 You can click on the `debug test` to debug a specific test.
 
-For integration tests, an additional step is needed.  Run `make test-integration | grep KUBEBUILDER_ASSETS` and add the path to the variable in settings.json:
+For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
+- Run `ENVTEST_K8S_VERSION=1.32 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {
     "KUBEBUILDER_ASSETS": "<path from output above>",
+    "KUEUE_BIN": "<path-to-your-kueue-folder>/bin",
   },
 ```
+And also add `KUEUE_BIN`
 
 ## Running subset of integration or e2e tests
 ### Use Ginkgo --focus arg
@@ -80,8 +105,9 @@ GINKGO_ARGS="--focus=Scheduler" make test-integration
 GINKGO_ARGS="--focus=Creating a Pod requesting TAS" make test-e2e
 ```
 ### Use ginkgo.FIt
-If you want to focus on a specific tests, you can change
-`ginkgo.It` to `ginkgo.FIt` for these tests [ref][https://onsi.github.io/ginkgo/#focused-specs].
+If you want to focus on specific tests, you can change
+`ginkgo.It` to `ginkgo.FIt` for these tests.
+For more details, see [here](https://onsi.github.io/ginkgo/#focused-specs).
 Then the other tests will be skipped.
 For example, you can change
 ```go
@@ -104,20 +130,12 @@ INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integrat
 ```
 
 ## Flaky integration/e2e tests
-You can use a script to repeatedly test:
+You can use --until-it-fails or --repeat=N arguments to Ginkgo to run tests repeatedly, such as:
 ```shell
-echo "going to test $NUM_TEST_ITERATIONS times"
-for i in $(seq 1 $NUM_TEST_ITERATIONS); do
-  GINKGO_ARGS="--focus=Scheduler" make test-integration >> loop-test.log 2>&1
-  echo iteration $i
-  grep -q "FAIL!" loop-test.log
-  if [ $? -eq 0 ]; then
-    echo "Test run contains FAILED tests"
-    exit 1
-  fi
-done
-echo "looped the test $NUM_TEST_ITERATIONS times"
+GINKGO_ARGS="--until-it-fails" make test-integration
+GINKGO_ARGS="--repeat=10" make test-e2e
 ```
+See more [here](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
 
 ### Adding stress
 You can run `stress` to increase CPU load during tests.
@@ -126,11 +144,6 @@ You can run `stress` to increase CPU load during tests.
 sudo apt install stress
 # run stress alongside tests
 /usr/bin/stress --cpu 80
-```
-
-And you can add --race to Ginkgo arguments for e2e tests (on integration tests it's already used):
-```shell
-GINKGO_ARGS="--race --focus=Scheduler" make test-e2e
 ```
 
 ### Analyzing logs
