@@ -439,7 +439,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Finishing the job's pod", func() {
-				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0)
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for the job to finish", func() {
@@ -533,7 +534,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Finishing the jobset pods", func() {
-				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, jobSet.Namespace, 4, 0)
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, jobSet.Namespace, 4, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for the jobSet to finish", func() {
@@ -575,9 +577,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", func() {
 			// Since it requires 2 CPU in total, this appwrapper can only be admitted in worker 1.
+			jobName := "job-1"
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
 				Queue(managerLq.Name).
-				Component(testingjob.MakeJob("job-1", managerNs.Name).
+				Component(testingjob.MakeJob(jobName, managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
@@ -605,7 +608,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Finishing the wrapped job's pods", func() {
-				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, aw.Namespace, 2, 0)
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
+				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, aw.Namespace, 2, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for the appwrapper to finish", func() {

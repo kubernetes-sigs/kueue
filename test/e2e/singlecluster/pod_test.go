@@ -17,13 +17,14 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -482,7 +483,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					for _, origPod := range defaultPriorityGroup {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodFailed))
+						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodFailed), fmt.Sprintf("%#v", p.Status))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -520,11 +521,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Call high priority group pods to complete", func() {
-				selector, err := labels.Parse("kueue.x-k8s.io/pod-group-name=high-priority-group")
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				listOpts := &client.ListOptions{
-					LabelSelector: selector,
-				}
+				listOpts := util.GetListOptsFromLabel("kueue.x-k8s.io/pod-group-name=high-priority-group")
 				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, listOpts)
 			})
 
