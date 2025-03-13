@@ -360,5 +360,22 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	if featureGateCLI != "" && featureGateMap != nil {
 		return errors.New("feature gates for CLI and configuration cannot both specified")
 	}
+	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed),
+		features.Enabled(features.TASProfileLeastFreeCapacity),
+		features.Enabled(features.TASProfileMostFreeCapacity),
+	}
+	enabledProfilesCount := 0
+	for _, enabled := range TASProfilesEnabled {
+		if enabled {
+			enabledProfilesCount++
+		}
+	}
+	if enabledProfilesCount > 1 {
+		return errors.New("Cannot use more than one TAS profiles")
+	}
+	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
+		return errors.New("Cannot use a TAS profile with TAS disabled")
+	}
+
 	return nil
 }

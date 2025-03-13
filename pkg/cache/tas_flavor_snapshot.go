@@ -438,7 +438,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	currFitDomain = s.updateCountsToMinimum(currFitDomain, count, unconstrained)
 	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
 		lowerFitDomains := s.lowerLevelDomains(currFitDomain)
-		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
+		sortedLowerDomains := s.sortedDomains(lowerFitDomains, unconstrained)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count, unconstrained)
 	}
 	return s.buildAssignment(currFitDomain), ""
@@ -517,9 +517,9 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomains(levelDomains)
+	sortedDomain := s.sortedDomains(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
-	if !features.Enabled(features.TASMostFreeCapacity) && topDomain.state >= count {
+	if useBestFitAlgorithm(unconstrained) && topDomain.state >= count {
 		// optimize the potentially last domain
 		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
@@ -534,7 +534,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		remainingCount := count
 		for idx := 0; remainingCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].state > 0; idx++ {
 			offset := 0
-			if !features.Enabled(features.TASMostFreeCapacity) && sortedDomain[idx].state >= remainingCount {
+			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].state >= remainingCount {
 				// optimize the last domain
 				offset = findBestFitDomainIdx(sortedDomain[idx:], remainingCount)
 			}
@@ -549,11 +549,30 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	return levelIdx, []*domain{topDomain}, ""
 }
 
+func useBestFitAlgorithm(unconstrained bool) bool {
+	if features.Enabled(features.TASProfileMostFreeCapacity) ||
+		features.Enabled(features.TASProfileLeastFreeCapacity) ||
+		(unconstrained && features.Enabled(features.TASProfileMixed)) {
+		// following the matrix from KEP#2724
+		return false
+	}
+	return true
+}
+
+func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
+	if features.Enabled(features.TASProfileLeastFreeCapacity) ||
+		(unconstrained && features.Enabled(features.TASProfileMixed)) {
+		// following the matrix from KEP#2724
+		return true
+	}
+	return false
+}
+
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
-		if !features.Enabled(features.TASMostFreeCapacity) && domain.state >= remainingCount {
+		if useBestFitAlgorithm(unconstrained) && domain.state >= remainingCount {
 			// optimize the last domain
 			mostAllocatedIdx := findBestFitDomainIdx(domains[i:], remainingCount)
 			domain = domains[i+mostAllocatedIdx]
@@ -610,7 +629,7 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
+func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		if a.state == b.state {
@@ -619,6 +638,10 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 		// descending order.
 		return cmp.Compare(b.state, a.state)
 	})
+	if useLeastFreeCapacityAlgorithm(unconstrained) {
+		// start from the domain with the least amount of free resources
+		slices.Reverse(result)
+	}
 	return result
 }
 
