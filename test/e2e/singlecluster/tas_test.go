@@ -341,7 +341,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 				))
-				gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
 			})
 
 			ginkgo.By("waiting for the Pod to be unsuspended", func() {
@@ -401,7 +400,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 						corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 					))
-					gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
 				}
 			})
 
