@@ -653,14 +653,9 @@ targetting CQs with only TAS Resource Flavors (RFs with the `spec.topologyName`
 field specified).
 
 A PodSet scheduled with TAS without the explicit annotation is handled as
-if it had the `podset-preferred-topology` annotation pointing to the lowest
+if it had the `podset-unconstrained-topology: true` annotation pointing to the lowest
 topology level defined in the Topology referenced by the selected TAS flavor.
 We call it "implicit default" as the annotation isn't persisted.
-
-To change the implicit default from `podset-preferred-topology` to `podset-unconstrained-topology`
-a user can switch on the `TASImplicitDefaultUnconstrained` feature gate.
-This feature gate is experimental, to collect user feedback. If users find this
-configuration valuable we will introduce a dedicated TAS configuration.
 
 ### Computing the assignment
 
