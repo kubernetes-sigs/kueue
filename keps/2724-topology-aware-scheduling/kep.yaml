@@ -34,7 +34,6 @@ feature-gates:
   - name: TASProfileLeastAllocated
   - name: TASProfileMixed
   - name: TASProfileLeastFreeCapacity
-  - name: TASImplicitDefaultUnconstrained
 disable-supported: true
 
 # The following PRR answers are required at beta release
