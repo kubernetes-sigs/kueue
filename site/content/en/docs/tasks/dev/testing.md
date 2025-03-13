@@ -96,7 +96,30 @@ For integration tests, an additional step is needed.  In settings.json, you need
     "KUEUE_BIN": "<path-to-your-kueue-folder>/bin",
   },
 ```
-And also add `KUEUE_BIN`
+
+For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visualstudio.com/items?itemName=joselitofilho.ginkgotestexplorer).  You need to add the following variables to settings.json:
+```json
+ "ginkgotestexplorer.testEnvVars": {
+        "KIND_CLUSTER_NAME": "kind",
+        "WORKER1_KIND_CLUSTER_NAME": "kind-worker1",
+        "MANAGER_KIND_CLUSTER_NAME": "kind-manager",
+        "WORKER2_KIND_CLUSTER_NAME": "kind-worker2",
+        "KIND": "<your_kueue_path>/bin/kind",
+    },
+```
+and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind clanter (see [here](#attach-e2e-tests-to-an-existing-kind cluster) for the instructions).
+
+## Attaching e2e tests to an existing kind cluster
+You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode, attaching them to the existing cluster.  For example, suppose you want to test some of the multikueue-e2e tests. Comment the last line of the `hack/multikueue-e2e-test.sh` and add `read -p "run your tests now"` instead:
+```shell
+#$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
+read -p "run your tests now"
+```
+Then, run `make kind-image-build test-multikueue-e2e` and wait for the `"run your tests now"` to appear.  The cluster is ready, and now you can run tests from another terminal:
+```shell
+<your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
+```
+or from VSCode.
 
 ## Running subset of integration or e2e tests
 ### Use Ginkgo --focus arg
