@@ -29,6 +29,7 @@
   - [Internal APIs](#internal-apis)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
+    - [Example](#example)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -430,6 +431,14 @@ const (
   // at the highest topology level, then it gets admitted as distributed
   // among multiple topology domains.
   PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
+
+  // PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+  // Kueue admits the PodSet if there's enough free capacity available.
+  // Recommended for PodSets that don't need low-latency or high-throughput pod-to-pod communication,
+  // but want to leverage TAS capabilities improve accuracy of admitting jobs
+  //
+  // +kubebuilder:validation:Type=boolean
+  PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 )
 ```
 
@@ -448,6 +457,10 @@ the rules is deactivated):
 - if "podset-required-topology" or "podset-preferred-topology" is specified for
   one PodTemplate, then one of them is specified for every PodTemplate in the
   Job spec.
+- the annotations `kueue.x-k8s.io/podset-required-topology`,
+  `kueue.x-k8s.io/podset-preferred-topology`, and `kueue.x-k8s.io/podset-unconstrained-topology`
+  are mutually exclusive.
+
 
 ### Internal APIs
 
@@ -477,6 +490,14 @@ type PodSetTopologyRequest struct {
   //
   // +optional
   Preferred *string `json:"preferred,omitempty"`
+
+  // unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+  // the entire available capacity, without constraints on the compactness of the placement.
+  // This is indicated by the `kueue.x-k8s.io/podset-unconstrained-topology` PodSet annotation.
+  //
+  // +optional
+  // +kubebuilder:validation:Type=boolean
+  Unconstrained *bool `json:"unconstrained,omitempty"`
 
   // PodIndexLabel indicates the name of the label indexing the pods.
   // For example, in the context of
@@ -636,6 +657,11 @@ if it had the `podset-preferred-topology` annotation pointing to the lowest
 topology level defined in the Topology referenced by the selected TAS flavor.
 We call it "implicit default" as the annotation isn't persisted.
 
+To change the implicit default from `podset-preferred-topology` to `podset-unconstrained-topology`
+a user can switch on the `TASImplicitDefaultUnconstrained` feature gate.
+This feature gate is experimental, to collect user feedback. If users find this
+configuration valuable we will introduce a dedicated TAS configuration.
+
 ### Computing the assignment
 
 The extended PodSet assignment is set on admitting the workload. In order to
@@ -663,11 +689,37 @@ For a given PodSet Kueue:
   level. Kueue starts the search from the specified level, but if the PodSet
   does not fit, then it tries higher levels in the hierarchy.
 
-Kueue packs pods on domains starting from the domains with the most free capacity. However, Kueue can operate in two modes when it comes to choosing the last domain if there is more than one capable of accommodating the remaining pods:
-- `MostAllocated` - Kueue chooses the domain with the least available resource that is capable of accommodating all the pods to mitigate resource fragmentation
-- `LeastAllocated` - Kueue chooses the domain that has the most available resources, providing better nodes utilization
+Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
+- `MostFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity;
+- `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
+- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
+However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
 
-By default Kueue uses the `MostAllocated` algorithm. To use `LeastAllocated` algorithm, a user needs to set the feature gate `TASLeastAllocated` to `true`
+#### Example
+Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
+
+Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes and select the first two nodes,
+each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule, the difference between the algorithms becomes apparent:
+- The `BestFit` algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
+- The `MostFreeCapacity` algorithm simply selects the node with the most remaining free capacity, which is 2 in this case.
+
+The `LeastFreeCapacity` algorithm iterates over the nodes in reverse order.
+Consequently, it selects the nodes with 1, 2, 3, and 3 available pods, reserving capacity for only 1 pod on the last node.
+
+Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
+
+| featuregate/annotation                   | preferred         | required          | unconstrained     |
+| ---------------------------------------- | ----------------- | ----------------- | ----------------- |
+| None                                     | BestFit           | BestFit           | BestFit           |
+| TASProfileMostFreeCapacity (deprecated)  | MostFreeCapacity  | MostFreeCapacity  | MostFreeCapacity  |
+| TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+
+Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
+
+We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
+Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
+Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
 
 ### Enforcing the assignment
 
@@ -762,6 +814,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   for node taints. Some options to consider include virtual level as proposed in
   the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
   or explicit level added by webhook.
+- introduce configuration for setting TAS profiles/algorithms
 
 #### Stable
 
