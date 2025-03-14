@@ -31,6 +31,8 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -296,4 +298,15 @@ func GetKuberayTestImage() string {
 	}
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
+}
+
+func CheckFinishStatusCondition(ctx context.Context, k8sClient client.Client, g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {
+	createdWorkload := &kueue.Workload{}
+	g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+	g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  kueue.WorkloadFinishedReasonSucceeded,
+		Message: finishReasonMessage,
+	}, IgnoreConditionTimestampsAndObservedGeneration))
 }
