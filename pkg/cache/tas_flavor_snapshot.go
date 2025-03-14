@@ -298,7 +298,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	tasPodSetRequests TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*kueue.TopologyAssignment, string) {
 	topologyRequest := tasPodSetRequests.PodSet.TopologyRequest
-	requests := tasPodSetRequests.SinglePodRequests
+	requests := tasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
 	count := tasPodSetRequests.Count
