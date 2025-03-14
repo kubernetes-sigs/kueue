@@ -25,6 +25,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -55,6 +57,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -69,6 +72,22 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+const (
+	defaultLogLevel = -3
+)
+
+func logLevel() int {
+	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
+	if err != nil {
+		return defaultLogLevel
+	}
+	return level
+}
+
+var SetupLogger = sync.OnceFunc(func() {
+	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, logLevel()))
+})
 
 type objAsPtr[T any] interface {
 	client.Object

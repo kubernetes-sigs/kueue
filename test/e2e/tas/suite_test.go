@@ -27,7 +27,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -51,7 +50,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	util.SetupLogger()
 
 	k8sClient, _ = util.CreateClientUsingCluster("")
 	ctx = context.Background()
