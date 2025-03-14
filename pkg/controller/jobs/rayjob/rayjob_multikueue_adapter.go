@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,6 +81,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
+	// clear the managedBy enables the controller to take over
+	remoteJob.Spec.ManagedBy = nil
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
@@ -95,6 +99,15 @@ func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	job := rayv1.RayJob{}
+	err := c.Get(ctx, key, &job)
+	if err != nil {
+		return false, "", err
+	}
+	jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
+	if jobControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	}
 	return true, "", nil
 }
 

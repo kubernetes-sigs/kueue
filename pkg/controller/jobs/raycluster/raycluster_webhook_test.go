@@ -122,6 +122,7 @@ func TestValidateDefault(t *testing.T) {
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
+				cache:                      cqCache,
 			}
 			result := tc.oldJob.DeepCopy()
 			if err := wh.Default(context.Background(), result); err != nil {

@@ -1635,7 +1635,8 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			},
 		)
 		rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
-			WithSubmissionMode(rayv1.UserMode).
+			WithSubmissionMode(rayv1.InteractiveMode).
+			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(managerLq.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, rayjob)).Should(gomega.Succeed())

@@ -195,8 +195,8 @@ func (j *ClusterWrapper) StatusConditions(c metav1.Condition) *ClusterWrapper {
 }
 
 // ManagedBy adds a managedby.
-func (j *ClusterWrapper) ManagedBy(_ string) *ClusterWrapper {
-	// j.Spec.ManagedBy = &c
+func (j *ClusterWrapper) ManagedBy(c string) *ClusterWrapper {
+	j.Spec.ManagedBy = &c
 	return j
 }
 
