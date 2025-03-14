@@ -17,8 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"maps"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -198,15 +196,6 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 
 func (c *ClusterQueueSnapshot) DominantResourceShare() int {
 	share, _ := dominantResourceShare(c, nil)
-	return share
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) int {
-	without := maps.Clone(wlReq)
-	for fr, q := range without {
-		without[fr] = -q
-	}
-	share, _ := dominantResourceShare(c, without)
 	return share
 }
 
