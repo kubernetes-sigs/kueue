@@ -73,7 +73,7 @@ func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	}
 }
 
-// WithAdapter - sets or updates the adapter of the MultiKueue adapters.
+// WithAdapters sets or updates the adapters of the MultiKueue adapters.
 func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
 	return func(o *SetupOptions) {
 		o.adapters = adapters

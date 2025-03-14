@@ -332,7 +332,6 @@ type FailureInfo struct {
 	Reason string
 }
 
-// the key in this map is PodSet name
 type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
 
 func (r TASAssignmentsResult) Failure() *FailureInfo {

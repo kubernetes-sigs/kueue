@@ -176,7 +176,7 @@ func (m *Manager[CQ, C]) resetCycleChecker() {
 	m.CycleChecker = CycleChecker{make(map[kueue.CohortReference]bool, len(m.cohorts))}
 }
 
-// A special constructor for using in tests
+// NewManagerForTest is a special constructor for using in tests
 func NewManagerForTest[CQ clusterQueueNode[C], C cohortNode[CQ, C]](cohorts map[kueue.CohortReference]C, clusterQueues map[kueue.ClusterQueueReference]CQ) Manager[CQ, C] {
 	return Manager[CQ, C]{
 		cohorts:       cohorts,

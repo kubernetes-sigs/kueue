@@ -200,7 +200,7 @@ func (j *TFJobWrapper) UID(uid string) *TFJobWrapper {
 	return j
 }
 
-// Condition adds a condition
+// StatusConditions adds a condition.
 func (j *TFJobWrapper) StatusConditions(c kftraining.JobCondition) *TFJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j

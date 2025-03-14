@@ -210,8 +210,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-// Only topology Creation or Delete can impact the CQ active state, so we
-// ignore other updates
+// NotifyTopologyUpdate triggers a topology update event only on creation or deletion,
+// as these are the only changes affecting the ClusterQueue's active state.
 func (r *ClusterQueueReconciler) NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology) {
 	// if oldTopology is nil, it's a create event.
 	if oldTopology == nil {
