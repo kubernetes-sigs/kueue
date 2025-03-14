@@ -30,14 +30,14 @@ type TargetNewShare int
 // its workload has been removed. It is used for rule S2-b.
 type TargetOldShare int
 
-type Strategy func(preemptorNewShare PreemptorNewShare, preempteeOldShare TargetOldShare, preempteeNewShare TargetNewShare) bool
+type Strategy func(PreemptorNewShare, TargetOldShare, TargetNewShare) bool
 
 // LessThanOrEqualToFinalShare implements Rule S2-a in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func LessThanOrEqualToFinalShare(preemptorNewShare PreemptorNewShare, _ TargetOldShare, preempteeNewShare TargetNewShare) bool {
-	return int(preemptorNewShare) <= int(preempteeNewShare)
+func LessThanOrEqualToFinalShare(preemptorNewShare PreemptorNewShare, _ TargetOldShare, targetNewShare TargetNewShare) bool {
+	return int(preemptorNewShare) <= int(targetNewShare)
 }
 
 // LessThanInitialShare implements rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func LessThanInitialShare(preemptorNewShare PreemptorNewShare, preempteeOldShare TargetOldShare, _ TargetNewShare) bool {
-	return int(preemptorNewShare) < int(preempteeOldShare)
+func LessThanInitialShare(preemptorNewShare PreemptorNewShare, targetOldShare TargetOldShare, _ TargetNewShare) bool {
+	return int(preemptorNewShare) < int(targetOldShare)
 }
