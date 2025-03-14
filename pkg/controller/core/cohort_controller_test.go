@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -51,9 +52,6 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 		t.Fatal("expected Cohort in snapshot")
 	}
 
-	if res := reconciler.Delete(event.DeleteEvent{Object: cohort}); !res {
-		t.Fatalf("unexpected cohort delete event result: %t", res)
-	}
 	if _, err := reconciler.Reconcile(
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)},
@@ -87,9 +85,6 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	}
 
 	cohort := utiltesting.MakeCohort("cohort").Obj()
-	if res := reconciler.Delete(event.DeleteEvent{Object: cohort}); !res {
-		t.Fatalf("unexpected cohort delete event result: %t", res)
-	}
 	if _, err := reconciler.Reconcile(
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)},
@@ -111,7 +106,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 	cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(cohortA, cohortB).
-		WithStatusSubresource(cohortA, cohortB).
+		WithStatusSubresource(&kueuealpha.Cohort{}).
 		Build()
 	ctx := context.Background()
 	cache := cache.New(cl)
@@ -194,7 +189,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
 		utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").FlavorQuotas,
 	).Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(cohort).Build()
+	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueuealpha.Cohort{}).Build()
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -265,9 +260,6 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		if err := cl.Delete(ctx, cohort); err != nil {
 			t.Fatal("unexpected error during deletion")
 		}
-		if res := reconciler.Delete(event.DeleteEvent{Object: cohort}); !res {
-			t.Fatalf("unexpected cohort delete event result: %t", res)
-		}
 		if _, err := reconciler.Reconcile(
 			ctx,
 			reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)},
@@ -292,16 +284,8 @@ func TestCohortReconcilerFilters(t *testing.T) {
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
-	t.Run("delete returns false", func(t *testing.T) {
-		if reconciler.Delete(event.DeleteEvent{}) {
-			t.Fatal("expected delete to return false")
-		}
-	})
-
 	t.Run("delete returns true", func(t *testing.T) {
-		if reconciler.Delete(event.DeleteEvent{
-			Object: utiltesting.MakeCohort("test-cohort"),
-		}) {
+		if !reconciler.Delete(event.DeleteEvent{}) {
 			t.Fatal("expected delete to return true")
 		}
 	})

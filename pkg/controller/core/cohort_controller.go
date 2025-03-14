@@ -22,6 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,8 +61,8 @@ type CohortReconciler struct {
 	log                logr.Logger
 	cache              *cache.Cache
 	qManager           *queue.Manager
-	fairSharingEnabled bool
 	cqUpdateCh         chan event.GenericEvent
+	fairSharingEnabled bool
 }
 
 func NewCohortReconciler(
@@ -79,15 +81,14 @@ func NewCohortReconciler(
 		log:                ctrl.Log.WithName("cohort-reconciler"),
 		cache:              cache,
 		qManager:           qManager,
-		fairSharingEnabled: options.FairSharingEnabled,
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
+		fairSharingEnabled: options.FairSharingEnabled,
 	}
 }
 
 func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	cqHandler := &cohortCqHandler{
-		client: r.client,
-		cache:  r.cache,
+		cache: r.cache,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Cohort{}).
@@ -195,8 +196,7 @@ func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *v1beta1.Cluste
 }
 
 type cohortCqHandler struct {
-	client client.Client
-	cache  *cache.Cache
+	cache *cache.Cache
 }
 
 func (h *cohortCqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
