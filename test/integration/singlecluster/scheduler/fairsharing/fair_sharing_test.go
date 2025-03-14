@@ -319,9 +319,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			//    /     \
 			//   cqL    cqR
 
-			rootCohort := testing.MakeCohort("root").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rootCohort)).To(gomega.Succeed())
-
 			cohortFirstLeft = testing.MakeCohort("first-left").Parent("root").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cohortFirstLeft)).To(gomega.Succeed())
 
