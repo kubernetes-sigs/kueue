@@ -26,7 +26,6 @@ const (
 	HashWithoutReplicasAndWorkersToDeleteKey = "ray.io/hash-without-replicas-and-workers-to-delete"
 	NumWorkerGroupsKey                       = "ray.io/num-worker-groups"
 	KubeRayVersion                           = "ray.io/kuberay-version"
-	RayJobSubmissionIdLabelKey               = "ray.io/ray-job-submission-id"
 
 	// In KubeRay, the Ray container must be the first application container in a head or worker Pod.
 	RayContainerIndex = 0
@@ -64,18 +63,15 @@ const (
 	DashSymbol = "-"
 
 	// Use as default port
-	DefaultClientPort = 10001
-	// For Ray >= 1.11.0, "DefaultRedisPort" actually refers to the GCS server port.
-	// However, the role of this port is unchanged in Ray APIs like ray.init and ray start.
-	// This is the port used by Ray workers and drivers inside the Ray cluster to connect to the Ray head.
-	DefaultRedisPort                = 6379
+	DefaultClientPort               = 10001
+	DefaultGcsServerPort            = 6379
 	DefaultDashboardPort            = 8265
 	DefaultMetricsPort              = 8080
 	DefaultDashboardAgentListenPort = 52365
 	DefaultServingPort              = 8000
 
 	ClientPortName    = "client"
-	RedisPortName     = "redis"
+	GcsServerPortName = "gcs-server"
 	DashboardPortName = "dashboard"
 	MetricsPortName   = "metrics"
 	ServingPortName   = "serve"
@@ -99,7 +95,9 @@ const (
 	FQ_RAY_IP                               = "FQ_RAY_IP"
 	RAY_PORT                                = "RAY_PORT"
 	RAY_ADDRESS                             = "RAY_ADDRESS"
+	RAY_REDIS_ADDRESS                       = "RAY_REDIS_ADDRESS"
 	REDIS_PASSWORD                          = "REDIS_PASSWORD"
+	REDIS_USERNAME                          = "REDIS_USERNAME"
 	RAY_DASHBOARD_ENABLE_K8S_DISK_USAGE     = "RAY_DASHBOARD_ENABLE_K8S_DISK_USAGE"
 	RAY_EXTERNAL_STORAGE_NS                 = "RAY_external_storage_namespace"
 	RAY_GCS_RPC_SERVER_RECONNECT_TIMEOUT_S  = "RAY_gcs_rpc_server_reconnect_timeout_s"
@@ -188,7 +186,12 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.2.2"
+	KUBERAY_VERSION = "v1.3.1"
+
+	// KubeRayController represents the value of the default job controller
+	KubeRayController = "ray.io/kuberay-operator"
+
+	ServeConfigLRUSize = 1000
 )
 
 type ServiceType string
@@ -233,6 +236,9 @@ func RayClusterReplicaFailureReason(err error) string {
 type K8sEventType string
 
 const (
+	// RayCluster event list
+	InvalidRayClusterStatus K8sEventType = "InvalidRayClusterStatus"
+	InvalidRayClusterSpec   K8sEventType = "InvalidRayClusterSpec"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
@@ -240,28 +246,41 @@ const (
 	FailedToDeleteHeadPod K8sEventType = "FailedToDeleteHeadPod"
 
 	// Worker Pod event list
-	CreatedWorkerPod        K8sEventType = "CreatedWorkerPod"
-	FailedToCreateWorkerPod K8sEventType = "FailedToCreateWorkerPod"
-	DeletedWorkerPod        K8sEventType = "DeletedWorkerPod"
-	FailedToDeleteWorkerPod K8sEventType = "FailedToDeleteWorkerPod"
+	CreatedWorkerPod                  K8sEventType = "CreatedWorkerPod"
+	FailedToCreateWorkerPod           K8sEventType = "FailedToCreateWorkerPod"
+	DeletedWorkerPod                  K8sEventType = "DeletedWorkerPod"
+	FailedToDeleteWorkerPod           K8sEventType = "FailedToDeleteWorkerPod"
+	FailedToDeleteWorkerPodCollection K8sEventType = "FailedToDeleteWorkerPodCollection"
 
 	// Redis Cleanup Job event list
 	CreatedRedisCleanupJob        K8sEventType = "CreatedRedisCleanupJob"
 	FailedToCreateRedisCleanupJob K8sEventType = "FailedToCreateRedisCleanupJob"
 
 	// RayJob event list
+	InvalidRayJobSpec             K8sEventType = "InvalidRayJobSpec"
+	InvalidRayJobStatus           K8sEventType = "InvalidRayJobStatus"
 	CreatedRayJobSubmitter        K8sEventType = "CreatedRayJobSubmitter"
 	DeletedRayJobSubmitter        K8sEventType = "DeletedRayJobSubmitter"
 	FailedToCreateRayJobSubmitter K8sEventType = "FailedToCreateRayJobSubmitter"
 	FailedToDeleteRayJobSubmitter K8sEventType = "FailedToDeleteRayJobSubmitter"
 	CreatedRayCluster             K8sEventType = "CreatedRayCluster"
+	UpdatedRayCluster             K8sEventType = "UpdatedRayCluster"
 	DeletedRayCluster             K8sEventType = "DeletedRayCluster"
 	FailedToCreateRayCluster      K8sEventType = "FailedToCreateRayCluster"
 	FailedToDeleteRayCluster      K8sEventType = "FailedToDeleteRayCluster"
+	FailedToUpdateRayCluster      K8sEventType = "FailedToUpdateRayCluster"
+
+	// RayService event list
+	InvalidRayServiceSpec           K8sEventType = "InvalidRayServiceSpec"
+	UpdatedHeadPodServeLabel        K8sEventType = "UpdatedHeadPodServeLabel"
+	UpdatedServeApplications        K8sEventType = "UpdatedServeApplications"
+	FailedToUpdateHeadPodServeLabel K8sEventType = "FailedToUpdateHeadPodServeLabel"
+	FailedToUpdateServeApplications K8sEventType = "FailedToUpdateServeApplications"
 
 	// Generic Pod event list
-	DeletedPod        K8sEventType = "DeletedPod"
-	FailedToDeletePod K8sEventType = "FailedToDeletePod"
+	DeletedPod                  K8sEventType = "DeletedPod"
+	FailedToDeletePod           K8sEventType = "FailedToDeletePod"
+	FailedToDeletePodCollection K8sEventType = "FailedToDeletePodCollection"
 
 	// Ingress event list
 	CreatedIngress        K8sEventType = "CreatedIngress"
@@ -273,7 +292,9 @@ const (
 
 	// Service event list
 	CreatedService        K8sEventType = "CreatedService"
+	UpdatedService        K8sEventType = "UpdatedService"
 	FailedToCreateService K8sEventType = "FailedToCreateService"
+	FailedToUpdateService K8sEventType = "FailedToUpdateService"
 
 	// ServiceAccount event list
 	CreatedServiceAccount            K8sEventType = "CreatedServiceAccount"
