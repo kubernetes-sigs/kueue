@@ -47,7 +47,7 @@ func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQ
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
-		requests:          resources.FlavorResourceQuantities{fr: quantity},
+		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	}) {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 			return false

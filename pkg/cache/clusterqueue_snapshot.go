@@ -69,11 +69,11 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-// SimulateUsageRemoval the snapshot by removing the usage corresponding to the
-// list of workloads. It returns the function which can be used to restore
-// the usage.
-func (c *ClusterQueueSnapshot) SimulateUsageRemoval(workloads []*workload.Info) func() {
-	var usage []workload.Usage
+// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// corresponding to the list of workloads. It returns a function which
+// can be used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	usage := make([]workload.Usage, 0, len(workloads))
 	for _, w := range workloads {
 		usage = append(usage, w.Usage())
 	}
@@ -84,6 +84,24 @@ func (c *ClusterQueueSnapshot) SimulateUsageRemoval(workloads []*workload.Info) 
 		for _, u := range usage {
 			c.AddUsage(u)
 		}
+	}
+}
+
+// SimulateUsageAddition modifies the snapshot by adding usage, and
+// returns a function used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateUsageAddition(usage workload.Usage) func() {
+	c.AddUsage(usage)
+	return func() {
+		c.RemoveUsage(usage)
+	}
+}
+
+// SimulateUsageRemoval modifies the snapshot by removing usage, and
+// returns a function used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func() {
+	c.RemoveUsage(usage)
+	return func() {
+		c.AddUsage(usage)
 	}
 }
 
@@ -180,11 +198,6 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 
 func (c *ClusterQueueSnapshot) DominantResourceShare() int {
 	share, _ := dominantResourceShare(c, nil)
-	return share
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) int {
-	share, _ := dominantResourceShare(c, wlReq)
 	return share
 }
 
