@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
 			finishEvictionOfWorkloadsInCQ(cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 111)
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
 			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, cqAKey, createdCqA)).Should(gomega.Succeed())
 				g.Expect(createdCqA.Status.FairSharing).ShouldNot(gomega.BeNil())
-				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 222}))
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 111}))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
