@@ -87,6 +87,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-kubeflow-org-v1-jaxjob
+  failurePolicy: Fail
+  name: mjaxjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - jaxjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubeflow-org-v1-paddlejob
   failurePolicy: Fail
   name: mpaddlejob.kb.io
@@ -415,6 +434,26 @@ webhooks:
     - UPDATE
     resources:
     - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubeflow-org-v1-jaxjob
+  failurePolicy: Fail
+  name: vjaxjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - jaxjobs
   sideEffects: None
 - admissionReviewVersions:
   - v1
