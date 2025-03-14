@@ -34,8 +34,11 @@ func (t *TargetClusterQueue) InClusterQueuePreemption() bool {
 }
 
 func (t *TargetClusterQueue) PopWorkload() *workload.Info {
-	head := t.ordering.clusterQueueToTarget[t.targetCq.GetName()][0]
-	t.ordering.clusterQueueToTarget[t.targetCq.GetName()] = t.ordering.clusterQueueToTarget[t.targetCq.GetName()][1:]
+	cqt := t.ordering.clusterQueueToTarget
+	cqName := t.targetCq.GetName()
+
+	head := cqt[cqName][0]
+	cqt[cqName] = cqt[cqName][1:]
 	return head
 }
 
@@ -48,22 +51,24 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 // do not depend on the removal of the workload being considered for
 // preemption.
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
-	preemptorAlmostLca, targetAlmostLca := getAlmostLcas(t)
-	return PreemptorNewShare(preemptorAlmostLca.DominantResourceShare()), TargetOldShare(targetAlmostLca.DominantResourceShare())
+	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
+	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
 }
 
-// ComputeTargetNewShare returns DominantResourceShare of the
+// ComputeTargetShareAfterRemoval returns DominantResourceShare of the
 // TargetClusterQueue's AlmostLeastCommonAncestor, after removing
 // provided workload.
 //
-// This simulation is required, as we need to update usage while
-// respecting lending and borrowing limits, which the cache/snapshot
-// implements.
-func (t *TargetClusterQueue) ComputeTargetNewShare(wl *workload.Info) TargetNewShare {
-	_, almostLca := getAlmostLcas(t)
+// This simulation is required so that new usage is accounted for in
+// each of the ClusterQueue's parent Cohorts.  We can't trivially do
+// this operation on just the almostLCA, as usage stored at almostLCA
+// will depend on LendingLimits of the children. See
+// cache.resource_node.go.
+func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) TargetNewShare {
+	_, almostLCA := getAlmostLCAs(t)
 	usage := wl.Usage()
 	revertSimulation := t.targetCq.SimulateUsageRemoval(usage)
-	drs := almostLca.DominantResourceShare()
+	drs := almostLCA.DominantResourceShare()
 	revertSimulation()
 	return TargetNewShare(drs)
 }

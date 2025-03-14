@@ -166,7 +166,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 		// root, as there may be imbalance within some
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
-		// if its children have been pruned.
+		// of its children have been pruned.
 		if drs == 0 && !t.onPathToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
 		} else if drs >= highestCohortDrs {
