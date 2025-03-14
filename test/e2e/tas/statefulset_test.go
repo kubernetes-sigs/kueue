@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, sts)
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				createdStatefulSet := &appsv1.StatefulSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).To(gomega.Succeed())

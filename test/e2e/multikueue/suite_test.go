@@ -105,6 +105,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs/status", "get"),
 			policyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
 			policyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),

@@ -170,6 +170,41 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
+      - jaxjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - jaxjobs/finalizers
+      - mpijobs/finalizers
+      - paddlejobs/finalizers
+      - pytorchjobs/finalizers
+      - tfjobs/finalizers
+      - xgboostjobs/finalizers
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - jaxjobs/status
+      - mpijobs/status
+      - paddlejobs/status
+      - pytorchjobs/status
+      - tfjobs/status
+      - xgboostjobs/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - kubeflow.org
+    resources:
       - mpijobs
       - paddlejobs
       - pytorchjobs
@@ -182,29 +217,6 @@ rules:
       - patch
       - update
       - watch
-  - apiGroups:
-      - kubeflow.org
-    resources:
-      - mpijobs/finalizers
-      - paddlejobs/finalizers
-      - pytorchjobs/finalizers
-      - tfjobs/finalizers
-      - xgboostjobs/finalizers
-    verbs:
-      - get
-      - update
-  - apiGroups:
-      - kubeflow.org
-    resources:
-      - mpijobs/status
-      - paddlejobs/status
-      - pytorchjobs/status
-      - tfjobs/status
-      - xgboostjobs/status
-    verbs:
-      - get
-      - patch
-      - update
   - apiGroups:
       - kueue.x-k8s.io
     resources:
