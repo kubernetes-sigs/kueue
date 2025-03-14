@@ -13,3 +13,4 @@ spec:
         - --enable-scheme=pytorchjob
         - --enable-scheme=xgboostjob
         - --enable-scheme=paddlejob
+        - --enable-scheme=jaxjob
