@@ -114,8 +114,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						},
 					},
 				).
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
 				Limit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
