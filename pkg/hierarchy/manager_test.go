@@ -488,7 +488,8 @@ func TestCycles(t *testing.T) {
 					t.Errorf("-want +got: %v %v", tc.wantCycles[cohort.GetName()], got)
 				}
 			}
-			if diff := cmp.Diff(mgr.CycleChecker.cycles, tc.wantCycles); diff != "" {
+
+			if diff := cmp.Diff(mgr.CycleChecker.cycles.ToMap(), tc.wantCycles); diff != "" {
 				t.Errorf("-want +got: %v", diff)
 			}
 		})
