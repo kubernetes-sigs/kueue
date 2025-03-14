@@ -16,14 +16,28 @@ limitations under the License.
 
 package fairsharing
 
-type Strategy func(preemptorNewShare, preempteeOldShare, preempteeNewShare int) bool
+// PreemptorNewShare is the DominantResourceShare of the Preemptor
+// after the incoming workload's usage has been added. It is used for
+// both rules S2-a and S2-b
+type PreemptorNewShare int
+
+// TargetNewShare is the DominantResourceShare of the Preemptee after
+// its preempted workload's usage has been removed. It is used for
+// rule S2-a.
+type TargetNewShare int
+
+// TargetOldShare is the DominantResourceShare of the Preemptee before
+// its workload has been removed. It is used for rule S2-b.
+type TargetOldShare int
+
+type Strategy func(preemptorNewShare PreemptorNewShare, preempteeOldShare TargetOldShare, preempteeNewShare TargetNewShare) bool
 
 // LessThanOrEqualToFinalShare implements Rule S2-a in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func LessThanOrEqualToFinalShare(preemptorNewShare, _, preempteeNewShare int) bool {
-	return preemptorNewShare <= preempteeNewShare
+func LessThanOrEqualToFinalShare(preemptorNewShare PreemptorNewShare, _ TargetOldShare, preempteeNewShare TargetNewShare) bool {
+	return int(preemptorNewShare) <= int(preempteeNewShare)
 }
 
 // LessThanInitialShare implements rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func LessThanInitialShare(preemptorNewShare, preempteeOldShare, _ int) bool {
-	return preemptorNewShare < preempteeOldShare
+func LessThanInitialShare(preemptorNewShare PreemptorNewShare, preempteeOldShare TargetOldShare, _ TargetNewShare) bool {
+	return int(preemptorNewShare) < int(preempteeOldShare)
 }

@@ -370,7 +370,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
-	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
+	newNominatedShareValue := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(requests))
 	var targets []*Target
 	var retryCandidates []*workload.Info
 	for cqHeap.Len() > 0 {
@@ -386,17 +386,17 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			if workloadFits(preemptionCtx, true) {
 				return true, targets, nil
 			}
-			newNominatedShareValue = preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
+			newNominatedShareValue = fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(requests))
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
-				candCQ.share = candCQ.cq.DominantResourceShare()
+				candCQ.share = fairsharing.TargetOldShare(candCQ.cq.DominantResourceShare())
 				cqHeap.PushIfNotPresent(candCQ)
 			}
 			continue
 		}
 
 		for i, candWl := range candCQ.workloads {
-			newCandShareVal := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
+			newCandShareVal := fairsharing.TargetNewShare(candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage()))
 			if strategy(newNominatedShareValue, candCQ.share, newCandShareVal) {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				reason := kueue.InCohortFairSharingReason
@@ -410,7 +410,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				}
 				candCQ.workloads = candCQ.workloads[i+1:]
 				if len(candCQ.workloads) > 0 && cqIsBorrowing(candCQ.cq, preemptionCtx.frsNeedPreemption) {
-					candCQ.share = newCandShareVal
+					candCQ.share = fairsharing.TargetOldShare(newCandShareVal)
 					cqHeap.PushIfNotPresent(candCQ)
 				}
 				// Might need to pick a different CQ due to changing values.
@@ -427,7 +427,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 // (fits, targets).
 func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
 	cqHeap := cqHeapFromCandidates(retryCandidates, true, preemptionCtx.snapshot)
-	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.requests)
+	newNominatedShareValue := fairsharing.PreemptorNewShare(preemptionCtx.preemptorCQ.DominantResourceShareWith(preemptionCtx.requests))
 	for cqHeap.Len() > 0 {
 		candCQ := cqHeap.Pop()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
@@ -472,7 +472,7 @@ func fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, 
 type candidateCQ struct {
 	cq        *cache.ClusterQueueSnapshot
 	workloads []*workload.Info
-	share     int
+	share     fairsharing.TargetOldShare
 }
 
 func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
@@ -491,7 +491,7 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 			share := cq.DominantResourceShare()
 			candCQ = &candidateCQ{
 				cq:        cq,
-				share:     share,
+				share:     fairsharing.TargetOldShare(share),
 				workloads: []*workload.Info{cand},
 			}
 			cqHeap.PushOrUpdate(candCQ)
