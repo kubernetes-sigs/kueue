@@ -20,7 +20,7 @@ You can [modify kueue configurations from installed releases](/docs/installation
 
 {{% alert title="Note" color="primary" %}}
 In order to use MPIJob, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
+You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
 {{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
