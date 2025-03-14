@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -105,6 +106,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 	cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(cohortA, cohortB).
+		WithStatusSubresource(&kueuealpha.Cohort{}).
 		Build()
 	ctx := context.Background()
 	cache := cache.New(cl)
@@ -116,7 +118,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortA)},
 	); err != nil {
-		t.Fatal("unexpected error")
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// cycle added, no error
@@ -187,7 +189,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
 		utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").FlavorQuotas,
 	).Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(cohort).Build()
+	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueuealpha.Cohort{}).Build()
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)

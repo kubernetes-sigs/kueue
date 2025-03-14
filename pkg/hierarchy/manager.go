@@ -20,6 +20,7 @@ import (
 	"maps"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
@@ -39,7 +40,7 @@ func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(kueu
 		make(map[kueue.CohortReference]C),
 		make(map[kueue.ClusterQueueReference]CQ),
 		newCohort,
-		CycleChecker{make(map[kueue.CohortReference]bool)},
+		CycleChecker{cycles: utilmaps.NewSyncMap[kueue.CohortReference, bool](0)},
 	}
 }
 
@@ -173,7 +174,7 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 }
 
 func (m *Manager[CQ, C]) resetCycleChecker() {
-	m.CycleChecker = CycleChecker{make(map[kueue.CohortReference]bool, len(m.cohorts))}
+	m.CycleChecker = CycleChecker{cycles: utilmaps.NewSyncMap[kueue.CohortReference, bool](len(m.cohorts))}
 }
 
 // NewManagerForTest is a special constructor for using in tests

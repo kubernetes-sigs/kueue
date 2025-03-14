@@ -52,6 +52,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		fairSharingEnabled = cfg.FairSharing.Enable
 	}
 
+	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager, CohortReconcilerWithFairSharing(fairSharingEnabled))
+	if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
+		return "Cohort", err
+	}
+
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
 		qManager,
@@ -60,7 +65,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithFairSharing(fairSharingEnabled),
-		WithWatchers(rfRec, acRec),
+		WithWatchers(rfRec, acRec, cohortRec),
 	)
 	if err := mgr.Add(cqRec); err != nil {
 		return "Unable to add ClusterQueue to manager", err
@@ -69,11 +74,6 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	acRec.AddUpdateWatchers(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
-	}
-
-	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager)
-	if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
-		return "Cohort", err
 	}
 
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,

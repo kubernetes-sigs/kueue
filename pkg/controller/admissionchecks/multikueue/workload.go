@@ -449,7 +449,7 @@ func (w *wlReconciler) Create(_ event.CreateEvent) bool {
 
 func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
 	if wl, isWl := de.Object.(*kueue.Workload); isWl && !de.DeleteStateUnknown {
-		w.deletedWlCache.Add(client.ObjectKeyFromObject(wl).String(), wl)
+		w.deletedWlCache.Set(client.ObjectKeyFromObject(wl).String(), wl)
 	}
 	return true
 }

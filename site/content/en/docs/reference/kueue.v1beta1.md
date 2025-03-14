@@ -999,8 +999,7 @@ instead.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <p>FairSharing contains the information about the current status of fair sharing.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 </tbody>
 </table>
@@ -1064,6 +1063,8 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
+
+<p>fairSharing contains the information about the current status of fair sharing.</p>
 
 
 <table class="table">

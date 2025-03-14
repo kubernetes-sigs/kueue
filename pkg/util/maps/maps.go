@@ -102,7 +102,7 @@ func NewSyncMap[K comparable, V any](size int) *SyncMap[K, V] {
 	}
 }
 
-func (dwc *SyncMap[K, V]) Add(k K, v V) {
+func (dwc *SyncMap[K, V]) Set(k K, v V) {
 	dwc.lock.Lock()
 	defer dwc.lock.Unlock()
 	dwc.m[k] = v
@@ -125,4 +125,14 @@ func (dwc *SyncMap[K, V]) Delete(k K) {
 	dwc.lock.Lock()
 	defer dwc.lock.Unlock()
 	delete(dwc.m, k)
+}
+
+func (dwc *SyncMap[K, V]) ToMap() map[K]V {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	m := make(map[K]V)
+	for key, val := range dwc.m {
+		m[key] = val
+	}
+	return m
 }
