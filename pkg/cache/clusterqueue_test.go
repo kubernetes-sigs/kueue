@@ -148,7 +148,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 					tc.cq,
 				)
 			cl := clientBuilder.Build()

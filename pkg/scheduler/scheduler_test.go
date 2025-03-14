@@ -2965,11 +2965,11 @@ func TestSchedule(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(append(
 					[]client.Object{
-						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
-						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
-						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
-						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
-						&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "lend", Labels: map[string]string{"dep": "lend"}}},
+						utiltesting.MakeNamespaceWrapper("eng-alpha").Label("dep", "eng").Obj(),
+						utiltesting.MakeNamespaceWrapper("eng-beta").Label("dep", "eng").Obj(),
+						utiltesting.MakeNamespaceWrapper("eng-gamma").Label("dep", "eng").Obj(),
+						utiltesting.MakeNamespaceWrapper("sales").Label("dep", "sales").Obj(),
+						utiltesting.MakeNamespaceWrapper("lend").Label("dep", "lend").Obj(),
 					}, tc.objects...,
 				)...)
 			cl := clientBuilder.Build()
@@ -3776,7 +3776,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					&kueue.ClusterQueueList{Items: tc.cqs},
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 				)
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
@@ -3966,7 +3966,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			scheme := runtime.NewScheme()
 
 			updates := 0
-			objs := []client.Object{w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}}}
+			objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
 			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 					updates++
@@ -5449,7 +5449,7 @@ func TestScheduleForTAS(t *testing.T) {
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 				)
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
@@ -6010,7 +6010,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 				)
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
@@ -7183,7 +7183,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 				)
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()

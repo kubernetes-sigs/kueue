@@ -26,7 +26,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -143,9 +142,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 	// Setup.
 	ctx := context.Background()
-	cl := utiltesting.NewFakeClient(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
-	)
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 	manager := NewManager(cl, nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -227,9 +224,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	wl := utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
 	// Setup.
 	ctx := context.Background()
-	cl := utiltesting.NewFakeClient(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
-	)
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 	manager := NewManager(cl, nil)
 	for _, cohort := range cohorts {
 		manager.AddOrUpdateCohort(ctx, cohort)
@@ -260,9 +255,7 @@ func TestClusterQueueToActive(t *testing.T) {
 	stoppedCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "ByTest", "by test").Obj()
 	runningCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "ByTest", "by test").Obj()
 	ctx := context.Background()
-	cl := utiltesting.NewFakeClient(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
-	)
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 	manager := NewManager(cl, nil)
 
 	wgCounterStart := sync.WaitGroup{}

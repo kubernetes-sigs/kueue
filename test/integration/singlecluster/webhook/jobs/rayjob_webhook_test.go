@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -36,11 +35,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "rayjob-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("rayjob-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 

@@ -38,11 +38,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("e2e-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {

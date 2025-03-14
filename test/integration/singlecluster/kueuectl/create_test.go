@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
+		ns = testing.MakeNamespaceWithGenerateName("ns-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		cq = testing.MakeClusterQueue("cq").Obj()

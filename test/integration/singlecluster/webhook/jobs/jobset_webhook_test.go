@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -37,11 +36,7 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "jobset-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("jobset-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {

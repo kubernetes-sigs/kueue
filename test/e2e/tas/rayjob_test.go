@@ -45,11 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-rayjob-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("e2e-tas-rayjob-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")

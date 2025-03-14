@@ -84,11 +84,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "provisioning-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
@@ -921,11 +917,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
 			})
 
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "provisioning-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
@@ -1154,11 +1146,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
 			})
 
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "provisioning-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 			prc = baseConfigWithParameters.Clone().RetryLimit(1).BaseBackoff(1).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
@@ -1504,11 +1492,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			updatedWl      kueue.Workload
 		)
 		ginkgo.JustBeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "provisioning-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())

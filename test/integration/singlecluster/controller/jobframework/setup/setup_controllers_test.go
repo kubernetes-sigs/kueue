@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -51,11 +50,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
 
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		flavor = testing.MakeResourceFlavor("on-demand").Obj()

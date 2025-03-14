@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,11 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-mpijob-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("e2e-tas-mpijob-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")

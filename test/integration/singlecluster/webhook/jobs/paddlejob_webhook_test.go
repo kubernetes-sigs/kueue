@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -40,11 +39,7 @@ var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "paddle-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("paddle-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 

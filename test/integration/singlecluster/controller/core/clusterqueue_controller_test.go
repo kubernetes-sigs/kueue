@@ -89,11 +89,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-clusterqueue-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("core-clusterqueue-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 
@@ -957,11 +953,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-clusterqueue-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("core-clusterqueue-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 

@@ -61,11 +61,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "unmanaged-ns",
-			},
-		}
+		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
 		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
@@ -76,11 +72,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -695,11 +687,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -774,11 +762,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -985,11 +969,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -1181,11 +1161,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-jobset-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("tas-jobset-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		nodes = []corev1.Node{

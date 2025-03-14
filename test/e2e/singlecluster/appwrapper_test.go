@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -46,11 +45,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "appwrapper-e2e-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("appwrapper-e2e-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).

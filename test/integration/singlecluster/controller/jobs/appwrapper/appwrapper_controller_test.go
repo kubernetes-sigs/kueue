@@ -63,11 +63,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "unmanaged-ns",
-			},
-		}
+		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
 		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
@@ -78,11 +74,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "aw-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("aw-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -520,11 +512,7 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "aw-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("aw-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -591,11 +579,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "aw-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("aw-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -782,11 +766,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "aw-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("aw-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -867,11 +847,7 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-aw-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("tas-aw-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		nodes = []corev1.Node{

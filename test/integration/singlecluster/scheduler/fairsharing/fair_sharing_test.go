@@ -48,11 +48,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("core-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 

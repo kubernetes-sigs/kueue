@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,11 +47,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "raycluster-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("raycluster-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 
@@ -106,11 +101,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "raycluster-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("raycluster-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 

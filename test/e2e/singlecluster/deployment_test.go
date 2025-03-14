@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -50,11 +49,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "deployment-e2e-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("deployment-e2e-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).

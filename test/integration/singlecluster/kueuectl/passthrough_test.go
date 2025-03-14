@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/set"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -68,7 +67,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
+		ns = testing.MakeNamespaceWithGenerateName("ns-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 

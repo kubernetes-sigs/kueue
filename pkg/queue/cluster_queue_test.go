@@ -290,9 +290,9 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 func TestClusterQueueImpl(t *testing.T) {
 	cl := utiltesting.NewFakeClient(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Labels: map[string]string{"dep": "eng"}}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Labels: map[string]string{"dep": "sales"}}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns3", Labels: map[string]string{"dep": "marketing"}}},
+		utiltesting.MakeNamespaceWrapper("ns1").Label("dep", "eng").Obj(),
+		utiltesting.MakeNamespaceWrapper("ns2").Label("dep", "sales").Obj(),
+		utiltesting.MakeNamespaceWrapper("ns3").Label("dep", "marketing").Obj(),
 	)
 
 	now := time.Now()
@@ -463,12 +463,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	cl := utiltesting.NewFakeClient(
-		wl,
-		&corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace},
-		},
-	)
+	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
 	ctx := context.Background()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 
