@@ -399,6 +399,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
+			labels:             q.Labels,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 		}
@@ -449,6 +450,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
+		// eagerly delete metrics
 		for _, q := range c.hm.ClusterQueue(cqName).localQueues {
 			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
 		}

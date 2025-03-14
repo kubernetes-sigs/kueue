@@ -37,14 +37,15 @@ func DefaultQueueKey(namespace string) string {
 type LocalQueue struct {
 	Key          string
 	ClusterQueue kueue.ClusterQueueReference
-
-	items map[string]*workload.Info
+	Labels       map[string]string
+	items        map[string]*workload.Info
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
-		Key:   Key(q),
-		items: make(map[string]*workload.Info),
+		Key:    Key(q),
+		items:  make(map[string]*workload.Info),
+		Labels: q.Labels,
 	}
 	qImpl.update(q)
 	return qImpl
@@ -52,6 +53,7 @@ func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 
 func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
 	q.ClusterQueue = apiQueue.Spec.ClusterQueue
+	q.Labels = apiQueue.Labels
 }
 
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
