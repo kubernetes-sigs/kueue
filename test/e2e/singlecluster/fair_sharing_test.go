@@ -89,6 +89,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("the cluster queue starts borrowing", func() {

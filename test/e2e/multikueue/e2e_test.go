@@ -199,6 +199,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster1, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster2, true)
+
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {

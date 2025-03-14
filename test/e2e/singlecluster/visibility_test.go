@@ -77,6 +77,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsA)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsB)).To(gomega.Succeed())
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, nsA)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, nsB)
 	})
 
 	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
