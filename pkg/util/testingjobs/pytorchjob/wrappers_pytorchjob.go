@@ -215,7 +215,7 @@ func (j *PyTorchJobWrapper) PodLabel(replicaType kftraining.ReplicaType, k, v st
 	return j
 }
 
-// Condition adds a condition
+// StatusConditions adds a condition.
 func (j *PyTorchJobWrapper) StatusConditions(c kftraining.JobCondition) *PyTorchJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j

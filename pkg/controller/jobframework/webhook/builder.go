@@ -69,7 +69,7 @@ func (blder *WebhookBuilder) For(apiType runtime.Object) *WebhookBuilder {
 	return blder
 }
 
-// WithDefaulter takes an admission.CustomDefaulter interface, a MutatingWebhook will be wired for this type.
+// WithMutationHandler takes an admission.CustomDefaulter interface, a MutatingWebhook will be wired for this type.
 func (blder *WebhookBuilder) WithMutationHandler(h admission.Handler) *WebhookBuilder {
 	blder.mutationHandler = h
 	return blder

@@ -152,7 +152,7 @@ func (aw *AppWrapperWrapper) Suspend(s bool) *AppWrapperWrapper {
 	return aw
 }
 
-// StatusCondition sets a status condition of the AppWrapper.
+// SetCondition sets a status condition of the AppWrapper.
 func (aw *AppWrapperWrapper) SetCondition(condition metav1.Condition) *AppWrapperWrapper {
 	meta.SetStatusCondition(&aw.Status.Conditions, condition)
 	return aw
