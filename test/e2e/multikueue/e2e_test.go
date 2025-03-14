@@ -789,6 +789,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdRayJob := &rayv1.RayJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+					g.Expect(createdRayJob.Spec.ManagedBy).To(gomega.Equal(ptr.To(kueue.MultiKueueControllerName)))
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 					finishReasonMessage := "Job finished successfully."
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
@@ -831,6 +832,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdRayCluster := &rayv1.RayCluster{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+					g.Expect(createdRayCluster.Spec.ManagedBy).To(gomega.Equal(ptr.To(kueue.MultiKueueControllerName)))
 					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
@@ -841,6 +843,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					updatedCluster := &rayv1.RayCluster{}
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(raycluster), updatedCluster)).To(gomega.Succeed())
+					// make sure managedBy was set to nil on worker
+					g.Expect(updatedCluster.Spec.ManagedBy).To(gomega.BeNil())
 					updatedCluster.Spec.Suspend = ptr.To(true)
 					g.Expect(k8sWorker1Client.Update(ctx, updatedCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

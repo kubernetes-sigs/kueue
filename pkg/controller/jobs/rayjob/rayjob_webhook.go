@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -46,6 +47,7 @@ type RayJobWebhook struct {
 	queues                       *queue.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	cache                        *cache.Cache
 }
 
 // SetupRayJobWebhook configures the webhook for RayJob.
@@ -56,6 +58,7 @@ func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		cache:                        options.Cache,
 	}
 	obj := &rayv1.RayJob{}
 	return webhook.WebhookManagedBy(mgr).
@@ -71,11 +74,15 @@ var _ admission.CustomDefaulter = &RayJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*rayv1.RayJob)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
-	jobframework.ApplyDefaultLocalQueue((*RayJob)(job).Object(), w.queues.DefaultLocalQueueExist)
-	return jobframework.ApplyDefaultForSuspend(ctx, (*RayJob)(job), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-ray-io-v1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1,name=vrayjob.kb.io,admissionReviewVersions=v1
