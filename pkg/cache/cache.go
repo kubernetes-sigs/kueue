@@ -719,7 +719,7 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	c.RLock()
 	defer c.RUnlock()
 
-	if len(cqObj.Spec.Cohort) == 0 {
+	if cqObj.Spec.Cohort == "" {
 		return nil, nil
 	}
 

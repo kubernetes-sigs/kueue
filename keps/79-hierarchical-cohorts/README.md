@@ -173,7 +173,6 @@ type CohortSpec struct {
 }
 
 type CohortStatus struct {
-    // FairSharing contains the information about the current status of fair sharing.
     // +optional
     FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
 }

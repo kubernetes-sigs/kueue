@@ -163,8 +163,6 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	stats, err := r.cache.CohortStats(cohort)
 	if err != nil {
 		log.Error(err, "Failed getting cohort usage from cache")
-		// This is likely because the cohort was recently removed,
-		// but we didn't process that event yet.
 		return err
 	}
 

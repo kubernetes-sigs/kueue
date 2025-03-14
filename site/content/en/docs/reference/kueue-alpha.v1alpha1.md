@@ -154,8 +154,7 @@ if FairSharing is enabled in the Kueue configuration.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <p>FairSharing contains the information about the current status of fair sharing.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 </tbody>
 </table>
