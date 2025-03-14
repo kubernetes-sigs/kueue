@@ -1007,3 +1007,11 @@ func FindDeploymentCondition(deployment *appsv1.Deployment, deploymentType appsv
 	}
 	return nil
 }
+
+func GetListOptsFromLabel(label string) *client.ListOptions {
+	selector, err := labels.Parse(label)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return &client.ListOptions{
+		LabelSelector: selector,
+	}
+}
