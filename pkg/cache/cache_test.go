@@ -3867,16 +3867,24 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cq:            utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
 			wantAncestors: []kueue.CohortReference{"second-left", "first-left"},
 		},
+		"with cycle": {
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Parent("second-right").Obj(),
+				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
+				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
+				utiltesting.MakeCohort("second-left").Parent("first-left").Obj(),
+				utiltesting.MakeCohort("second-right").Parent("first-left").Obj(),
+			},
+			cq:      utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
+			wantErr: ErrCohortHasCycle,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			client := utiltesting.NewClientBuilder().Build()
 			cache := New(client)
 			for _, cohort := range tc.cohorts {
-				err := cache.AddOrUpdateCohort(cohort)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				_ = cache.AddOrUpdateCohort(cohort)
 			}
 
 			gotAncestors, gotErr := cache.ClusterQueueAncestors(tc.cq)
