@@ -390,7 +390,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetNewShare(candWl)
+			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			if strategy(preemptorNewShare, targetOldShare, targetNewShare) {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				reason := kueue.InCohortFairSharingReason

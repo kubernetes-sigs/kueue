@@ -16,36 +16,36 @@ package fairsharing
 
 import "sigs.k8s.io/kueue/pkg/cache"
 
-// almostLca is defined on two ClusterQueues, as the two nodes before
+// almostLCA is defined on two ClusterQueues, as the two nodes before
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
-// is always a Cohort, almostLca may be a ClusterQueue or a Cohort.
-type almostLca interface {
+// is always a Cohort, almostLCA may be a ClusterQueue or a Cohort.
+type almostLCA interface {
 	DominantResourceShare() int
 }
 
-// getAlmostLcas returns almostLCAs of (preemptor, target).
-func getAlmostLcas(t *TargetClusterQueue) (almostLca, almostLca) {
-	lca := getLca(t)
-	return getAlmostLca(t.ordering.preemptorCq, lca), getAlmostLca(t.targetCq, lca)
+// getAlmostLCAs returns almostLCAs of (preemptor, target).
+func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
+	lca := getLCA(t)
+	return getAlmostLCA(t.ordering.preemptorCq, lca), getAlmostLCA(t.targetCq, lca)
 }
 
-// getLca traverses from a ClusterQueue towards the root Cohort,
+// getLCA traverses from a ClusterQueue towards the root Cohort,
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
-func getLca(t *TargetClusterQueue) *cache.CohortSnapshot {
+func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
 	cohort := t.targetCq.Parent()
 	for {
-		if t.ordering.onPathToPreemptorCQ(cohort) {
+		if t.ordering.onPathFromRootToPreemptorCQ(cohort) {
 			return cohort
 		}
 		cohort = cohort.Parent()
 	}
 }
 
-// getAlmostLca traverses from a ClusterQueue towards the root,
+// getAlmostLCA traverses from a ClusterQueue towards the root,
 // returning the first Cohort or ClusterQueue that has the
 // LeastCommonAncestor as its parent.
-func getAlmostLca(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) almostLca {
+func getAlmostLCA(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) almostLCA {
 	if cq.Parent() == lca {
 		return cq
 	}
