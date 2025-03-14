@@ -458,14 +458,14 @@ func fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, 
 	}
 
 	// DRS values must include incoming workload.
-	preemptionCtx.preemptorCQ.AddUsage(preemptionCtx.workloadUsage)
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
 	if !fits && len(strategies) > 1 {
 		fits, targets = runSecondFsStrategy(retryCandidates, preemptionCtx, targets)
 	}
 
-	preemptionCtx.preemptorCQ.RemoveUsage(preemptionCtx.workloadUsage)
+	revertSimulation()
 	if !fits {
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
@@ -613,9 +613,9 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // the incoming workload, as FairSharing adds this usage at the start
 // of processing for accurate DominantResourceShare calculations.
 func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
-	preemptionCtx.preemptorCQ.RemoveUsage(preemptionCtx.workloadUsage)
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
 	res := workloadFits(preemptionCtx, true)
-	preemptionCtx.preemptorCQ.AddUsage(preemptionCtx.workloadUsage)
+	revertSimulation()
 	return res
 }
 
