@@ -133,5 +133,119 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})
 		})
+
+		ginkgo.It("Should schedule Pods without explicit TAS annotation", func() {
+			ginkgo.By("Creating pod group with 4 pods")
+			numPods := 4
+			basePod := testingpod.MakePod("test-pod", ns.Name).
+				Queue("test-queue").
+				Request(extraResource, "1").
+				Limit(extraResource, "1")
+			podGroup := basePod.MakeIndexedGroup(numPods)
+
+			for _, pod := range podGroup {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+			}
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment for the Pods was using TAS", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+					client.MatchingLabels(basePod.Labels))).To(gomega.Succeed())
+				var gotAssignment []string
+				for _, pod := range pods.Items {
+					gotAssignment = append(gotAssignment, pod.Spec.NodeName)
+				}
+				wantAssignment := []string{
+					"kind-worker",
+					"kind-worker2",
+					"kind-worker3",
+					"kind-worker4",
+				}
+				gomega.Expect(wantAssignment).Should(gomega.ConsistOf(gotAssignment))
+			})
+		})
+	})
+
+	ginkgo.When("Creating a Pod group which is not using TAS", func() {
+		var (
+			flavor       *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			flavor = testing.MakeResourceFlavor("flavor").
+				NodeLabel(tasNodeGroupLabel, instanceType).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor").
+						Resource(extraResource, "8").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = testing.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		})
+
+		ginkgo.It("Should let the Job scheduled", func() {
+			ginkgo.By("Creating pod group with 4 pods")
+			numPods := 4
+			basePod := testingpod.MakePod("test-pod", ns.Name).
+				Queue("test-queue").
+				Request(extraResource, "1").
+				Limit(extraResource, "1")
+			podGroup := basePod.MakeIndexedGroup(numPods)
+
+			for _, pod := range podGroup {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+			}
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 })

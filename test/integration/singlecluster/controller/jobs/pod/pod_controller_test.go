@@ -2239,7 +2239,6 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 				corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 				corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 			))
-			gomega.Expect(pod.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
 		})
 
 		wl := &kueue.Workload{}
@@ -2293,7 +2292,6 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 				))
-				gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
 			}
 		})
 
