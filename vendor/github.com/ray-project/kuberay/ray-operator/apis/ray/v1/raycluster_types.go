@@ -14,14 +14,23 @@ type RayClusterSpec struct {
 	// Suspend indicates whether a RayCluster should be suspended.
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	Suspend *bool `json:"suspend,omitempty"`
+	// ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.
+	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
+	// The kuberay-operator reconciles a RayCluster which doesn't have this field at all or
+	// the field value is the reserved string 'ray.io/kuberay-operator',
+	// but delegates reconciling the RayCluster with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="the managedBy field is immutable"
+	// +kubebuilder:validation:XValidation:rule="self in ['ray.io/kuberay-operator', 'kueue.x-k8s.io/multikueue']",message="the managedBy field value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'"
+	ManagedBy *string `json:"managedBy,omitempty"`
 	// AutoscalerOptions specifies optional configuration for the Ray autoscaler.
 	AutoscalerOptions      *AutoscalerOptions `json:"autoscalerOptions,omitempty"`
 	HeadServiceAnnotations map[string]string  `json:"headServiceAnnotations,omitempty"`
 	// EnableInTreeAutoscaling indicates whether operator should create in tree autoscaling configs
 	EnableInTreeAutoscaling *bool `json:"enableInTreeAutoscaling,omitempty"`
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// HeadGroupSpecs are the spec for the head pod
+	// GcsFaultToleranceOptions for enabling GCS FT
+	GcsFaultToleranceOptions *GcsFaultToleranceOptions `json:"gcsFaultToleranceOptions,omitempty"`
+	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec HeadGroupSpec `json:"headGroupSpec"`
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
 	RayVersion string `json:"rayVersion,omitempty"`
@@ -29,22 +38,40 @@ type RayClusterSpec struct {
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
+// GcsFaultToleranceOptions contains configs for GCS FT
+type GcsFaultToleranceOptions struct {
+	RedisUsername            *RedisCredential `json:"redisUsername,omitempty"`
+	RedisPassword            *RedisCredential `json:"redisPassword,omitempty"`
+	ExternalStorageNamespace string           `json:"externalStorageNamespace,omitempty"`
+	RedisAddress             string           `json:"redisAddress"`
+}
+
+// RedisCredential is the redis username/password or a reference to the source containing the username/password
+type RedisCredential struct {
+	ValueFrom *corev1.EnvVarSource `json:"valueFrom,omitempty"`
+	Value     string               `json:"value,omitempty"`
+}
+
 // HeadGroupSpec are the spec for the head pod
 type HeadGroupSpec struct {
-	// ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod
-	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+	// Template is the exact pod template used in K8s depoyments, statefulsets, etc.
+	Template corev1.PodTemplateSpec `json:"template"`
 	// HeadService is the Kubernetes service of the head pod.
 	HeadService *corev1.Service `json:"headService,omitempty"`
 	// EnableIngress indicates whether operator should create ingress object for head service or not.
 	EnableIngress *bool `json:"enableIngress,omitempty"`
 	// RayStartParams are the params of the start command: node-manager-port, object-store-memory, ...
 	RayStartParams map[string]string `json:"rayStartParams"`
-	// Template is the exact pod template used in K8s depoyments, statefulsets, etc.
-	Template corev1.PodTemplateSpec `json:"template"`
+	// ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod
+	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
 }
 
 // WorkerGroupSpec are the specs for the worker pods
 type WorkerGroupSpec struct {
+	// Suspend indicates whether a worker group should be suspended.
+	// A suspended worker group will have all pods deleted.
+	// This is not a user-facing API and is only used by RayJob DeletionPolicy.
+	Suspend *bool `json:"suspend,omitempty"`
 	// we can have multiple worker groups, we distinguish them by name
 	GroupName string `json:"groupName"`
 	// Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional.
@@ -56,6 +83,9 @@ type WorkerGroupSpec struct {
 	// MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.
 	// +kubebuilder:default:=2147483647
 	MaxReplicas *int32 `json:"maxReplicas"`
+	// IdleTimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle worker pod of this type.
+	// This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group.
+	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
 	// RayStartParams are the params of the start command: address, object-store-memory, ...
 	RayStartParams map[string]string `json:"rayStartParams"`
 	// Template is a pod template for the worker
@@ -186,6 +216,10 @@ const (
 	HeadPodReady RayClusterConditionType = "HeadPodReady"
 	// RayClusterReplicaFailure is added in a RayCluster when one of its pods fails to be created or deleted.
 	RayClusterReplicaFailure RayClusterConditionType = "ReplicaFailure"
+	// RayClusterSuspending is set to true when a user sets .Spec.Suspend to true, ensuring the atomicity of the suspend operation.
+	RayClusterSuspending RayClusterConditionType = "RayClusterSuspending"
+	// RayClusterSuspended is set to true when all Pods belonging to a suspending RayCluster are deleted. Note that RayClusterSuspending and RayClusterSuspended cannot both be true at the same time.
+	RayClusterSuspended RayClusterConditionType = "RayClusterSuspended"
 )
 
 // HeadInfo gives info about head
