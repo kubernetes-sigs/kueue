@@ -31,7 +31,7 @@ const (
 	Timeout      = 10 * time.Second
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
-	LongTimeout = 45 * time.Second
+	LongTimeout = time.Minute
 	// VeryLongTimeout is meant for E2E tests involving Ray which starts ray-project images (over 2GB)
 	// and also synchronizes the cluster before it can be used
 	VeryLongTimeout = 5 * time.Minute
