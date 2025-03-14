@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -164,6 +165,8 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
 	deployment := &appsv1.Deployment{}
 	pods := &corev1.PodList{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for availability of deployment: %q", key))
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) error {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
@@ -184,6 +187,7 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 		))
 		return nil
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment is available in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
