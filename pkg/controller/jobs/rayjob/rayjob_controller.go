@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -79,6 +80,7 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 type RayJob rayv1.RayJob
 
 var _ jobframework.GenericJob = (*RayJob)(nil)
+var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -282,4 +284,18 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 			RestartPolicy: corev1.RestartPolicyNever,
 		},
 	}
+}
+
+func (j *RayJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayJob) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayJob) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }

@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -143,6 +144,51 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+		},
+
+		"job managedBy multikueue": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
 			},
 		},
 	}

@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -144,6 +145,51 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
+			},
+		},
+		"raycluster with wrong managedBy is not considered managed": {
+			managersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+		},
+
+		"raycluster managedBy multikueue": {
+			managersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+		},
+		"missing raycluster is not considered managed": {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
 			},
 		},
 	}
