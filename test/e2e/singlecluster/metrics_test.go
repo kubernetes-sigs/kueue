@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
-						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
+						Policy: v1beta1.BorrowWithinCohortPolicyNever,
 					},
 				}).
 				Obj()
@@ -389,7 +389,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
-						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
+						Policy: v1beta1.BorrowWithinCohortPolicyNever,
 					},
 				}).
 				Obj()
