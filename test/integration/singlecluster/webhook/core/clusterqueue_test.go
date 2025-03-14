@@ -47,11 +47,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
+		ns = testing.MakeDefaultNamespaceGenerate("core-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 

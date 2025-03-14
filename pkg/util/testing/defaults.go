@@ -47,3 +47,13 @@ func MakeDefaultThreeLevelTopology(name string) *kueuealpha.Topology {
 		Levels(DefaultBlockTopologyLevel, DefaultRackTopologyLevel, corev1.LabelHostname).
 		Obj()
 }
+
+// MakeDefaultNamespace creates a default namespace with name.
+func MakeDefaultNamespace(name string) *corev1.Namespace {
+	return MakeNamespace(name).Obj()
+}
+
+// MakeDefaultNamespaceGenerate creates a default namespace with generate name.
+func MakeDefaultNamespaceGenerate(generateName string) *corev1.Namespace {
+	return MakeNamespace("").GenerateName(generateName).Obj()
+}
