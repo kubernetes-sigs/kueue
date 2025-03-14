@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -58,7 +59,7 @@ type Preemptor struct {
 
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
-	fsStrategies      []fsStrategy
+	fsStrategies      []fairsharing.Strategy
 
 	// stubs
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
@@ -344,32 +345,20 @@ func restoreSnapshot(snapshot *cache.Snapshot, targets []*Target) {
 	}
 }
 
-type fsStrategy func(preemptorNewShare, preempteeOldShare, preempteeNewShare int) bool
-
-// lessThanOrEqualToFinalShare implements Rule S2-a in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func lessThanOrEqualToFinalShare(preemptorNewShare, _, preempteeNewShare int) bool {
-	return preemptorNewShare <= preempteeNewShare
-}
-
-// lessThanInitialShare implements rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-func lessThanInitialShare(preemptorNewShare, preempteeOldShare, _ int) bool {
-	return preemptorNewShare < preempteeOldShare
-}
-
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.
 // This function takes advantage of the properties of the preemption algorithm and the strategies.
 // The number of functions returned might not match the input slice.
-func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
+func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 	if len(s) == 0 {
-		return []fsStrategy{lessThanOrEqualToFinalShare, lessThanInitialShare}
+		return []fairsharing.Strategy{fairsharing.LessThanOrEqualToFinalShare, fairsharing.LessThanInitialShare}
 	}
-	strategies := make([]fsStrategy, len(s))
+	strategies := make([]fairsharing.Strategy, len(s))
 	for i, strategy := range s {
 		switch strategy {
 		case config.LessThanOrEqualToFinalShare:
-			strategies[i] = lessThanOrEqualToFinalShare
+			strategies[i] = fairsharing.LessThanOrEqualToFinalShare
 		case config.LessThanInitialShare:
-			strategies[i] = lessThanInitialShare
+			strategies[i] = fairsharing.LessThanInitialShare
 		}
 	}
 	return strategies
@@ -378,7 +367,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 // runFirstFsStrategy runs the first configured FairSharing strategy,
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
-func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fsStrategy) (bool, []*Target, []*workload.Info) {
+func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
 	requests := preemptionCtx.requests
 	cqHeap := cqHeapFromCandidates(candidates, false, preemptionCtx.snapshot)
 	newNominatedShareValue := preemptionCtx.preemptorCQ.DominantResourceShareWith(requests)
@@ -443,7 +432,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		candCQ := cqHeap.Pop()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
-		if lessThanInitialShare(newNominatedShareValue, candCQ.share, 0) {
+		if fairsharing.LessThanInitialShare(newNominatedShareValue, candCQ.share, 0) {
 			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 			candWl := candCQ.workloads[0]
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
@@ -461,7 +450,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	return false, targets
 }
 
-func fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategies []fsStrategy) []*Target {
+func fairPreemptions(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategies []fairsharing.Strategy) []*Target {
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
