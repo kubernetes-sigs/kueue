@@ -161,9 +161,9 @@ GINKGO_ARGS="--repeat=10" make test-e2e
 See more [here](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
 
 ### Adding stress
-You can run `stress` to increase CPU load during tests.
+You can run [stress](https://github.com/resurrecting-open-source-projects/stress) tool to increase CPU load during tests.  For example, if you're on Debian-based Linux:
 ```shell
-# install stress, for example with
+# install stress:
 sudo apt install stress
 # run stress alongside tests
 /usr/bin/stress --cpu 80
