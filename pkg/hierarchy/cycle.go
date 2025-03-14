@@ -24,7 +24,7 @@ type CycleCheckable[T comparable] interface {
 	CCParent() CycleCheckable[T]
 }
 
-// cycleChecker checks for cycles in Cohorts, while memoizing the
+// CycleChecker checks for cycles in Cohorts, while memorizing the
 // result.
 type CycleChecker struct {
 	cycles map[kueue.CohortReference]bool
