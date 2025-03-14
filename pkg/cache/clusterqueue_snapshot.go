@@ -183,11 +183,6 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() int {
 	return share
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) int {
-	share, _ := dominantResourceShare(c, wlReq)
-	return share
-}
-
 func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) int {
 	without := maps.Clone(wlReq)
 	for fr, q := range without {
