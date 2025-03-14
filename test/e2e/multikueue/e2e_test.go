@@ -689,7 +689,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					))
 
 					finishReasonMessage := fmt.Sprintf("PyTorchJob %s is successfully completed.", pyTorchJob.Name)
-					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
+					util.CheckFinishStatusCondition(ctx, k8sManagerClient, g, wlLookupKey, finishReasonMessage)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -751,7 +751,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					))
 
 					finishReasonMessage := fmt.Sprintf("MPIJob %s successfully completed.", client.ObjectKeyFromObject(mpijob).String())
-					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
+					util.CheckFinishStatusCondition(ctx, k8sManagerClient, g, wlLookupKey, finishReasonMessage)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -795,7 +795,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 					finishReasonMessage := "Job finished successfully."
-					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
+					util.CheckFinishStatusCondition(ctx, k8sManagerClient, g, wlLookupKey, finishReasonMessage)
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -957,17 +957,6 @@ func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName str
 			Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
 		}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-}
-
-func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {
-	createdWorkload := &kueue.Workload{}
-	g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-	g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  kueue.WorkloadFinishedReasonSucceeded,
-		Message: finishReasonMessage,
-	}, util.IgnoreConditionTimestampsAndObservedGeneration))
 }
 
 func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.Namespace, multiKueueAc *kueue.AdmissionCheck, kubernetesClients map[string]client.Client) {

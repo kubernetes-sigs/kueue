@@ -19,21 +19,35 @@ package tase2e
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/set"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+func podsFormatter(value any) (string, bool) {
+	if pods, ok := value.([]corev1.Pod); ok {
+		var outStr string
+		for _, p := range pods {
+			outStr += "Name: " + p.Name + " " + p.Status.String() + "\n"
+		}
+		return outStr, true
+	}
+	return "", false
+}
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, func() {
 	var (
@@ -45,6 +59,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 	)
 
 	ginkgo.BeforeEach(func() {
+		format.RegisterCustomFormatter(podsFormatter)
+
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "e2e-tas-rayjob-",
@@ -89,11 +105,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 	ginkgo.When("Creating a RayJob", func() {
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
 			const (
-				headReplicas     = 1
-				workerReplicas   = 3
-				submitterReplica = 1
+				headReplicas   = 1
+				workerReplicas = 3
 			)
-			numPods := headReplicas + workerReplicas + submitterReplica
+			numPods := headReplicas + workerReplicas
 			kuberayTestImage := util.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("ranks-ray", ns.Name).
 				Queue(localQueue.Name).
@@ -179,7 +194,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				}).
@@ -221,6 +236,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gotAssignment := readAssignedNodes(pods.Items)
 				gomega.Expect(gotAssignment).Should(gomega.HaveLen(workerReplicas))
+			})
+
+			wlLookupKey := types.NamespacedName{
+				Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: ns.Name,
+			}
+			ginkgo.By("Waiting for the RayJob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdRayJob := &rayv1.RayJob{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+					finishReasonMessage := "Job finished successfully."
+					util.CheckFinishStatusCondition(ctx, k8sClient, g, wlLookupKey, finishReasonMessage)
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
