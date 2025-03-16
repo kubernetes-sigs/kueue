@@ -18,7 +18,6 @@ package tas
 
 import (
 	"context"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,12 +36,9 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/queue"
-)
-
-const (
-	nodeBatchPeriod = time.Second
 )
 
 type rfReconciler struct {
@@ -125,7 +121,7 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 		if nodeBelongsToFlavor(node, flavor.NodeLabels, flavor.Levels) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
-			}}, nodeBatchPeriod)
+			}}, constants.UpdatesBatchPeriod)
 		}
 	}
 }

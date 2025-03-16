@@ -37,6 +37,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -206,5 +207,5 @@ func (h *resourceFlavorHandler) Delete(_ context.Context, e event.DeleteEvent, q
 		NamespacedName: types.NamespacedName{
 			Name: string(*resourceFlavor.Spec.TopologyName),
 		},
-	}, nodeBatchPeriod)
+	}, constants.UpdatesBatchPeriod)
 }
