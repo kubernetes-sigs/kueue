@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +39,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -49,10 +49,6 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
-)
-
-const (
-	ungateBatchPeriod = time.Second
 )
 
 var (
@@ -142,7 +138,7 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 			log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
 			h.expectationsStore.ObservedUID(log, key, pod.UID)
 		}
-		q.AddAfter(reconcile.Request{NamespacedName: key}, ungateBatchPeriod)
+		q.AddAfter(reconcile.Request{NamespacedName: key}, constants.UpdatesBatchPeriod)
 	}
 }
 
