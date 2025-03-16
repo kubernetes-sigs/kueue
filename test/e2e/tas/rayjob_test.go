@@ -110,10 +110,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 										Name: "head-container",
 										Resources: corev1.ResourceRequirements{
 											Requests: corev1.ResourceList{
-												corev1.ResourceCPU: resource.MustParse("100m"),
+												corev1.ResourceCPU: resource.MustParse("200m"),
 											},
 											Limits: corev1.ResourceList{
-												corev1.ResourceCPU: resource.MustParse("100m"),
+												corev1.ResourceCPU: resource.MustParse("200m"),
 											},
 										},
 									},

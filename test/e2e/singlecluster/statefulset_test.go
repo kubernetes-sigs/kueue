@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should admit group that fits", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Replicas(1).
 					Queue(lq.Name).
 					Obj()
@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should delete all pods on scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should create pods after scale up from zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(0).
 				Queue(lq.Name).
 				Obj()
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should allow to scale up after scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -341,7 +341,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should allow to change queue name if ReadyReplicas=0", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
 				Obj()
@@ -385,7 +385,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		ginkgo.It("should delete all Pods if StatefulSet was deleted after being partially ready", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(localQueueName).
 				Obj()

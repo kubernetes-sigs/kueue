@@ -178,6 +178,11 @@ func (j *MPIJobWrapper) Limit(replicaType kfmpi.MPIReplicaType, r corev1.Resourc
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *MPIJobWrapper) RequestAndLimit(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
+	return j.Request(replicaType, r, v).Limit(replicaType, r, v)
+}
+
 // Parallelism updates job parallelism.
 func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Replicas = ptr.To(p)

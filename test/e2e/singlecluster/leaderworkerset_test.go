@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
 				Obj()
 
@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
 				Obj()
 			ginkgo.By("Create a LeaderWorkerSet", func() {
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
 				Obj()
 
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(1).
-					Request(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Queue(lq.Name).
 					StartupPolicy(startupPolicyType).
 					Obj()
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(2).
-					Request(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Queue(lq.Name).
 					StartupPolicy(startupPolicyType).
 					Obj()
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(2).
-					Request(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Queue(lq.Name).
 					LeaderTemplate(corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -537,7 +537,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{

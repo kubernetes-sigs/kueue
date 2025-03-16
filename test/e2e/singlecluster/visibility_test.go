@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
 					Queue(localQueueA.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
 					PriorityClass(highPriorityClass.Name).
@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-						Request(corev1.ResourceCPU, "1").
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-						Request(corev1.ResourceCPU, "1").
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 						Queue(jobCase.LocalQueueName).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-						Request(corev1.ResourceCPU, "1").
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())

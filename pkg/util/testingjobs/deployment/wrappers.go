@@ -107,6 +107,20 @@ func (d *DeploymentWrapper) Request(r corev1.ResourceName, v string) *Deployment
 	return d
 }
 
+// Limit adds a resource limit to the default container.
+func (d *DeploymentWrapper) Limit(r corev1.ResourceName, v string) *DeploymentWrapper {
+	if d.Spec.Template.Spec.Containers[0].Resources.Limits == nil {
+		d.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+	}
+	d.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	return d
+}
+
+// RequestAndLimit adds a resource request and limit to the default container.
+func (d *DeploymentWrapper) RequestAndLimit(r corev1.ResourceName, v string) *DeploymentWrapper {
+	return d.Request(r, v).Limit(r, v)
+}
+
 // Replicas updated the replicas of the Deployment
 func (d *DeploymentWrapper) Replicas(replicas int32) *DeploymentWrapper {
 	d.Spec.Replicas = &replicas

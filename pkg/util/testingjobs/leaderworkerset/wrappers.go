@@ -186,6 +186,11 @@ func (w *LeaderWorkerSetWrapper) Limit(r corev1.ResourceName, v string) *LeaderW
 	return w
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (w *LeaderWorkerSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
+	return w.Request(r, v).Limit(r, v)
+}
+
 // LeaderTemplate sets the leader template of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) LeaderTemplate(leader corev1.PodTemplateSpec) *LeaderWorkerSetWrapper {
 	w.Spec.LeaderWorkerTemplate.LeaderTemplate = &leader

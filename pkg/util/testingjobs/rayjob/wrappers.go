@@ -227,6 +227,21 @@ func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v
 	return j
 }
 
+// Limit adds a resource request to the default container.
+func (j *JobWrapper) Limit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	}
+	return j
+}
+
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *JobWrapper) RequestAndLimit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
+	return j.Request(rayType, r, v).Limit(rayType, r, v)
+}
+
 func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args ...string) *JobWrapper {
 	if rayType == rayv1.HeadNode {
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image

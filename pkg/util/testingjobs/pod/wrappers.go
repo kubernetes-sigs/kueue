@@ -221,6 +221,11 @@ func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	return p
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (p *PodWrapper) RequestAndLimit(r corev1.ResourceName, v string) *PodWrapper {
+	return p.Request(r, v).Limit(r, v)
+}
+
 func (p *PodWrapper) ServiceAccountName(serviceAccountName string) *PodWrapper {
 	p.Spec.ServiceAccountName = serviceAccountName
 	return p

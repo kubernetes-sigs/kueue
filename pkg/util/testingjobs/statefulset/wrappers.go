@@ -210,3 +210,8 @@ func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSe
 	ss.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return ss
 }
+
+// RequestAndLimit adds a resource request and limit to the default container.
+func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	return ss.Request(r, v).Limit(r, v)
+}

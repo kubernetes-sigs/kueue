@@ -154,6 +154,11 @@ func (j *JobSetWrapper) Limit(replicatedJobName string, r corev1.ResourceName, v
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the first container of the target replicatedJob.
+func (j *JobSetWrapper) RequestAndLimit(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
+	return j.Request(replicatedJobName, r, v).Limit(replicatedJobName, r, v)
+}
+
 // PriorityClass updates JobSet priorityclass.
 func (j *JobSetWrapper) PriorityClass(pc string) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
