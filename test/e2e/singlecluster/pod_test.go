@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			group := podtesting.MakePod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
 			gKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
 			for _, p := range group {
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			group := podtesting.MakePod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(3)
 
 			ginkgo.By("Incomplete group should not start", func() {
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(3)
 
 			// First pod runs for much longer, so that there is time to terminate it.
@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			group := podtesting.MakePod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
 
 			// The first pod has a node selector for a missing node.
@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			group := podtesting.MakePod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "3").
+				RequestAndLimit(corev1.ResourceCPU, "3").
 				MakeGroup(2)
 			gKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
 
@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
-				Request(corev1.ResourceCPU, "2").
+				RequestAndLimit(corev1.ResourceCPU, "2").
 				MakeGroup(2)
 			defaultGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "default-priority-group"}
 			defaultGroupPods := sets.New(
@@ -450,7 +450,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
 			highGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "high-priority-group"}
 

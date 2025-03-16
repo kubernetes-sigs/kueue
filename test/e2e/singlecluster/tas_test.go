@@ -98,8 +98,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Job via TAS", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(localQueue.Name).
-				Request("cpu", "700m").
-				Request("memory", "20Mi").
+				RequestAndLimit("cpu", "700m").
+				RequestAndLimit("memory", "20Mi").
 				Obj()
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
@@ -218,10 +218,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						},
 					},
 				).
-				Request("rj1", "cpu", "200m").
-				Request("rj1", "memory", "20Mi").
-				Request("rj2", "cpu", "200m").
-				Request("rj2", "memory", "20Mi").
+				RequestAndLimit("rj1", "cpu", "200m").
+				RequestAndLimit("rj1", "memory", "20Mi").
+				RequestAndLimit("rj2", "cpu", "200m").
+				RequestAndLimit("rj2", "memory", "20Mi").
 				Obj()
 
 			ginkgo.By("Creating the JobSet", func() {
@@ -331,8 +331,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Queue(localQueue.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Request("cpu", "100m").
-				Request("memory", "100Mi").
+				RequestAndLimit("cpu", "200m").
+				RequestAndLimit("memory", "200Mi").
 				Obj()
 
 			ginkgo.By("Creating the Pod", func() {
@@ -390,8 +390,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Queue(localQueue.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Request("cpu", "100m").
-				Request("memory", "100Mi").
+				RequestAndLimit("cpu", "200m").
+				RequestAndLimit("memory", "200Mi").
 				MakeGroup(2)
 
 			ginkgo.By("Creating the Pod group", func() {

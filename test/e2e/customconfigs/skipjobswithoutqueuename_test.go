@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			numPods := 2
 			aw := awtesting.MakeAppWrapper("aw-child", ns.Name).
 				Component(testingjob.MakeJob("job-0", ns.Name).
-					Request(corev1.ResourceCPU, "100m").
+					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					).
 					SetTypeMeta().
 					Suspend(false).
-					Request("replicated-job-1", corev1.ResourceCPU, "100m").
+					RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
 					Obj()).
 				Suspend(false).
 				Obj()
@@ -266,8 +266,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", "kube-system").
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "2Gi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
 			})
@@ -294,8 +294,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a deployment without a queue name", func() {
 				testDeploy = testingdeploy.MakeDeployment("test-deploy", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "2Gi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
@@ -323,8 +323,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a deployment without a queue name in the kube-system namespace", func() {
 				testDeploy = testingdeploy.MakeDeployment("test-deploy", "kube-system").
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "2Gi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
@@ -358,8 +358,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a StatefulSet without a queue name", func() {
 				testSts = testingsts.MakeStatefulSet("test-sts", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "2Gi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
@@ -388,8 +388,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a StatefulSet without a queue name in the kube-system namespace", func() {
 				testSts = testingsts.MakeStatefulSet("test-sts", "kube-system").
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "2Gi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())

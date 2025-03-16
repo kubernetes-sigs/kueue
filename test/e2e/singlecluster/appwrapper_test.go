@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 		numPods := 2
 		aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
 			Component(utiltestingjob.MakeJob("job-0", ns.Name).
-				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Suspend(false).

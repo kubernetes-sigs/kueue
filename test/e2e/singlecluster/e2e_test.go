@@ -51,8 +51,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
-			Request("cpu", "1").
-			Request("memory", "20Mi").
+			RequestAndLimit("cpu", "1").
+			RequestAndLimit("memory", "20Mi").
 			Obj()
 		jobKey = client.ObjectKeyFromObject(sampleJob)
 	})
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				job := testingjob.MakeJob("high", ns.Name).
 					Queue("main").
 					PriorityClass("high").
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				job := testingjob.MakeJob("high-with-wpc", ns.Name).
 					Queue("main").
 					WorkloadPriorityClass("high-workload").
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				Request("cpu", "500m").
+				RequestAndLimit("cpu", "500m").
 				Parallelism(3).
 				Completions(4).
 				SetAnnotation(workloadjob.JobMinParallelismAnnotation, "1").

@@ -186,6 +186,11 @@ func (j *JobWrapper) Limit(r corev1.ResourceName, v string) *JobWrapper {
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrapper {
+	return j.Request(r, v).Limit(r, v)
+}
+
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Image = image
 	j.Spec.Template.Spec.Containers[0].Args = args

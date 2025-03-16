@@ -101,8 +101,8 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					Parallelism(3).
 					Completions(3).
-					Request("cpu", "1").
-					Request("memory", "200Mi").
+					RequestAndLimit("cpu", "1").
+					RequestAndLimit("memory", "200Mi").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 			}

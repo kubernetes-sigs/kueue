@@ -209,8 +209,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		ginkgo.It("Should create a pod on worker if admitted", func() {
 			pod := testingpod.MakePod("pod", managerNs.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				Request("cpu", "1").
-				Request("memory", "2G").
+				RequestAndLimit("cpu", "1").
+				RequestAndLimit("memory", "2G").
 				Queue(managerLq.Name).
 				Obj()
 			// Since it requires 2G of memory, this pod can only be admitted in worker 2.
@@ -396,8 +396,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(managerLq.Name).
-				Request("cpu", "1").
-				Request("memory", "2G").
+				RequestAndLimit("cpu", "1").
+				RequestAndLimit("memory", "2G").
 				// Give it the time to be observed Active in the live status update step.
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()
@@ -492,8 +492,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Args: util.BehaviorWaitForDeletion,
 					},
 				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
+				RequestAndLimit("replicated-job-1", "cpu", "500m").
+				RequestAndLimit("replicated-job-1", "memory", "200M").
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
@@ -586,7 +586,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Suspend(false).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
-					Request(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					SetTypeMeta().Obj()).
 				Obj()
 
@@ -659,10 +659,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
-				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
-				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
@@ -722,10 +722,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
-				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
-				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
+				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
+				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
+				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
 				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
@@ -774,8 +774,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Suspend(true).
 				Queue(managerLq.Name).
 				WithSubmissionMode(rayv1.K8sJobMode).
-				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
-				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
@@ -817,8 +817,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Suspend(true).
 				Queue(managerLq.Name).
-				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
-				Request(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 				Obj()

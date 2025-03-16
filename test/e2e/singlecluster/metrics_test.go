@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).
-				Request(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
 		})
@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(localQueue.Name).
-				Request("cpu", "1").
+				RequestAndLimit("cpu", "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, createdJob)).To(gomega.Succeed())
 
@@ -412,7 +412,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(localQueue1.Name).
-				Request("cpu", "1").
+				RequestAndLimit("cpu", "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, lowerJob1)).To(gomega.Succeed())
 
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(localQueue1.Name).
-				Request("cpu", "1").
+				RequestAndLimit("cpu", "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, lowerJob2)).To(gomega.Succeed())
 
@@ -451,7 +451,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(localQueue2.Name).
 				PriorityClass(highPriorityClass.Name).
-				Request(corev1.ResourceCPU, "3").
+				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, blockerJob)).Should(gomega.Succeed())
 
@@ -471,14 +471,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(localQueue1.Name).
 				PriorityClass(highPriorityClass.Name).
-				Request(corev1.ResourceCPU, "4").
+				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, higherJob1)).Should(gomega.Succeed())
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(localQueue2.Name).
 				PriorityClass(highPriorityClass.Name).
-				Request(corev1.ResourceCPU, "4").
+				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, higherJob2)).Should(gomega.Succeed())
 		})

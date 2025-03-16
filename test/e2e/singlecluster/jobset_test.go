@@ -90,8 +90,8 @@ var _ = ginkgo.Describe("JobSet", func() {
 						Completions: 2,
 					},
 				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
+				RequestAndLimit("replicated-job-1", "cpu", "500m").
+				RequestAndLimit("replicated-job-1", "memory", "200M").
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
@@ -172,8 +172,8 @@ var _ = ginkgo.Describe("JobSet", func() {
 						Completions: 1,
 					},
 				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
+				RequestAndLimit("replicated-job-1", "cpu", "500m").
+				RequestAndLimit("replicated-job-1", "memory", "200M").
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {

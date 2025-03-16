@@ -108,8 +108,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						},
 					},
 				).
-				Request("replicated-job-1", extraResource, "1").
-				Limit("replicated-job-1", extraResource, "1").
+				RequestAndLimit("replicated-job-1", extraResource, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 

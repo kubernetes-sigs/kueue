@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 	ginkgo.It("should admit workloads that fits", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-			Request(corev1.ResourceCPU, "100m").
+			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Replicas(3).
 			Queue(lq.Name).
 			Obj()
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 	ginkgo.It("should admit workloads after change queue-name if AvailableReplicas = 0", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-			Request(corev1.ResourceCPU, "100m").
+			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Replicas(3).
 			Queue("invalid-queue-name").
 			Obj()

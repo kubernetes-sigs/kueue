@@ -179,6 +179,11 @@ func (j *PyTorchJobWrapper) Limit(replicaType kftraining.ReplicaType, r corev1.R
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *PyTorchJobWrapper) RequestAndLimit(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
+	return j.Request(replicaType, r, v).Limit(replicaType, r, v)
+}
+
 // Parallelism updates job parallelism.
 func (j *PyTorchJobWrapper) Parallelism(p int32) *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Replicas = ptr.To(p)

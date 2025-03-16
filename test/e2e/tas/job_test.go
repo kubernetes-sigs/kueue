@@ -102,8 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
@@ -126,8 +125,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
@@ -179,8 +177,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
@@ -233,8 +230,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(2).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
@@ -262,8 +258,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Indexed(true).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
