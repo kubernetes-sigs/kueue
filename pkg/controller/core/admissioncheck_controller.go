@@ -25,11 +25,14 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -53,6 +56,9 @@ type AdmissionCheckReconciler struct {
 	cqUpdateCh chan event.GenericEvent
 	watchers   []AdmissionCheckUpdateWatcher
 }
+
+var _ reconcile.Reconciler = (*AdmissionCheckReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.AdmissionCheck] = (*AdmissionCheckReconciler)(nil)
 
 func NewAdmissionCheckReconciler(
 	client client.Client,
@@ -119,55 +125,39 @@ func (r *AdmissionCheckReconciler) AddUpdateWatchers(watchers ...AdmissionCheckU
 	r.watchers = append(r.watchers, watchers...)
 }
 
-func (r *AdmissionCheckReconciler) Create(e event.CreateEvent) bool {
-	ac, isAc := e.Object.(*kueue.AdmissionCheck)
-	if !isAc {
-		return false
-	}
-	defer r.notifyWatchers(nil, ac)
-	r.log.WithValues("admissionCheck", klog.KObj(ac)).V(5).Info("Create event")
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(ac); len(cqNames) > 0 {
+func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.AdmissionCheck]) bool {
+	defer r.notifyWatchers(nil, e.Object)
+	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
 }
 
-func (r *AdmissionCheckReconciler) Update(e event.UpdateEvent) bool {
-	newAc, isAc := e.ObjectNew.(*kueue.AdmissionCheck)
-	if !isAc {
-		return false
-	}
-	oldAc, isAc := e.ObjectNew.(*kueue.AdmissionCheck)
-	if !isAc {
-		return false
-	}
-	defer r.notifyWatchers(oldAc, newAc)
-	r.log.WithValues("admissionCheck", klog.KObj(newAc)).V(5).Info("Update event")
-	if !newAc.DeletionTimestamp.IsZero() {
+func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.AdmissionCheck]) bool {
+	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
+	r.log.WithValues("admissionCheck", klog.KObj(e.ObjectNew)).V(5).Info("Update event")
+	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(newAc); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.ObjectNew); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
 }
 
-func (r *AdmissionCheckReconciler) Delete(e event.DeleteEvent) bool {
-	ac, isAc := e.Object.(*kueue.AdmissionCheck)
-	if !isAc {
-		return false
-	}
-	defer r.notifyWatchers(ac, nil)
-	r.log.WithValues("admissionCheck", klog.KObj(ac)).V(5).Info("Delete event")
+func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.AdmissionCheck]) bool {
+	defer r.notifyWatchers(e.Object, nil)
+	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
 
-	if cqNames := r.cache.DeleteAdmissionCheck(ac); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteAdmissionCheck(e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
 }
 
-func (r *AdmissionCheckReconciler) Generic(e event.GenericEvent) bool {
-	r.log.WithValues("object", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind()).V(5).Info("Generic event")
+func (r *AdmissionCheckReconciler) Generic(e event.TypedGenericEvent[*kueue.AdmissionCheck]) bool {
+	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("AdmissionCheck Generic event")
 	return true
 }
 
@@ -220,13 +210,18 @@ func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workq
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
-	handler := acCqHandler{
+	h := acCqHandler{
 		cache: r.cache,
 	}
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.AdmissionCheck{}).
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("admissioncheck_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.AdmissionCheck{},
+			&handler.TypedEnqueueRequestForObject[*kueue.AdmissionCheck]{},
+			r,
+		)).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
-		WatchesRawSource(source.Channel(r.cqUpdateCh, &handler)).
-		WithEventFilter(r).
+		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.AdmissionCheck{}, cfg))
 }
