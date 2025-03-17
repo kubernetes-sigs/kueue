@@ -98,7 +98,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WithEventFilter(r).
-		Complete(core.WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
+		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 var _ handler.EventHandler = (*podHandler)(nil)
