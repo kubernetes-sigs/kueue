@@ -28,7 +28,6 @@ type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
 	cohorts       map[kueue.CohortReference]C
 	clusterQueues map[kueue.ClusterQueueReference]CQ
 	cohortFactory func(kueue.CohortReference) C
-	CycleChecker  CycleChecker
 }
 
 // NewManager creates a new Manager. A newCohort function must
@@ -39,7 +38,6 @@ func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(kueu
 		make(map[kueue.CohortReference]C),
 		make(map[kueue.ClusterQueueReference]CQ),
 		newCohort,
-		CycleChecker{make(map[kueue.CohortReference]bool)},
 	}
 }
 
@@ -100,7 +98,6 @@ func (m *Manager[CQ, C]) Cohorts() map[kueue.CohortReference]C {
 }
 
 func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName kueue.CohortReference) {
-	m.resetCycleChecker()
 	cohort := m.cohorts[name]
 	m.detachCohortFromParent(cohort)
 	if parentName != "" {
@@ -111,7 +108,6 @@ func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName kueue.CohortReference
 }
 
 func (m *Manager[CQ, C]) DeleteCohort(name kueue.CohortReference) {
-	m.resetCycleChecker()
 	cohort, ok := m.cohorts[name]
 	if !ok {
 		return
@@ -170,10 +166,6 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 	if !cohort.isExplicit() && !cohort.hasChildren() {
 		delete(m.cohorts, cohort.GetName())
 	}
-}
-
-func (m *Manager[CQ, C]) resetCycleChecker() {
-	m.CycleChecker = CycleChecker{make(map[kueue.CohortReference]bool, len(m.cohorts))}
 }
 
 // NewManagerForTest is a special constructor for using in tests

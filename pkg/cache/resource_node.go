@@ -155,8 +155,8 @@ func updateClusterQueueResourceNode(cq *clusterQueue) {
 // updateCohortTreeResources traverses the Cohort tree from the root
 // to accumulate SubtreeQuota and Usage. It returns an error if the
 // provided Cohort has a cycle.
-func updateCohortTreeResources(cohort *cohort, cycleChecker hierarchy.CycleChecker) error {
-	if cycleChecker.HasCycle(cohort) {
+func updateCohortTreeResources(cohort *cohort) error {
+	if hierarchy.HasCycle(cohort) {
 		return errors.New("cohort has a cycle")
 	}
 	updateCohortResourceNode(cohort.getRootUnsafe())

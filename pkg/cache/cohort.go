@@ -42,15 +42,15 @@ func newCohort(name kueue.CohortReference) *cohort {
 	}
 }
 
-func (c *cohort) updateCohort(cycleChecker hierarchy.CycleChecker, apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
+func (c *cohort) updateCohort(apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
 	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
 	if oldParent != nil && oldParent != c.Parent() {
 		// ignore error when old Cohort has cycle.
-		_ = updateCohortTreeResources(oldParent, cycleChecker)
+		_ = updateCohortTreeResources(oldParent)
 	}
-	return updateCohortTreeResources(c, cycleChecker)
+	return updateCohortTreeResources(c)
 }
 
 func (c *cohort) GetName() kueue.CohortReference {
@@ -76,7 +76,7 @@ func (c *cohort) parentHRN() hierarchicalResourceNode {
 
 // implement hierarchy.CycleCheckable interface
 
-func (c *cohort) CCParent() hierarchy.CycleCheckable[kueue.CohortReference] {
+func (c *cohort) CCParent() hierarchy.CycleCheckable {
 	return c.Parent()
 }
 

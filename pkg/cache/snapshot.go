@@ -111,7 +111,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
 	for _, cohort := range c.hm.Cohorts() {
-		if c.hm.CycleChecker.HasCycle(cohort) {
+		if hierarchy.HasCycle(cohort) {
 			continue
 		}
 		snap.AddCohort(cohort.Name)
@@ -133,7 +133,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}
 	}
 	for _, cq := range c.hm.ClusterQueues() {
-		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
+		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
