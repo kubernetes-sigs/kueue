@@ -43,26 +43,33 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var snapCmpOpts = []cmp.Option{
-	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(hierarchy.Cohort[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*cache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
-	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[kueue.ClusterQueueReference] {
-		result := make(sets.Set[kueue.ClusterQueueReference], len(s))
-		for cq := range s {
-			result.Insert(cq.Name)
-		}
-		return result
-	}), // avoid recursion.
+var snapCmpOpts = cmp.Options{
+	// ignore zero values during comparison, as we consider
+	// zero FlavorResource usage to be same as no map entry.
+	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
+}
+
+type nodeKey struct {
+	cohort       kueue.CohortReference
+	clusterQueue kueue.ClusterQueueReference
+}
+
+func resourceNodes(snapshot *cache.Snapshot) map[nodeKey]cache.ResourceNode {
+	nodes := make(map[nodeKey]cache.ResourceNode, len(snapshot.Cohorts())+len(snapshot.ClusterQueues()))
+	for _, cohort := range snapshot.Cohorts() {
+		nodes[nodeKey{cohort: cohort.Name}] = cohort.ResourceNode
+	}
+	for _, cq := range snapshot.ClusterQueues() {
+		nodes[nodeKey{clusterQueue: cq.Name}] = cq.ResourceNode
+	}
+	return nodes
 }
 
 func TestPreemption(t *testing.T) {
@@ -1849,7 +1856,7 @@ func TestPreemption(t *testing.T) {
 				return nil
 			}
 
-			startingSnapshot, err := cqCache.Snapshot(ctx)
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
@@ -1871,7 +1878,10 @@ func TestPreemption(t *testing.T) {
 			if preempted != tc.wantPreempted.Len() {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
-			if diff := cmp.Diff(startingSnapshot, snapshotWorkingCopy, snapCmpOpts...); diff != "" {
+
+			beforeResourceNodes := resourceNodes(beforeSnapshot)
+			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
+			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
@@ -2663,7 +2673,11 @@ func TestFairPreemptions(t *testing.T) {
 				PreemptionStrategies: tc.strategies,
 			}, clocktesting.NewFakeClock(now))
 
-			snapshot, err := cqCache.Snapshot(ctx)
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
@@ -2675,12 +2689,18 @@ func TestFairPreemptions(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshot)
+			), snapshotWorkingCopy)
 			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+			}
+
+			beforeResourceNodes := resourceNodes(beforeSnapshot)
+			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
+			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
