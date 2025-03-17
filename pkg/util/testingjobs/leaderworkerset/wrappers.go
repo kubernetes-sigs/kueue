@@ -202,3 +202,11 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplate(worker corev1.PodTemplateSpec) *
 	w.Spec.LeaderWorkerTemplate.WorkerTemplate = worker
 	return w
 }
+
+func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.TerminationGracePeriodSeconds = &seconds
+	}
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.TerminationGracePeriodSeconds = &seconds
+	return w
+}

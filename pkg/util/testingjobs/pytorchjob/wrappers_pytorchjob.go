@@ -243,3 +243,9 @@ func (j *PyTorchJobWrapper) ManagedBy(c string) *PyTorchJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c
 	return j
 }
+
+func (j *PyTorchJobWrapper) TerminationGracePeriodSeconds(seconds int64) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}

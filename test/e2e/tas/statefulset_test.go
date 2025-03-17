@@ -84,6 +84,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				Replicas(replicas).
 				Queue(localQueue.Name).
 				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				TerminationGracePeriod(1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 

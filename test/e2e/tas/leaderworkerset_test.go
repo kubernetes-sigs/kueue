@@ -114,6 +114,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 						},
 					},
 				}).
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating a LeaderWorkerSet", func() {
 				gomega.Expect(k8sClient.Create(ctx, lws)).To(gomega.Succeed())

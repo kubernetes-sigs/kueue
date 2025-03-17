@@ -89,6 +89,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Size(1).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Obj()
 
@@ -147,6 +148,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Obj()
 			ginkgo.By("Create a LeaderWorkerSet", func() {
@@ -201,6 +203,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				Size(3).
 				Replicas(2).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Obj()
 
@@ -264,6 +267,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Size(3).
 					Replicas(1).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
+					TerminationGracePeriod(1).
 					Queue(lq.Name).
 					StartupPolicy(startupPolicyType).
 					Obj()
@@ -358,6 +362,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Size(3).
 					Replicas(2).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
+					TerminationGracePeriod(1).
 					Queue(lq.Name).
 					StartupPolicy(startupPolicyType).
 					Obj()
@@ -455,6 +460,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					Size(3).
 					Replicas(2).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
+					TerminationGracePeriod(1).
 					Queue(lq.Name).
 					LeaderTemplate(corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -474,6 +480,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 						},
 					}).
 					StartupPolicy(startupPolicyType).
+					TerminationGracePeriod(1).
 					Obj()
 
 				ginkgo.By("Create a LeaderWorkerSet", func() {
@@ -556,6 +563,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 						NodeSelector: map[string]string{},
 					},
 				}).
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Create a LeaderWorkerSet", func() {

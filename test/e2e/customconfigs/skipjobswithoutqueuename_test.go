@@ -264,6 +264,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", "kube-system").
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Obj()
@@ -321,6 +322,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
+					TerminationGracePeriod(1).
 					Replicas(2).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
