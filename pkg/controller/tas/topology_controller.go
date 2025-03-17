@@ -48,13 +48,12 @@ const (
 )
 
 type topologyReconciler struct {
-	log                   logr.Logger
-	client                client.Client
-	queues                *queue.Manager
-	cache                 *cache.Cache
-	tasCache              *cache.TASCache
-	topologyUpdateCh      chan event.GenericEvent
-	resourceFlavorHandler *resourceFlavorHandler
+	log              logr.Logger
+	client           client.Client
+	queues           *queue.Manager
+	cache            *cache.Cache
+	tasCache         *cache.TASCache
+	topologyUpdateCh chan event.GenericEvent
 }
 
 var _ reconcile.Reconciler = (*topologyReconciler)(nil)
@@ -62,13 +61,12 @@ var _ predicate.Predicate = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache) *topologyReconciler {
 	return &topologyReconciler{
-		log:                   ctrl.Log.WithName(TASTopologyController),
-		client:                c,
-		queues:                queues,
-		cache:                 cache,
-		tasCache:              cache.TASCache(),
-		topologyUpdateCh:      make(chan event.GenericEvent, updateChBuffer),
-		resourceFlavorHandler: &resourceFlavorHandler{},
+		log:              ctrl.Log.WithName(TASTopologyController),
+		client:           c,
+		queues:           queues,
+		cache:            cache,
+		tasCache:         cache.TASCache(),
+		topologyUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 
@@ -77,7 +75,7 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 		Named("tas_topology_controller").
 		For(&kueuealpha.Topology{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
-		Watches(&kueue.ResourceFlavor{}, r.resourceFlavorHandler).
+		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
 		WithEventFilter(r).
 		Complete(core.WithLeadingManager(mgr, r, &kueuealpha.Topology{}, cfg))
 }
