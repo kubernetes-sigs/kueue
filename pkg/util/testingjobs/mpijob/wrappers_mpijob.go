@@ -236,3 +236,9 @@ func (j *MPIJobWrapper) ManagedBy(c string) *MPIJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c
 	return j
 }
+
+func (j *MPIJobWrapper) TerminationGracePeriodSeconds(seconds int64) *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}

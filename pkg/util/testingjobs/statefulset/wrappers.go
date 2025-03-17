@@ -196,3 +196,9 @@ func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSe
 	ss.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return ss
 }
+
+// TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
+func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	return ss
+}

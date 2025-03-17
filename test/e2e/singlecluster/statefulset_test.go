@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -105,6 +106,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Request(corev1.ResourceCPU, "100m").
+					TerminationGracePeriod(1).
 					Replicas(1).
 					Queue(lq.Name).
 					Obj()
@@ -142,6 +144,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -192,6 +195,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -276,6 +280,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -338,6 +343,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "100m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(localQueueName).
 				Obj()

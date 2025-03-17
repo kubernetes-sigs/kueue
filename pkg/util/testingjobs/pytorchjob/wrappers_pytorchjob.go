@@ -226,3 +226,9 @@ func (j *PyTorchJobWrapper) Image(replicaType kftraining.ReplicaType, image stri
 	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
+
+func (j *PyTorchJobWrapper) TerminationGracePeriodSeconds(seconds int64) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}
