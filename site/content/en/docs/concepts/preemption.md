@@ -66,7 +66,7 @@ already above the nominal quota. The algorithms are:
   
   This algorithm is the most lightweight of the two.
 
-- **[Fair sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
+- **[Fair Sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
   until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
   The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
 
@@ -118,16 +118,16 @@ admitted when accounting back the quota usage of the target Workload.
 
 ## Fair Sharing
 
-Fair sharing introduces the concepts of ClusterQueue share values and preemption
+Fair Sharing introduces the concepts of ClusterQueue share values and preemption
 strategies. These work together with the preemption policies set in
 `withinClusterQueue` and `reclaimWithinCohort` (but __not__ `borrowWithinCohort`) to determine if a pending
-Workload can preempt an admitted Workload in Fair sharing. Fair sharing uses preemptions to
+Workload can preempt an admitted Workload in Fair Sharing. Fair Sharing uses preemptions to
 achieve an equal or weighted share of the borrowable resources between the
 tenants of a cohort.
 
 {{< feature-state state="stable" for_version="v0.7" >}}
 
-To enable fair sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
+To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -141,7 +141,7 @@ The attributes in this Kueue Configuration are described in the following sectio
 
 ### ClusterQueue share value
 
-When you enable fair sharing, Kueue assigns a numeric share value to each ClusterQueue to summarize
+When you enable Fair Sharing, Kueue assigns a numeric share value to each ClusterQueue to summarize
 the usage of borrowed resources in a ClusterQueue, in comparison to others in the same cohort.
 The share value is weighted by the `.spec.fairSharing.weight` defined in a ClusterQueue.
 

@@ -17,7 +17,7 @@ You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not rep
 
 Kueue APIs allow you to express:
 
-* Quotas and policies for fair sharing among tenants.
+* Quotas and policies for Fair Sharing among tenants.
 * Resource fungibility: if a resource flavor is fully utilized, Kueue can admit the job using a different flavor.
 
 A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
@@ -25,7 +25,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 ## Features overview
 
 - **Job management:** Support job queueing based on [priorities](/docs/concepts/workload/#priority) with different [strategies](/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
-- **Advanced Resource management:** Comprising: [resource flavor fungibility](/docs/concepts/cluster_queue/#flavorfungibility), [fair sharing](/docs/concepts/preemption/#fair-sharing), [cohorts](/docs/concepts/cluster_queue/#cohort) and [preemption](/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
+- **Advanced Resource management:** Comprising: [resource flavor fungibility](/docs/concepts/cluster_queue/#flavorfungibility), [Fair Sharing](/docs/concepts/preemption/#fair-sharing), [cohorts](/docs/concepts/cluster_queue/#cohort) and [preemption](/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
 - **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](/docs/tasks/run/jobs/), [Kubeflow training jobs](/docs/tasks/run/kubeflow/), [RayJob](/docs/tasks/run/rayjobs/), [RayCluster](/docs/tasks/run/rayclusters/), [JobSet](/docs/tasks/run/jobsets/),  [AppWrappers](/docs/tasks/run/appwrappers/), [plain Pod and Pod Groups](/docs/tasks/run/plain_pods/).
 - **System insight:** Build-in [prometheus metrics](/docs/reference/metrics/) to help monitor the state of the system, and on-demand visibility endpoint for [monitoring of pending workloads](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
 - **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](/docs/concepts/admission_check/).

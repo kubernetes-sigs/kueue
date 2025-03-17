@@ -3,7 +3,7 @@ title: "Cluster Queue"
 date: 2023-03-14
 weight: 3
 description: >
-  A cluster-scoped resource that governs a pool of resources, defining usage limits and fair sharing rules.
+  A cluster-scoped resource that governs a pool of resources, defining usage limits and Fair Sharing rules.
 ---
 
 A ClusterQueue is a cluster-scoped object that governs a pool of resources
@@ -11,7 +11,7 @@ such as pods, CPU, memory, and hardware accelerators. A ClusterQueue defines:
 
 - The quotas for the [resource _flavors_](/docs/concepts/resource_flavor) that the ClusterQueue manages,
   with usage limits and order of consumption.
-- Fair sharing rules across the multiple ClusterQueues in the cluster.
+- Fair Sharing rules across the multiple ClusterQueues in the cluster.
 
 Only [batch administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
 
