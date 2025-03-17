@@ -25,9 +25,14 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -46,34 +51,34 @@ type CohortReconciler struct {
 	qManager *queue.Manager
 }
 
+var _ reconcile.Reconciler = (*CohortReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.Cohort] = (*CohortReconciler)(nil)
+
 func NewCohortReconciler(client client.Client, cache *cache.Cache, qManager *queue.Manager) CohortReconciler {
 	return CohortReconciler{client, ctrl.Log.WithName("cohort-reconciler"), cache, qManager}
 }
 
 func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.Cohort{}).
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("cohort_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Cohort{},
+			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
+			r,
+		)).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
-		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
 
-func (r *CohortReconciler) Create(e event.CreateEvent) bool {
+func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
 	return true
 }
 
-func (r *CohortReconciler) Update(e event.UpdateEvent) bool {
-	oldCohort, ok := e.ObjectOld.(*kueue.Cohort)
-	if !ok {
-		return false
-	}
-	newCohort, ok := e.ObjectNew.(*kueue.Cohort)
-	if !ok {
-		return false
-	}
-	log := r.log.WithValues("cohort", klog.KObj(newCohort))
-	if equality.Semantic.DeepEqual(oldCohort.Spec.ResourceGroups, newCohort.Spec.ResourceGroups) &&
-		oldCohort.Spec.Parent == newCohort.Spec.Parent {
+func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
+	log := r.log.WithValues("cohort", klog.KObj(e.ObjectNew))
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec.ResourceGroups, e.ObjectNew.Spec.ResourceGroups) &&
+		e.ObjectOld.Spec.Parent == e.ObjectNew.Spec.Parent {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -81,11 +86,11 @@ func (r *CohortReconciler) Update(e event.UpdateEvent) bool {
 	return true
 }
 
-func (r *CohortReconciler) Delete(e event.DeleteEvent) bool {
+func (r *CohortReconciler) Delete(event.TypedDeleteEvent[*kueue.Cohort]) bool {
 	return true
 }
 
-func (r *CohortReconciler) Generic(e event.GenericEvent) bool {
+func (r *CohortReconciler) Generic(event.TypedGenericEvent[*kueue.Cohort]) bool {
 	return true
 }
 
