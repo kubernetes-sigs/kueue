@@ -20,6 +20,10 @@ import "k8s.io/apimachinery/pkg/api/resource"
 
 // FairSharing contains the properties of the ClusterQueue or Cohort,
 // when participating in FairSharing.
+//
+// Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
+// which has a parent) as of v0.11. Using these features together in
+// V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type FairSharing struct {
 	// weight gives a comparative advantage to this ClusterQueue
 	// or Cohort when competing for unused resources in the

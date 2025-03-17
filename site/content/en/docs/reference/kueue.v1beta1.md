@@ -1031,6 +1031,9 @@ subdomain in DNS (RFC 1123).</p>
 
 <p>FairSharing contains the properties of the ClusterQueue or Cohort,
 when participating in FairSharing.</p>
+<p>Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
+which has a parent) as of v0.11. Using these features together in
+V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
