@@ -35,11 +35,13 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -78,6 +80,9 @@ type ClusterQueueReconciler struct {
 	queueVisibilityClusterQueuesMaxCount int32
 	clock                                clock.Clock
 }
+
+var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.ClusterQueue] = (*ClusterQueueReconciler)(nil)
 
 type ClusterQueueReconcilerOptions struct {
 	Watchers                             []ClusterQueueUpdateWatcher
@@ -311,87 +316,66 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 // Event handlers return true to signal the controller to reconcile the
 // ClusterQueue associated with the event.
 
-func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
-	cq, match := e.Object.(*kueue.ClusterQueue)
-	if !match {
-		// No need to interact with the cache for other objects.
-		return true
-	}
-	defer r.notifyWatchers(nil, cq)
+func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
+	defer r.notifyWatchers(nil, e.Object)
 
-	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+	log := r.log.WithValues("clusterQueue", klog.KObj(e.Object))
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	if err := r.cache.AddClusterQueue(ctx, cq); err != nil {
+	if err := r.cache.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")
 	}
 
-	if err := r.qManager.AddClusterQueue(ctx, cq); err != nil {
+	if err := r.qManager.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
 
 	if r.reportResourceMetrics {
-		recordResourceMetrics(cq)
+		recordResourceMetrics(e.Object)
 	}
 
 	return true
 }
 
-func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
-	cq, match := e.Object.(*kueue.ClusterQueue)
-	if !match {
-		// No need to interact with the cache for other objects.
-		return true
-	}
-	defer r.notifyWatchers(cq, nil)
+func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
+	defer r.notifyWatchers(e.Object, nil)
 
-	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(cq))
-	r.cache.DeleteClusterQueue(cq)
-	r.qManager.DeleteClusterQueue(cq)
-	r.qManager.DeleteSnapshot(cq)
+	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
+	r.cache.DeleteClusterQueue(e.Object)
+	r.qManager.DeleteClusterQueue(e.Object)
+	r.qManager.DeleteSnapshot(e.Object)
 
-	metrics.ClearClusterQueueResourceMetrics(cq.Name)
-	r.log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(cq))
+	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
+	r.log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
 
 	return true
 }
 
-func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
-	oldCq, match := e.ObjectOld.(*kueue.ClusterQueue)
-	if !match {
-		// No need to interact with the cache for other objects.
-		return true
-	}
-	newCq, match := e.ObjectNew.(*kueue.ClusterQueue)
-	if !match {
-		// No need to interact with the cache for other objects.
-		return true
-	}
-
-	log := r.log.WithValues("clusterQueue", klog.KObj(newCq))
+func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
+	log := r.log.WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ClusterQueue update event")
 
-	if newCq.DeletionTimestamp != nil {
+	if e.ObjectNew.DeletionTimestamp != nil {
 		return true
 	}
-	defer r.notifyWatchers(oldCq, newCq)
-	specUpdated := !equality.Semantic.DeepEqual(oldCq.Spec, newCq.Spec)
+	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
+	specUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec)
 
-	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
+	if err := r.cache.UpdateClusterQueue(e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq, specUpdated); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
 	if r.reportResourceMetrics {
-		updateResourceMetrics(oldCq, newCq)
+		updateResourceMetrics(e.ObjectOld, e.ObjectNew)
 	}
 	return true
 }
 
-func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(2).Info("Got generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
+func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
+	r.log.V(3).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -595,13 +579,18 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 	snapHandler := cqSnapshotHandler{
 		queueVisibilityUpdateInterval: r.queueVisibilityUpdateInterval,
 	}
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.ClusterQueue{}).
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("clusterqueue_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.ClusterQueue{},
+			&handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]{},
+			r,
+		)).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).
-		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
