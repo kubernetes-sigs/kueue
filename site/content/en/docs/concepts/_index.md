@@ -22,7 +22,7 @@ resources such as availability, pricing, architecture, models, etc.
 ### [Cluster Queue](/docs/concepts/cluster_queue)
 
 A cluster-scoped resource that governs a pool of resources, defining usage
-limits and fair sharing rules.
+limits and Fair Sharing rules.
 
 ### [Local Queue](/docs/concepts/local_queue)
 
@@ -75,7 +75,7 @@ A _cohort_ is a group of ClusterQueues that can borrow unused quota from each ot
 
 _Queueing_ is the state of a Workload since the time it is created until Kueue admits it on a ClusterQueue.
 Typically, the Workload will compete with other Workloads for available
-quota based on the fair sharing rules of the ClusterQueue.
+quota based on the Fair Sharing rules of the ClusterQueue.
 
 ### [Preemption](/docs/concepts/preemption)
 

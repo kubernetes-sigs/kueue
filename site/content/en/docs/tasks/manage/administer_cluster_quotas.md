@@ -3,11 +3,11 @@ title: "Administer Cluster Quotas"
 date: 2022-03-14
 weight: 2
 description: >
-  Manage your cluster resource quotas and to establish fair sharing rules among the tenants.
+  Manage your cluster resource quotas and to establish Fair Sharing rules among the tenants.
 ---
 
 This page shows you how to manage your cluster resource quotas and to establish
-fair sharing rules among the tenants.
+Fair Sharing rules among the tenants.
 
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
 

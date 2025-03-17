@@ -43,7 +43,7 @@ team and quota/budget structures.
 
 * Change the existing API and mechanics in a not backward-compatible way.
 * Introduce an alternative API to ClusterQueue.
-* Introduce new ways of fair sharing, like ratio-based sharing (at least 
+* Introduce new ways of Fair Sharing, like ratio-based sharing (at least 
 not in this KEP).
 * Introduce additional preemption models (this will be in a separate KEP).
 
