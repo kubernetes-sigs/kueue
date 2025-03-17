@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"errors"
 	"maps"
 
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -157,7 +156,7 @@ func updateClusterQueueResourceNode(cq *clusterQueue) {
 // provided Cohort has a cycle.
 func updateCohortTreeResources(cohort *cohort) error {
 	if hierarchy.HasCycle(cohort) {
-		return errors.New("cohort has a cycle")
+		return ErrCohortHasCycle
 	}
 	updateCohortResourceNode(cohort.getRootUnsafe())
 	return nil

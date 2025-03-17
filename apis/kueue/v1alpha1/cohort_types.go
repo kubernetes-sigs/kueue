@@ -64,8 +64,14 @@ type CohortSpec struct {
 	FairSharing *kueuebeta.FairSharing `json:"fairSharing,omitempty"`
 }
 
+type CohortStatus struct {
+	// +optional
+	FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
+}
+
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Cluster
+//+kubebuilder:subresource:status
 
 // Cohort defines the Cohorts API.
 //
@@ -76,7 +82,8 @@ type Cohort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec CohortSpec `json:"spec,omitempty"`
+	Spec   CohortSpec   `json:"spec,omitempty"`
+	Status CohortStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
