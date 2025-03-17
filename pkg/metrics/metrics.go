@@ -31,6 +31,7 @@ import (
 
 type AdmissionResult string
 type ClusterQueueStatus string
+type FrameworkBool string
 
 type LocalQueueReference struct {
 	Name      string
@@ -369,6 +370,27 @@ If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 the maximum possible share value.`,
 		}, []string{"cluster_queue"},
 	)
+
+	// Metrics counting usage of frameworks
+
+	// Counter of jobs that are managed by Kueue
+	WorkloadIntegrationsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_integrations",
+			Help: `The number of batch jobs that Kueue is/has managed.
+"Workload will specify what kind of workload`,
+		}, []string{"workload"},
+	)
+
+	ExternalFrameworksWorkloadCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_external_integrations",
+			Help: `The number of external frameworks that Kueue is/has managed.
+Workload will specify what kind of workload`,
+		}, []string{"workload"},
+	)
 )
 
 func generateExponentialBuckets(count int) []float64 {
@@ -429,6 +451,26 @@ func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
+}
+
+func ReportIntegrationsFrameworksSupported(frameworks []string) {
+	for _, val := range frameworks {
+		WorkloadIntegrationsCounter.WithLabelValues(val).Add(0)
+	}
+}
+
+func ReportExternalFrameworksSupported(externalFrameworks []string) {
+	for _, val := range externalFrameworks {
+		ExternalFrameworksWorkloadCounter.WithLabelValues(val).Add(0)
+	}
+}
+
+func CountExternalFramework(externalGVK string) {
+	ExternalFrameworksWorkloadCounter.WithLabelValues(externalGVK).Inc()
+}
+
+func CountFramework(framework string) {
+	WorkloadIntegrationsCounter.WithLabelValues(framework).Inc()
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
@@ -625,6 +667,8 @@ func Register() {
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
+		WorkloadIntegrationsCounter,
+		ExternalFrameworksWorkloadCounter,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
