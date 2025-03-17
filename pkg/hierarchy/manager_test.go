@@ -409,8 +409,6 @@ func TestCycles(t *testing.T) {
 			operations: func(m M) {
 				m.AddCohort("root")
 				m.UpdateCohortEdge("root", "root")
-				// we call HasCycle to test invalidation
-				m.CycleChecker.HasCycle(m.Cohort("root"))
 				m.UpdateCohortEdge("root", "")
 			},
 			wantCycles: map[kueue.CohortReference]bool{
@@ -435,10 +433,6 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("cohort-b")
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
-
-				// we call HasCycle to test invalidation
-				m.CycleChecker.HasCycle(m.Cohort("cohort-a"))
-
 				m.UpdateCohortEdge("cohort-a", "cohort-c")
 			},
 			wantCycles: map[kueue.CohortReference]bool{
@@ -453,8 +447,6 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("cohort-b")
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
-				m.CycleChecker.HasCycle(m.Cohort("cohort-a"))
-
 				m.UpdateCohortEdge("cohort-a", "")
 			},
 			wantCycles: map[kueue.CohortReference]bool{
@@ -468,7 +460,6 @@ func TestCycles(t *testing.T) {
 				m.AddCohort("cohort-b")
 				m.UpdateCohortEdge("cohort-a", "cohort-b")
 				m.UpdateCohortEdge("cohort-b", "cohort-a")
-				m.CycleChecker.HasCycle(m.Cohort("cohort-a"))
 				m.DeleteCohort("cohort-b")
 			},
 			wantCycles: map[kueue.CohortReference]bool{
@@ -483,12 +474,16 @@ func TestCycles(t *testing.T) {
 			mgr := NewManager(newCohort)
 			tc.operations(mgr)
 			for _, cohort := range mgr.Cohorts() {
-				got := mgr.CycleChecker.HasCycle(cohort)
+				got := HasCycle(cohort)
 				if got != tc.wantCycles[cohort.GetName()] {
 					t.Errorf("-want +got: %v %v", tc.wantCycles[cohort.GetName()], got)
 				}
 			}
-			if diff := cmp.Diff(mgr.CycleChecker.cycles, tc.wantCycles); diff != "" {
+			gotCycles := make(map[kueue.CohortReference]bool)
+			for _, cohort := range mgr.Cohorts() {
+				gotCycles[cohort.GetName()] = HasCycle(cohort)
+			}
+			if diff := cmp.Diff(gotCycles, tc.wantCycles); diff != "" {
 				t.Errorf("-want +got: %v", diff)
 			}
 		})
@@ -511,7 +506,7 @@ func (t *testCohort) GetName() kueue.CohortReference {
 	return t.name
 }
 
-func (t *testCohort) CCParent() CycleCheckable[kueue.CohortReference] {
+func (t *testCohort) CCParent() CycleCheckable {
 	return t.Parent()
 }
 

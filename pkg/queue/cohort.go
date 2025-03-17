@@ -40,7 +40,7 @@ func (c *cohort) GetName() kueue.CohortReference {
 }
 
 // CCParent satisfies the CycleCheckable interface.
-func (c *cohort) CCParent() hierarchy.CycleCheckable[kueue.CohortReference] {
+func (c *cohort) CCParent() hierarchy.CycleCheckable {
 	return c.Parent()
 }
 

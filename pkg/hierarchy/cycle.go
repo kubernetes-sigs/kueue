@@ -16,29 +16,29 @@ limitations under the License.
 
 package hierarchy
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+import (
+	"k8s.io/apimachinery/pkg/util/sets"
 
-type CycleCheckable[T comparable] interface {
-	GetName() T
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
+type CycleCheckable interface {
+	GetName() kueue.CohortReference
 	HasParent() bool
-	CCParent() CycleCheckable[T]
+	CCParent() CycleCheckable
 }
 
-// CycleChecker checks for cycles in Cohorts, while memorizing the
-// result.
-type CycleChecker struct {
-	cycles map[kueue.CohortReference]bool
+func HasCycle(cohort CycleCheckable) bool {
+	return hasCycle(cohort, sets.New[kueue.CohortReference]())
 }
 
-func (c *CycleChecker) HasCycle(cohort CycleCheckable[kueue.CohortReference]) bool {
-	if cycle, seen := c.cycles[cohort.GetName()]; seen {
-		return cycle
-	}
+func hasCycle(cohort CycleCheckable, seen sets.Set[kueue.CohortReference]) bool {
 	if !cohort.HasParent() {
-		c.cycles[cohort.GetName()] = false
-		return c.cycles[cohort.GetName()]
+		return false
 	}
-	c.cycles[cohort.GetName()] = true
-	c.cycles[cohort.GetName()] = c.HasCycle(cohort.CCParent())
-	return c.cycles[cohort.GetName()]
+	if seen.Has(cohort.GetName()) {
+		return true
+	}
+	seen.Insert(cohort.GetName())
+	return hasCycle(cohort.CCParent(), seen)
 }

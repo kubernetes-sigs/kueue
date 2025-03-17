@@ -121,15 +121,15 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
-			_ = updateCohortTreeResources(oldParent, cycleChecker)
+			_ = updateCohortTreeResources(oldParent)
 		}
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
-			if err := updateCohortTreeResources(c.Parent(), cycleChecker); err != nil {
+			if err := updateCohortTreeResources(c.Parent()); err != nil {
 				return err
 			}
 		} else {

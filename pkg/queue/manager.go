@@ -542,7 +542,7 @@ func (m *Manager) requeueWorkloadsCQ(ctx context.Context, cq *ClusterQueue) bool
 func (m *Manager) requeueWorkloadsCohort(ctx context.Context, cohort *cohort) bool {
 	log := ctrl.LoggerFrom(ctx)
 
-	if m.hm.CycleChecker.HasCycle(cohort) {
+	if hierarchy.HasCycle(cohort) {
 		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
 		return false
 	}
