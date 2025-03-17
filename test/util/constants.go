@@ -64,7 +64,15 @@ var (
 )
 
 var (
-	BehaviorWaitForDeletion           = []string{"netexec"}
+	// For full documentation on agnhost subcommands see the following documentation:
+	// https://pkg.go.dev/k8s.io/kubernetes/test/images/agnhost#section-readme
+
+	// Starts a simple HTTP(S) with a few endpoints, one of which is the /exit endpoint which exits with `exit 0`
+	BehaviorWaitForDeletion = []string{"netexec"}
+
+	// Starts a container which will remain paused and therefore must be deleted resulting in `exit 1`
 	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
-	BehaviorExitFast                  = []string{"entrypoint-tester"}
+
+	// The agnhost container will print args passed and `exit 0`
+	BehaviorExitFast = []string{"entrypoint-tester"}
 )
