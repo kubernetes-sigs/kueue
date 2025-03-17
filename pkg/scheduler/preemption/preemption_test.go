@@ -2559,6 +2559,77 @@ func TestFairPreemptions(t *testing.T) {
 				targetKeyReason("/a3", kueue.InClusterQueueReason),
 			),
 		},
+		//                      ROOT
+		//                    /   |   \
+		//                   A    B    C
+		//                   |    |    |
+		//                   AA   BB   CC
+		//                   |    |    |
+		//                  AAA  BBB  CCC
+		//                   |    |    |
+		//                   a    b   CCCC
+		// cq-a wants capacity, cq-b uses capacity, and
+		// Cohort-CCCC provides capacity
+		//
+		// Organization A is more important than organization
+		// B, indicated by relative FairSharing value, so the
+		// preemption is possible.
+		"deep preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("AAA").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("BBB").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("ROOT").Obj(),
+				utiltesting.MakeCohort("A").Parent("ROOT").
+					// we are comparing
+					// almostLCAs=(A,B). In order
+					// for the preemption to
+					// occur, we indicate that A
+					// is more important than B.
+					FairWeight(resource.MustParse("1.01")).
+					Obj(),
+				utiltesting.MakeCohort("AA").Parent("A").
+					Obj(),
+				utiltesting.MakeCohort("AAA").Parent("AA").
+					Obj(),
+				utiltesting.MakeCohort("B").Parent("ROOT").
+					FairWeight(resource.MustParse("0.99")).
+					Obj(),
+				utiltesting.MakeCohort("BB").Parent("B").
+					Obj(),
+				utiltesting.MakeCohort("BBB").Parent("BB").
+					Obj(),
+				utiltesting.MakeCohort("C").Parent("ROOT").
+					Obj(),
+				utiltesting.MakeCohort("CC").Parent("C").
+					Obj(),
+				utiltesting.MakeCohort("CCC").Parent("CC").
+					Obj(),
+				utiltesting.MakeCohort("CCCC").Parent("CCC").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Workload,
+			},
+			incoming: unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+			),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
