@@ -810,6 +810,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
   or explicit level added by webhook.
 - introduce configuration for setting TAS profiles/algorithms
+- introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
 
 #### Stable
 
