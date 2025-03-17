@@ -242,7 +242,7 @@ The label 'reason' can have the following values:
 The label 'reason' can have the following values:
 - "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.
 - "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
-- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort due to fair sharing.
+- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.`,
 		}, []string{"preempting_cluster_queue", "reason"},
 	)

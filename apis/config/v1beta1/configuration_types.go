@@ -92,7 +92,7 @@ type Configuration struct {
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 
-	// FairSharing controls the fair sharing semantics across the cluster.
+	// FairSharing controls the Fair Sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
 	// Resources provides additional configuration options for handling the resources.
@@ -450,7 +450,7 @@ const (
 )
 
 type FairSharing struct {
-	// enable indicates whether to enable fair sharing for all cohorts.
+	// enable indicates whether to enable Fair Sharing for all cohorts.
 	// Defaults to false.
 	Enable bool `json:"enable"`
 

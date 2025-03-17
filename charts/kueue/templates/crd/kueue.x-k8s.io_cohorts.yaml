@@ -247,7 +247,7 @@ spec:
             properties:
               fairSharing:
                 description: fairSharing contains the information about the current
-                  status of fair sharing.
+                  status of Fair Sharing.
                 properties:
                   weightedShare:
                     description: |-

@@ -189,7 +189,7 @@ instead.</p>
 <a href="#FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
-   <p>FairSharing controls the fair sharing semantics across the cluster.</p>
+   <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
 </td>
 </tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
@@ -458,7 +458,7 @@ must be named tls.key and tls.crt, respectively.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>enable indicates whether to enable fair sharing for all cohorts.
+   <p>enable indicates whether to enable Fair Sharing for all cohorts.
 Defaults to false.</p>
 </td>
 </tr>

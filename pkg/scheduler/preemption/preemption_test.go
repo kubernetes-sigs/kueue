@@ -2165,7 +2165,7 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ: "a",
 		},
 		// preemption.borrowWithinCohort does not affect how
-		// we handle fair sharing preemptions. Lower priority
+		// we handle Fair Sharing preemptions. Lower priority
 		// workloads are not preempted unless
 		// DominantResourceShare value indicates that they
 		// should be preempted.

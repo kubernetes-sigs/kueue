@@ -524,7 +524,7 @@ const (
 	InCohortReclamationReason string = "InCohortReclamation"
 
 	// InCohortFairSharingReason indicates the Workload was preempted due to
-	// fair sharing within the cohort.
+	// Fair Sharing within the cohort.
 	InCohortFairSharingReason string = "InCohortFairSharing"
 
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted

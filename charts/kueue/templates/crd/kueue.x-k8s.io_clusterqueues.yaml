@@ -307,11 +307,11 @@ spec:
                         Workloads in the cohort that have lower priority than the pending
                         Workload. **Fair Sharing** only preempt Workloads in the cohort that
                         have lower priority than the pending Workload and that satisfy the
-                        fair sharing preemptionStategies.
+                        Fair Sharing preemptionStategies.
                       - `Any`: **Classic Preemption** if the pending Workload fits within
                          the nominal quota of its ClusterQueue, preempt any Workload in the
                          cohort, irrespective of priority. **Fair Sharing** preempt Workloads
-                         in the cohort that satisfy the fair sharing preemptionStrategies.
+                         in the cohort that satisfy the Fair Sharing preemptionStrategies.
                     enum:
                     - Never
                     - LowerPriority
@@ -583,7 +583,7 @@ spec:
                 x-kubernetes-list-type: map
               fairSharing:
                 description: fairSharing contains the information about the current
-                  status of fair sharing.
+                  status of Fair Sharing.
                 properties:
                   weightedShare:
                     description: |-

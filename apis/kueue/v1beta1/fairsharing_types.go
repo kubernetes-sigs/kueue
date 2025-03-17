@@ -39,7 +39,7 @@ type FairSharing struct {
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
-// fairSharing contains the information about the current status of fair sharing.
+// fairSharing contains the information about the current status of Fair Sharing.
 type FairSharingStatus struct {
 	// WeightedShare represent the maximum of the ratios of usage
 	// above nominal quota to the lendable resources in the
