@@ -268,8 +268,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
-			ungate(&p.pod)
-			return true, podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0])
+			return true, prepare(&p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -289,8 +288,6 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
-			ungate(pod)
-
 			roleHash, err := getRoleHash(*pod)
 			if err != nil {
 				return false, err
@@ -303,7 +300,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
-			err = podset.Merge(&pod.ObjectMeta, &pod.Spec, podSetsInfo[podSetIndex])
+			err = prepare(pod, podSetsInfo[podSetIndex])
 			if err != nil {
 				return false, err
 			}
@@ -1342,8 +1339,16 @@ func isGated(pod *corev1.Pod) bool {
 	return utilpod.HasGate(pod, podconstants.SchedulingGateName)
 }
 
-func ungate(pod *corev1.Pod) bool {
-	return utilpod.Ungate(pod, podconstants.SchedulingGateName)
+func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
+	if err := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); err != nil {
+		return err
+	}
+	utilpod.Ungate(pod, podconstants.SchedulingGateName)
+	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
+	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
+		utilpod.Ungate(pod, kueuealpha.TopologySchedulingGate)
+	}
+	return nil
 }
 
 func gate(pod *corev1.Pod) bool {

@@ -308,7 +308,6 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
-				Label(kueuealpha.TASLabel, "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().

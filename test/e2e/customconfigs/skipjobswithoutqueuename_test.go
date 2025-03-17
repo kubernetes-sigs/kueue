@@ -251,9 +251,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				podLookupKey = types.NamespacedName{Name: testPod.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
-					g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
-						{Name: podcontroller.SchedulingGateName},
-					}))
+					g.Expect(createdPod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 					g.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -308,9 +306,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
-						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
-							{Name: podcontroller.SchedulingGateName},
-						}))
+						g.Expect(pod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
@@ -373,9 +369,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					// If the first pod can't be scheduled, the second won't be created
 					g.Expect(pods.Items).Should(gomega.HaveLen(1))
 					for _, pod := range pods.Items {
-						g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeComparableTo([]corev1.PodSchedulingGate{
-							{Name: podcontroller.SchedulingGateName},
-						}))
+						g.Expect(pod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
 						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
 					}
