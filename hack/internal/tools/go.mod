@@ -1,14 +1,13 @@
 module sigs.k8s.io/kueue/internal/tools
 
 go 1.24.0
-
 require (
 	github.com/gohugoio/hugo v0.145.0
 	github.com/golangci/golangci-lint v1.64.7
 	github.com/mikefarah/yq/v4 v4.45.1
 	github.com/onsi/ginkgo/v2 v2.23.0
 	gopkg.in/yaml.v3 v3.0.1
-	gotest.tools/gotestsum v1.12.0
+	gotest.tools/gotestsum v1.12.1
 	helm.sh/helm/v3 v3.17.1
 	k8s.io/code-generator v0.32.2
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
