@@ -221,7 +221,7 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 }
 
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
-	kroKey := types.NamespacedName{Namespace: "ray-system", Name: "kuberay-operator"}
+	kroKey := types.NamespacedName{Namespace: "default", Name: "kuberay-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kroKey)
 }
 

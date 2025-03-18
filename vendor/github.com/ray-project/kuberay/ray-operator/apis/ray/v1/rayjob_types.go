@@ -57,9 +57,18 @@ const (
 type JobSubmissionMode string
 
 const (
-	K8sJobMode JobSubmissionMode = "K8sJobMode" // Submit job via Kubernetes Job
-	HTTPMode   JobSubmissionMode = "HTTPMode"   // Submit job via HTTP request
-	UserMode   JobSubmissionMode = "UserMode"   // Don't submit job in KubeRay. Instead, wait for user to submit job and provide the job submission ID
+	K8sJobMode      JobSubmissionMode = "K8sJobMode"      // Submit job via Kubernetes Job
+	HTTPMode        JobSubmissionMode = "HTTPMode"        // Submit job via HTTP request
+	InteractiveMode JobSubmissionMode = "InteractiveMode" // Don't submit job in KubeRay. Instead, wait for user to submit job and provide the job submission ID.
+)
+
+type DeletionPolicy string
+
+const (
+	DeleteClusterDeletionPolicy DeletionPolicy = "DeleteCluster" // Deletion policy to delete the entire RayCluster custom resource on job completion.
+	DeleteWorkersDeletionPolicy DeletionPolicy = "DeleteWorkers" // Deletion policy to delete only the workers on job completion.
+	DeleteSelfDeletionPolicy    DeletionPolicy = "DeleteSelf"    // Deletion policy to delete the RayJob custom resource (and all associated resources) on job completion.
+	DeleteNoneDeletionPolicy    DeletionPolicy = "DeleteNone"    // Deletion policy to delete no resources on job completion.
 )
 
 type SubmitterConfig struct {
@@ -86,8 +95,22 @@ type RayJobSpec struct {
 	ClusterSelector map[string]string `json:"clusterSelector,omitempty"`
 	// Configurations of submitter k8s job.
 	SubmitterConfig *SubmitterConfig `json:"submitterConfig,omitempty"`
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ManagedBy is an optional configuration for the controller or entity that manages a RayJob.
+	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
+	// The kuberay-operator reconciles a RayJob which doesn't have this field at all or
+	// the field value is the reserved string 'ray.io/kuberay-operator',
+	// but delegates reconciling the RayJob with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="the managedBy field is immutable"
+	// +kubebuilder:validation:XValidation:rule="self in ['ray.io/kuberay-operator', 'kueue.x-k8s.io/multikueue']",message="the managedBy field value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'"
+	ManagedBy *string `json:"managedBy,omitempty"`
+	// DeletionPolicy indicates what resources of the RayJob are deleted upon job completion.
+	// Valid values are 'DeleteCluster', 'DeleteWorkers', 'DeleteSelf' or 'DeleteNone'.
+	// If unset, deletion policy is based on 'spec.shutdownAfterJobFinishes'.
+	// This field requires the RayJobDeletionPolicy feature gate to be enabled.
+	// +kubebuilder:validation:XValidation:rule="self in ['DeleteCluster', 'DeleteWorkers', 'DeleteSelf', 'DeleteNone']",message="the deletionPolicy field value must be either 'DeleteCluster', 'DeleteWorkers', 'DeleteSelf', or 'DeleteNone'"
+	DeletionPolicy *DeletionPolicy `json:"deletionPolicy,omitempty"`
+	// Entrypoint represents the command to start execution.
 	Entrypoint string `json:"entrypoint,omitempty"`
 	// RuntimeEnvYAML represents the runtime environment configuration
 	// provided as a multi-line YAML string.
@@ -97,6 +120,7 @@ type RayJobSpec struct {
 	// SubmissionMode specifies how RayJob submits the Ray job to the RayCluster.
 	// In "K8sJobMode", the KubeRay operator creates a submitter Kubernetes Job to submit the Ray job.
 	// In "HTTPMode", the KubeRay operator sends a request to the RayCluster to create a Ray job.
+	// In "InteractiveMode", the KubeRay operator waits for a user to submit a job to the Ray cluster.
 	// +kubebuilder:default:=K8sJobMode
 	SubmissionMode JobSubmissionMode `json:"submissionMode,omitempty"`
 	// EntrypointResources specifies the custom resources and quantities to reserve for the

@@ -46,7 +46,7 @@ fi
 
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
-    export KUBERAY_IMAGE=bitnami/kuberay-operator:${KUBERAY_VERSION/#v}
+    export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
     export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
     export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
     export KUBERAY_CRDS=${ROOT_DIR}/dep-crds/ray-operator/crd/bases
