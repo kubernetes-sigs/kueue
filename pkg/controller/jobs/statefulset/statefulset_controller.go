@@ -44,7 +44,7 @@ func init() {
 		SetupWebhook:   SetupWebhook,
 		JobType:        &appsv1.StatefulSet{},
 		AddToScheme:    appsv1.AddToScheme,
-		DependencyList: []configapi.KueueIntegrations{configapi.Pod},
+		DependencyList: []configapi.IntegrationReference{configapi.Pod},
 		GVK:            gvk,
 	}))
 }

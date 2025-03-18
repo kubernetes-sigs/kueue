@@ -47,7 +47,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
 
-	utilruntime.Must(jobframework.ForEachIntegration(func(_ configapi.KueueIntegrations, cb jobframework.IntegrationCallbacks) error {
+	utilruntime.Must(jobframework.ForEachIntegration(func(_ configapi.IntegrationReference, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
 			return cb.AddToScheme(scheme)
 		}

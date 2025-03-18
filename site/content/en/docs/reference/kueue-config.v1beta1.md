@@ -489,6 +489,18 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </tbody>
 </table>
 
+## `IntegrationReference`     {#IntegrationReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Integrations](#Integrations)
+
+
+
+
+
 ## `Integrations`     {#Integrations}
     
 
@@ -503,7 +515,7 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
     
   
 <tr><td><code>frameworks</code> <B>[Required]</B><br/>
-<a href="#KueueIntegrations"><code>[]KueueIntegrations</code></a>
+<a href="#IntegrationReference"><code>[]IntegrationReference</code></a>
 </td>
 <td>
    <p>List of framework names to be enabled.
@@ -609,18 +621,6 @@ Defaults to kueue-webhook-server-cert.</p>
 </tr>
 </tbody>
 </table>
-
-## `KueueIntegrations`     {#KueueIntegrations}
-    
-(Alias of `string`)
-
-**Appears in:**
-
-- [Integrations](#Integrations)
-
-
-
-
 
 ## `MultiKueue`     {#MultiKueue}
     

@@ -47,7 +47,7 @@ func init() {
 		SetupWebhook:             SetupWebhook,
 		JobType:                  &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:              leaderworkersetv1.AddToScheme,
-		DependencyList:           []configapi.KueueIntegrations{configapi.Pod},
+		DependencyList:           []configapi.IntegrationReference{configapi.Pod},
 		IsManagingObjectsOwner:   isLeaderWorkerSet,
 		GVK:                      gvk,
 	}))

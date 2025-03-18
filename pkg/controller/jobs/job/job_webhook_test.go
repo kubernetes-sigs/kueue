@@ -559,7 +559,7 @@ func TestDefault(t *testing.T) {
 		multiKueueBatchJobWithManagedByEnabled bool
 		localQueueDefaulting                   bool
 		defaultLqExist                         bool
-		enableIntegrations                     []configapi.KueueIntegrations
+		enableIntegrations                     []configapi.IntegrationReference
 		want                                   *batchv1.Job
 		wantErr                                error
 	}{
@@ -673,7 +673,7 @@ func TestDefault(t *testing.T) {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
 			// MPIJob callBackFunction is registered as integrations since we initialize MPIJob integration package.
-			enableIntegrations: []configapi.KueueIntegrations{configapi.MPIJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.MPIJob},
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),

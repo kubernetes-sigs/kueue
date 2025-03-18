@@ -365,7 +365,7 @@ type Integrations struct {
 	//  - "deployment" (requires enabling pod integration)
 	//  - "statefulset" (requires enabling pod integration)
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
-	Frameworks []KueueIntegrations `json:"frameworks,omitempty"`
+	Frameworks []IntegrationReference `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
@@ -387,23 +387,23 @@ type Integrations struct {
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 
-type KueueIntegrations string
+type IntegrationReference string
 
 const (
-	BatchJob        KueueIntegrations = "batch/job"
-	RayJob          KueueIntegrations = "ray.io/rayjob"
-	RayCluster      KueueIntegrations = "ray.io/raycluster"
-	JobSet          KueueIntegrations = "jobset.x-k8s.io/jobset"
-	MPIJob          KueueIntegrations = "kubeflow.org/mpijob"
-	PaddleJob       KueueIntegrations = "kubeflow.org/paddlejob"
-	PyTorchJob      KueueIntegrations = "kubeflow.org/pytorchjob"
-	TFJob           KueueIntegrations = "kubeflow.org/tfjob"
-	XGBoostJob      KueueIntegrations = "kubeflow.org/xgboostjob"
-	AppWrappers     KueueIntegrations = "workload.codeflare.dev/appwrapper"
-	Pod             KueueIntegrations = "pod"
-	Deployment      KueueIntegrations = "deployment"
-	StatefulSet     KueueIntegrations = "statefulset"
-	LeaderWorkerSet KueueIntegrations = "leaderworkerset.x-k8s.io/leaderworkerset"
+	BatchJob        IntegrationReference = "batch/job"
+	RayJob          IntegrationReference = "ray.io/rayjob"
+	RayCluster      IntegrationReference = "ray.io/raycluster"
+	JobSet          IntegrationReference = "jobset.x-k8s.io/jobset"
+	MPIJob          IntegrationReference = "kubeflow.org/mpijob"
+	PaddleJob       IntegrationReference = "kubeflow.org/paddlejob"
+	PyTorchJob      IntegrationReference = "kubeflow.org/pytorchjob"
+	TFJob           IntegrationReference = "kubeflow.org/tfjob"
+	XGBoostJob      IntegrationReference = "kubeflow.org/xgboostjob"
+	AppWrappers     IntegrationReference = "workload.codeflare.dev/appwrapper"
+	Pod             IntegrationReference = "pod"
+	Deployment      IntegrationReference = "deployment"
+	StatefulSet     IntegrationReference = "statefulset"
+	LeaderWorkerSet IntegrationReference = "leaderworkerset.x-k8s.io/leaderworkerset"
 )
 
 type PodIntegrationOptions struct {

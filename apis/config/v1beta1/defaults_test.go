@@ -60,7 +60,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
-		Frameworks: []KueueIntegrations{defaultJobFrameworkName},
+		Frameworks: []IntegrationReference{defaultJobFrameworkName},
 	}
 	defaultQueueVisibility := &QueueVisibility{
 		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
@@ -79,7 +79,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	overwriteNamespaceIntegrations := &Integrations{
-		Frameworks: []KueueIntegrations{defaultJobFrameworkName},
+		Frameworks: []IntegrationReference{defaultJobFrameworkName},
 	}
 
 	overwriteNamespaceSelector := &metav1.LabelSelector{
@@ -464,7 +464,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				Integrations: &Integrations{
-					Frameworks: []KueueIntegrations{BatchJob, JobSet},
+					Frameworks: []IntegrationReference{BatchJob, JobSet},
 				},
 			},
 			want: &Configuration{
@@ -475,7 +475,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
-					Frameworks: []KueueIntegrations{BatchJob, JobSet},
+					Frameworks: []IntegrationReference{BatchJob, JobSet},
 				},
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,

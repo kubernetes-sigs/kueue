@@ -68,7 +68,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 			return err
 		}
 	}
-	return m.forEach(func(name configapi.KueueIntegrations, cb IntegrationCallbacks) error {
+	return m.forEach(func(name configapi.IntegrationReference, cb IntegrationCallbacks) error {
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
 
@@ -113,7 +113,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 	})
 }
 
-func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name configapi.KueueIntegrations, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name configapi.IntegrationReference, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
 	if err := cb.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
@@ -173,7 +173,7 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
-	return ForEachIntegration(func(name configapi.KueueIntegrations, cb IntegrationCallbacks) error {
+	return ForEachIntegration(func(name configapi.IntegrationReference, cb IntegrationCallbacks) error {
 		if options.EnabledFrameworks.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {
 				return fmt.Errorf("jobFrameworkName %q: %w", name, err)

@@ -47,7 +47,7 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
-	availableIntegrations := map[configapi.KueueIntegrations]IntegrationCallbacks{
+	availableIntegrations := map[configapi.IntegrationReference]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
@@ -87,11 +87,11 @@ func TestSetupControllers(t *testing.T) {
 		mapperGVKs              []schema.GroupVersionKind
 		delayedGVKs             []*schema.GroupVersionKind
 		wantError               error
-		wantEnabledIntegrations []configapi.KueueIntegrations
+		wantEnabledIntegrations []configapi.IntegrationReference
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
-				WithEnabledFrameworks([]configapi.KueueIntegrations{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"}),
 				WithEnabledExternalFrameworks([]string{
 					"Foo.v1.example.com",
 					"Bar.v2.example.com",
@@ -101,20 +101,20 @@ func TestSetupControllers(t *testing.T) {
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 				kfmpi.SchemeGroupVersionKind,
 			},
-			wantEnabledIntegrations: []configapi.KueueIntegrations{"batch/job", "kubeflow.org/mpijob"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"},
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
-				WithEnabledFrameworks([]configapi.KueueIntegrations{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 			},
-			wantEnabledIntegrations: []configapi.KueueIntegrations{"batch/job"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job"},
 		},
 		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
 			opts: []Option{
-				WithEnabledFrameworks([]configapi.KueueIntegrations{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
@@ -124,7 +124,7 @@ func TestSetupControllers(t *testing.T) {
 			delayedGVKs: []*schema.GroupVersionKind{
 				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
 			},
-			wantEnabledIntegrations: []configapi.KueueIntegrations{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
 		},
 	}
 	for name, tc := range cases {
@@ -173,7 +173,7 @@ func TestSetupControllers(t *testing.T) {
 			if len(tc.delayedGVKs) > 0 {
 				simulateDelayedIntegration(mgr, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
-					testDelayedIntegration(&manager, configapi.KueueIntegrations(gvk.Group+"/"+strings.ToLower(gvk.Kind)))
+					testDelayedIntegration(&manager, configapi.IntegrationReference(gvk.Group+"/"+strings.ToLower(gvk.Kind)))
 				}
 			}
 
@@ -207,7 +207,7 @@ func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.Group
 	}
 }
 
-func testDelayedIntegration(manager *integrationManager, crdName configapi.KueueIntegrations) {
+func testDelayedIntegration(manager *integrationManager, crdName configapi.IntegrationReference) {
 	for {
 		_, ok := manager.getEnabledIntegrations()[crdName]
 		if ok {
@@ -238,7 +238,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks([]configapi.KueueIntegrations{"batch/job"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job"}),
 			},
 			filter:        client.MatchingFields{GetOwnerKey(batchv1.SchemeGroupVersion.WithKind("Job")): "alpha"},
 			wantWorkloads: []string{"alpha-wl"},
@@ -253,7 +253,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks([]configapi.KueueIntegrations{"batch/job"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job"}),
 			},
 			filter:                client.MatchingFields{GetOwnerKey(kfmpi.SchemeGroupVersionKind): "alpha"},
 			wantFieldMatcherError: true,

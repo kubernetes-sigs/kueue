@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		fwk = &framework.Framework{}
 		cfg = fwk.Init()
 		ctx, k8sClient = fwk.SetupClient(cfg)
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]configapi.KueueIntegrations{jobset.FrameworkName})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{jobset.FrameworkName})))
 
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
