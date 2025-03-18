@@ -221,6 +221,9 @@ func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient clien
 }
 
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	// TODO: use ray-system namespace instead.
+	// See discussions https://github.com/kubernetes-sigs/kueue/pull/4568#discussion_r2001045775 and
+	// https://github.com/ray-project/kuberay/pull/2624/files#r2001143254 for context.
 	kroKey := types.NamespacedName{Namespace: "default", Name: "kuberay-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kroKey)
 }
