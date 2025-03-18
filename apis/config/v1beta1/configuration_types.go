@@ -399,7 +399,7 @@ const (
 	PyTorchJob      IntegrationReference = "kubeflow.org/pytorchjob"
 	TFJob           IntegrationReference = "kubeflow.org/tfjob"
 	XGBoostJob      IntegrationReference = "kubeflow.org/xgboostjob"
-	AppWrappers     IntegrationReference = "workload.codeflare.dev/appwrapper"
+	AppWrapper      IntegrationReference = "workload.codeflare.dev/appwrapper"
 	Pod             IntegrationReference = "pod"
 	Deployment      IntegrationReference = "deployment"
 	StatefulSet     IntegrationReference = "statefulset"

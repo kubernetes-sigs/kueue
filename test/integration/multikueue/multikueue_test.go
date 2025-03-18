@@ -87,7 +87,7 @@ var defaultEnabledIntegrations sets.Set[configapi.IntegrationReference] = sets.N
 	configapi.TFJob,
 	configapi.XGBoostJob,
 	configapi.Pod,
-	configapi.AppWrappers,
+	configapi.AppWrapper,
 )
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {

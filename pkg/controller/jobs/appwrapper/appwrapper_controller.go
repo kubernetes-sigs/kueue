@@ -44,7 +44,7 @@ import (
 var (
 	gvk = awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)
 
-	FrameworkName = configapi.AppWrappers
+	FrameworkName = configapi.AppWrapper
 
 	NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
