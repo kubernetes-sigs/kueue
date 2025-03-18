@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -35,7 +36,7 @@ var (
 )
 
 const (
-	FrameworkName = "leaderworkerset.x-k8s.io/leaderworkerset"
+	FrameworkName = configapi.LeaderWorkerSet
 )
 
 func init() {
@@ -46,7 +47,7 @@ func init() {
 		SetupWebhook:             SetupWebhook,
 		JobType:                  &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:              leaderworkersetv1.AddToScheme,
-		DependencyList:           []string{"pod"},
+		DependencyList:           []configapi.IntegrationReference{configapi.Pod},
 		IsManagingObjectsOwner:   isLeaderWorkerSet,
 		GVK:                      gvk,
 	}))

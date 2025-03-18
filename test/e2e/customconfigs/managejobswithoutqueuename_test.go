@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -639,9 +638,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	ginkgo.BeforeAll(func() {
 		updateKueueConfiguration(func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
-			cfg.Integrations.Frameworks = slices.Filter(nil, cfg.Integrations.Frameworks, func(framework string) bool {
-				return framework != jobset.FrameworkName
-			})
+			framework := []config.IntegrationReference{}
+			for _, val := range cfg.Integrations.Frameworks {
+				if val != jobset.FrameworkName {
+					framework = append(framework, val)
+				}
+			}
+			cfg.Integrations.Frameworks = framework
 		})
 	})
 

@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -44,7 +45,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
 
-	utilruntime.Must(jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+	utilruntime.Must(jobframework.ForEachIntegration(func(_ configapi.IntegrationReference, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
 			return cb.AddToScheme(scheme)
 		}
