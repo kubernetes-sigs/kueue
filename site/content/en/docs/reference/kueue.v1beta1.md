@@ -743,11 +743,11 @@ fits within the nominal quota of its ClusterQueue, only preempt
 Workloads in the cohort that have lower priority than the pending
 Workload. <strong>Fair Sharing</strong> only preempt Workloads in the cohort that
 have lower priority than the pending Workload and that satisfy the
-fair sharing preemptionStategies.</li>
+Fair Sharing preemptionStategies.</li>
 <li><code>Any</code>: <strong>Classic Preemption</strong> if the pending Workload fits within
 the nominal quota of its ClusterQueue, preempt any Workload in the
 cohort, irrespective of priority. <strong>Fair Sharing</strong> preempt Workloads
-in the cohort that satisfy the fair sharing preemptionStrategies.</li>
+in the cohort that satisfy the Fair Sharing preemptionStrategies.</li>
 </ul>
 </td>
 </tr>
@@ -1067,7 +1067,7 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 
-<p>fairSharing contains the information about the current status of fair sharing.</p>
+<p>fairSharing contains the information about the current status of Fair Sharing.</p>
 
 
 <table class="table">

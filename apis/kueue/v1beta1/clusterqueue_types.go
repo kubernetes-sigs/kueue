@@ -431,11 +431,11 @@ type ClusterQueuePreemption struct {
 	//   Workloads in the cohort that have lower priority than the pending
 	//   Workload. **Fair Sharing** only preempt Workloads in the cohort that
 	//   have lower priority than the pending Workload and that satisfy the
-	//   fair sharing preemptionStategies.
+	//   Fair Sharing preemptionStategies.
 	// - `Any`: **Classic Preemption** if the pending Workload fits within
 	//    the nominal quota of its ClusterQueue, preempt any Workload in the
 	//    cohort, irrespective of priority. **Fair Sharing** preempt Workloads
-	//    in the cohort that satisfy the fair sharing preemptionStrategies.
+	//    in the cohort that satisfy the Fair Sharing preemptionStrategies.
 	//
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any

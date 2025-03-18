@@ -606,7 +606,7 @@ func makeIterator(ctx context.Context, entries []entry, workloadOrdering workloa
 
 // classicalIterator returns entries ordered on:
 // 1. request under nominal quota before borrowing.
-// 2. fair sharing: lower DominantResourceShare first.
+// 2. Fair Sharing: lower DominantResourceShare first.
 // 3. higher priority first.
 // 4. FIFO on eviction or creation timestamp.
 type classicalIterator struct {

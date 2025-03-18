@@ -206,7 +206,7 @@ func canBorrowWithinCohort(preemptionCtx *preemptionCtx) (bool, *int32) {
 var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InClusterQueueReason:                "prioritization in the ClusterQueue",
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
-	kueue.InCohortFairSharingReason:           "fair sharing within the cohort",
+	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
 	"": "UNKNOWN",
 }
