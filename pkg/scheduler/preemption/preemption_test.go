@@ -54,6 +54,14 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
+	cmpopts.IgnoreFields(cache.Snapshot{}, "ResourceFlavors"),
+	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{},
+		"Preemption",
+		"FairWeight",
+	),
+	cmpopts.IgnoreFields(cache.CohortSnapshot{},
+		"Name",
+	),
 }
 
 type nodeKey struct {
