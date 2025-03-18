@@ -54,6 +54,15 @@ Kueue has support for third-party certificates.
 One can enable this by setting `enableCertManager` to true.
 This will use certManager to generate a secret, inject the CABundles and set up the tls.
 
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/cert_manager/)
+for more information on installing cert manager with our Helm chart.
+
+##### Prometheus
+
+Kueue supports prometheus metrics.
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/prometheus/)
+for more information on installing kueue with metrics using our Helm chart.
+
 ### Configuration
 
 The following table lists the configurable parameters of the kueue chart and their default values.

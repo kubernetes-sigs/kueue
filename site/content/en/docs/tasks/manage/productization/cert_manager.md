@@ -1,5 +1,5 @@
 ---
-title: "Installation with Cert Manager"
+title: "Configure external cert-manager"
 date: 2025-03-14
 weight: 1
 description: >

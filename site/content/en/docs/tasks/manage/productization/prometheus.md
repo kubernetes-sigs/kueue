@@ -1,5 +1,5 @@
 ---
-title: "Installation with Prometheus"
+title: "Configure Prometheus"
 date: 2025-03-14
 weight: 2
 description: >
