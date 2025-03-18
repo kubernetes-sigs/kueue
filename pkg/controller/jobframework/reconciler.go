@@ -91,7 +91,7 @@ type Options struct {
 	WaitForPodsReady             bool
 	KubeServerVersion            *kubeversion.ServerVersionFetcher
 	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	EnabledFrameworks            sets.Set[string]
+	EnabledFrameworks            sets.Set[configapi.KueueIntegrations]
 	EnabledExternalFrameworks    sets.Set[string]
 	ManagerName                  string
 	LabelKeysToCopy              []string
@@ -153,7 +153,7 @@ func WithIntegrationOptions(integrationName string, opts any) Option {
 }
 
 // WithEnabledFrameworks adds framework names enabled in the ConfigAPI.
-func WithEnabledFrameworks(frameworks []string) Option {
+func WithEnabledFrameworks(frameworks []configapi.KueueIntegrations) Option {
 	return func(o *Options) {
 		if len(frameworks) == 0 {
 			return

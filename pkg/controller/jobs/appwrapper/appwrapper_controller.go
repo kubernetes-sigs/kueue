@@ -34,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -43,7 +44,7 @@ import (
 var (
 	gvk = awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)
 
-	FrameworkName = "workload.codeflare.dev/appwrapper"
+	FrameworkName = configapi.AppWrappers
 
 	NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 

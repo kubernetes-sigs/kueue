@@ -169,5 +169,5 @@ func (r *PodReconciler) handle(obj client.Object) bool {
 		return false
 	}
 	// Handle only leaderworkerset pods.
-	return pod.Annotations[podconstants.SuspendedByParentAnnotation] == FrameworkName
+	return pod.Annotations[podconstants.SuspendedByParentAnnotation] == string(FrameworkName)
 }

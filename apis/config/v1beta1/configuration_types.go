@@ -365,7 +365,7 @@ type Integrations struct {
 	//  - "deployment" (requires enabling pod integration)
 	//  - "statefulset" (requires enabling pod integration)
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
-	Frameworks []string `json:"frameworks,omitempty"`
+	Frameworks []KueueIntegrations `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
@@ -386,6 +386,25 @@ type Integrations struct {
 	// underlying job are changed.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
+
+type KueueIntegrations string
+
+const (
+	BatchJob        KueueIntegrations = "batch/job"
+	RayJob          KueueIntegrations = "ray.io/rayjob"
+	RayCluster      KueueIntegrations = "ray.io/raycluster"
+	JobSet          KueueIntegrations = "jobset.x-k8s.io/jobset"
+	MPIJob          KueueIntegrations = "kubeflow.org/mpijob"
+	PaddleJob       KueueIntegrations = "kubeflow.org/paddlejob"
+	PyTorchJob      KueueIntegrations = "kubeflow.org/pytorchjob"
+	TFJob           KueueIntegrations = "kubeflow.org/tfjob"
+	XGBoostJob      KueueIntegrations = "kubeflow.org/xgboostjob"
+	AppWrappers     KueueIntegrations = "workload.codeflare.dev/appwrapper"
+	Pod             KueueIntegrations = "pod"
+	Deployment      KueueIntegrations = "deployment"
+	StatefulSet     KueueIntegrations = "statefulset"
+	LeaderWorkerSet KueueIntegrations = "leaderworkerset.x-k8s.io/leaderworkerset"
+)
 
 type PodIntegrationOptions struct {
 	// NamespaceSelector can be used to omit some namespaces from pod reconciliation
