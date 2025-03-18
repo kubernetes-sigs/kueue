@@ -65,6 +65,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(tasFlavor.Name).
 					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceMemory, "10Mi").
 					Resource(extraResource, "8").
 					Obj(),
 			).
@@ -117,6 +118,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, pytorchjob)).Should(gomega.Succeed())

@@ -66,6 +66,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(tasFlavor.Name).
 					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceMemory, "10Mi").
 					Resource(extraResource, "8").
 					Obj(),
 			).
@@ -118,6 +119,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
+				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, mpijob)).Should(gomega.Succeed())

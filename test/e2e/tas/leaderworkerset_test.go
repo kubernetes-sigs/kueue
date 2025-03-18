@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,7 +57,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Obj()).
+			ResourceGroup(*testing.MakeFlavorQuotas("tas-flavor").
+				Resource(corev1.ResourceCPU, "2").
+				Resource(corev1.ResourceMemory, "10Mi").
+				Resource(extraResource, "8").
+				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
@@ -102,18 +105,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Name:  "c",
 								Image: util.E2eTestAgnHostImage,
 								Args:  util.BehaviorWaitForDeletion,
-								Resources: corev1.ResourceRequirements{
-									Limits: map[corev1.ResourceName]resource.Quantity{
-										extraResource: resource.MustParse("1"),
-									},
-									Requests: map[corev1.ResourceName]resource.Quantity{
-										extraResource: resource.MustParse("1"),
-									},
-								},
 							},
 						},
 					},
 				}).
+				RequestAndLimit(extraResource, "1").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				Obj()
 			ginkgo.By("Creating a LeaderWorkerSet", func() {
 				gomega.Expect(k8sClient.Create(ctx, lws)).To(gomega.Succeed())

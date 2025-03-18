@@ -63,6 +63,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("tas-flavor").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "10Mi").
 						Resource(extraResource, "8").
 						Obj(),
 				).
@@ -89,6 +91,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(extraResource, "1").
 				Limit(extraResource, "1").
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
@@ -140,8 +144,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
-				Request(extraResource, "1").
-				Limit(extraResource, "1")
+				RequestAndLimit(extraResource, "1").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {
@@ -222,8 +228,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
-				Request(extraResource, "1").
-				Limit(extraResource, "1")
+				RequestAndLimit(extraResource, "1").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {

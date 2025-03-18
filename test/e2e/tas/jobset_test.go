@@ -68,6 +68,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("tas-flavor").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "10Mi").
 						Resource(extraResource, "8").
 						Obj(),
 				).
@@ -109,6 +111,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 					},
 				).
 				RequestAndLimit("replicated-job-1", extraResource, "1").
+				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "100m").
+				RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "0.5Mi").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 

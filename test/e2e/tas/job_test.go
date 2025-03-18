@@ -76,6 +76,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("tas-flavor").
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "10Mi").
 						Resource(extraResource, "8").
 						Obj(),
 				).
@@ -103,6 +105,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
@@ -126,6 +130,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
@@ -177,6 +183,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
@@ -230,6 +238,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(2).
 				Completions(3).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
@@ -258,11 +268,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Indexed(true).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "0.5Mi").
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
