@@ -61,6 +61,13 @@ func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, op
 	options := ProcessOptions(opts...)
 	capacity := len(options.EnabledFrameworks)
 	discoveredCRDs := make(chan schema.GroupVersionKind, capacity)
+
+	// Setup controllers for static/built-in types immediately if any
+	if err := manager.setupStaticControllers(mgr, log, opts...); err != nil {
+		return err
+	}
+
+	// Start watching CRDs for dynamic types
 	go watchCRDs(ctx, mgr, log, chan<- schema.GroupVersionKind(discoveredCRDs), options)
 
 	return manager.setupControllersFromDiscoveredCRDs(ctx, mgr, log, discoveredCRDs, opts...)
@@ -80,8 +87,6 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 	}
 
 	var setupWg sync.WaitGroup
-	var setupErrs []error
-	var errMu sync.Mutex
 
 	go func() {
 		for gvk := range discoveredCRDs {
@@ -89,39 +94,54 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 			go func(currentGVK schema.GroupVersionKind) {
 				defer setupWg.Done()
 
-				matchedName, matchedCallbacks, err := m.findMatchingIntegration(currentGVK, options.EnabledFrameworks, mgr.GetScheme())
-				if err != nil {
-					log.V(0).Error(err, "Failed to find matching integration", "gvk", currentGVK)
-					errMu.Lock()
-					setupErrs = append(setupErrs, err)
-					errMu.Unlock()
-					return
+				var matchedName string
+				var matchedCallbacks *IntegrationCallbacks
+				m.mu.RLock()
+				for name, cb := range m.integrations {
+					if options.EnabledFrameworks.Has(name) {
+						jobGVK, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
+						if err == nil && jobGVK == currentGVK {
+							matchedName = name
+							matchedCallbacks = &cb
+							break
+						}
+					}
 				}
+				m.mu.RUnlock()
+
 				if matchedCallbacks == nil {
 					log.V(2).Info("No matching integration found for GVK", "gvk", currentGVK)
 					return
 				}
 
-				log.V(1).Info("API available, verifying readiness", "gvk", currentGVK, "integration", matchedName)
-				if err := verifyAPIReady(ctx, mgr, mgr.GetClient(), mgr.GetScheme(), currentGVK); err != nil {
-					log.V(0).Error(err, "API not ready, retrying", "gvk", currentGVK)
-					go m.retrySetup(ctx, mgr, log, matchedName, currentGVK, *matchedCallbacks, options, opts, &errMu, &setupErrs)
-					return
-				}
+				waitForAPI(ctx, mgr, log.WithValues("integration", matchedName), currentGVK, func() {
+					log.V(2).Info("API available, verifying readiness before initializing controller", "gvk", currentGVK, "integration", matchedName)
 
-				if err := setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...); err != nil {
-					errMu.Lock()
-					setupErrs = append(setupErrs, err)
-					errMu.Unlock()
-				}
+					err := verifyAPIReady(ctx, mgr, mgr.GetClient(), mgr.GetScheme(), currentGVK, log)
+					if err != nil {
+						log.V(2).Error(err, "API verification failed, will retry", "gvk", currentGVK)
+						go func() {
+							select {
+							case <-ctx.Done():
+								return
+							case <-time.After(setupRetryDelay):
+								waitForAPI(ctx, mgr, log, currentGVK, func() {
+									setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...)
+								})
+							}
+						}()
+						return
+					}
+
+					log.V(2).Info("API verified, initializing controller", "gvk", currentGVK, "integration", matchedName)
+					setupControllerWithRetry(ctx, mgr, log, m, matchedName, currentGVK, *matchedCallbacks, options, opts...)
+				})
 			}(gvk)
 		}
+		setupWg.Wait()
 	}()
 
 	setupWg.Wait()
-	if len(setupErrs) > 0 {
-		return fmt.Errorf("failed to set up controllers: %v", setupErrs)
-	}
 
 	return m.forEach(func(name string, cb IntegrationCallbacks) error {
 		if !options.EnabledFrameworks.Has(name) {
@@ -137,69 +157,46 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 }
 
 // verifyAPIReady checks if the API server is ready to serve resources of the given GVK
-func verifyAPIReady(ctx context.Context, mgr ctrl.Manager, c client.Client, scheme *runtime.Scheme, gvk schema.GroupVersionKind) error {
+func verifyAPIReady(ctx context.Context, mgr ctrl.Manager, c client.Client, scheme *runtime.Scheme, gvk schema.GroupVersionKind, log logr.Logger) error {
+	log.V(2).Info("Checking if REST mapping exists for GVK", "gvk", gvk)
+	if err := restMappingExists(mgr, gvk); err != nil {
+		log.V(2).Error(err, "REST mapping not available", "gvk", gvk)
+		return fmt.Errorf("REST mapping not available: %w", err)
+	}
+
 	listGVK := schema.GroupVersionKind{
 		Group:   gvk.Group,
 		Version: gvk.Version,
 		Kind:    gvk.Kind + "List",
 	}
 
+	log.V(2).Info("Creating list object for GVK", "listGVK", listGVK)
 	listObj, err := scheme.New(listGVK)
 	if err != nil {
+		log.V(2).Error(err, "Failed to create list object for GVK", "listGVK", listGVK)
 		emptyObj, err := scheme.New(gvk)
 		if err != nil {
+			log.V(2).Error(err, "Failed to create object for GVK", "gvk", gvk)
 			return fmt.Errorf("failed to create object for GVK %s: %w", gvk, err)
 		}
 
 		listType := reflect.TypeOf(emptyObj)
 		if listType.Kind() == reflect.Ptr {
-			listType.Elem()
+			listType = listType.Elem()
 		}
-		listObj, err = scheme.New(listGVK)
-		if err != nil {
-			return fmt.Errorf("failed to create object for GVK %s: %w", listGVK, err)
-		}
+		listObj = reflect.New(reflect.SliceOf(listType)).Interface().(runtime.Object)
 	}
 
+	log.V(2).Info("Listing resources for GVK", "gvk", gvk)
 	err = c.List(ctx, listObj.(client.ObjectList), &client.ListOptions{Limit: 1})
 
 	if err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+		log.V(2).Error(err, "Failed to list resources for GVK", "gvk", gvk)
 		return fmt.Errorf("failed to list resources for GVK %s: %w", gvk, err)
 	}
 
+	log.V(2).Info("API is ready for GVK", "gvk", gvk)
 	return nil
-}
-
-func (m *integrationManager) findMatchingIntegration(gvk schema.GroupVersionKind, enabledFrameworks sets.Set[string], scheme *runtime.Scheme) (string, *IntegrationCallbacks, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for name, cb := range m.integrations {
-		if enabledFrameworks.Has(name) {
-			jobGVK, err := apiutil.GVKForObject(cb.JobType, scheme)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to get GVK for integration %s: %w", name, err)
-			}
-			if jobGVK == gvk {
-				return name, &cb, nil
-			}
-		}
-	}
-	return "", nil, nil
-}
-
-func (m *integrationManager) retrySetup(ctx context.Context, mgr ctrl.Manager, log logr.Logger, name string, gvk schema.GroupVersionKind, cb IntegrationCallbacks, options Options, opts []Option, errMu *sync.Mutex, setupErrs *[]error) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(setupRetryDelay):
-		waitForAPI(ctx, mgr, log, gvk, func() {
-			if err := setupControllerWithRetry(ctx, mgr, log, m, name, gvk, cb, options, opts...); err != nil {
-				errMu.Lock()
-				*setupErrs = append(*setupErrs, err)
-				errMu.Unlock()
-			}
-		})
-	}
 }
 
 func setupControllerWithRetry(ctx context.Context, mgr ctrl.Manager, log logr.Logger, m *integrationManager, name string, gvk schema.GroupVersionKind, cb IntegrationCallbacks, options Options, opts ...Option) error {
@@ -208,11 +205,11 @@ func setupControllerWithRetry(ctx context.Context, mgr ctrl.Manager, log logr.Lo
 	for retries := 0; retries < maxSetupRetries; retries++ {
 		err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
 		if err == nil {
-			log.V(1).Info("Controller setup successful", "gvk", gvk, "integration", name)
+			log.V(2).Info("Controller setup successful", "gvk", gvk, "integration", name)
 			return nil
 		}
 
-		log.V(0).Error(err, "Controller setup failed, will retry",
+		log.V(2).Error(err, "Controller setup failed, will retry",
 			"gvk", gvk,
 			"integration", name,
 			"attempt", retries+1,
@@ -315,7 +312,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discoveredCRDs chan<- schema.GroupVersionKind, opts Options) {
 	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
 	if err != nil {
-		log.V(0).Error(err, "Failed to create CRD client")
+		log.V(2).Error(err, "Failed to create CRD client")
 		close(discoveredCRDs)
 		return
 	}
@@ -335,9 +332,9 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			if isCRDEstablished(crd) {
 				frameworkKey := fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))
 				if opts.EnabledFrameworks.Has(frameworkKey) {
-					log.V(1).Info("Framework enabled, waiting for API", "gvk", gvk, "frameworkKey", frameworkKey)
+					log.V(2).Info("Framework enabled, waiting for API", "gvk", gvk, "frameworkKey", frameworkKey)
 					go waitForAPI(ctx, mgr, log, gvk, func() {
-						log.V(1).Info("API now available, sending GVK", "gvk", gvk)
+						log.V(2).Info("API now available, sending GVK", "gvk", gvk)
 						discoveredCRDs <- gvk
 					})
 				}
@@ -354,9 +351,9 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 			if isCRDEstablished(crd) {
 				frameworkKey := fmt.Sprintf("%s/%s", gvk.Group, strings.ToLower(gvk.Kind))
 				if opts.EnabledFrameworks.Has(frameworkKey) {
-					log.V(1).Info("Framework enabled, waiting for API", "gvk", gvk, "frameworkKey", frameworkKey)
+					log.V(2).Info("Framework enabled, waiting for API", "gvk", gvk, "frameworkKey", frameworkKey)
 					go waitForAPI(ctx, mgr, log, gvk, func() {
-						log.V(1).Info("API now available, sending GVK", "gvk", gvk)
+						log.V(2).Info("API now available, sending GVK", "gvk", gvk)
 						discoveredCRDs <- gvk
 					})
 				}
@@ -364,18 +361,47 @@ func watchCRDs(ctx context.Context, mgr ctrl.Manager, log logr.Logger, discovere
 		},
 	})
 	if err != nil {
-		log.V(0).Error(err, "Failed to add event handler to CRD informer")
+		log.V(2).Error(err, "Failed to add event handler to CRD informer")
 		close(discoveredCRDs)
 		return
 	}
 
 	factory.Start(ctx.Done())
 	if !tools.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
-		log.V(0).Error(nil, "Failed to sync informer cache")
+		log.V(2).Error(nil, "Failed to sync informer cache")
 		close(discoveredCRDs)
 		return
 	}
-	log.V(1).Info("CRD informer cache synced successfully")
+	log.V(2).Info("CRD informer cache synced successfully")
+}
+
+// setupStaticControllers setups controllers for static/built-in types
+func (m *integrationManager) setupStaticControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	options := ProcessOptions(opts...)
+	builtInGroups := sets.NewString("", "apps", "batch")
+	return m.forEach(func(name string, cb IntegrationCallbacks) error {
+		if !options.EnabledFrameworks.Has(name) {
+			return nil
+		}
+		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
+		gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
+		if err != nil {
+			return fmt.Errorf("%s: failed to get GVK: %w", fwkNamePrefix, err)
+		}
+		log.V(2).Info("Processing integration", "name", name, "gvk", gvk)
+		if builtInGroups.Has(gvk.Group) {
+			if err := restMappingExists(mgr, gvk); err == nil {
+				log.V(2).Info("API exists, setting up static controller", "gvk", gvk)
+				return m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+			} else if !meta.IsNoMatchError(err) {
+				return fmt.Errorf("%s: failed to verify API: %w", fwkNamePrefix, err)
+			}
+			log.V(2).Info("API not available for static type, skipping", "gvk", gvk)
+		} else {
+			log.V(2).Info("Skipping non-static integration", "name", name, "gvk", gvk)
+		}
+		return nil
+	})
 }
 
 func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
