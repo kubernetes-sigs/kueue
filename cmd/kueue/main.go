@@ -184,15 +184,10 @@ func main() {
 	}
 
 	if features.Enabled(features.LocalQueueMetrics) && cfg.Metrics.LocalQueueMetrics != nil {
-		// metav1 with empty selectors returns selector which matches everything which is what is desired
-		lqLabelSelector, err := metav1.LabelSelectorAsSelector(cfg.Metrics.LocalQueueMetrics.LocalQueueSelector)
+		err := metrics.SetLocalQueueMetrics(*cfg.Metrics.LocalQueueMetrics)
 		if err != nil {
-			setupLog.Error(err, "failed to convert local queue label selector")
+			setupLog.Error(err, "Could not set localQueueMetrics singleton")
 		}
-		metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
-			Enabled:            true,
-			LocalQueueSelector: lqLabelSelector,
-		})
 	}
 
 	metrics.Register()

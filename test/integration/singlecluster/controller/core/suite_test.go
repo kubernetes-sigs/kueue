@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -74,11 +73,10 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
-	emptySelector, _ := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{})
-	metrics.SetLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
-		Enabled:            true,
-		LocalQueueSelector: emptySelector,
-	})
+
+	// TODO NOW
+	err = metrics.SetLocalQueueMetrics(config.LocalQueueMetrics{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 	controllersCfg.QueueVisibility = &config.QueueVisibility{
 		UpdateIntervalSeconds: 2,

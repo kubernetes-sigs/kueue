@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -421,25 +422,40 @@ the maximum possible share value.`,
 )
 
 type LocalQueueMetricsConfig struct {
-	Enabled            bool
-	LocalQueueSelector labels.Selector
+	enabled            bool
+	localQueueSelector labels.Selector
 }
 
 var lqMetricsConfigSingleton *LocalQueueMetricsConfig
 
-func SetLocalQueueMetrics(lqMetricsConfig *LocalQueueMetricsConfig) {
-	lqMetricsConfigSingleton = lqMetricsConfig
+func SetLocalQueueMetrics(lqMetricsConfig configapi.LocalQueueMetrics) error {
+	var lqLabelSelector labels.Selector
+	var err error
+	if lqMetricsConfig.LocalQueueSelector == nil {
+		lqLabelSelector = labels.Everything()
+	} else {
+		lqLabelSelector, err = metav1.LabelSelectorAsSelector(lqMetricsConfig.LocalQueueSelector)
+		if err != nil {
+			return err
+		}
+	}
+
+	// default to enabled if field is not set
+	enabled := lqMetricsConfig.Enabled == nil || *lqMetricsConfig.Enabled
+
+	lqMetricsConfigSingleton = &LocalQueueMetricsConfig{
+		enabled:            enabled,
+		localQueueSelector: lqLabelSelector,
+	}
+	return nil
 }
 
 func GetLocalQueueMetrics() *LocalQueueMetricsConfig {
-	if lqMetricsConfigSingleton == nil {
-		SetLocalQueueMetrics(&LocalQueueMetricsConfig{})
-	}
 	return lqMetricsConfigSingleton
 }
 
 func LocalQueueMetricsEnabled() bool {
-	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton.Enabled
+	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton != nil && lqMetricsConfigSingleton.enabled
 }
 
 func ShouldReportLocalMetrics(lqLabels map[string]string) bool {
@@ -448,13 +464,13 @@ func ShouldReportLocalMetrics(lqLabels map[string]string) bool {
 	}
 
 	lqMetricsConfig := GetLocalQueueMetrics()
-	if !lqMetricsConfig.Enabled {
+	if lqMetricsConfig == nil || !lqMetricsConfig.enabled {
 		return false
 	}
 	localQueueMatches := true
-	if lqMetricsConfig.LocalQueueSelector != nil {
+	if lqMetricsConfig.localQueueSelector != nil {
 		lqLblSet := labels.Set(lqLabels)
-		localQueueMatches = lqMetricsConfig.LocalQueueSelector.Matches(lqLblSet)
+		localQueueMatches = lqMetricsConfig.localQueueSelector.Matches(lqLblSet)
 	}
 	return localQueueMatches
 }
@@ -733,7 +749,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 	)
-	if features.Enabled(features.LocalQueueMetrics) && GetLocalQueueMetrics().Enabled {
+	if LocalQueueMetricsEnabled() {
 		RegisterLQMetrics()
 	}
 }
