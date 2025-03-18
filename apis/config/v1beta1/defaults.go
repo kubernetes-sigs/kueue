@@ -46,7 +46,7 @@ const (
 	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
-	defaultJobFrameworkName                             = "batch/job"
+	defaultJobFrameworkName                             = BatchJob
 	DefaultMultiKueueGCInterval                         = time.Minute
 	DefaultMultiKueueOrigin                             = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
@@ -146,7 +146,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []string{defaultJobFrameworkName}
+		cfg.Integrations.Frameworks = []IntegrationReference{defaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}

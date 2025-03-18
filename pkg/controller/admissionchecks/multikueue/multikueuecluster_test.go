@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -379,7 +380,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New(configapi.BatchJob))
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			reconciler.rootContext = t.Context()
@@ -540,7 +541,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := worker1Builder.Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New(configapi.BatchJob))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)

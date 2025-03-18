@@ -78,7 +78,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		deployment.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+		deployment.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = string(FrameworkName)
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}

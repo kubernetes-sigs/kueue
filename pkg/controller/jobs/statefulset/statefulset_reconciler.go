@@ -216,7 +216,7 @@ func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedR
 
 func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := obj.(*corev1.Pod)
-	if !isPod || pod.Annotations[podcontroller.SuspendedByParentAnnotation] != FrameworkName {
+	if !isPod || pod.Annotations[podcontroller.SuspendedByParentAnnotation] != string(FrameworkName) {
 		return
 	}
 	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {

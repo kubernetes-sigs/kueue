@@ -25,6 +25,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -33,7 +34,7 @@ var (
 )
 
 const (
-	FrameworkName = "deployment"
+	FrameworkName = configapi.Deployment
 )
 
 func init() {
@@ -44,7 +45,7 @@ func init() {
 		SetupWebhook:   SetupWebhook,
 		JobType:        &appsv1.Deployment{},
 		AddToScheme:    appsv1.AddToScheme,
-		DependencyList: []string{"pod"},
+		DependencyList: []configapi.IntegrationReference{configapi.Pod},
 	}))
 }
 

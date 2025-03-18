@@ -27,13 +27,14 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 )
 
 var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind)
-	FrameworkName = "kubeflow.org/tfjob"
+	FrameworkName = configapi.TFJob
 
 	SetupTFJobWebhook = jobframework.BaseWebhookFactory(
 		NewJob(),

@@ -63,7 +63,7 @@ func TestValidate(t *testing.T) {
 		PodSelector:       &metav1.LabelSelector{},
 	}
 	defaultIntegrations := &configapi.Integrations{
-		Frameworks: []string{"batch/job"},
+		Frameworks: []configapi.IntegrationReference{configapi.BatchJob},
 		PodOptions: defaultPodIntegrationOptions,
 	}
 
@@ -137,7 +137,7 @@ func TestValidate(t *testing.T) {
 		"unregistered integrations.frameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"unregistered/jobframework"},
+					Frameworks: []configapi.IntegrationReference{"unregistered/jobframework"},
 				},
 			},
 			wantErr: field.ErrorList{
@@ -150,7 +150,7 @@ func TestValidate(t *testing.T) {
 		"duplicate integrations.frameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{
+					Frameworks: []configapi.IntegrationReference{
 						"batch/job",
 						"batch/job",
 					},
@@ -166,7 +166,7 @@ func TestValidate(t *testing.T) {
 		"duplicate frameworks between integrations.frameworks and integrations.externalFrameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
-					Frameworks:         []string{"batch/job"},
+					Frameworks:         []configapi.IntegrationReference{"batch/job"},
 					ExternalFrameworks: []string{"Job.v1.batch"},
 				},
 			},
@@ -180,7 +180,7 @@ func TestValidate(t *testing.T) {
 		"invalid format integrations.externalFrameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
-					Frameworks:         []string{"batch/job"},
+					Frameworks:         []configapi.IntegrationReference{"batch/job"},
 					ExternalFrameworks: []string{"invalid"},
 				},
 			},
@@ -194,7 +194,7 @@ func TestValidate(t *testing.T) {
 		"duplicate integrations.externalFrameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"batch/job"},
+					Frameworks: []configapi.IntegrationReference{"batch/job"},
 					ExternalFrameworks: []string{
 						"Foo.v1.example.com",
 						"Foo.v1.example.com",
@@ -212,7 +212,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: nil,
 				},
 			},
@@ -228,7 +228,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: nil,
 				},
 			},
@@ -248,7 +248,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: nil,
 					},
@@ -267,7 +267,7 @@ func TestValidate(t *testing.T) {
 				Namespace:       ptr.To("kueue-system"),
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{},
 					},
@@ -298,7 +298,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
@@ -337,7 +337,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -384,7 +384,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
+					Frameworks: []configapi.IntegrationReference{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{

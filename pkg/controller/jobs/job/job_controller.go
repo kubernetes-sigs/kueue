@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -48,7 +49,7 @@ import (
 var (
 	gvk = batchv1.SchemeGroupVersion.WithKind("Job")
 
-	FrameworkName = "batch/job"
+	FrameworkName = configapi.BatchJob
 )
 
 const (
