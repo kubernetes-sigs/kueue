@@ -89,11 +89,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 	ginkgo.When("Creating a RayJob", func() {
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
 			const (
-				headReplicas     = 1
-				workerReplicas   = 3
-				submitterReplica = 1
+				headReplicas   = 1
+				workerReplicas = 3
 			)
-			numPods := headReplicas + workerReplicas + submitterReplica
+			numPods := headReplicas + workerReplicas
 			kuberayTestImage := util.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("ranks-ray", ns.Name).
 				Queue(localQueue.Name).
@@ -167,10 +166,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 								Image: kuberayTestImage,
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("50m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 									Limits: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("50m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 								},
 							},
@@ -200,7 +199,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 			ginkgo.By("ensure all pods are created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(rayjob.Namespace))).To(gomega.Succeed())
-					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+					// TODO(#4665): strengthen the assert after moving to Ray >=1.3.1.
+					// We temporarily don't assert on the exact number of Pods as this flakes on Ray
+					// 1.2.2 due to the submitter Pod and Job not being created occasionally (See
+					// https://github.com/kubernetes-sigs/kueue/issues/4508#issuecomment-2724257298
+					// for more details).
+					g.Expect(len(pods.Items)).Should(gomega.BeNumerically(">=", numPods))
 					// The timeout is long to ensure all cluster pods are up and running.
 					// This is because the Ray image takes long time (around 170s on the CI)
 					// to load and then to sync with head.
