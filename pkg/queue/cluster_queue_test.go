@@ -54,7 +54,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	now := time.Now()
 	minuteLater := now.Add(time.Minute)
 	fakeClock := testingclock.NewFakeClock(now)
-	cmpOpts := []cmp.Option{
+	cmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}

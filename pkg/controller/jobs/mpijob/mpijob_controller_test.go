@@ -283,11 +283,11 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	jobCmpOpts = []cmp.Option{
+	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kfmpi.MPIJob{}, "TypeMeta", "ObjectMeta"),
 	}
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),

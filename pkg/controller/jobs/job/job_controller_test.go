@@ -402,11 +402,11 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	jobCmpOpts = []cmp.Option{
+	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(batchv1.Job{}, "TypeMeta", "ObjectMeta.OwnerReferences", "ObjectMeta.ResourceVersion", "ObjectMeta.Annotations"),
 	}
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
@@ -421,7 +421,7 @@ var (
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
-	workloadCmpOptsWithOwner = []cmp.Option{
+	workloadCmpOptsWithOwner = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name

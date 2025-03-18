@@ -32,7 +32,7 @@ func TestManager(t *testing.T) {
 		child  string
 		parent string
 	}
-	opts := []cmp.Option{
+	opts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.SortSlices(func(a, b edge) bool {
 			return a.child < b.child

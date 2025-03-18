@@ -40,7 +40,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 	const defaultFlavor = "default-flavor"
 
 	// We do not check workload's Name, CreationTimestamp, and its OwnerReference's UID as they are generated at the server-side.
-	var pendingWorkloadsCmpOpts = []cmp.Option{
+	var pendingWorkloadsCmpOpts = cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "CreationTimestamp"),
 		cmpopts.IgnoreFields(metav1.OwnerReference{}, "UID"),

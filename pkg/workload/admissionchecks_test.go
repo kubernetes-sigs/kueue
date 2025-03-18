@@ -444,7 +444,7 @@ func TestSetCheckState(t *testing.T) {
 
 			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
 
-			opts := []cmp.Option{}
+			opts := cmp.Options{}
 			if tc.state.LastTransitionTime.IsZero() {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
 

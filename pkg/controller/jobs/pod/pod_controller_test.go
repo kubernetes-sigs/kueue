@@ -188,13 +188,13 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	podCmpOpts = []cmp.Option{
+	podCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(corev1.Pod{}, "TypeMeta", "ObjectMeta.ResourceVersion",
 			"ObjectMeta.DeletionTimestamp"),
 		cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
 	}
-	defaultWorkloadCmpOpts = []cmp.Option{
+	defaultWorkloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
@@ -234,7 +234,7 @@ func TestReconciler(t *testing.T) {
 		workloads              []kueue.Workload
 		wantWorkloads          []kueue.Workload
 		wantErr                error
-		workloadCmpOpts        []cmp.Option
+		workloadCmpOpts        cmp.Options
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
@@ -602,7 +602,7 @@ func TestReconciler(t *testing.T) {
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
-			workloadCmpOpts: []cmp.Option{
+			workloadCmpOpts: cmp.Options{
 				cmpopts.IgnoreFields(kueue.Workload{},
 					"TypeMeta",
 					"ObjectMeta.Name",

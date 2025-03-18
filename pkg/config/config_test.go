@@ -353,7 +353,7 @@ webhook:
 		WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 	}
 
-	ctrlOptsCmpOpts := []cmp.Option{
+	ctrlOptsCmpOpts := cmp.Options{
 		cmpopts.IgnoreUnexported(ctrl.Options{}),
 		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
 		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
@@ -363,7 +363,7 @@ webhook:
 
 	// Ignore the controller manager section since it's side effect is checked against
 	// the content of  the resulting options
-	configCmpOpts := []cmp.Option{
+	configCmpOpts := cmp.Options{
 		cmpopts.IgnoreFields(configapi.Configuration{}, "ControllerManager"),
 	}
 

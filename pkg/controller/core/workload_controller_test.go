@@ -364,7 +364,7 @@ func TestSyncCheckStates(t *testing.T) {
 				t.Errorf("Unexpected should change, want=%v", tc.wantChange)
 			}
 
-			var opts []cmp.Option
+			var opts cmp.Options
 			if tc.ignoreTransitionTime {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"))
 			}
@@ -376,7 +376,7 @@ func TestSyncCheckStates(t *testing.T) {
 }
 
 var (
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",

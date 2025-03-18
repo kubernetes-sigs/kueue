@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var snapCmpOpts = []cmp.Option{
+var snapCmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),

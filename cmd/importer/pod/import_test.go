@@ -70,12 +70,12 @@ func TestImportNamespace(t *testing.T) {
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1", "0").Obj())
 
-	podCmpOpts := []cmp.Option{
+	podCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 	}
 
-	wlCmpOpts := []cmp.Option{
+	wlCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration", "LastTransitionTime"),

@@ -62,7 +62,7 @@ type nodeKey struct {
 }
 
 func resourceNodes(snapshot *cache.Snapshot) map[nodeKey]cache.ResourceNode {
-	nodes := make(map[nodeKey]cache.ResourceNode, len(snapshot.Cohorts())+len(snapshot.ClusterQueues()))
+	nodes := map[nodeKey]cache.ResourceNode{}
 	for _, cohort := range snapshot.Cohorts() {
 		nodes[nodeKey{cohort: cohort.Name}] = cohort.ResourceNode
 	}
