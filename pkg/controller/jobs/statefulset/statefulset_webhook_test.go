@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -49,11 +50,11 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
-		enableIntegrations         []string
+		enableIntegrations         []configapi.KueueIntegrations
 		want                       *appsv1.StatefulSet
 	}{
 		"statefulset with queue": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -62,7 +63,7 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -71,7 +72,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset with queue and priority class": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -82,7 +83,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
@@ -92,7 +93,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset without replicas": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				Obj(),
@@ -101,7 +102,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
@@ -114,7 +115,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
 				PodTemplateSpecQueue("default").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -129,7 +130,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -225,7 +226,7 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
+		integrations []configapi.KueueIntegrations
 		oldObj       *appsv1.StatefulSet
 		newObj       *appsv1.StatefulSet
 		wantErr      error
@@ -430,7 +431,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []string{appwrapper.FrameworkName},
+			integrations: []configapi.KueueIntegrations{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
@@ -448,7 +449,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference)": {
-			integrations: []string{appwrapper.FrameworkName},
+			integrations: []configapi.KueueIntegrations{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).
@@ -464,7 +465,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []string{leaderworkerset.FrameworkName},
+			integrations: []configapi.KueueIntegrations{leaderworkerset.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
@@ -482,7 +483,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference)": {
-			integrations: []string{leaderworkerset.FrameworkName},
+			integrations: []configapi.KueueIntegrations{leaderworkerset.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).

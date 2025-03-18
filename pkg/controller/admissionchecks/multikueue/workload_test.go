@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -1067,7 +1068,7 @@ func TestWlReconcile(t *testing.T) {
 			)
 
 			managerClient := managerBuilder.Build()
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New(configapi.BatchJob))
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			worker1Builder := getClientBuilder(t.Context())

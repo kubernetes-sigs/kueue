@@ -78,7 +78,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if ss.Spec.Template.Annotations == nil {
 			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = string(FrameworkName)
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
 			if ss.Spec.Template.Labels == nil {
