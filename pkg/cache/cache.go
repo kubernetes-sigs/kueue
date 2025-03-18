@@ -194,7 +194,7 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
-func (q *queue) GetLabels() map[string]string {
+func (q *LocalQueue) GetLabels() map[string]string {
 	return q.labels
 }
 
@@ -394,12 +394,16 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
+		var qLabels map[string]string
+		if metrics.LocalQueueMetricsEnabled() {
+			qLabels = q.Labels
+		}
 		qKey := queueKey(&q)
 		qImpl := &LocalQueue{
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
-			labels:             q.Labels,
+			labels:             qLabels,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 		}
@@ -485,11 +489,6 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
 	}
-}
-
-func (c *Cache) LocalQueueFromCache(cqRef kueue.ClusterQueueReference, lqKey string) *queue {
-	cq := c.hm.ClusterQueues()[cqRef]
-	return cq.localQueues[lqKey]
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {

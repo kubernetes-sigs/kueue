@@ -687,20 +687,13 @@ Defaults to kueue-webhook-server-cert.</p>
 <tbody>
     
   
-<tr><td><code>enabled</code><br/>
-<code>bool</code>
-</td>
-<td>
-   <p>Allows admin to disable LocalQueueMetrics without altering defined selectors
-defaults to true</p>
-</td>
-</tr>
 <tr><td><code>localQueueSelector</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
    <p>Optional field which ensures LocalQueue metrics are only gathered for local queues
-which match the defined selector. Leaving this empty matches all LocalQueues.</p>
+which match the defined selector. An empty selector matches all LocalQueues.
+Defaults to nil which matches no LocalQueues.</p>
 </td>
 </tr>
 </tbody>

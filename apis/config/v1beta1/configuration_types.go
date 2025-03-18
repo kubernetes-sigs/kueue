@@ -184,13 +184,9 @@ type ControllerMetrics struct {
 }
 
 type LocalQueueMetrics struct {
-	// Allows admin to disable LocalQueueMetrics without altering defined selectors
-	// defaults to true
-	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
-
 	// Optional field which ensures LocalQueue metrics are only gathered for local queues
-	// which match the defined selector. Leaving this empty matches all LocalQueues.
+	// which match the defined selector. An empty selector matches all LocalQueues.
+	// Defaults to nil which matches no LocalQueues.
 	// +optional
 	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
 }

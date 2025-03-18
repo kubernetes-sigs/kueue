@@ -183,11 +183,9 @@ func main() {
 		kubeConfig.UserAgent = useragent.Default()
 	}
 
-	if features.Enabled(features.LocalQueueMetrics) && cfg.Metrics.LocalQueueMetrics != nil {
-		err := metrics.SetLocalQueueMetrics(*cfg.Metrics.LocalQueueMetrics)
-		if err != nil {
-			setupLog.Error(err, "Could not set localQueueMetrics singleton")
-		}
+	err = metrics.SetLocalQueueMetrics(cfg.Metrics.LocalQueueMetrics)
+	if err != nil {
+		setupLog.Error(err, "Could not set localQueueMetrics singleton")
 	}
 
 	metrics.Register()

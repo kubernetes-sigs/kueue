@@ -51,7 +51,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -268,7 +267,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 			metrics.AdmittedWorkload(cqName, queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(cqName, quotaReservedWaitTime)
-			if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(lq.Labels) {
+			if metrics.ShouldReportLocalMetrics(lq.Labels) {
 				metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(&wl), queuedWaitTime)
 				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
 			}
@@ -342,7 +341,7 @@ func (r *WorkloadReconciler) shouldWLReportLQMetrics(ctx context.Context, wl kue
 		return false
 	}
 	lq := kueue.LocalQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
+	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if err != nil {
 		log.Error(err, "Could not get LocalQueue for WL")
 		return false
@@ -457,7 +456,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
 				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
-				if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(lq.Labels) {
+				if metrics.ShouldReportLocalMetrics(lq.Labels) {
 					metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), kueue.WorkloadEvictedByLocalQueueStopped)
 				}
 			}

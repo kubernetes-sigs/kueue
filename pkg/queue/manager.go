@@ -417,7 +417,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
-	if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(q.Labels) {
+	if metrics.ShouldReportLocalMetrics(q.Labels) {
 		m.reportLQPendingWorkloads(q)
 	}
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
@@ -453,7 +453,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	added := cq.RequeueIfNotPresent(info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
-	if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(q.Labels) {
+	if metrics.ShouldReportLocalMetrics(q.Labels) {
 		m.reportLQPendingWorkloads(q)
 	}
 	if added {
@@ -479,7 +479,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		cq.Delete(w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
-	if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(q.Labels) {
+	if metrics.ShouldReportLocalMetrics(q.Labels) {
 		m.reportLQPendingWorkloads(q)
 	}
 }
@@ -646,7 +646,7 @@ func (m *Manager) heads() []workload.Info {
 		workloads = append(workloads, wlCopy)
 		q := m.localQueues[KeyFromWorkload(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
-		if features.Enabled(features.LocalQueueMetrics) && metrics.ShouldReportLocalMetrics(q.Labels) {
+		if metrics.ShouldReportLocalMetrics(q.Labels) {
 			m.reportLQPendingWorkloads(q)
 		}
 	}
