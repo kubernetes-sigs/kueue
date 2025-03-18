@@ -159,14 +159,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			MaxCount: DefaultClusterQueuesMaxCount,
 		}
 	}
-	if cfg.Metrics.LocalQueueMetrics != nil {
-		if cfg.Metrics.LocalQueueMetrics.Enabled == nil {
-			cfg.Metrics.LocalQueueMetrics.Enabled = ptr.To(true)
-		}
-		if cfg.Metrics.LocalQueueMetrics.LocalQueueSelector == nil {
-			cfg.Metrics.LocalQueueMetrics.LocalQueueSelector = &metav1.LabelSelector{}
-		}
-	}
 	if !features.Enabled(features.ManagedJobsNamespaceSelector) {
 		// Backwards compatibility: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
 		if cfg.Integrations.PodOptions == nil {

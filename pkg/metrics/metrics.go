@@ -386,7 +386,6 @@ the maximum possible share value.`,
 )
 
 type LocalQueueMetricsConfig struct {
-	enabled            bool
 	localQueueSelector labels.Selector
 }
 
@@ -396,7 +395,7 @@ func SetLocalQueueMetrics(lqMetricsConfig configapi.LocalQueueMetrics) error {
 	var lqLabelSelector labels.Selector
 	var err error
 	if lqMetricsConfig.LocalQueueSelector == nil {
-		lqLabelSelector = labels.Everything()
+		lqLabelSelector = nil
 	} else {
 		lqLabelSelector, err = metav1.LabelSelectorAsSelector(lqMetricsConfig.LocalQueueSelector)
 		if err != nil {
@@ -404,11 +403,7 @@ func SetLocalQueueMetrics(lqMetricsConfig configapi.LocalQueueMetrics) error {
 		}
 	}
 
-	// default to enabled if field is not set
-	enabled := lqMetricsConfig.Enabled == nil || *lqMetricsConfig.Enabled
-
 	lqMetricsConfigSingleton = &LocalQueueMetricsConfig{
-		enabled:            enabled,
 		localQueueSelector: lqLabelSelector,
 	}
 	return nil
@@ -419,16 +414,15 @@ func GetLocalQueueMetrics() *LocalQueueMetricsConfig {
 }
 
 func LocalQueueMetricsEnabled() bool {
-	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton != nil && lqMetricsConfigSingleton.enabled
+	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton != nil
 }
 
 func ShouldReportLocalMetrics(lqLabels map[string]string) bool {
 	if !features.Enabled(features.LocalQueueMetrics) {
 		return false
 	}
-
 	lqMetricsConfig := GetLocalQueueMetrics()
-	if lqMetricsConfig == nil || !lqMetricsConfig.enabled {
+	if lqMetricsConfig == nil || lqMetricsConfig.localQueueSelector == nil {
 		return false
 	}
 	localQueueMatches := true

@@ -513,7 +513,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	}
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
-	shouldReportLqMetrics := s.shouldWLReportLQMetrics(ctx, newWorkload)
+	shouldReportLqMetrics := false
+	if features.Enabled(features.LocalQueueMetrics) {
+		shouldReportLqMetrics = s.shouldWLReportLQMetrics(ctx, newWorkload)
+	}
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
@@ -564,7 +567,7 @@ func (s *Scheduler) shouldWLReportLQMetrics(ctx context.Context, wl *kueue.Workl
 		return false
 	}
 	lq := kueue.LocalQueue{}
-	err := s.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
+	err := s.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if err != nil {
 		log.Error(err, "Could not get LocalQueue for WL")
 		return false

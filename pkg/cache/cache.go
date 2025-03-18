@@ -194,7 +194,7 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
-func (q *queue) GetLabels() map[string]string {
+func (q *LocalQueue) GetLabels() map[string]string {
 	return q.labels
 }
 
@@ -487,7 +487,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 }
 
-func (c *Cache) LocalQueueFromCache(cqRef kueue.ClusterQueueReference, lqKey string) *queue {
+func (c *Cache) LocalQueueFromCache(cqRef kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) *LocalQueue {
 	cq := c.hm.ClusterQueues()[cqRef]
 	return cq.localQueues[lqKey]
 }

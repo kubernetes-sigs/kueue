@@ -341,7 +341,7 @@ func (r *WorkloadReconciler) shouldWLReportLQMetrics(ctx context.Context, wl kue
 		return false
 	}
 	lq := kueue.LocalQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: wl.Spec.QueueName}, &lq)
+	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if err != nil {
 		log.Error(err, "Could not get LocalQueue for WL")
 		return false

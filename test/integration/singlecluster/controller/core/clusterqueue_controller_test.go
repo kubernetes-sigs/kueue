@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup(WithLQMetricsEnabled()))
 	})
 
 	ginkgo.AfterAll(func() {
@@ -937,7 +937,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 		ginkgo.By("Enabling queue visibility feature", func() {
 			gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
 		})
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterAll(func() {

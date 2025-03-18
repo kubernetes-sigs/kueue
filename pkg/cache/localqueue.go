@@ -25,6 +25,7 @@ type LocalQueue struct {
 	key                queue.LocalQueueReference
 	reservingWorkloads int
 	admittedWorkloads  int
+	labels             map[string]string
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
 }
