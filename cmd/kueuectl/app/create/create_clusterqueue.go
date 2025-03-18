@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -269,7 +269,7 @@ func (o *ClusterQueueOptions) createClusterQueue() *v1beta1.ClusterQueue {
 		TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
 		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
 		Spec: v1beta1.ClusterQueueSpec{
-			Cohort:            o.Cohort,
+			Cohort:            v1beta1.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,
 			NamespaceSelector: &o.NamespaceSelector,
 			Preemption: &v1beta1.ClusterQueuePreemption{

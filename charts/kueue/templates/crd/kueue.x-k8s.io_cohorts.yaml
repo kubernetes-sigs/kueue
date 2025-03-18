@@ -8,7 +8,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: cohorts.kueue.x-k8s.io
 spec:
   conversion:
@@ -57,6 +57,31 @@ spec:
           spec:
             description: CohortSpec defines the desired state of Cohort
             properties:
+              fairSharing:
+                description: |-
+                  fairSharing defines the properties of the Cohort when
+                  participating in FairSharing. The values are only relevant
+                  if FairSharing is enabled in the Kueue configuration.
+                properties:
+                  weight:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1
+                    description: |-
+                      weight gives a comparative advantage to this ClusterQueue
+                      or Cohort when competing for unused resources in the
+                      Cohort.  The share is based on the dominant resource usage
+                      above nominal quotas for each resource, divided by the
+                      weight.  Admission prioritizes scheduling workloads from
+                      ClusterQueues and Cohorts with the lowest share and
+                      preempting workloads from the ClusterQueues and Cohorts
+                      with the highest share.  A zero weight implies infinite
+                      share value, meaning that this Node will always be at
+                      disadvantage against other ClusterQueues and Cohorts.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
               parent:
                 description: |-
                   Parent references the name of the Cohort's parent, if

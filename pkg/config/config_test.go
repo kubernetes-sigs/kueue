@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -158,6 +158,7 @@ waitForPodsReady:
   enable: true
   timeout: 50s
   blockAdmission: false
+  recoveryTimeout: 3m
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
@@ -373,18 +374,6 @@ webhook:
 
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{job.FrameworkName},
-		PodOptions: &configapi.PodIntegrationOptions{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      corev1.LabelMetadataName,
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"kube-system", "kueue-system"},
-					},
-				},
-			},
-			PodSelector: &metav1.LabelSelector{},
-		},
 	}
 
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
@@ -471,18 +460,6 @@ webhook:
 				ClientConnection:           defaultClientConnection,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-tenant-a"},
-								},
-							},
-						},
-						PodSelector: &metav1.LabelSelector{},
-					},
 				},
 				QueueVisibility: defaultQueueVisibility,
 				MultiKueue:      defaultMultiKueue,
@@ -626,9 +603,10 @@ webhook:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(false),
-					Timeout:        &metav1.Duration{Duration: 50 * time.Second},
+					Enable:          true,
+					BlockAdmission:  ptr.To(false),
+					Timeout:         &metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
@@ -751,18 +729,6 @@ webhook:
 					// therefore the batch/framework should be registered
 					Frameworks:         []string{job.FrameworkName},
 					ExternalFrameworks: []string{"Foo.v1.example.com"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-system"},
-								},
-							},
-						},
-						PodSelector: &metav1.LabelSelector{},
-					},
 				},
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
@@ -1064,16 +1030,6 @@ func TestEncode(t *testing.T) {
 				},
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
-					"podOptions": map[string]any{
-						"namespaceSelector": map[string]any{
-							"matchExpressions": []any{map[string]any{
-								"key":      corev1.LabelMetadataName,
-								"operator": "NotIn",
-								"values":   []any{"kube-system", "kueue-system"},
-							}},
-						},
-						"podSelector": map[string]any{},
-					},
 				},
 				"queueVisibility": map[string]any{
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),

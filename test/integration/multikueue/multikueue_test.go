@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -44,8 +45,8 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -58,6 +59,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -77,7 +79,7 @@ var defaultEnabledIntegrations sets.Set[string] = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob",
-	"pod")
+	"pod", "workload.codeflare.dev/appwrapper")
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -181,9 +183,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			acKey := client.ObjectKeyFromObject(multikueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				cond := apimeta.FindStatusCondition(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Message)
+				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1107,6 +1107,51 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
+	ginkgo.It("Should run an appwrapper on worker if admitted", func() {
+		aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
+			Component(testingjob.MakeJob("job-1", managerNs.Name).SetTypeMeta().Parallelism(1).Obj()).
+			Queue(managerLq.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
+			Obj()
+
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, aw)).Should(gomega.Succeed())
+		wlLookupKey := types.NamespacedName{Name: workloadappwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
+
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "aw-0",
+			},
+		)
+
+		admitWorkloadAndCheckWorkerCopies(multikueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("changing the status of the appwrapper in the worker, updates the manager's appwrappers status", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperRunning
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finishing the worker appwrapper, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			finishJobReason := "AppWrapper finished successfully"
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdAppWrapper := awv1beta2.AppWrapper{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
+				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperSucceeded
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+		})
+	})
+
 	ginkgo.It("Should not run a MPIJob on worker if set to be managed by external controller", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
 			kueue.PodSetAssignment{
@@ -1220,7 +1265,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should create a pod on worker if admitted", func() {
 		pod := testingpod.MakePod("pod1", managerNs.Name).
 			Queue(managerLq.Name).
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueSchedulingGate().
 			Obj()
 
@@ -1777,9 +1822,7 @@ var _ = ginkgo.Describe("Multikueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 			acKey := client.ObjectKeyFromObject(multikueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				cond := apimeta.FindStatusCondition(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Message)
+				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -2008,9 +2051,7 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 			acKey := client.ObjectKeyFromObject(multikueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-				cond := apimeta.FindStatusCondition(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Message)
+				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

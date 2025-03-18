@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,9 +40,9 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -137,11 +137,9 @@ func TestPodSets(t *testing.T) {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
@@ -152,13 +150,11 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj(),
 				}
 			},
 		},
@@ -169,13 +165,11 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     kueue.DefaultPodSetName,
-						Count:    1,
-						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						Obj(),
 				}
 			},
 		},
@@ -254,13 +248,13 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				NodeSelector(corev1.LabelArchStable, "arm64").
 				KueueFinalizer().
 				Obj()},
@@ -304,7 +298,7 @@ func TestReconciler(t *testing.T) {
 		"non-matching admitted workload is deleted and pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Obj()},
 			wantPods: nil,
@@ -336,14 +330,14 @@ func TestReconciler(t *testing.T) {
 		"the workload is created when queue name is set": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
@@ -353,7 +347,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -387,13 +381,13 @@ func TestReconciler(t *testing.T) {
 		"pod is stopped when workload is evicted": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Queue("test-queue").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Queue("test-queue").
 				StatusConditions(corev1.PodCondition{
@@ -444,14 +438,14 @@ func TestReconciler(t *testing.T) {
 		"pod is finalized when it's succeeded": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
@@ -499,13 +493,13 @@ func TestReconciler(t *testing.T) {
 		"workload status condition is added even if the pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				StatusPhase(corev1.PodSucceeded).
 				StatusMessage("Job finished successfully").
 				Obj()},
@@ -544,12 +538,12 @@ func TestReconciler(t *testing.T) {
 		"pod without scheduling gate is terminated if workload is not admitted": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
@@ -589,7 +583,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -600,7 +594,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -633,7 +627,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -644,7 +638,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -656,7 +650,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -667,7 +661,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -679,9 +673,9 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -689,7 +683,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload":                           "true",
+						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
 						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
@@ -707,43 +701,43 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("3").
-					Annotation(GroupFastAdmissionAnnotation, "true").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				// Other pods are created on second reconcile
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("3").
-					Annotation(GroupFastAdmissionAnnotation, "true").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload":                           "true",
+						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
 						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
@@ -761,7 +755,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -771,7 +765,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -782,7 +776,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -792,7 +786,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -805,7 +799,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -813,7 +807,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload": "true",
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
 					}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
@@ -832,7 +826,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -842,7 +836,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -855,21 +849,21 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(5).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -879,7 +873,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -892,14 +886,14 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
 			},
@@ -917,7 +911,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -926,7 +920,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -936,7 +930,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -945,7 +939,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -955,9 +949,9 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -969,9 +963,9 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -989,7 +983,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -998,7 +992,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1008,7 +1002,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1017,7 +1011,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1026,11 +1020,11 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", podUID).
+						utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 							AssignmentPodCount(2).
 							Obj(),
@@ -1040,11 +1034,11 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", podUID).
+						utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 							AssignmentPodCount(2).
 							Obj(),
@@ -1072,7 +1066,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1081,7 +1075,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1090,7 +1084,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1099,7 +1093,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1109,7 +1103,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1123,7 +1117,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1132,7 +1126,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Admitted(true).
-					ReclaimablePods(kueue.ReclaimablePod{Name: podUID, Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1141,7 +1135,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1150,7 +1144,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1160,7 +1154,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1168,7 +1162,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1177,7 +1171,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1191,7 +1185,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1221,14 +1215,14 @@ func TestReconciler(t *testing.T) {
 		"workload is not deleted if the pod in group has been deleted after admission": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Group("test-group").
 				GroupTotalCount("2").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				Group("test-group").
 				GroupTotalCount("2").
@@ -1236,7 +1230,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1255,7 +1249,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1277,7 +1271,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1287,7 +1281,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1298,7 +1292,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1308,7 +1302,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1318,7 +1312,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1333,7 +1327,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1353,7 +1347,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					KueueFinalizer().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1362,7 +1356,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1372,7 +1366,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1397,7 +1391,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1433,7 +1427,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1443,7 +1437,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
@@ -1454,7 +1448,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("test-queue").
@@ -1464,7 +1458,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
@@ -1481,7 +1475,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -1490,7 +1484,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -1501,7 +1495,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Queue("test-queue").
@@ -1535,7 +1529,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1544,7 +1538,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1554,7 +1548,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1563,7 +1557,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1572,14 +1566,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1592,14 +1586,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1623,7 +1617,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1632,7 +1626,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1641,7 +1635,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1650,7 +1644,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -1660,23 +1654,23 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(3).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReclaimablePods(kueue.ReclaimablePod{Name: podUID, Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1685,7 +1679,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -1693,7 +1687,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1702,7 +1696,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -1711,14 +1705,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(3).Obj()).
 					ReclaimablePods(kueue.ReclaimablePod{
-						Name:  podUID,
+						Name:  kueue.NewPodSetReference(podUID),
 						Count: 1,
 					}).
 					Admitted(true).
@@ -1726,7 +1720,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReclaimablePods(kueue.ReclaimablePod{Name: podUID, Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1749,7 +1743,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1758,7 +1752,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1767,7 +1761,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -1777,7 +1771,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -1785,7 +1779,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1793,7 +1787,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -1802,7 +1796,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1817,7 +1811,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1849,7 +1843,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1860,7 +1854,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1871,7 +1865,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1898,7 +1892,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1928,7 +1922,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1939,7 +1933,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -1950,7 +1944,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1977,7 +1971,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2028,7 +2022,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2039,7 +2033,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2051,7 +2045,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2062,7 +2056,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
@@ -2086,12 +2080,12 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(podUID, 2).Request(corev1.ResourceCPU, "1").NodeName("test-node").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").NodeName("test-node").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2109,7 +2103,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2118,7 +2112,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2128,7 +2122,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2137,7 +2131,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2147,7 +2141,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2167,7 +2161,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2190,7 +2184,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2200,7 +2194,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2213,7 +2207,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2235,7 +2229,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2257,7 +2251,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2266,7 +2260,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2276,7 +2270,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -2284,7 +2278,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
@@ -2298,7 +2292,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2307,7 +2301,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2317,7 +2311,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2326,7 +2320,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2337,8 +2331,8 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2346,7 +2340,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2363,7 +2357,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2372,7 +2366,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2382,7 +2376,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2391,7 +2385,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -2413,8 +2407,8 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					Label(constants.ManagedByKueueLabel, "true").
+					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2423,7 +2417,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2432,7 +2426,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2443,8 +2437,8 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					Label(constants.ManagedByKueueLabel, "true").
+					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -2452,7 +2446,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
@@ -2460,7 +2454,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
@@ -2474,7 +2468,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2499,7 +2493,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2539,7 +2533,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2548,7 +2542,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2557,7 +2551,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2568,7 +2562,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2577,7 +2571,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -2586,7 +2580,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
@@ -2601,7 +2595,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2626,7 +2620,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2651,64 +2645,64 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
-					PodGroupServingAnnotation(true).
+					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
@@ -2719,7 +2713,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2744,7 +2738,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2768,7 +2762,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2778,7 +2772,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2789,7 +2783,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2801,15 +2795,15 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2832,7 +2826,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2842,7 +2836,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2852,7 +2846,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2863,7 +2857,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2873,7 +2867,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2884,7 +2878,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2897,7 +2891,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2923,7 +2917,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2932,7 +2926,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -2943,7 +2937,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -2956,7 +2950,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2978,7 +2972,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3012,7 +3006,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3022,7 +3016,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3032,7 +3026,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3043,7 +3037,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3053,7 +3047,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3063,7 +3057,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3074,7 +3068,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3086,7 +3080,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3105,7 +3099,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3115,7 +3109,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
@@ -3124,7 +3118,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3135,7 +3129,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3145,7 +3139,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					UID("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
@@ -3155,7 +3149,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3170,7 +3164,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3198,7 +3192,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3208,7 +3202,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
 					Group("test-group").
@@ -3220,7 +3214,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -3230,7 +3224,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
 					Group("test-group").
@@ -3243,16 +3237,16 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 1).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3270,7 +3264,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("p1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("group").
@@ -3281,7 +3275,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("p2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("group").
@@ -3319,7 +3313,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3327,7 +3321,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3336,7 +3330,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement-for-pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3346,7 +3340,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3354,7 +3348,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3363,7 +3357,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement-for-pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3372,7 +3366,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3392,7 +3386,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3425,7 +3419,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3433,7 +3427,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3442,7 +3436,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3452,7 +3446,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3466,7 +3460,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					Group("test-group").
@@ -3475,7 +3469,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod3").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
@@ -3490,7 +3484,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3517,7 +3511,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3562,7 +3556,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3572,7 +3566,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
@@ -3587,7 +3581,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3611,7 +3605,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 3).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3647,7 +3641,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3655,7 +3649,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3670,7 +3664,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("deleted").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3686,7 +3680,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3701,7 +3695,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3709,7 +3703,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3719,7 +3713,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3727,7 +3721,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
@@ -3741,7 +3735,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3756,7 +3750,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3764,7 +3758,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("4").
@@ -3773,7 +3767,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 4).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3795,7 +3789,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 4).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3831,7 +3825,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3839,7 +3833,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3854,7 +3848,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3864,7 +3858,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("active-pod").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3872,7 +3866,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3887,7 +3881,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3896,7 +3890,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3910,7 +3904,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3932,7 +3926,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3947,7 +3941,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error-no-finalizer").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -3961,7 +3955,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3971,7 +3965,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -3986,7 +3980,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error-no-finalizer").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -4000,7 +3994,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -4009,7 +4003,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 4).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4029,7 +4023,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 4).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4060,7 +4054,7 @@ func TestReconciler(t *testing.T) {
 		"workload is created with correct labels for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Label("toCopyKey", "toCopyValue").
 				Label("dontCopyKey", "dontCopyValue").
 				KueueFinalizer().
@@ -4076,7 +4070,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -4102,7 +4096,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
@@ -4114,7 +4108,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("toCopyKey2", "toCopyValue2").
 					Label("dontCopyKey", "dontCopyValue").
@@ -4132,9 +4126,9 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4142,7 +4136,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
-						"kueue.x-k8s.io/is-group-workload": "true"}).
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Labels(map[string]string{
 						"toCopyKey1": "toCopyValue1",
 						"toCopyKey2": "toCopyValue2",
@@ -4162,7 +4156,7 @@ func TestReconciler(t *testing.T) {
 		"reconciler returns error in case pod group pod index is bigger or equal pod group total count": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Group("test-group").
@@ -4175,7 +4169,7 @@ func TestReconciler(t *testing.T) {
 		"reconciler returns error in case pod group pod index is less than 0": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Group("test-group").
@@ -4189,7 +4183,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "toCopyValue1").
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
@@ -4200,7 +4194,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label("toCopyKey1", "otherValue").
 					Label("toCopyKey2", "toCopyValue2").
 					Label("dontCopyKey", "dontCopyValue").
@@ -4220,7 +4214,7 @@ func TestReconciler(t *testing.T) {
 		"admission check message is recorded as event for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Obj()},
@@ -4245,7 +4239,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4275,7 +4269,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4300,7 +4294,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4309,7 +4303,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4329,9 +4323,9 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4356,9 +4350,9 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4390,7 +4384,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
@@ -4400,7 +4394,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4411,7 +4405,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
@@ -4423,7 +4417,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4431,7 +4425,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4439,7 +4433,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
@@ -4449,7 +4443,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("replacement").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
@@ -4459,7 +4453,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4468,7 +4462,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4492,7 +4486,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4502,7 +4496,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4514,14 +4508,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4529,7 +4523,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4539,7 +4533,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4550,14 +4544,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4567,7 +4561,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4577,7 +4571,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4589,14 +4583,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4604,7 +4598,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4614,7 +4608,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4625,14 +4619,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4648,7 +4642,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4658,7 +4652,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4671,14 +4665,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4686,7 +4680,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4696,7 +4690,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Delete().
@@ -4708,14 +4702,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4731,7 +4725,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4741,7 +4735,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4754,14 +4748,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4776,7 +4770,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4786,7 +4780,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4797,14 +4791,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4828,7 +4822,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4838,7 +4832,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
@@ -4851,14 +4845,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -4878,7 +4872,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4888,7 +4882,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4899,14 +4893,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -4928,7 +4922,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4938,7 +4932,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -4950,14 +4944,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4979,7 +4973,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
@@ -4989,7 +4983,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5000,14 +4994,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5031,7 +5025,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5041,7 +5035,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5053,14 +5047,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5074,7 +5068,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5084,7 +5078,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
@@ -5095,14 +5089,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(podUID, 2).
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq", podUID).AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", kueue.NewPodSetReference(podUID)).AssignmentPodCount(2).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5118,7 +5112,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5128,7 +5122,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5147,7 +5141,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5163,7 +5157,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5213,7 +5207,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5223,7 +5217,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5243,7 +5237,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5259,7 +5253,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5309,7 +5303,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5319,7 +5313,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5340,7 +5334,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5356,7 +5350,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
@@ -5400,7 +5394,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantErr:         jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 	}
 
@@ -5501,7 +5495,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 
 	pod := *basePodWrapper.
 		Clone().
-		Label(constants.ManagedByKueueLabel, "true").
+		ManagedByKueueLabel().
 		KueueFinalizer().
 		StatusPhase(corev1.PodSucceeded).
 		StatusMessage("Job finished successfully").
@@ -5573,7 +5567,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	// Validate that pod has no finalizer after the second reconcile
 	wantPod := *basePodWrapper.
 		Clone().
-		Label(constants.ManagedByKueueLabel, "true").
+		ManagedByKueueLabel().
 		StatusPhase(corev1.PodSucceeded).
 		StatusMessage("Job finished successfully").
 		Obj()
@@ -5648,9 +5642,8 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 
 			pod.OwnerReferences = append(pod.OwnerReferences, tc.ownerReference)
 
-			if tc.wantRes != IsPodOwnerManagedByKueue(FromObject(pod)) {
-				t.Errorf("Unexpected 'IsPodOwnerManagedByKueue' result\n want: %t\n got: %t)",
-					tc.wantRes, IsPodOwnerManagedByKueue(FromObject(pod)))
+			if managedByKueue := jobframework.IsOwnerManagedByKueueForObject(pod); tc.wantRes != managedByKueue {
+				t.Errorf("Unexpected 'IsOwnerManagedByKueueForObject' result\n want: %t\n got: %t)", tc.wantRes, managedByKueue)
 			}
 		})
 	}
@@ -5697,7 +5690,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	pods := []corev1.Pod{
 		*basePodWrapper.
 			Clone().
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			GroupTotalCount("2").
@@ -5706,7 +5699,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		*basePodWrapper.
 			Clone().
 			Name("pod2").
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			CreationTimestamp(now.Add(time.Minute)).
@@ -5715,7 +5708,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		*basePodWrapper.
 			Clone().
 			Name("excessPod").
-			Label(constants.ManagedByKueueLabel, "true").
+			ManagedByKueueLabel().
 			KueueFinalizer().
 			Group("test-group").
 			CreationTimestamp(now.Add(time.Minute * 2)).
@@ -5725,7 +5718,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 
 	wl := *utiltesting.MakeWorkload("test-group", "ns").
 		PodSets(
-			*utiltesting.MakePodSet(podUID, 2).
+			*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).

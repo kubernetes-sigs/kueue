@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-export const env = { ...process.env, ...window['env'] }
+window.env = window.env || {
+  VITE_WEBSOCKET_URL: 'ws://localhost:8080',
+  REACT_APP_WEBSOCKET_URL: 'ws://localhost:8080'
+};
 
 

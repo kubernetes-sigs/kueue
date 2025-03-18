@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -104,9 +104,9 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("localQueue", klog.KObj(&queueObj))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling LocalQueue")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile LocalQueue")
 
 	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
 		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)

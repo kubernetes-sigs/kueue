@@ -1,9 +1,12 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
@@ -64,14 +66,9 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
 					},
 				},
 			}
@@ -93,22 +90,12 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
-						{
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{},
-								},
-							},
-						},
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
+						*testing.MakePodSet("", 1).
+							Containers(corev1.Container{}).
+							Obj(),
 					},
 				},
 			}
@@ -124,7 +111,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
-				podSets[i] = *testing.MakePodSet(fmt.Sprintf("ps%d", i), podSetCount).Obj()
+				podSets[i] = *testing.MakePodSet(kueue.NewPodSetReference(fmt.Sprintf("ps%d", i)), podSetCount).Obj()
 			}
 			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
 			err := k8sClient.Create(ctx, workload)
@@ -194,32 +181,20 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.Entry("should not request num-pods resource",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
-						PodSets(kueue.PodSet{
-							Name:  "bad",
-							Count: 1,
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									InitContainers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													corev1.ResourcePods: resource.MustParse("1"),
-												},
-											},
-										},
-									},
-									Containers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													corev1.ResourcePods: resource.MustParse("1"),
-												},
-											},
-										},
-									},
-								},
-							},
-						}).
+						PodSets(
+							*testing.MakePodSet("bad", 1).
+								InitContainers(
+									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourcePods: "1",
+									})...,
+								).
+								Containers(
+									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourcePods: "1",
+									})...,
+								).
+								Obj(),
+						).
 						Obj()
 				},
 				testing.BeForbiddenError()),
@@ -360,7 +335,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("main", 3).
+							*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 								Request(corev1.ResourceCPU, "1").
 								Obj(),
 						).
@@ -405,7 +380,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"@abc": "foo"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"@abc": "foo"}}}},
 			),
 			ginkgo.Entry("invalid node selector name of podSetUpdate",
 				func() *kueue.Workload {
@@ -415,7 +390,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"@abc": "foo"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, NodeSelector: map[string]string{"@abc": "foo"}}}},
 			),
 			ginkgo.Entry("invalid label value of podSetUpdate",
 				func() *kueue.Workload {
@@ -425,7 +400,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				kueue.AdmissionCheckState{
 					Name:          "check",
 					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"foo": "@abc"}}}},
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "@abc"}}}},
 			),
 		)
 
@@ -488,7 +463,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				true,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet("main", 2).Obj()}
+					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet(kueue.DefaultPodSetName, 2).Obj()}
 				},
 				testing.BeForbiddenError(),
 			),
@@ -499,7 +474,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets = []kueue.PodSet{{
-						Name:  "main",
+						Name:  kueue.DefaultPodSetName,
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -680,7 +655,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets = []kueue.PodSet{
 						{
-							Name:  "main",
+							Name:  kueue.DefaultPodSetName,
 							Count: 1,
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{

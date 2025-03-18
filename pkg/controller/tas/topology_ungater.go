@@ -93,7 +93,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 		expectationsStore: r.expectationsStore,
 	}
 	return TASTopologyUngater, ctrl.NewControllerManagedBy(mgr).
-		Named(TASTopologyUngater).
+		Named("tas_topology_ungater").
 		For(&kueue.Workload{}).
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
@@ -147,7 +147,7 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", req.NamespacedName.String())
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology Ungater")
 
 	wl := &kueue.Workload{}
@@ -253,10 +253,10 @@ func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName, psName string) ([]*corev1.Pod, error) {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
-		kueuealpha.PodSetLabel: psName,
+		kueuealpha.PodSetLabel: string(psName),
 	}, client.MatchingFields{
 		indexer.WorkloadNameKey: wlName,
 	}); err != nil {

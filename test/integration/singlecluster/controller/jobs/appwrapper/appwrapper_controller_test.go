@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,25 +20,32 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -387,7 +394,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "test-aw-0-0",
+								Name: "test-aw-0",
 								Annotations: map[string]string{
 									"ann1": "ann-value1",
 								},
@@ -407,7 +414,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 								},
 							},
 							{
-								Name: "test-aw-1-0",
+								Name: "test-aw-1",
 								Annotations: map[string]string{
 									"ann1": "ann-value2",
 								},
@@ -684,7 +691,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -694,7 +701,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             "PodsReady",
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -702,15 +709,15 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("Running AppWrapper; PodsReady=False before", podsReadyTestSpec{
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 			appWrapperStatus: awv1beta2.AppWrapperStatus{
@@ -718,7 +725,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             "PodsReady",
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -726,8 +733,8 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("AppWrapper suspended; PodsReady=True before", podsReadyTestSpec{
@@ -736,7 +743,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					{
 						Type:               string(awv1beta2.PodsReady),
 						Status:             metav1.ConditionTrue,
-						Reason:             "PodsReady",
+						Reason:             kueue.WorkloadStarted,
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					},
 				},
@@ -744,14 +751,14 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -831,5 +838,134 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 		gomega.Expect(createdAppWrapper.Spec.Components[1].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+	})
+})
+
+var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const (
+		nodeGroupLabel = "node-group"
+		tasBlockLabel  = "cloud.com/topology-block"
+	)
+
+	var (
+		ns           *corev1.Namespace
+		nodes        []corev1.Node
+		topology     *kueuealpha.Topology
+		tasFlavor    *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "tas-aw-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("b1").
+				Label("node-group", "tas").
+				Label(tasBlockLabel, "b1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+		topology = testing.MakeTopology("default").Levels(tasBlockLabel).Obj()
+		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+			NodeLabel(nodeGroupLabel, "tas").
+			TopologyName("default").Obj()
+		gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+
+		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for _, node := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+		}
+	})
+
+	ginkgo.It("should admit workload which fits in a required topology domain", func() {
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(utiltestingjob.MakeJob("job", ns.Name).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+				Request(corev1.ResourceCPU, "1").
+				SetTypeMeta().
+				Obj()).
+			Queue(localQueue.Name).
+			Suspend(false).
+			Obj()
+		ginkgo.By("creating a job which requires block", func() {
+			gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
+
+		ginkgo.By("verify the workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
+					Name:  wl.Spec.PodSets[0].Name,
+					Count: 1,
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Required:      ptr.To(tasBlockLabel),
+						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+					},
+				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		ginkgo.By("verify admission for the workload", func() {
+			wl := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					&kueue.TopologyAssignment{
+						Levels:  []string{tasBlockLabel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
+					},
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 })

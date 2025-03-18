@@ -8,7 +8,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: topologies.kueue.x-k8s.io
 spec:
   conversion:
@@ -94,3 +94,26 @@ spec:
         type: object
     served: true
     storage: true
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        properties:
+          levels:
+            description: levels define the levels of topology.
+            items:
+              type: string
+            maxItems: 8
+            minItems: 1
+            type: array
+            x-kubernetes-list-type: atomic
+          name:
+            description: name is the name of the topology.
+            maxLength: 253
+            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+            type: string
+        required:
+        - name
+        - levels
+        type: object
+    served: true
+    storage: false

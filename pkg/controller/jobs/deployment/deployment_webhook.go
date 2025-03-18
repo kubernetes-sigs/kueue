@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -77,7 +77,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		deployment.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
+		deployment.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
@@ -123,8 +123,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	oldQueueName := jobframework.QueueNameForObject(oldDeployment.Object())
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
-	allErrs := field.ErrorList{}
-	allErrs = append(allErrs, jobframework.ValidateQueueName(newDeployment.Object())...)
+	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldDeployment.Object(), newDeployment.Object())...)
 
 	// Prevents updating the queue-name if at least one Pod is not suspended

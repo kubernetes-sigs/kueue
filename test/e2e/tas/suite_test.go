@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -61,6 +61,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
+	util.WaitForAppWrapperAvailability(ctx, k8sClient)
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue, JobSet, KubeFlow Training and KubeFlow MPI operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

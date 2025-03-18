@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -81,7 +81,9 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := log.FromContext(ctx).WithValues("admissionCheck", klog.KObj(ac))
+	log := log.FromContext(ctx)
+	log.V(2).Info("Reconcile AdmissionCheck")
+
 	if ac.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(ac, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, ac); err != nil {

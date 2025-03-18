@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -102,14 +103,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
-			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
@@ -195,25 +196,25 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj2",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
-						Image: util.E2eTestSleepImage,
-						Args:  []string{"1ms"},
 					},
 				).
 				Request("rj1", "cpu", "200m").
@@ -327,7 +328,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a single Pod via TAS", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
@@ -336,7 +337,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			ginkgo.By("Creating the Pod", func() {
 				gomega.Expect(k8sClient.Create(ctx, p)).Should(gomega.Succeed())
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
-					corev1.PodSchedulingGate{Name: podcontroller.SchedulingGateName},
+					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 				))
 				gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))
@@ -386,7 +387,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Pod group via TAS", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Request("cpu", "100m").
 				Request("memory", "100Mi").
@@ -396,7 +397,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				for _, p := range group {
 					gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
 					gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
-						corev1.PodSchedulingGate{Name: podcontroller.SchedulingGateName},
+						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 						corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
 					))
 					gomega.Expect(p.Labels).To(gomega.HaveKeyWithValue(kueuealpha.TASLabel, "true"))

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -169,7 +169,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(
 				tc.wantLastAssignmentGeneration,
-				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
+				snapshot.ClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
 		})
@@ -655,8 +655,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						FlavorQuotas,
 				).Cohort("some-cohort").Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported for cohorts.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name: "TAS do not support Preemption",
@@ -679,8 +679,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported for preemption within cluster queue.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name: "TAS do not support MultiKueue AdmissionCheck",
@@ -772,7 +772,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(tc.cq.Name)
+			_, gotReason, gotMessage := cqCache.ClusterQueueReadiness(kueue.ClusterQueueReference(tc.cq.Name))
 			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
 				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
 			}

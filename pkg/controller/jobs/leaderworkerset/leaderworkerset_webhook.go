@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -84,8 +84,8 @@ func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpe
 	if podTemplateSpec.Annotations == nil {
 		podTemplateSpec.Annotations = make(map[string]string, 1)
 	}
-	podTemplateSpec.Annotations[podcontroller.SuspendedByParentAnnotation] = FrameworkName
-	podTemplateSpec.Annotations[podcontroller.GroupServingAnnotation] = "true"
+	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
@@ -99,7 +99,9 @@ var (
 	specPath                 = field.NewPath("spec")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
+	leaderTemplateMetaPath   = leaderTemplatePath.Child("metadata")
 	workerTemplatePath       = leaderWorkerTemplatePath.Child("workerTemplate")
+	workerTemplateMetaPath   = workerTemplatePath.Child("metadata")
 )
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
@@ -108,7 +110,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating create")
 
-	allErrs := jobframework.ValidateQueueName(lws.Object())
+	allErrs := validateCreate(lws)
 
 	return nil, allErrs.ToAggregate()
 }
@@ -120,11 +122,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := apivalidation.ValidateImmutableField(
+	allErrs := validateCreate(newLeaderWorkerSet)
+
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
-	)
+	)...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		newLeaderWorkerSet.Object(),
 		oldLeaderWorkerSet.Object(),
@@ -155,8 +159,24 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
 }
 
+func validateCreate(lws *LeaderWorkerSet) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
+	allErrs = append(allErrs, validateTopologyRequest(lws)...)
+	return allErrs
+}
+
+func validateTopologyRequest(lws *LeaderWorkerSet) field.ErrorList {
+	var allErrs field.ErrorList
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+	}
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	return allErrs
+}
+
 func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
-	allErrors := field.ErrorList{}
+	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -226,6 +226,18 @@ func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
 // Active sets the .status.active
 func (j *JobWrapper) Active(c int32) *JobWrapper {
 	j.Status.Active = c
+	return j
+}
+
+// Failed sets the .status.failed
+func (j *JobWrapper) Failed(c int32) *JobWrapper {
+	j.Status.Failed = c
+	return j
+}
+
+// Ready sets the .status.ready
+func (j *JobWrapper) Ready(c int32) *JobWrapper {
+	j.Status.Ready = &c
 	return j
 }
 

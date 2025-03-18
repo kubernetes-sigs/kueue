@@ -83,7 +83,7 @@ results in undefined behavior in 0.9</p>
     
   
 <tr><td><code>parent</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
    <p>Parent references the name of the Cohort's parent, if
@@ -116,6 +116,15 @@ can lend to the parent subtree.</p>
 <p>Borrowing and Lending limits must only be set when the
 Cohort has a parent.  Otherwise, the Cohort create/update
 will be rejected by the webhook.</p>
+</td>
+</tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the Cohort when
+participating in FairSharing. The values are only relevant
+if FairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 </tbody>

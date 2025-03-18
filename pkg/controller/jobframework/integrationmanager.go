@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -316,6 +316,15 @@ func GetIntegrationsList() []string {
 // kueue.
 func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {
 	return manager.getJobTypeForOwner(owner) != nil
+}
+
+// IsOwnerManagedByKueueForObject returns true if the provided object has an owner,
+// and this owner can be managed by Kueue.
+func IsOwnerManagedByKueueForObject(obj client.Object) bool {
+	if owner := metav1.GetControllerOf(obj); owner != nil {
+		return IsOwnerManagedByKueue(owner)
+	}
+	return false
 }
 
 // IsOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.

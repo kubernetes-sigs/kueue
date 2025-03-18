@@ -1,9 +1,12 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -122,7 +125,7 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
+			Name:            kueue.NewPodSetReference(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),

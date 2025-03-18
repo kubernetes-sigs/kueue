@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -75,7 +75,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cf
 		tasCache: cache.TASCache(),
 	}
 	return TASResourceFlavorController, ctrl.NewControllerManagedBy(mgr).
-		Named(TASResourceFlavorController).
+		Named("tas_resource_flavor_controller").
 		For(&kueue.ResourceFlavor{}).
 		Watches(&corev1.Node{}, &nodeHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
@@ -134,7 +134,7 @@ func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.Typ
 }
 
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("name", req.NamespacedName.Name)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile TAS Resource Flavor")
 
 	flv := &kueue.ResourceFlavor{}

@@ -50,7 +50,9 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 
 ## Install a released version
 
-To install a released version of Kueue in your cluster, run the following command:
+### Install by kubectl
+
+To install a released version of Kueue in your cluster by kubectl, run the following command:
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
@@ -62,6 +64,27 @@ To wait for Kueue to be fully available, run:
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 ```
 
+### Install by Helm
+
+To install a released version of Kueue in your cluster by [Helm](https://helm.sh/), run the following command:
+
+```shell
+helm install kueue oci://registry.k8s.io/charts/kueue \
+  --version={{< param "version" >}} \
+  --namespace  kueue-system \
+  --create-namespace \
+  --wait --timeout 300s
+```
+
+You can also use the following command:
+
+```shell
+helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-chart-{{< param "version" >}}.tgz \
+  --namespace kueue-system \
+  --create-namespace \
+  --wait --timeout 300s
+```
+
 ### Add metrics scraping for prometheus-operator
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
@@ -70,7 +93,7 @@ to scrape metrics from kueue components, run the following command:
 {{% alert title="Note" color="primary" %}}
 This feature depends on [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml), please ensure that CRD is installed first.
 
-We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to install it.
+We can follow [Prometheus Operator Installing guide](https://prometheus-operator.dev/docs/getting-started/installation/) to install it.
 {{% /alert %}}
 
 ```shell
@@ -83,10 +106,16 @@ See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_wor
 
 ### Uninstall
 
-To uninstall a released version of Kueue from your cluster, run the following command:
+To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
 
 ```shell
 kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+```
+
+To uninstall a released version of Kueue from your cluster by Helm, run the following command:
+
+```shell
+helm uninstall kueue --namespace kueue-system
 ```
 
 ## Install a custom-configured released version
@@ -234,7 +263,7 @@ spec:
 +       - --feature-gates=PartialAdmission=true
 ```
 
-The currently supported features are:
+### Feature gates for alpha and beta features
 
 | Feature                               | Default | Stage      | Since | Until |
 |---------------------------------------|---------|------------|-------|-------|
@@ -247,7 +276,6 @@ The currently supported features are:
 | `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
 | `QueueVisibility`                     | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
 | `VisibilityOnDemand`                  | `false` | Alpha      | 0.6   |  0.8  |
 | `VisibilityOnDemand`                  | `true`  | Beta       | 0.9   |       |
 | `PrioritySortingWithinCohort`         | `true`  | Beta       | 0.6   |       |
@@ -260,11 +288,24 @@ The currently supported features are:
 | `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.9   |
 | `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.10  |
-| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
-| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
 | `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
+
+### Feature gates for graduated or deprecated features
+
+| Feature                               | Default | Stage      | Since | Until |
+|---------------------------------------|---------|------------|-------|-------|
+| `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
+| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
+| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   |       |
+| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   |       |
+| `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
+| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |
+| `MultiplePreemptions`                 | `true`  | GA         | 0.10  |       |
+| `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.10  |
+| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.11  |
+| `WorkloadResourceRequestsSummary`     | `true`  | GA         | 0.11  |       |
 
 ## What's next
 

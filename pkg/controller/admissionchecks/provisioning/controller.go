@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -115,11 +115,15 @@ func NewController(client client.Client, record record.EventRecorder) (*Controll
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	wl := &kueue.Workload{}
-	log := ctrl.LoggerFrom(ctx)
+
 	err := c.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Workload")
+
 	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
 		return reconcile.Result{}, nil
 	}
@@ -275,7 +279,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					Name:      requestName,
 					Namespace: wl.Namespace,
 					Labels: map[string]string{
-						constants.ManagedByKueueLabel: "true",
+						constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 					},
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
@@ -286,8 +290,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 			passProvReqParams(wl, req)
 
 			expectedPodSets := requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)
-			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) string { return p.Name })
-			podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) string { return ps.Name })
+			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
+			podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 			for _, psName := range expectedPodSets {
 				ps, psFound := podSetMap[psName]
 				psa, psaFound := psaMap[psName]
@@ -379,7 +383,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 			Name:      name,
 			Namespace: wl.Namespace,
 			Labels: map[string]string{
-				constants.ManagedByKueueLabel: "true",
+				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 		},
 		Template: ps.Template,
@@ -460,9 +464,9 @@ func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequ
 	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
 }
 
-func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []string {
+func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
 	resourcesSet := sets.New(resources...)
-	users := make([]string, 0, len(podSets))
+	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
 		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
@@ -654,7 +658,7 @@ func (c *Controller) syncCheckStates(
 
 func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
-	refMap := slices.ToMap(podSets, func(i int) (string, string) {
+	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
@@ -822,7 +826,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
-		Named("provisioning-workload").
+		Named("provisioning_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
@@ -841,7 +845,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("provisioning-admissioncheck").
+		Named("provisioning_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
 		Complete(acReconciler)

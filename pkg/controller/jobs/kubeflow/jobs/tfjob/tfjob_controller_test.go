@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package tfjob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,6 +27,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 )
 
@@ -250,21 +250,15 @@ func TestPodSets(t *testing.T) {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").TFReplicaSpecsDefault().Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeWorker)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -293,25 +287,21 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeChief)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypePS)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.TFJobReplicaTypeWorker)),
-						Template: job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						RequiredTopologyRequest("cloud.com/rack").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -395,15 +385,15 @@ func TestValidate(t *testing.T) {
 						Key("Chief").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 				field.Invalid(
 					field.NewPath("spec", "tfReplicaSpecs").
 						Key("PS").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
 		},
 	}

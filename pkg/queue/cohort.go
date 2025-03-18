@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,28 +16,31 @@ limitations under the License.
 
 package queue
 
-import "sigs.k8s.io/kueue/pkg/hierarchy"
+import (
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
+)
 
 // cohort is a set of ClusterQueues that can borrow resources from
 // each other.
 type cohort struct {
-	Name string
+	Name kueue.CohortReference
 	hierarchy.Cohort[*ClusterQueue, *cohort]
 }
 
-func newCohort(name string) *cohort {
+func newCohort(name kueue.CohortReference) *cohort {
 	return &cohort{
 		name,
 		hierarchy.NewCohort[*ClusterQueue, *cohort](),
 	}
 }
 
-func (c *cohort) GetName() string {
+func (c *cohort) GetName() kueue.CohortReference {
 	return c.Name
 }
 
 // CCParent satisfies the CycleCheckable interface.
-func (c *cohort) CCParent() hierarchy.CycleCheckable {
+func (c *cohort) CCParent() hierarchy.CycleCheckable[kueue.CohortReference] {
 	return c.Parent()
 }
 

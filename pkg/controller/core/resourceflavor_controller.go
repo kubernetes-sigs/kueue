@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -76,9 +76,9 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("resourceFlavor", klog.KObj(&flavor))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling ResourceFlavor")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile ResourceFlavor")
 
 	if flavor.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful

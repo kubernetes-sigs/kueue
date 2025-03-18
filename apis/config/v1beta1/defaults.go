@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -158,26 +160,25 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		}
 	}
 
-	if cfg.Integrations.PodOptions == nil {
-		cfg.Integrations.PodOptions = &PodIntegrationOptions{}
-	}
-
-	if cfg.Integrations.PodOptions.NamespaceSelector == nil {
-		matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
-
-		cfg.Integrations.PodOptions.NamespaceSelector = &metav1.LabelSelector{
-			MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      corev1.LabelMetadataName,
-					Operator: metav1.LabelSelectorOpNotIn,
-					Values:   matchExpressionsValues,
-				},
-			},
+	if !features.Enabled((features.ManagedJobsNamespaceSelector)) {
+		// Backwards compatibility: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
+		if cfg.Integrations.PodOptions == nil {
+			cfg.Integrations.PodOptions = &PodIntegrationOptions{}
 		}
-	}
 
-	if cfg.Integrations.PodOptions.PodSelector == nil {
-		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
+		if cfg.Integrations.PodOptions.NamespaceSelector == nil {
+			matchExpressionsValues := []string{"kube-system", *cfg.Namespace}
+
+			cfg.Integrations.PodOptions.NamespaceSelector = &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      corev1.LabelMetadataName,
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   matchExpressionsValues,
+					},
+				},
+			}
+		}
 	}
 
 	if cfg.ManagedJobsNamespaceSelector == nil {

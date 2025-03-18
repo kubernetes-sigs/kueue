@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package leaderworkerset
 
 import (
 	"fmt"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,7 +29,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 // LeaderWorkerSetWrapper wraps a LeaderWorkerSet.
@@ -156,15 +155,11 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupNameLabel(
 	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
 ) *LeaderWorkerSetWrapper {
 	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return w.WorkerTemplateSpecLabel(pod.GroupNameLabel, gvk)
+	return w.WorkerTemplateSpecLabel(podconstants.GroupNameLabel, gvk)
 }
 
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *LeaderWorkerSetWrapper {
-	return w.WorkerTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
-}
-
-func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *LeaderWorkerSetWrapper {
-	return w.WorkerTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
+	return w.WorkerTemplateSpecAnnotation(podconstants.GroupTotalCountAnnotation, fmt.Sprint(replicas))
 }
 
 func (w *LeaderWorkerSetWrapper) Image(image string, args []string) *LeaderWorkerSetWrapper {

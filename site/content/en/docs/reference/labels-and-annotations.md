@@ -152,13 +152,16 @@ The annotation key is used to indicate the integration name of the Pod owner.
 
 Type: Label
 
-Example: `kueue.x-k8s.io/prebuilt-workload-name: "my-prebuild-workload-name"`
+Example: `kueue.x-k8s.io/prebuilt-workload-name: "my-prebuilt-workload-name"`
 
 Used on: Kueue-managed Jobs.
 
 The label key of the job holds the name of the pre-built workload to be used.
 The intended use of prebuilt workload is to create the Job once the workload
 is created. In other scenarios the behavior is undefined.
+
+Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name 
+and the pod group name should be the same.
 
 ### kueue.x-k8s.io/priority-class
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,16 +18,18 @@ package jobframework
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -35,7 +37,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -55,13 +56,15 @@ var (
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
 		corev1.SchemeGroupVersion.WithKind("Pod").String(),
-		rayv1.SchemeGroupVersion.WithKind("RayCluster").String())
+		rayv1.SchemeGroupVersion.WithKind("RayCluster").String(),
+		awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind).String(),
+	)
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
-	allErrs = append(allErrs, validateCreateForPrebuildWorkload(job)...)
+	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	return allErrs
 }
@@ -69,13 +72,13 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
-	allErrs = append(allErrs, validateUpdateForPrebuildWorkload(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	return allErrs
 }
 
-func validateCreateForPrebuildWorkload(job GenericJob) field.ErrorList {
+func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job.Object(), constants.PrebuiltWorkloadLabel)...)
 
@@ -124,7 +127,7 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func validateUpdateForPrebuildWorkload(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		oldWlName, _ := PrebuiltWorkloadFor(oldJob)
@@ -132,7 +135,7 @@ func validateUpdateForPrebuildWorkload(oldJob, newJob GenericJob) field.ErrorLis
 
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	} else {
-		allErrs = append(allErrs, validateCreateForPrebuildWorkload(newJob)...)
+		allErrs = append(allErrs, validateCreateForPrebuiltWorkload(newJob)...)
 	}
 	return allErrs
 }
@@ -173,8 +176,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 	var allErrs field.ErrorList
 
 	fields := sets.New[string]()
-	fields.Insert(utilmaps.Keys(newShape)...)
-	fields.Insert(utilmaps.Keys(oldShape)...)
+	fields.Insert(slices.Collect(maps.Keys(newShape))...)
+	fields.Insert(slices.Collect(maps.Keys(oldShape))...)
 
 	for _, fieldName := range fields.UnsortedList() {
 		childFieldPath := fieldPath.Child(fieldName)
@@ -203,10 +206,10 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 }
 
 func IsManagedByKueue(obj client.Object) bool {
-	objectOwner := metav1.GetControllerOf(obj)
-	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
+	if IsOwnerManagedByKueueForObject(obj) {
 		return false
-	} else if QueueNameForObject(obj) != "" {
+	}
+	if QueueNameForObject(obj) != "" {
 		return true
 	}
 	return false

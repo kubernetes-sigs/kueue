@@ -76,11 +76,25 @@ The supported version of the Kubeflow Training Operator is v1.7.0, or a newer ve
 The Management cluster should only install the CRDs and not the package itself. 
 On the other hand, the Worker cluster should install the full kubeflow operator.
 
+## Plain Pods
+
+MultiKueue supports the remote creation and management of Plain Pods.
+
+## Deployments
+
+MultiKueue supports the remote creation and management of Deployment replica Pods.
+
+Known Limitations:
+- When creating a Deployment in environments with more than 1 worker cluster it is possible that replicas are scheduled in different clusters.
+
+{{% alert title="Note" color="primary" %}}
+Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin) to learn how to enable and configure the `pod` integration which is required for enabling the `deployment` integration.
+{{% /alert %}}
+
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.
 Kueue delegates the job to the configured worker clusters without any additional configuration changes.
 
 ## What’s next? 
 - Learn how to [setup a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
-- Learn how to [submit JobSets](/docs/tasks/run/jobsets/#jobset-definition) to a running Kueue cluster.
-- Learn how to [submit batch/Jobs](/docs/tasks/run/jobs/#1-define-the-job) to a running Kueue cluster.
+- Learn how to [run jobs](/docs/tasks/run/multikueue) in MultiKueue environment.

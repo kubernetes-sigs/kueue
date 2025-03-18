@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -320,15 +320,15 @@ type PodSetsResource struct {
 }
 
 func CreatePodSetAssignment(createdWorkload *kueue.Workload, podSetsResource []PodSetsResource) []kueue.PodSetAssignment {
-	pda := []kueue.PodSetAssignment{}
+	pda := make([]kueue.PodSetAssignment, len(podSetsResource))
 	for i, psr := range podSetsResource {
-		pda = append(pda, kueue.PodSetAssignment{
-			Name: string(psr.RoleName),
+		pda[i] = kueue.PodSetAssignment{
+			Name: kueue.NewPodSetReference(string(psr.RoleName)),
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: psr.ResourceCPU,
 			},
 			Count: ptr.To(createdWorkload.Spec.PodSets[i].Count),
-		})
+		}
 	}
 	return pda
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -267,13 +267,13 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(
 					field.NewPath("spec.rayClusterSpec.headGroupSpec.template, metadata.annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 				field.Invalid(
 					field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
 		},
 	}

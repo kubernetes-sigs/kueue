@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,7 +51,7 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
 	// Do not default suspend a job whose owner is already managed by Kueue
-	if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+	if IsOwnerManagedByKueueForObject(jobObj) {
 		return false, nil
 	}
 
@@ -85,7 +84,7 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 	}
 	if QueueNameForObject(jobObj) == "" {
 		// Do not default the queue-name for a job whose owner is already managed by Kueue
-		if owner := metav1.GetControllerOf(jobObj); owner != nil && IsOwnerManagedByKueue(owner) {
+		if IsOwnerManagedByKueueForObject(jobObj) {
 			return
 		}
 		labels := jobObj.GetLabels()

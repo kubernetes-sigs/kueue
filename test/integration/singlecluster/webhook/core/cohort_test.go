@@ -1,9 +1,12 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -318,6 +322,18 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 					).
 					Obj(),
 				testing.BeForbiddenError()),
+			ginkgo.Entry("Should allow FairSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow zero FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should forbid negative FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("-1")).Obj(),
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should allow fractional FareSharing weight",
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
+				gomega.Succeed()),
 		)
 	})
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -99,6 +100,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.TrainingOperatorCrds,
 			util.MpiOperatorCrds,
 			util.RayOperatorCrds,
+			util.AppWrapperCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -257,6 +259,18 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	appwrapperReconciler := workloadaw.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = appwrapperReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadaw.SetupAppWrapperWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

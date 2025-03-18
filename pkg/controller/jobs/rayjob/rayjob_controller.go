@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -134,7 +134,7 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 			count *= wgs.NumOfHosts
 		}
 		podSets = append(podSets, kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
+			Name:            kueue.NewPodSetReference(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
@@ -144,11 +144,14 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	// submitter Job
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterJobPodSet := kueue.PodSet{
-			Name:  submitterJobPodSetName,
-			Count: 1,
+			Name:     submitterJobPodSetName,
+			Count:    1,
+			Template: *getSubmitterTemplate(j),
 		}
 
-		submitterJobPodSet.Template = *getSubmitterTemplate(j)
+		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
 		podSets = append(podSets, submitterJobPodSet)
 	}
 

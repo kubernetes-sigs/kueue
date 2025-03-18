@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@ limitations under the License.
 package paddlejob
 
 import (
-	"strings"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -45,11 +43,8 @@ import (
 )
 
 const (
-	jobName           = "test-job"
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	jobQueueName      = "test-queue"
+	jobName     = "test-job"
+	instanceKey = "cloud.provider.com/instance"
 )
 
 var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -99,7 +94,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 		})
 	})
 
-	ginkgo.It("Should not manage a job without a queue-name submittted to an unmanaged namespace", func() {
+	ginkgo.It("Should not manage a job without a queue-name submitted to an unmanaged namespace", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(testingpaddlejob.MakePaddleJob(jobName, "unmanaged-ns").Suspend(false).Obj())}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpaddlejob.JobControl)(&kftraining.PaddleJob{})}
@@ -156,7 +151,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -173,15 +168,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("Running PaddleJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 			JobStatus: kftraining.JobStatus{
@@ -196,8 +191,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("Job suspended; PodsReady=True before", kftesting.PodsReadyTestSpec{
@@ -213,8 +208,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
@@ -229,7 +224,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -348,11 +343,12 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
 		}
-		util.CreateNodes(ctx, k8sClient, nodes)
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -416,7 +412,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      ptr.To(testing.DefaultRackTopologyLevel),
@@ -424,7 +420,7 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 						},
 					},
 					{
-						Name:  strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
+						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),

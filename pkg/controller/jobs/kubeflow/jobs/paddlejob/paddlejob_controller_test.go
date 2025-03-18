@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package paddlejob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -252,16 +251,12 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
-						Template: job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
-						Template: job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -286,20 +281,18 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.PaddleJobReplicaTypeMaster)),
-						Template: job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.PaddleJobReplicaTypeWorker)),
-						Template: job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						RequiredTopologyRequest("cloud.com/rack").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
 				}
 			},
 		},
@@ -372,15 +365,15 @@ func TestValidate(t *testing.T) {
 						Key("Master").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 				field.Invalid(
 					field.NewPath("spec", "paddleReplicaSpecs").
 						Key("Worker").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
 		},
 	}

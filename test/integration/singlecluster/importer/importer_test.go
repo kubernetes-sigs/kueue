@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Importer", func() {
 
 			pod3 := utiltestingpod.MakePod("pod3", ns.Name).
 				Queue("lq1").
-				Label(constants.ManagedByKueueLabel, "true").
+				Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 				Request(corev1.ResourceCPU, "2").
 				KueueSchedulingGate().
 				Obj()

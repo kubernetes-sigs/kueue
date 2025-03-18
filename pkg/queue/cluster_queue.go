@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ var (
 
 type ClusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
-	name              string
+	name              kueue.ClusterQueueReference
 	heap              heap.Heap[workload.Info]
 	namespaceSelector labels.Selector
 	active            bool
@@ -81,7 +81,7 @@ type ClusterQueue struct {
 	clock clock.Clock
 }
 
-func (c *ClusterQueue) GetName() string {
+func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.name
 }
 
@@ -114,7 +114,7 @@ func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue 
 func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.name = apiCQ.Name
+	c.name = kueue.ClusterQueueReference(apiCQ.Name)
 	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {

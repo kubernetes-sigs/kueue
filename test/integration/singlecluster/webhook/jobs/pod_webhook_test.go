@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,10 +24,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -57,14 +57,10 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
-				pod.SetupWebhook,
+				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector:       &metav1.LabelSelector{},
-					NamespaceSelector: nsSelector,
-				}),
 			))
 		})
 		ginkgo.BeforeEach(func() {
@@ -103,16 +99,16 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod should have scheduling gate",
 				)
 
 				gomega.Expect(createdPod.Labels).To(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod should have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer set")
 			})
 
@@ -127,16 +123,16 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})
@@ -161,16 +157,16 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})
@@ -196,14 +192,10 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManager(ctx, cfg, managerSetup(
-				pod.SetupWebhook,
+				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector:       &metav1.LabelSelector{},
-					NamespaceSelector: nsSelector,
-				}),
 			))
 		})
 		ginkgo.BeforeEach(func() {
@@ -239,16 +231,16 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod should have scheduling gate",
 				)
 
 				gomega.Expect(createdPod.Labels).To(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod should have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod should have finalizer set")
 			})
 
@@ -263,16 +255,16 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
 					"Pod shouldn't have scheduling gate",
 				)
 
 				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue(constants.ManagedByKueueLabel, "true"),
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
 					"Pod shouldn't have the label",
 				)
 
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabel),
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey),
 					"Pod shouldn't have finalizer set")
 			})
 		})

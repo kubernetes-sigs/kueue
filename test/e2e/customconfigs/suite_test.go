@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -57,7 +57,9 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue operator is available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	util.WaitForJobSetAvailability(ctx, k8sClient)
+	util.WaitForAppWrapperAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info("Kueue, JobSet and AppWrapper operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 })
 

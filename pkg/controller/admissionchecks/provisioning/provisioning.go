@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ func getProvisioningRequestNamePrefix(workloadName, checkName string) string {
 	return limitObjectName(fullName)
 }
 
-func getProvisioningRequestPodTemplateName(prName, podsetName string) string {
+func getProvisioningRequestPodTemplateName(prName string, podsetName kueue.PodSetReference) string {
 	fullName := fmt.Sprintf("%s-%s-%s", podTemplatesPrefix, prName, podsetName)
 	return limitObjectName(fullName)
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ var (
 	integrationsFrameworksPath        = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath = integrationsPath.Child("externalFrameworks")
 	podOptionsPath                    = integrationsPath.Child("podOptions")
-	namespaceSelectorPath             = podOptionsPath.Child("namespaceSelector")
+	podOptionsNamespaceSelectorPath   = podOptionsPath.Child("namespaceSelector")
 	managedJobsNamespaceSelectorPath  = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath              = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -122,6 +122,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
 			c.WaitForPodsReady.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	if c.WaitForPodsReady.RecoveryTimeout != nil && c.WaitForPodsReady.RecoveryTimeout.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("recoveryTimeout"),
+			c.WaitForPodsReady.RecoveryTimeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&
@@ -202,6 +206,25 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme) fi
 	return allErrs
 }
 
+func validateNamespaceSelectorForPodIntegration(c *configapi.Configuration, namespaceSelector *metav1.LabelSelector, namespaceSelectorPath *field.Path, allErrs field.ErrorList) field.ErrorList {
+	allErrs = append(allErrs, validation.ValidateLabelSelector(namespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
+	selector, err := metav1.LabelSelectorAsSelector(namespaceSelector)
+	if err != nil {
+		return allErrs
+	}
+	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
+	if c.Namespace != nil && *c.Namespace != "" {
+		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
+	}
+	for _, pn := range prohibitedNamespaces {
+		if selector.Matches(pn) {
+			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, namespaceSelector,
+				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+		}
+	}
+	return allErrs
+}
+
 func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -209,30 +232,23 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	if c.Integrations.PodOptions == nil {
-		return field.ErrorList{field.Required(podOptionsPath, "cannot be empty when pod integration is enabled")}
+	// At least one namespace selector must be non-nil and enabled.
+	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
+	hasNamespaceSelector := false
+	if features.Enabled(features.ManagedJobsNamespaceSelector) && c.ManagedJobsNamespaceSelector != nil {
+		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
+		hasNamespaceSelector = true
 	}
-	if c.Integrations.PodOptions.NamespaceSelector == nil {
-		return field.ErrorList{field.Required(namespaceSelectorPath, "a namespace selector is required")}
-	}
-
-	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
-
-	if c.Namespace != nil && *c.Namespace != "" {
-		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
-	}
-
-	allErrs = append(allErrs, validation.ValidateLabelSelector(c.Integrations.PodOptions.NamespaceSelector, validation.LabelSelectorValidationOptions{}, namespaceSelectorPath)...)
-
-	selector, err := metav1.LabelSelectorAsSelector(c.Integrations.PodOptions.NamespaceSelector)
-	if err != nil {
-		return allErrs
+	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
+		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
+		hasNamespaceSelector = true
 	}
 
-	for _, pn := range prohibitedNamespaces {
-		if selector.Matches(pn) {
-			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, c.Integrations.PodOptions.NamespaceSelector,
-				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+	if !hasNamespaceSelector {
+		if features.Enabled(features.ManagedJobsNamespaceSelector) {
+			allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
+		} else {
+			allErrs = append(allErrs, field.Required(podOptionsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 		}
 	}
 
@@ -344,5 +360,22 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	if featureGateCLI != "" && featureGateMap != nil {
 		return errors.New("feature gates for CLI and configuration cannot both specified")
 	}
+	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed),
+		features.Enabled(features.TASProfileLeastFreeCapacity),
+		features.Enabled(features.TASProfileMostFreeCapacity),
+	}
+	enabledProfilesCount := 0
+	for _, enabled := range TASProfilesEnabled {
+		if enabled {
+			enabledProfilesCount++
+		}
+	}
+	if enabledProfilesCount > 1 {
+		return errors.New("Cannot use more than one TAS profiles")
+	}
+	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
+		return errors.New("Cannot use a TAS profile with TAS disabled")
+	}
+
 	return nil
 }

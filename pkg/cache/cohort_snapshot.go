@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,16 +16,23 @@ limitations under the License.
 
 package cache
 
-import "sigs.k8s.io/kueue/pkg/hierarchy"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
+)
 
 type CohortSnapshot struct {
-	Name string
+	Name kueue.CohortReference
 
 	ResourceNode ResourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
+
+	FairWeight resource.Quantity
 }
 
-func (c *CohortSnapshot) GetName() string {
+func (c *CohortSnapshot) GetName() kueue.CohortReference {
 	return c.Name
 }
 
@@ -61,6 +68,11 @@ func (c *CohortSnapshot) subtreeClusterQueueCount() int {
 	return count
 }
 
+func (c *CohortSnapshot) DominantResourceShare() int {
+	share, _ := dominantResourceShare(c, nil)
+	return share
+}
+
 // The methods below implement hierarchicalResourceNode interface.
 
 func (c *CohortSnapshot) getResourceNode() ResourceNode {
@@ -69,4 +81,10 @@ func (c *CohortSnapshot) getResourceNode() ResourceNode {
 
 func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
+}
+
+// Implements dominantResourceShareNode interface.
+
+func (c *CohortSnapshot) fairWeight() *resource.Quantity {
+	return &c.FairWeight
 }

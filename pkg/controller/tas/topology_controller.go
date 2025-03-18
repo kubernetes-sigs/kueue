@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.
 
 func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
 	return TASTopologyController, ctrl.NewControllerManagedBy(mgr).
-		Named(TASTopologyController).
+		Named("tas_topology_controller").
 		For(&kueuealpha.Topology{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&kueue.ResourceFlavor{}, r.resourceFlavorHandler).
@@ -84,14 +84,14 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies/finalizers,verbs=update
 
-func (r topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	topology := &kueuealpha.Topology{}
 	if err := r.client.Get(ctx, req.NamespacedName, topology); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := r.log.WithValues("name", req.NamespacedName.Name)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology")
 
 	if !topology.DeletionTimestamp.IsZero() {

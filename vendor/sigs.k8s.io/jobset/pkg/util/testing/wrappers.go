@@ -216,6 +216,12 @@ func (r *ReplicatedJobWrapper) Subdomain(subdomain string) *ReplicatedJobWrapper
 	return r
 }
 
+// DependsOn sets the value of the ReplicatedJob.DependsOn.
+func (r *ReplicatedJobWrapper) DependsOn(dependsOn []jobset.DependsOn) *ReplicatedJobWrapper {
+	r.ReplicatedJob.DependsOn = dependsOn
+	return r
+}
+
 // Obj returns the inner ReplicatedJob.
 func (r *ReplicatedJobWrapper) Obj() jobset.ReplicatedJob {
 	return r.ReplicatedJob
@@ -267,9 +273,27 @@ func (j *JobTemplateWrapper) PodSpec(podSpec corev1.PodSpec) *JobTemplateWrapper
 	return j
 }
 
+// SetAnnotations sets the annotations on the Pod template.
+func (j *JobTemplateWrapper) SetPodAnnotations(annotations map[string]string) *JobTemplateWrapper {
+	j.Spec.Template.SetAnnotations(annotations)
+	return j
+}
+
+// SetLabels sets the labels on the Pod template.
+func (j *JobTemplateWrapper) SetPodLabels(labels map[string]string) *JobTemplateWrapper {
+	j.Spec.Template.SetLabels(labels)
+	return j
+}
+
 // SetAnnotations sets the annotations on the Job template.
 func (j *JobTemplateWrapper) SetAnnotations(annotations map[string]string) *JobTemplateWrapper {
 	j.Annotations = annotations
+	return j
+}
+
+// SetLabels sets the labels on the Job template.
+func (j *JobTemplateWrapper) SetLabels(labels map[string]string) *JobTemplateWrapper {
+	j.Labels = labels
 	return j
 }
 

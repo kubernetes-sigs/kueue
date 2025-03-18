@@ -29,19 +29,25 @@ import (
 
 	dockerref "github.com/distribution/reference"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/podset"
-
-	workloadv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 )
 
 const templateString = "template"
+
+const (
+	PodSetAnnotationTASPodIndexLabel      = "workload.codeflare.dev.appwrapper/tas-pod-index-label"
+	PodSetAnnotationTASSubGroupIndexLabel = "workload.codeflare.dev.appwrapper/tas-sub-group-index-label"
+	PodSetAnnotationTASSubGroupCount      = "workload.codeflare.dev.appwrapper/tas-sub-group-count"
+)
 
 // GetPodTemplateSpec extracts a Kueue-compatible PodTemplateSpec at the given path within obj
 func GetPodTemplateSpec(obj *unstructured.Unstructured, path string) (*v1.PodTemplateSpec, error) {
@@ -290,7 +296,7 @@ func getValueAtPath(obj map[string]interface{}, path string) (interface{}, error
 	return cursor, nil
 }
 
-func Replicas(ps workloadv1beta2.AppWrapperPodSet) int32 {
+func Replicas(ps awv1beta2.AppWrapperPodSet) int32 {
 	if ps.Replicas == nil {
 		return 1
 	} else {
@@ -298,7 +304,7 @@ func Replicas(ps workloadv1beta2.AppWrapperPodSet) int32 {
 	}
 }
 
-func ExpectedPodCount(aw *workloadv1beta2.AppWrapper) (int32, error) {
+func ExpectedPodCount(aw *awv1beta2.AppWrapper) (int32, error) {
 	if err := EnsureComponentStatusInitialized(aw); err != nil {
 		return 0, err
 	}
@@ -312,13 +318,13 @@ func ExpectedPodCount(aw *workloadv1beta2.AppWrapper) (int32, error) {
 }
 
 // EnsureComponentStatusInitialized initializes aw.Status.ComponenetStatus, including performing PodSet inference for known GVKs
-func EnsureComponentStatusInitialized(aw *workloadv1beta2.AppWrapper) error {
+func EnsureComponentStatusInitialized(aw *awv1beta2.AppWrapper) error {
 	if len(aw.Status.ComponentStatus) == len(aw.Spec.Components) {
 		return nil
 	}
 
 	// Construct definitive PodSets from the Spec + InferPodSets and cache in the Status (to avoid clashing with user updates to the Spec via apply)
-	compStatus := make([]workloadv1beta2.AppWrapperComponentStatus, len(aw.Spec.Components))
+	compStatus := make([]awv1beta2.AppWrapperComponentStatus, len(aw.Spec.Components))
 	for idx := range aw.Spec.Components {
 		if len(aw.Spec.Components[idx].DeclaredPodSets) > 0 {
 			compStatus[idx].PodSets = aw.Spec.Components[idx].DeclaredPodSets
@@ -340,67 +346,57 @@ func EnsureComponentStatusInitialized(aw *workloadv1beta2.AppWrapper) error {
 	return nil
 }
 
-// GetPodSets constructs the kueue.PodSets for an AppWrapper
-func GetPodSets(aw *workloadv1beta2.AppWrapper) ([]kueue.PodSet, error) {
-	podSets := []kueue.PodSet{}
+func GetComponentPodSpecs(aw *awv1beta2.AppWrapper) ([]*v1.PodTemplateSpec, []awv1beta2.AppWrapperPodSet, error) {
+	templates := []*v1.PodTemplateSpec{}
+	podSets := []awv1beta2.AppWrapperPodSet{}
 	if err := EnsureComponentStatusInitialized(aw); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for idx := range aw.Status.ComponentStatus {
 		if len(aw.Status.ComponentStatus[idx].PodSets) > 0 {
 			obj := &unstructured.Unstructured{}
 			if _, _, err := unstructured.UnstructuredJSONScheme.Decode(aw.Spec.Components[idx].Template.Raw, nil, obj); err != nil {
 				// Should be unreachable; Template.Raw validated by AppWrapper AdmissionController
-				return nil, err
+				return nil, nil, err
 			}
-			for psIdx, podSet := range aw.Status.ComponentStatus[idx].PodSets {
-				replicas := Replicas(podSet)
+			for _, podSet := range aw.Status.ComponentStatus[idx].PodSets {
 				if template, err := GetPodTemplateSpec(obj, podSet.Path); err == nil {
-					podSets = append(podSets, kueue.PodSet{
-						Name:     fmt.Sprintf("%s-%v-%v", aw.Name, idx, psIdx),
-						Template: *template,
-						Count:    replicas,
-					})
+					templates = append(templates, template)
+					podSets = append(podSets, podSet)
 				}
 			}
 		}
 	}
-	return podSets, nil
+	return templates, podSets, nil
 }
 
 // SetPodSetInfos propagates podSetsInfo into the PodSetInfos of aw.Spec.Components
-func SetPodSetInfos(aw *workloadv1beta2.AppWrapper, podSetsInfo []podset.PodSetInfo) error {
+func SetPodSetInfos(aw *awv1beta2.AppWrapper, podSetsInfo []awv1beta2.AppWrapperPodSetInfo) error {
 	if err := EnsureComponentStatusInitialized(aw); err != nil {
 		return err
 	}
 	podSetsInfoIndex := 0
 	for idx := range aw.Spec.Components {
 		if len(aw.Spec.Components[idx].PodSetInfos) != len(aw.Status.ComponentStatus[idx].PodSets) {
-			aw.Spec.Components[idx].PodSetInfos = make([]workloadv1beta2.AppWrapperPodSetInfo, len(aw.Status.ComponentStatus[idx].PodSets))
+			aw.Spec.Components[idx].PodSetInfos = make([]awv1beta2.AppWrapperPodSetInfo, len(aw.Status.ComponentStatus[idx].PodSets))
 		}
 		for podSetIdx := range aw.Status.ComponentStatus[idx].PodSets {
 			podSetsInfoIndex += 1
 			if podSetsInfoIndex > len(podSetsInfo) {
 				continue // we will return an error below...continuing to get an accurate count for the error message
 			}
-			aw.Spec.Components[idx].PodSetInfos[podSetIdx] = workloadv1beta2.AppWrapperPodSetInfo{
-				Annotations:     podSetsInfo[podSetsInfoIndex-1].Annotations,
-				Labels:          podSetsInfo[podSetsInfoIndex-1].Labels,
-				NodeSelector:    podSetsInfo[podSetsInfoIndex-1].NodeSelector,
-				Tolerations:     podSetsInfo[podSetsInfoIndex-1].Tolerations,
-				SchedulingGates: podSetsInfo[podSetsInfoIndex-1].SchedulingGates,
-			}
+			aw.Spec.Components[idx].PodSetInfos[podSetIdx] = podSetsInfo[podSetsInfoIndex-1]
 		}
 	}
 
 	if podSetsInfoIndex != len(podSetsInfo) {
-		return podset.BadPodSetsInfoLenError(podSetsInfoIndex, len(podSetsInfo))
+		return fmt.Errorf("expecting %d podsets, got %d", podSetsInfoIndex, len(podSetsInfo))
 	}
 	return nil
 }
 
 // ClearPodSetInfos clears the PodSetInfos saved by SetPodSetInfos
-func ClearPodSetInfos(aw *workloadv1beta2.AppWrapper) bool {
+func ClearPodSetInfos(aw *awv1beta2.AppWrapper) bool {
 	for idx := range aw.Spec.Components {
 		aw.Spec.Components[idx].PodSetInfos = nil
 	}
@@ -453,10 +449,10 @@ var templatesForGVK = map[schema.GroupVersionKind][]resourceTemplate{
 }
 
 // inferPodSets infers PodSets for RayJobs and RayClusters
-func inferRayPodSets(obj *unstructured.Unstructured, clusterSpecPrefix string) ([]workloadv1beta2.AppWrapperPodSet, error) {
-	podSets := []workloadv1beta2.AppWrapperPodSet{}
+func inferRayPodSets(obj *unstructured.Unstructured, clusterSpecPrefix string) ([]awv1beta2.AppWrapperPodSet, error) {
+	podSets := []awv1beta2.AppWrapperPodSet{}
 
-	podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(int32(1)), Path: clusterSpecPrefix + "headGroupSpec.template"})
+	podSets = append(podSets, awv1beta2.AppWrapperPodSet{Replicas: ptr.To(int32(1)), Path: clusterSpecPrefix + "headGroupSpec.template"})
 	if workers, err := getValueAtPath(obj.UnstructuredContent(), clusterSpecPrefix+"workerGroupSpecs"); err == nil {
 		if workers, ok := workers.([]interface{}); ok {
 			for i := range workers {
@@ -468,7 +464,7 @@ func inferRayPodSets(obj *unstructured.Unstructured, clusterSpecPrefix string) (
 					if err != nil {
 						return nil, err
 					}
-					podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: workerGroupSpecPrefix + templateString})
+					podSets = append(podSets, awv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: workerGroupSpecPrefix + templateString})
 				}
 			}
 		}
@@ -477,9 +473,9 @@ func inferRayPodSets(obj *unstructured.Unstructured, clusterSpecPrefix string) (
 }
 
 // InferPodSets infers PodSets for known GVKs
-func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperPodSet, error) {
+func InferPodSets(obj *unstructured.Unstructured) ([]awv1beta2.AppWrapperPodSet, error) {
 	gvk := obj.GroupVersionKind()
-	podSets := []workloadv1beta2.AppWrapperPodSet{}
+	podSets := []awv1beta2.AppWrapperPodSet{}
 
 	switch gvk {
 	case schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}:
@@ -490,7 +486,45 @@ func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperP
 		if completions, err := GetReplicas(obj, "template.spec.completions"); err == nil && completions < replicas {
 			replicas = completions
 		}
-		podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: "template.spec.template"})
+		podSets = append(podSets, awv1beta2.AppWrapperPodSet{
+			Replicas: ptr.To(replicas),
+			Path:     "template.spec.template",
+			Annotations: map[string]string{
+				PodSetAnnotationTASPodIndexLabel: batchv1.JobCompletionIndexAnnotation,
+			},
+		})
+
+	case schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"}:
+		if jobs, err := getValueAtPath(obj.UnstructuredContent(), "template.spec.replicatedJobs"); err == nil {
+			if jobs, ok := jobs.([]interface{}); ok {
+				for i := range jobs {
+					jobSpecPrefix := fmt.Sprintf("template.spec.replicatedJobs[%v].", i)
+					// validate path to replica template
+					if _, err := getValueAtPath(obj.UnstructuredContent(), jobSpecPrefix+"template"); err == nil {
+						var podCount int32 = 1
+						if parallelism, err := GetReplicas(obj, jobSpecPrefix+"template.spec.parallelism"); err == nil {
+							podCount = parallelism
+						}
+						if completions, err := GetReplicas(obj, jobSpecPrefix+"template.spec.completions"); err == nil && completions < podCount {
+							podCount = completions
+						}
+						var replicas int32 = 1
+						if r, err := GetReplicas(obj, jobSpecPrefix+"replicas"); err == nil {
+							replicas = r
+						}
+						podSets = append(podSets, awv1beta2.AppWrapperPodSet{
+							Replicas: ptr.To(replicas * podCount),
+							Path:     jobSpecPrefix + "template.spec.template",
+							Annotations: map[string]string{
+								PodSetAnnotationTASPodIndexLabel:      batchv1.JobCompletionIndexAnnotation,
+								PodSetAnnotationTASSubGroupIndexLabel: jobsetapi.JobIndexKey,
+								PodSetAnnotationTASSubGroupCount:      strconv.Itoa(int(replicas)),
+							},
+						})
+					}
+				}
+			}
+		}
 
 	case schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"}:
 		for _, replicaType := range []string{"Master", "Worker"} {
@@ -502,7 +536,13 @@ func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperP
 				if err != nil {
 					return nil, err
 				}
-				podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: prefix + templateString})
+				podSets = append(podSets, awv1beta2.AppWrapperPodSet{
+					Replicas: ptr.To(replicas),
+					Path:     prefix + templateString,
+					Annotations: map[string]string{
+						PodSetAnnotationTASPodIndexLabel: kftraining.ReplicaIndexLabel,
+					},
+				})
 			}
 		}
 
@@ -529,7 +569,7 @@ func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperP
 				if err != nil {
 					return nil, err
 				}
-				podSets = append(podSets, workloadv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: template.path})
+				podSets = append(podSets, awv1beta2.AppWrapperPodSet{Replicas: ptr.To(replicas), Path: template.path})
 			}
 		}
 	}
@@ -544,13 +584,13 @@ func InferPodSets(obj *unstructured.Unstructured) ([]workloadv1beta2.AppWrapperP
 }
 
 // ValidatePodSets validates the declared and inferred PodSets
-func ValidatePodSets(declared []workloadv1beta2.AppWrapperPodSet, inferred []workloadv1beta2.AppWrapperPodSet) error {
+func ValidatePodSets(declared []awv1beta2.AppWrapperPodSet, inferred []awv1beta2.AppWrapperPodSet) error {
 	if len(declared) == 0 {
 		return nil
 	}
 
 	// Validate that there are no duplicate paths in declared
-	declaredPaths := map[string]workloadv1beta2.AppWrapperPodSet{}
+	declaredPaths := map[string]awv1beta2.AppWrapperPodSet{}
 	for _, p := range declared {
 		if _, ok := declaredPaths[p.Path]; ok {
 			return fmt.Errorf("multiple DeclaredPodSets with path '%v'", p.Path)

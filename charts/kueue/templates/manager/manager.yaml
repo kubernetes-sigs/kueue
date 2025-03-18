@@ -47,6 +47,9 @@ spec:
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz
@@ -67,6 +70,11 @@ spec:
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
+        {{- if .Values.enableCertManager }}
+        - mountPath: /etc/kueue/metrics/certs
+          name: metrics-certs
+          readOnly: true
+        {{- end }}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
@@ -84,6 +92,19 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
-      - configMap:
+      - name: manager-config
+        configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
-        name: manager-config
+      {{- if .Values.enableCertManager }}
+      - name: metrics-certs
+        secret:
+          secretName: {{ include "kueue.fullname" . }}-metrics-server-cert
+          optional: false
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+      {{- end }}

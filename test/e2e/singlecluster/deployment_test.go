@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
@@ -84,7 +85,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 
 	ginkgo.It("should admit workloads that fits", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(util.E2eTestSleepImage, []string{"10m"}).
+			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			Request(corev1.ResourceCPU, "100m").
 			Replicas(3).
 			Queue(lq.Name).
@@ -133,7 +134,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 
 	ginkgo.It("should admit workloads after change queue-name if AvailableReplicas = 0", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(util.E2eTestSleepImage, []string{"10m"}).
+			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			Request(corev1.ResourceCPU, "100m").
 			Replicas(3).
 			Queue("invalid-queue-name").
@@ -160,7 +161,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		createdWorkloads := make([]*kueue.Workload, 0, len(pods.Items))
 		ginkgo.By("Check that workloads are created but not admitted", func() {
 			for _, p := range pods.Items {
-				gomega.Expect(utilpod.HasGate(&p, pod.SchedulingGateName)).Should(gomega.BeTrue())
+				gomega.Expect(utilpod.HasGate(&p, podconstants.SchedulingGateName)).Should(gomega.BeTrue())
 				createdWorkload := &kueue.Workload{}
 				wlLookupKey := types.NamespacedName{
 					Name:      pod.GetWorkloadNameForPod(p.Name, p.UID),

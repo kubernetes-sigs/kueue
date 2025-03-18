@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,6 +39,14 @@ const (
 	ClusterQueueActiveReasonReady                                           = "Ready"
 )
 
+// CohortReference is the name of the Cohort.
+//
+// Validation of a cohort name is equivalent to that of object names:
+// subdomain in DNS (RFC 1123).
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type CohortReference string
+
 // ClusterQueueSpec defines the desired state of ClusterQueue
 // +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
@@ -63,12 +71,7 @@ type ClusterQueueSpec struct {
 	//
 	// A cohort is a name that links CQs together, but it doesn't reference any
 	// object.
-	//
-	// Validation of a cohort name is equivalent to that of object names:
-	// subdomain in DNS (RFC 1123).
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	Cohort string `json:"cohort,omitempty"`
+	Cohort CohortReference `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
 	// across the queues in this ClusterQueue.
@@ -97,21 +100,6 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
-	// preemption describes policies to preempt Workloads from this ClusterQueue
-	// or the ClusterQueue's cohort.
-	//
-	// Preemption can happen in two scenarios:
-	//
-	// - When a Workload fits within the nominal quota of the ClusterQueue, but
-	//   the quota is currently borrowed by other ClusterQueues in the cohort.
-	//   Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-	//   reclaim its nominal quota.
-	// - When a Workload doesn't fit within the nominal quota of the ClusterQueue
-	//   and there are admitted Workloads in the ClusterQueue with lower priority.
-	//
-	// The preemption algorithm tries to find a minimal set of Workloads to
-	// preempt to accomomdate the pending Workload, preempting Workloads with
-	// lower priority first.
 	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
@@ -139,8 +127,10 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 
-	// fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
-	// The values are only relevant if fair sharing is enabled in the Kueue configuration.
+	// fairSharing defines the properties of the ClusterQueue when
+	// participating in FairSharing.  The values are only relevant
+	// if FairSharing is enabled in the Kueue configuration.
+	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
@@ -361,16 +351,6 @@ type ResourceUsage struct {
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
 
-type FairSharingStatus struct {
-	// WeightedShare represent the maximum of the ratios of usage above nominal
-	// quota to the lendable resources in the cohort, among all the resources
-	// provided by the ClusterQueue, and divided by the weight.
-	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
-	// the maximum possible share value.
-	WeightedShare int64 `json:"weightedShare"`
-}
-
 const (
 	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the same cohort.
@@ -422,6 +402,24 @@ type FlavorFungibility struct {
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
+//
+// Preemption may be configured to work in the following scenarios:
+//
+//   - When a Workload fits within the nominal quota of the ClusterQueue, but
+//     the quota is currently borrowed by other ClusterQueues in the cohort.
+//     We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+//     reclaim its nominal quota. Configured using reclaimWithinCohort.
+//   - When a Workload doesn't fit within the nominal quota of the ClusterQueue
+//     and there are admitted Workloads in the ClusterQueue with lower priority.
+//     Configured using withinClusterQueue.
+//   - When a Workload may fit while both borrowing and preempting
+//     low priority workloads in the Cohort. Configured using borrowWithinCohort.
+//   - When FairSharing is enabled, to maintain fair distribution of
+//     unused resources. See FairSharing documentation.
+//
+// The preemption algorithm tries to find a minimal set of Workloads to
+// preempt to accomomdate the pending Workload, preempting Workloads with
+// lower priority first.
 // +kubebuilder:validation:XValidation:rule="!(self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
@@ -444,8 +442,6 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
-	// borrowWithinCohort provides configuration to allow preemption within
-	// cohort while borrowing.
 	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
@@ -473,7 +469,8 @@ const (
 )
 
 // BorrowWithinCohort contains configuration which allows to preempt workloads
-// within cohort while borrowing.
+// within cohort while borrowing. It only works with Classical Preemption,
+// __not__ with Fair Sharing.
 type BorrowWithinCohort struct {
 	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
 	// Possible values are:
@@ -495,20 +492,6 @@ type BorrowWithinCohort struct {
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
-}
-
-// FairSharing contains the properties of the ClusterQueue when participating in fair sharing.
-type FairSharing struct {
-	// weight gives a comparative advantage to this ClusterQueue when competing for unused
-	// resources in the cohort against other ClusterQueues.
-	// The share of a ClusterQueue is based on the dominant resource usage above nominal
-	// quotas for each resource, divided by the weight.
-	// Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
-	// and preempting workloads from the ClusterQueues with the highest share.
-	// A zero weight implies infinite share value, meaning that this ClusterQueue will always
-	// be at disadvantage against other ClusterQueues.
-	// +kubebuilder:default=1
-	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
 // +genclient

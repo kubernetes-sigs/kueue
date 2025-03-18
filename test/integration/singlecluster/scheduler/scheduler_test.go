@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking a workload with replica count 0 gets admitted")
 			emptyWl := testing.MakeWorkload("empty-wl", ns.Name).
 				Queue(prodQueue.Name).
-				PodSets(*testing.MakePodSet("main", 0).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 0).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking jobSet with no replica do nopt modify metrics", func() {
 				emptyWlAdmission := testing.MakeAdmission(prodClusterQ.Name).PodSets(
 					kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
@@ -303,7 +303,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
 			wl1 := testing.MakeWorkload("wl1", ns.Name).
 				Queue(podsCountQueue.Name).
-				PodSets(*testing.MakePodSet("main", 3).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "2").
 					Obj()).
 				Obj()
@@ -324,14 +324,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			wl2 := testing.MakeWorkload("wl2", ns.Name).
 				Queue(podsCountQueue.Name).
-				PodSets(*testing.MakePodSet("main", 3).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "2").
 					Obj()).
 				Obj()
 
 			wl3 := testing.MakeWorkload("wl3", ns.Name).
 				Queue(podsCountQueue.Name).
-				PodSets(*testing.MakePodSet("main", 2).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 2).
 					Request(corev1.ResourceCPU, "2").
 					Obj()).
 				Obj()
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should admit workloads as the number of pods (only) allows it", func() {
 			wl1 := testing.MakeWorkload("wl1", ns.Name).
 				Queue(podsCountOnlyQueue.Name).
-				PodSets(*testing.MakePodSet("main", 3).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 					Obj()).
 				Obj()
 
@@ -385,13 +385,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			wl2 := testing.MakeWorkload("wl2", ns.Name).
 				Queue(podsCountOnlyQueue.Name).
-				PodSets(*testing.MakePodSet("main", 3).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
 					Obj()).
 				Obj()
 
 			wl3 := testing.MakeWorkload("wl3", ns.Name).
 				Queue(podsCountOnlyQueue.Name).
-				PodSets(*testing.MakePodSet("main", 2).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 2).
 					Obj()).
 				Obj()
 
@@ -616,7 +616,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Reclaimed resources are not accounted during admission", func() {
 			wl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
-				PodSets(*testing.MakePodSet("main", 2).Request(corev1.ResourceCPU, "3").Obj()).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "3").Obj()).
 				Obj()
 			ginkgo.By("Creating the workload", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
@@ -626,7 +626,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
-				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
@@ -1503,8 +1503,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			ginkgo.By("cohorts created")
-			cohortRight := testing.MakeCohort("left").Parent("root").Obj()
-			cohortLeft := testing.MakeCohort("right").Parent("root").Obj()
+			cohortLeft := testing.MakeCohort("left").Parent("root").Obj()
+			cohortRight := testing.MakeCohort("right").Parent("root").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cohortLeft)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, cohortRight)).Should(gomega.Succeed())
 
@@ -1660,7 +1660,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue
 			matchingNS         *corev1.Namespace
-			chName             string
+			chName             kueue.CohortReference
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -1950,11 +1950,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, wl)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, lr)).To(gomega.Succeed())
 		},
-			ginkgo.Entry("request more that limits", testParams{reqCPU: "3", limitCPU: "2", wantedStatus: "resource validation failed:"}),
-			ginkgo.Entry("request over container limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", wantedStatus: "didn't satisfy LimitRange constraints:"}),
-			ginkgo.Entry("request under container limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", wantedStatus: "didn't satisfy LimitRange constraints:"}),
-			ginkgo.Entry("request over pod limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
-			ginkgo.Entry("request under pod limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request more that limits", testParams{reqCPU: "3", limitCPU: "2", wantedStatus: "resources validation failed:"}),
+			ginkgo.Entry("request over container limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", wantedStatus: "resources didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request under container limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", wantedStatus: "resources didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request over pod limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request under pod limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"}),
 			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmitted: true}),
 		)
 	})

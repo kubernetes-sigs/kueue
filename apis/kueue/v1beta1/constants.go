@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ limitations under the License.
 package v1beta1
 
 const (
-	ResourceInUseFinalizerName = "kueue.x-k8s.io/resource-in-use"
-	DefaultPodSetName          = "main"
+	ResourceInUseFinalizerName                 = "kueue.x-k8s.io/resource-in-use"
+	DefaultPodSetName          PodSetReference = "main"
 )
 
 type StopPolicy string

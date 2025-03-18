@@ -48,6 +48,9 @@ patches:
 - path: manager_visibility_patch.yaml
 - path: mutating_webhookcainjection_patch.yaml
 - path: validating_webhookcainjection_patch.yaml
+- path: cert_metrics_manager_patch.yaml
+  target:
+    kind: Deployment
 
 
 # the following config is for teaching kustomize how to do var substitution

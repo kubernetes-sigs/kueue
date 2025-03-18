@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				wl2Read := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &wl2Read)).To(gomega.Succeed())
 				gomega.Expect(wl2Read.Status.ResourceRequests).Should(gomega.BeComparableTo([]kueue.PodSetRequest{{
-					Name:      "main",
+					Name:      kueue.DefaultPodSetName,
 					Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
 				}))
 			})
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				read := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				gomega.Expect(read.Status.ResourceRequests).Should(gomega.BeComparableTo([]kueue.PodSetRequest{{
-					Name:      "main",
+					Name:      kueue.DefaultPodSetName,
 					Resources: corev1.ResourceList{pseudoCPU: resource.MustParse("1")},
 				}}))
 			})

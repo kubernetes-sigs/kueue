@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,15 +26,16 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAvailable(t *testing.T) {
 	cases := map[string]struct {
 		cohorts                  []kueuealpha.Cohort
 		clusterQueues            []kueue.ClusterQueue
-		usage                    map[string]resources.FlavorResourceQuantities
-		wantAvailable            map[string]resources.FlavorResourceQuantities
-		wantPotentiallyAvailable map[string]resources.FlavorResourceQuantities
+		usage                    map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities
+		wantAvailable            map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities
+		wantPotentiallyAvailable map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities
 	}{
 		"base cqs": {
 			clusterQueues: []kueue.ClusterQueue{
@@ -48,18 +49,18 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("blue").Resource("cpu", "10").Obj(),
 					).ClusterQueue,
 			},
-			usage: map[string]resources.FlavorResourceQuantities{
+			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 1000},
 				"cq2": {
 					{Flavor: "red", Resource: "cpu"}:  2_500,
 					{Flavor: "blue", Resource: "cpu"}: 1_000,
 				},
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 0},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 2_500, {Flavor: "blue", Resource: "cpu"}: 9_000},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 0},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 5_000, {Flavor: "blue", Resource: "cpu"}: 10_000},
 			},
@@ -83,15 +84,15 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			usage: map[string]resources.FlavorResourceQuantities{
+			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 1000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 500},
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 28_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 28_500},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 29_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 30_000},
 			},
@@ -110,9 +111,9 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			usage:                    map[string]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 11_000}},
-			wantAvailable:            map[string]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 9_000}},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000}},
+			usage:                    map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 11_000}},
+			wantAvailable:            map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 9_000}},
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000}},
 		},
 		"cq oversubscription spills into cohort": {
 			clusterQueues: []kueue.ClusterQueue{
@@ -133,10 +134,10 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			usage: map[string]resources.FlavorResourceQuantities{
+			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 31_000},
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 0},
 				// even though cq2 doesn't borrow/lend
 				// resources from Cohort, the
@@ -146,7 +147,7 @@ func TestAvailable(t *testing.T) {
 				// the CohortTree.
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 0},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 10_000},
 			},
@@ -179,12 +180,12 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			usage: map[string]resources.FlavorResourceQuantities{
+			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 10_000},
 				"cq3": {{Flavor: "red", Resource: "cpu"}: 6_000},
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				// cq1 uses 20k, cq2 uses 10k, and
 				// cq3 uses 1k (not counting first 5k
 				// in guaranteedQuota), resulting in
@@ -197,7 +198,7 @@ func TestAvailable(t *testing.T) {
 				// 40k - (20k + 10k + 6k) = 4k
 				"cq3": {{Flavor: "red", Resource: "cpu"}: 4_000},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 35_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 12_000},
 				"cq3": {{Flavor: "red", Resource: "cpu"}: 40_000},
@@ -234,18 +235,18 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			usage: map[string]resources.FlavorResourceQuantities{
+			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 10_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 5_000},
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				// 30k available - 10k usage.
 				// no capacity/usage from right subtree
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
 				// 40k available - 15k usage.
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 25_000},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 30_000},
 				"cq2": {{Flavor: "red", Resource: "cpu"}: 40_000},
 			},
@@ -286,7 +287,7 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 					).Cohort,
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				// 30k in "left" subtree + 5k limit above tree
 				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 35_000},
 				// 10k + 5k lending limit
@@ -294,7 +295,7 @@ func TestAvailable(t *testing.T) {
 				// all 50k in "root" subtree
 				"right-cq": {{Flavor: "red", Resource: "cpu"}: 50_000},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 35_000},
 				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
 				"right-cq": {{Flavor: "red", Resource: "cpu"}: 50_000},
@@ -341,7 +342,7 @@ func TestAvailable(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
 					).Cohort,
 			},
-			wantAvailable: map[string]resources.FlavorResourceQuantities{
+			wantAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
 				// only 5k of left-cq1's resources are available,
 				// plus 10k of its own.
@@ -350,7 +351,7 @@ func TestAvailable(t *testing.T) {
 				"right-cq": {{Flavor: "red", Resource: "cpu"}: 5_000},
 				"root-cq":  {{Flavor: "red", Resource: "cpu"}: 5_000},
 			},
-			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+			wantPotentiallyAvailable: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
 				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
 				"right-cq": {{Flavor: "red", Resource: "cpu"}: 5_000},
@@ -378,9 +379,10 @@ func TestAvailable(t *testing.T) {
 			}
 			// before adding usage
 			{
-				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				for _, cq := range snapshot.ClusterQueues {
+				clusterQueues := snapshot.ClusterQueues()
+				gotAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				gotPotentiallyAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				for _, cq := range clusterQueues {
 					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
@@ -401,11 +403,12 @@ func TestAvailable(t *testing.T) {
 			// add usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.ClusterQueues[cqName].AddUsage(usage)
+					snapshot.ClusterQueue(cqName).AddUsage(workload.Usage{Quota: usage})
 				}
-				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				for _, cq := range snapshot.ClusterQueues {
+				clusterQueues := snapshot.ClusterQueues()
+				gotAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				gotPotentiallyAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				for _, cq := range clusterQueues {
 					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
@@ -425,11 +428,12 @@ func TestAvailable(t *testing.T) {
 			// remove usage
 			{
 				for cqName, usage := range tc.usage {
-					snapshot.ClusterQueues[cqName].removeUsage(usage)
+					snapshot.ClusterQueue(cqName).RemoveUsage(workload.Usage{Quota: usage})
 				}
-				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				gotPotentiallyAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
-				for _, cq := range snapshot.ClusterQueues {
+				clusterQueues := snapshot.ClusterQueues()
+				gotAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				gotPotentiallyAvailable := make(map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities, len(clusterQueues))
+				for _, cq := range clusterQueues {
 					numFrs := len(cq.ResourceNode.Quotas)
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	}
 	args := []any{
 		"workload", klog.KObj(e.Obj),
-		"clusterQueue", klog.KRef("", e.ClusterQueue),
+		"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
 		"status", e.status,
 		"reason", e.inadmissibleMsg,
 	}

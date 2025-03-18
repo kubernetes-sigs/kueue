@@ -34,11 +34,7 @@ type CohortSpec struct {
 	// Cohort, including ClusterQueues, until the cycle is
 	// removed.  We prevent further admission while the cycle
 	// exists.
-	//
-	//+kubebuilder:validation:MaxLength=253
-	//+kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	//
-	Parent string `json:"parent,omitempty"`
+	Parent kueuebeta.CohortReference `json:"parent,omitempty"`
 
 	// ResourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources
@@ -60,6 +56,12 @@ type CohortSpec struct {
 	//+listType=atomic
 	//+kubebuilder:validation:MaxItems=16
 	ResourceGroups []kueuebeta.ResourceGroup `json:"resourceGroups,omitempty"`
+
+	// fairSharing defines the properties of the Cohort when
+	// participating in FairSharing. The values are only relevant
+	// if FairSharing is enabled in the Kueue configuration.
+	// +optional
+	FairSharing *kueuebeta.FairSharing `json:"fairSharing,omitempty"`
 }
 
 //+kubebuilder:object:root=true

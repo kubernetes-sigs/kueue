@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -227,7 +227,7 @@ func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v
 	return j
 }
 
-func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *JobWrapper {
+func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args ...string) *JobWrapper {
 	if rayType == rayv1.HeadNode {
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args

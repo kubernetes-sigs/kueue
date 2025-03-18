@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -128,7 +128,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {
-		snapshot.addUsage(domainID, usage)
+		snapshot.addTASUsage(domainID, usage)
 	}
 	for _, pod := range pods {
 		// skip unscheduled or terminal pods as they don't use any capacity
@@ -138,7 +138,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
 			requests := resourcehelpers.PodRequests(&pod, resourcehelpers.PodResourcesOptions{})
 			usage := resources.NewRequests(requests)
-			snapshot.addUsage(domainID, usage)
+			snapshot.addNonTASUsage(domainID, usage)
 		}
 	}
 	return snapshot
@@ -162,9 +162,11 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 			c.usage[domainID] = resources.Requests{}
 		}
 		if op == subtract {
-			c.usage[domainID].Sub(tr.Requests)
+			c.usage[domainID].Sub(tr.TotalRequests())
+			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
-			c.usage[domainID].Add(tr.Requests)
+			c.usage[domainID].Add(tr.TotalRequests())
+			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }

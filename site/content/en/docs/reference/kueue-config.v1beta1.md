@@ -119,7 +119,19 @@ unsuspended, they will start immediately.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName</p>
+   <p>ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
+from management by Kueue.</p>
+<p>It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
+For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
+eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
+never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
+This strong exemption ensures that Kueue will not interfere with the basic operation
+of system namespace.</p>
+<p>For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
+by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
+a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
+a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
+true and the job's namespace matches ManagedJobsNamespaceSelector.</p>
 </td>
 </tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
@@ -526,7 +538,10 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 <a href="#PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects</p>
+   <p>PodOptions defines kueue controller behaviour for pod objects
+Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+(https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
+instead.</p>
 </td>
 </tr>
 <tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>
@@ -564,9 +579,16 @@ underlying job are changed.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable controls whether to enable internal cert management or not.
-Defaults to true. If you want to use a third-party management, e.g. cert-manager,
-set it to false. See the user guide for more information.</p>
+   <p>Enable controls the use of internal cert management for the webhook
+and metrics endpoints.
+When enabled Kueue is using libraries to generate and
+self-sign the certificates.
+When disabled, you need to provide the certificates for
+the webhooks and metrics through a third party certificate
+This secret is mounted to the kueue controller manager pod. The mount
+path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
+metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code>.
+The keys and certs are named tls.key and tls.crt.</p>
 </td>
 </tr>
 <tr><td><code>webhookServiceName</code> <B>[Required]</B><br/>
@@ -917,6 +939,19 @@ This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 <td>
    <p>RequeuingStrategy defines the strategy for requeuing a Workload.</p>
+</td>
+</tr>
+<tr><td><code>recoveryTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>RecoveryTimeout defines an opt-in timeout, measured since the
+last transition to the PodsReady=false condition after a Workload is Admitted and running.
+Such a transition may happen when a Pod failed and the replacement Pod
+is awaited to be scheduled.
+After exceeding the timeout the corresponding job gets suspended again
+and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+If not set, there is no timeout.</p>
 </td>
 </tr>
 </tbody>

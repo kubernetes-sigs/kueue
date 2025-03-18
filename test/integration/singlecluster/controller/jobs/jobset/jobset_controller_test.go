@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -882,7 +882,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -904,15 +904,15 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("Running JobSet; PodsReady=False before", podsReadyTestSpec{
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 			jobSetStatus: jobsetapi.JobSetStatus{
@@ -932,8 +932,8 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
 		ginkgo.Entry("JobSet suspended; PodsReady=True before", podsReadyTestSpec{
@@ -954,14 +954,14 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
-				Reason:  "PodsReady",
-				Message: "All pods were ready or succeeded since the workload admission",
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  "PodsReady",
+				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
@@ -1196,11 +1196,12 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
 				Obj(),
 		}
-		util.CreateNodes(ctx, k8sClient, nodes)
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = testing.MakeDefaultTwoLevelTopology("default")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -1242,8 +1243,8 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
-					Image: util.E2eTestSleepImage,
-					Args:  []string{"1ms"},
+					Image: util.E2eTestAgnHostImage,
+					Args:  util.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "rj2",
@@ -1253,8 +1254,8 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
-					Image: util.E2eTestSleepImage,
-					Args:  []string{"1ms"},
+					Image: util.E2eTestAgnHostImage,
+					Args:  util.BehaviorExitFast,
 				},
 			).
 			Request("rj1", "cpu", "100m").

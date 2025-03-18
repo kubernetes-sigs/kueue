@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -102,8 +102,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           0,
 		},
-		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
+		"with reason WorkloadWaitForPodsReadyStart; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -116,6 +117,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 						{
 							Type:               kueue.WorkloadPodsReady,
 							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
 							LastTransitionTime: metav1.NewTime(now),
 						},
 					},
@@ -123,7 +125,75 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           5 * time.Minute,
+			wantRecheckAfter:           4 * time.Minute,
+		},
+		"with reason PodsReady; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             "PodsReady",
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           4 * time.Minute,
+		},
+		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForRecovery,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			wantCountingTowardsTimeout: true,
+			wantRecheckAfter:           3 * time.Minute,
+		},
+		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery, recoveryTimeout not configured": {
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForRecovery,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: nil},
+			wantCountingTowardsTimeout: false,
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
@@ -1064,7 +1134,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+		"with reason PodsReady; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1124,7 +1194,67 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"[backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
+		},
+		"with reason PodsReady; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1160,6 +1290,69 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  "RequeuingLimitExceeded",
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
+				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				RequeueState(ptr.To[int32](100), nil).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
+		},
+		"with reason WaitForPodsStart; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
+				RequeueState(ptr.To[int32](100), nil).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
 					Message: "Not all pods are ready or succeeded",
 				}).
 				Condition(metav1.Condition{
@@ -1276,7 +1469,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1304,7 +1497,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1331,7 +1524,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1359,7 +1552,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,

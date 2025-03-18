@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -335,11 +336,9 @@ func TestPodSets(t *testing.T) {
 		"no partial admission": {
 			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name:     kueue.DefaultPodSetName,
-					Template: *jobTemplate.Clone().Spec.Template.DeepCopy(),
-					Count:    3,
-				},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
 			},
 		},
 		"partial admission": {
@@ -350,12 +349,10 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name:     kueue.DefaultPodSetName,
-					Template: *jobTemplate.Clone().Spec.Template.DeepCopy(),
-					Count:    3,
-					MinCount: ptr.To[int32](2),
-				},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					SetMinimumCount(2).
+					Obj(),
 			},
 		},
 		"with required topology annotation": {
@@ -366,15 +363,12 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name: kueue.DefaultPodSetName,
-					Template: jobTemplate.Clone().
-						PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-						Spec.Template,
-					Count: 3,
-					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
-						PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation)},
-				},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
 			},
 		},
 		"with preferred topology annotation": {
@@ -384,15 +378,14 @@ func TestPodSets(t *testing.T) {
 					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 					Obj(),
 			),
-			wantPodSets: []kueue.PodSet{{
-				Name: kueue.DefaultPodSetName,
-				Template: jobTemplate.Clone().
-					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
-					Spec.Template,
-				Count: 3,
-				TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-					PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation)},
-			}},
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					PreferredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -478,6 +471,8 @@ func TestReconciler(t *testing.T) {
 		},
 	}
 
+	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{Enable: true}
+
 	cases := map[string]struct {
 		enableTopologyAwareScheduling bool
 
@@ -491,6 +486,323 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"PodsReady is set to False before Workload is Admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(false).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False after Workload is Admitted but not all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False after Workload is Admitted, some Pods became ready but not all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Active(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness without previous PodsReady condition": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False after Workload is running and one pod failed": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(9).
+				Failed(1).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(9).
+				Failed(1).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady continues to be False after a pod failed and workload is still recovering": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Failed(1).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				Ready(9).
+				Failed(1).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to True after failing pod recovered": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForRecovery,
+					Message: "At least one pod has failed, waiting for recovery",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRecovered,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady=False has the new Reason if there was the old one before (pre v0.11.0)": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady=True has the new Reason if there was the old one before (pre v0.11.0)": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Ready(10).
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  "PodsReady",
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				Obj(),
+			},
+		},
+		"PodsReady is set to False if there's an invalid Reason (pre v0.11.0)": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidReason",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			},
+		},
 		"PodSet label and Workload annotation are set when Job is starting; TopologyAwareScheduling enabled": {
 			enableTopologyAwareScheduling: true,
 			reconcilerOptions: []jobframework.Option{
@@ -500,7 +812,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+				PodLabel(kueuealpha.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodAnnotation(kueuealpha.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -604,7 +916,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -621,7 +933,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -661,7 +973,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -703,7 +1015,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -798,7 +1110,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -839,7 +1151,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -878,7 +1190,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -919,7 +1231,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -958,7 +1270,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -999,7 +1311,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1038,7 +1350,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1079,7 +1391,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1127,7 +1439,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1158,7 +1470,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value",
 								},
@@ -1182,7 +1494,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1194,7 +1506,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1211,7 +1523,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1223,7 +1535,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1253,7 +1565,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1265,7 +1577,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1282,7 +1594,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1294,7 +1606,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Annotations: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1324,7 +1636,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1336,7 +1648,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1353,7 +1665,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value1",
 								},
@@ -1365,7 +1677,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"ac-key": "ac-value2",
 								},
@@ -1397,7 +1709,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"provisioning": "on-demand",
 								},
@@ -1414,7 +1726,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								NodeSelector: map[string]string{
 									"provisioning": "on-demand",
 								},
@@ -1449,7 +1761,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1468,7 +1780,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1492,7 +1804,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1511,7 +1823,7 @@ func TestReconciler(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name: "main",
+								Name: kueue.DefaultPodSetName,
 								Labels: map[string]string{
 									"label-key1": "common-value",
 								},
@@ -1896,6 +2208,7 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
+					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1903,7 +2216,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1911,7 +2224,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 		},
@@ -1932,20 +2245,21 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
+					UID("parent-uid").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1972,6 +2286,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
+					UID("parent-uid").
 					Queue("queue").
 					Obj(),
 			},
@@ -1980,7 +2295,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
 			},
@@ -1989,7 +2304,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
 			},
@@ -2183,7 +2498,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -2193,7 +2508,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -2356,7 +2671,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
-		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuild workload not found error is returned": {
+		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuilt workload not found error is returned": {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -2376,7 +2691,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload exists its owner info is updated": {
 			job: *baseJobWrapper.
@@ -2465,7 +2780,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload is not equivalent to the job": {
 			job: *baseJobWrapper.
@@ -2517,7 +2832,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
-			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
@@ -2537,7 +2852,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2558,7 +2873,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey2",
 								Operator: corev1.TolerationOpExists,
@@ -2603,7 +2918,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2618,7 +2933,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
@@ -2632,7 +2947,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2647,7 +2962,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
@@ -2675,7 +2990,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet("main", 10).
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -2689,7 +3004,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},

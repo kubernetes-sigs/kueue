@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Suspend(false).
-				Image(util.E2eTestSleepImage, []string{"10ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				SetTypeMeta().Obj()).
 			Queue(localQueueName).
 			Obj()

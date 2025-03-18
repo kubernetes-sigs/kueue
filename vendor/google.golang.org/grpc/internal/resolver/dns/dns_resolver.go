@@ -237,9 +237,7 @@ func (d *dnsResolver) watcher() {
 }
 
 func (d *dnsResolver) lookupSRV(ctx context.Context) ([]resolver.Address, error) {
-	// Skip this particular host to avoid timeouts with some versions of
-	// systemd-resolved.
-	if !EnableSRVLookups || d.host == "metadata.google.internal." {
+	if !EnableSRVLookups {
 		return nil, nil
 	}
 	var newAddrs []resolver.Address

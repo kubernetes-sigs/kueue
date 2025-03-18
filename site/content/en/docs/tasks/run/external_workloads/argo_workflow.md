@@ -19,7 +19,7 @@ but you can take advantage of the ability for Kueue to [manage plain pods](/docs
 1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
 
 2. Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-to learn how to enable and configure the `v1/pod` integration.
+to learn how to enable and configure the `pod` integration.
 
 3. Install [Argo Workflows](https://argo-workflows.readthedocs.io/en/latest/installation/#installation)
 

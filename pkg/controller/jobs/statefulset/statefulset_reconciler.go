@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -57,9 +57,8 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("statefulset", klog.KRef(req.Namespace, req.Name))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling StatefulSet")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile StatefulSet")
 
 	err := r.fetchAndFinalizePods(ctx, req)
 	return ctrl.Result{}, err
@@ -71,6 +70,11 @@ func (r *Reconciler) fetchAndFinalizePods(ctx context.Context, req reconcile.Req
 		podcontroller.GroupNameLabel: GetWorkloadName(req.Name),
 	}); err != nil {
 		return err
+	}
+
+	// If no Pods are found, there's nothing to do.
+	if len(podList.Items) == 0 {
+		return nil
 	}
 
 	sts := &appsv1.StatefulSet{}

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,6 +32,9 @@ const (
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
+	// VeryLongTimeout is meant for E2E tests involving Ray which starts ray-project images (over 2GB)
+	// and also synchronizes the cluster before it can be used
+	VeryLongTimeout = 5 * time.Minute
 	// StartUpTimeout is meant to be used for waiting for Kueue to startup, given
 	// that cert updates can take up to 3 minutes to propagate to the filesystem.
 	// Taken into account that after the certificates are ready, all Kueue's components
@@ -58,4 +61,10 @@ var (
 	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
 	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
 	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+)
+
+var (
+	BehaviorWaitForDeletion           = []string{"netexec"}
+	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+	BehaviorExitFast                  = []string{"entrypoint-tester"}
 )

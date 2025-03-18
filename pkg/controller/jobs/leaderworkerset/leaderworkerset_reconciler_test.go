@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,13 +26,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
@@ -60,12 +62,12 @@ func TestReconciler(t *testing.T) {
 		wantEvents          []utiltesting.EventRecord
 		wantErr             error
 	}{
-		"should create prebuild workload": {
+		"should create prebuilt workload": {
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
-					Annotation(podcontroller.IsGroupWorkloadAnnotationKey, podcontroller.IsGroupWorkloadAnnotationValue).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
@@ -95,7 +97,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuild workload with leader template": {
+		"should create prebuilt workload with leader template": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Size(3).
@@ -120,7 +122,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
-					Annotation(podcontroller.IsGroupWorkloadAnnotationKey, podcontroller.IsGroupWorkloadAnnotationValue).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
@@ -163,7 +165,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuild workloads with leader template": {
+		"should create prebuilt workloads with leader template": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
 				Replicas(2).
@@ -190,7 +192,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
-					Annotation(podcontroller.IsGroupWorkloadAnnotationKey, podcontroller.IsGroupWorkloadAnnotationValue).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
@@ -220,7 +222,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Obj(),
 				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
-					Annotation(podcontroller.IsGroupWorkloadAnnotationKey, podcontroller.IsGroupWorkloadAnnotationValue).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
@@ -269,6 +271,113 @@ func TestReconciler(t *testing.T) {
 						"Created Workload: %s/%s",
 						testNS,
 						GetWorkloadName(types.UID(testUID), testLWS, "1"),
+					),
+				},
+			},
+		},
+		"should create prebuilt workload with required topology annotation": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testUID).
+				Size(3).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				Obj(),
+			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testUID).
+				Size(3).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name: leaderPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 1,
+							TopologyRequest: &kueue.PodSetTopologyRequest{
+								Required: ptr.To("cloud.com/block"),
+							},
+						},
+						kueue.PodSet{
+							Name: workerPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 2,
+							TopologyRequest: &kueue.PodSetTopologyRequest{
+								Required:      ptr.To("cloud.com/block"),
+								PodIndexLabel: ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+							},
+						},
+					).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(types.UID(testUID), testLWS, "0"),
 					),
 				},
 			},

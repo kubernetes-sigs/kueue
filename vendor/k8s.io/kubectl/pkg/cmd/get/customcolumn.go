@@ -19,7 +19,6 @@ package get
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -162,7 +161,7 @@ func (s *CustomColumnsPrinter) PrintObj(obj runtime.Object, out io.Writer) error
 	// we need an actual value in order to retrieve the package path for an object.
 	// using reflect.Indirect indiscriminately is valid here, as all runtime.Objects are supposed to be pointers.
 	if printers.InternalObjectPreventer.IsForbidden(reflect.Indirect(reflect.ValueOf(obj)).Type().PkgPath()) {
-		return errors.New(printers.InternalObjectPrinterErr)
+		return fmt.Errorf(printers.InternalObjectPrinterErr)
 	}
 
 	if _, found := out.(*tabwriter.Writer); !found {
@@ -211,7 +210,7 @@ func (s *CustomColumnsPrinter) printOneObject(obj runtime.Object, parsers []*jso
 	switch u := obj.(type) {
 	case *metav1.WatchEvent:
 		if printers.InternalObjectPreventer.IsForbidden(reflect.Indirect(reflect.ValueOf(u.Object.Object)).Type().PkgPath()) {
-			return errors.New(printers.InternalObjectPrinterErr)
+			return fmt.Errorf(printers.InternalObjectPrinterErr)
 		}
 		unstructuredObject, err := runtime.DefaultUnstructuredConverter.ToUnstructured(u.Object.Object)
 		if err != nil {

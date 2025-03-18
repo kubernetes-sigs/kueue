@@ -1,0 +1,22 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-viz-backend
+  namespace: system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueue-viz-backend
+  template:
+    metadata:
+      labels:
+        app: kueue-viz-backend
+    spec:
+      containers:
+        - name: backend
+          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main-latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080

@@ -8,7 +8,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
@@ -8329,6 +8329,12 @@ spec:
                             SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
                             within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
                           type: string
+                        unconstrained:
+                          description: |-
+                            unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+                            the entire available capacity, without constraints on the compactness of the placement.
+                            This is indicated by the `kueue.x-k8s.io/podset-unconstrained-topology` PodSet annotation.
+                          type: boolean
                       type: object
                   required:
                   - count
@@ -8437,7 +8443,7 @@ spec:
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           maxLength: 63
-                          pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                         resourceUsage:
                           additionalProperties:
@@ -8596,6 +8602,8 @@ spec:
                           name:
                             description: Name of the PodSet to modify. Should match
                               to one of the Workload's PodSets.
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
                           nodeSelector:
                             additionalProperties:
@@ -8769,6 +8777,8 @@ spec:
                       type: integer
                     name:
                       description: name is the PodSet name.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                   required:
                   - count
@@ -8813,7 +8823,7 @@ spec:
                       description: name is the name of the podSet. It should match
                         one of the names in .spec.podSets.
                       maxLength: 63
-                      pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     resources:
                       additionalProperties:

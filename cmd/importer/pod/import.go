@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -149,7 +149,7 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 
 func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
 	p.Labels[controllerconstants.QueueLabel] = queue
-	p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+	p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	maps.Copy(p.Labels, addLabels)
 
 	err := c.Update(ctx, p)
@@ -170,7 +170,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 				continue
 			}
 			p.Labels[controllerconstants.QueueLabel] = queue
-			p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+			p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 			maps.Copy(p.Labels, addLabels)
 		}
 		err = c.Update(ctx, p)

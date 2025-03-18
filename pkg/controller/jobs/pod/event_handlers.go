@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 )
 
@@ -42,7 +43,7 @@ var (
 )
 
 func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
-	groupName := p.GetLabels()[GroupNameLabel]
+	groupName := p.GetLabels()[podconstants.GroupNameLabel]
 
 	if groupName == "" {
 		return reconcile.Request{
@@ -82,7 +83,7 @@ func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q wor
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 
-	if g, isGroup := p.Labels[GroupNameLabel]; isGroup {
+	if g, isGroup := p.Labels[podconstants.GroupNameLabel]; isGroup {
 		// If the watch was temporarily unavailable, it is possible that the object reported in the event still
 		// has a finalizer, but we can consider this Pod cleaned up, as it is being deleted.
 		h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: g}, p.UID)
@@ -104,8 +105,8 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 
-	if g, isGroup := p.Labels[GroupNameLabel]; isGroup {
-		if !slices.Contains(p.Finalizers, PodFinalizer) {
+	if g, isGroup := p.Labels[podconstants.GroupNameLabel]; isGroup {
+		if !slices.Contains(p.Finalizers, podconstants.PodFinalizer) {
 			h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: g}, p.UID)
 		}
 	}
@@ -144,7 +145,7 @@ func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object 
 	log.V(5).Info("Queueing reconcile for parent pods")
 
 	// Compose request for a pod group if workload has an "is-group-workload" annotation
-	if w.Annotations[IsGroupWorkloadAnnotationKey] == IsGroupWorkloadAnnotationValue {
+	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
 		log.V(5).Info("Queueing reconcile for the pod group", "groupName", w.Name, "namespace", w.Namespace)
 		q.Add(reconcile.Request{
 			NamespacedName: types.NamespacedName{

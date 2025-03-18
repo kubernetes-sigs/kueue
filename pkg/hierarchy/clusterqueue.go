@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@ limitations under the License.
 
 package hierarchy
 
-type ClusterQueue[C nodeBase] struct {
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+type ClusterQueue[C nodeBase[kueue.CohortReference]] struct {
 	cohort C
 }
 

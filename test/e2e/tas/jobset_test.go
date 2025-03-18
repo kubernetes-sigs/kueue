@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
@@ -97,11 +97,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorWaitForDeletion,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
-						Image:       util.E2eTestSleepImage,
-						Args:        []string{"60s"},
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},

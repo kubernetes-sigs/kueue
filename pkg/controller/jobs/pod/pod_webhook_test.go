@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,8 +33,8 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -85,6 +85,9 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				KueueFinalizer().
 				Obj(),
 		},
 		"pod with queue matching ns selector": {
@@ -96,7 +99,7 @@ func TestDefault(t *testing.T) {
 			podSelector:       &metav1.LabelSelector{},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -109,7 +112,7 @@ func TestDefault(t *testing.T) {
 			namespaceSelector:          defaultNamespaceSelector,
 			podSelector:                &metav1.LabelSelector{},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -124,7 +127,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -270,7 +273,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Group("test-group").
 				RoleHash("a9f06f3a").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -287,7 +290,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Group("test-group").
 				RoleHash("a9f06f3a").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -304,7 +307,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Label(kueuealpha.TASLabel, "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
@@ -321,7 +324,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("default").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -348,7 +351,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("queue").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -415,7 +418,7 @@ func TestGetRoleHash(t *testing.T) {
 		"kueue.x-k8s.io/* labels shouldn't affect the role": {
 			pods: []*Pod{
 				{pod: *testingpod.MakePod("pod1", "test-ns").
-					Label(constants.ManagedByKueueLabel, "true").
+					ManagedByKueueLabel().
 					Obj()},
 				{pod: *testingpod.MakePod("pod2", "test-ns").
 					Obj()},
@@ -503,7 +506,7 @@ func TestValidateCreate(t *testing.T) {
 	}{
 		"pod owner is managed by kueue": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			wantWarns: admission.Warnings{
@@ -512,7 +515,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"pod with group name and no group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -524,7 +527,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"pod with group total count and no group name": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				GroupTotalCount("3").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -536,7 +539,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"pod with 0 group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				GroupTotalCount("0").
 				Obj(),
@@ -549,7 +552,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"pod with empty group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				GroupTotalCount("").
 				Obj(),
@@ -562,7 +565,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"pod with incorrect group name": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("notAdns1123Subdomain*").
 				GroupTotalCount("2").
 				Obj(),
@@ -575,13 +578,13 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"valid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 		},
 		"invalid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
@@ -589,6 +592,31 @@ func TestValidateCreate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "metadata.annotations",
+				},
+			}.ToAggregate(),
+		},
+		"prebuilt workload for pod": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Obj(),
+		},
+		"prebuilt workload for pod group valid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+		},
+		"prebuilt workload for pod group invalid": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("workload-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
 				},
 			}.ToAggregate(),
 		},
@@ -626,11 +654,11 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		"pods owner is managed by kueue, managed label is set for both pods": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			wantWarns: admission.Warnings{
@@ -642,7 +670,7 @@ func TestValidateUpdate(t *testing.T) {
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			wantWarns: admission.Warnings{
@@ -654,15 +682,15 @@ func TestValidateUpdate(t *testing.T) {
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Annotation(SuspendedByParentAnnotation, "job").
+				Annotation(podconstants.SuspendedByParentAnnotation, "job").
 				Obj(),
 		},
 		"pod with group name and no group total count": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -675,7 +703,7 @@ func TestValidateUpdate(t *testing.T) {
 		"pod with 0 group total count": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				GroupTotalCount("0").
 				Obj(),
@@ -689,7 +717,7 @@ func TestValidateUpdate(t *testing.T) {
 		"pod with empty group total count": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Label(constants.ManagedByKueueLabel, "true").
+				ManagedByKueueLabel().
 				Group("test-group").
 				GroupTotalCount("").
 				Obj(),
@@ -728,7 +756,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
@@ -745,17 +773,37 @@ func TestValidateUpdate(t *testing.T) {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				Group("test-group").
 				GroupTotalCount("2").
-				Annotation("kueue.x-k8s.io/retriable-in-group", "true").
+				Annotation(podconstants.RetriableInGroupAnnotationKey, "true").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
 					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
+				},
+			}.ToAggregate(),
+		},
+		"prebuilt workload for pod group invalid": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkload("group-name-new").
+				Group("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
 				},
 			}.ToAggregate(),
 		},
@@ -814,7 +862,7 @@ func TestGetPodOptions(t *testing.T) {
 			integrationOpts: map[string]any{
 				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
 			},
-			wantOpts: &configapi.PodIntegrationOptions{},
+			wantOpts: nil,
 		},
 		"podIntegrationOptions isn't of type PodIntegrationOptions": {
 			integrationOpts: map[string]any{

@@ -24,12 +24,14 @@ SRC_RBAC_DIR=config/components/rbac
 SRC_WEBHOOK_DIR=config/components/webhook
 SRC_VISIBILITY_DIR=config/components/visibility
 SRC_VISIBILITY_APF_DIR=config/components/visibility-apf
+SRC_KUEUE_VIZ_DIR=config/components/kueue-viz
 
 DEST_CRD_DIR=charts/kueue/templates/crd
 DEST_RBAC_DIR=charts/kueue/templates/rbac
 DEST_WEBHOOK_DIR=charts/kueue/templates/webhook
 DEST_VISIBILITY_DIR=charts/kueue/templates/visibility
 DEST_VISIBILITY_APF_DIR=charts/kueue/templates/visibility-apf
+DEST_KUEUE_VIZ_DIR=charts/kueue/templates/kueue-viz
 
 YQ=./bin/yq
 SED=${SED:-/usr/bin/sed}
@@ -52,6 +54,8 @@ find $SRC_WEBHOOK_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_WEB
 find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_DIR \;
 # shellcheck disable=SC2086
 find $SRC_VISIBILITY_APF_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_APF_DIR \;
+# shellcheck disable=SC2086
+find $SRC_KUEUE_VIZ_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_KUEUE_VIZ_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
 rm ${DEST_WEBHOOK_DIR}/manifests.yaml
 files=("MutatingWebhookConfiguration.yml" "ValidatingWebhookConfiguration.yml")
@@ -110,6 +114,7 @@ search_validate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }
 add_webhook_line=$(
   cat <<'EOF'
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
+{{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
 EOF
 )
 add_annotations_line=$(
@@ -130,8 +135,8 @@ add_webhook_pod_mutate=$(
     {{- end }}
     name: mpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -151,8 +156,8 @@ add_webhook_pod_validate=$(
     {{- end }}
     name: vpod.kb.io
     namespaceSelector:
-      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -173,12 +178,16 @@ add_webhook_deployment_mutate=$(
     {{- end }}
     name: mdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_deployment_validate=$(
@@ -190,12 +199,16 @@ add_webhook_deployment_validate=$(
     {{- end }}
     name: vdeployment.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_statefulset_mutate=$(
@@ -207,12 +220,16 @@ add_webhook_statefulset_mutate=$(
     {{- end }}
     name: mstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 add_webhook_statefulset_validate=$(
@@ -224,12 +241,16 @@ add_webhook_statefulset_validate=$(
     {{- end }}
     name: vstatefulset.kb.io
     namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
             - '{{ .Release.Namespace }}'
+      {{- end }}
 EOF
 )
 
@@ -404,3 +425,46 @@ for output_file in "${DEST_VISIBILITY_APF_DIR}"/*.yaml; do
   } > "${output_file}.tmp"
   mv "${output_file}.tmp" "${output_file}"
 done
+
+# Add kueue-viz templating on kueue-viz directory
+for output_file in "${DEST_KUEUE_VIZ_DIR}"/*.yaml; do
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "Deployment")')" ]; then
+    # Add Helm parameters for backend and frontend images with default values
+    deployment_name="$($YQ '.metadata.name' "$output_file")"
+if [ "$deployment_name" = "kueue-viz-backend" ]; then
+      original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
+      $YQ -N -i \
+        ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.backend.image | default \\\"$original_image\\\" }}\"" \
+        "$output_file"
+    fi
+    if [ "$deployment_name" = "kueue-viz-frontend" ]; then
+      original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
+      $YQ -N -i \
+        ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.frontend.image | default \\\"$original_image\\\" }}\"" \
+        "$output_file"
+    fi
+  fi
+
+  $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "Ingress")')" ]; then
+    $YQ -N -i '.spec.rules.[].http.paths.[].backend.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+    $YQ -N -i '.spec.tls.[].secretName |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  fi
+
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "ClusterRoleBinding")')" ]; then
+    $YQ -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  fi
+
+  if [ "$(< "$output_file" $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' "$output_file"
+  fi
+  $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
+  {
+    echo '{{- if .Values.enableKueueViz }}'
+    cat "$output_file"
+    echo "{{- end }}"
+  } > "${output_file}.tmp"
+  mv "${output_file}.tmp" "${output_file}"
+done
+

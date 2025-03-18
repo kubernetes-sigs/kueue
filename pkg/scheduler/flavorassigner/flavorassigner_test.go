@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ func TestAssignFlavors(t *testing.T) {
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
 					Obj(),
@@ -98,7 +98,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Flavors: ResourceAssignment{
 							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
@@ -110,15 +110,15 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    1_000,
 					{Flavor: "default", Resource: corev1.ResourceMemory}: utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"single flavor, fits tainted flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -138,7 +138,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "tainted", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -147,14 +147,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"single flavor, fits tainted flavor with toleration": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -166,7 +166,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "taint_and_toleration", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -175,14 +175,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"single flavor, used resources, doesn't fit": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -198,7 +198,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "default", Mode: Preempt, TriedFlavorIdx: -1},
 					},
@@ -210,14 +210,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"multiple resource groups, fits": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
@@ -243,7 +243,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourceMemory: {Name: "b_one", Mode: Fit, TriedFlavorIdx: 0},
@@ -254,15 +254,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:      3_000,
 					{Flavor: "b_one", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
@@ -284,7 +284,7 @@ func TestAssignFlavors(t *testing.T) {
 
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
@@ -296,12 +296,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple resource groups with multiple resources, fits": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
@@ -329,7 +329,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
@@ -342,16 +342,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
-				},
+				}},
 			},
 		},
 		"multiple resource groups with multiple resources, fits with different modes": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
@@ -390,7 +390,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourceMemory: {Name: "two", Mode: Preempt, TriedFlavorIdx: -1},
@@ -411,16 +411,16 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
-				},
+				}},
 			},
 		},
 		"multiple resources in a group, doesn't fit": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
@@ -438,7 +438,7 @@ func TestAssignFlavors(t *testing.T) {
 				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
@@ -451,12 +451,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
@@ -472,7 +472,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -481,42 +481,34 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 3_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, fits a node selector": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							// ignored:foo should get ignored
-							NodeSelector: map[string]string{"type": "two", "ignored1": "foo"},
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													// this expression should get ignored
-													Key:      "ignored2",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"bar"},
-												},
-											},
-										},
-									},
-								}},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					// ignored:foo should get ignored
+					NodeSelector(map[string]string{"type": "two", "ignored1": "foo"}).
+					RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									// this expression should get ignored
+									Key:      "ignored2",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"bar"},
+								},
 							},
 						},
-					},
-				},
+					}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						})...,
+					).
+					Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -530,7 +522,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -539,41 +531,33 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, fits with node affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU:    "1",
-								corev1.ResourceMemory: "1Mi",
-							}),
-							NodeSelector: map[string]string{"ignored1": "foo"},
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "type",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"two"},
-												},
-											},
-										},
-									},
-								}},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					NodeSelector(map[string]string{"ignored1": "foo"}).
+					RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "type",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"two"},
+								},
 							},
 						},
-					},
-				},
+					}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU:    "1",
+							corev1.ResourceMemory: "1Mi",
+						})...,
+					).
+					Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -590,7 +574,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
@@ -601,53 +585,45 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    1_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: utiltesting.Mi,
-				},
+				}},
 			},
 		},
 		"multiple flavors, node affinity fits any flavor": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "ignored2",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"bar"},
-												},
-											},
-										},
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													// although this terms selects two
-													// the first term practically matches
-													// any flavor; and since the terms
-													// are ORed, any flavor can be selected.
-													Key:      "cpuType",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"two"},
-												},
-											},
-										},
-									},
-								}},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "ignored2",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"bar"},
+								},
 							},
 						},
-					},
-				},
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									// although this terms selects two
+									// the first term practically matches
+									// any flavor; and since the terms
+									// are ORed, any flavor can be selected.
+									Key:      "cpuType",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"two"},
+								},
+							},
+						},
+					}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						})...,
+					).
+					Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -662,7 +638,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
@@ -671,39 +647,31 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
-				},
+				}},
 			},
 		},
 		"multiple flavors, doesn't fit node affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "type",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"three"},
-												},
-											},
-										},
-									},
-								}},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "type",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"three"},
+								},
 							},
 						},
-					},
-				},
+					}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						})...,
+					).
+					Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -717,7 +685,7 @@ func TestAssignFlavors(t *testing.T) {
 
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
@@ -729,7 +697,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple specs, fit different flavors": {
@@ -775,10 +743,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 3_000,
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 5_000,
-				},
+				}},
 			},
 		},
 		"multiple specs, fits borrowing": {
@@ -838,15 +806,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    10_000,
 					{Flavor: "default", Resource: corev1.ResourceMemory}: 5 * utiltesting.Gi,
-				},
+				}},
 			},
 		},
 		"not enough space to borrow": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -869,7 +837,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
@@ -878,12 +846,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"past max, but can preempt in ClusterQueue": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -911,7 +879,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
@@ -925,14 +893,14 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"past min, but can preempt in ClusterQueue": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -948,7 +916,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
@@ -960,14 +928,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"past min, but can preempt in cohort and ClusterQueue": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -994,7 +962,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
@@ -1007,25 +975,18 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"can only preempt flavors that match affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "2",
-							}),
-							NodeSelector: map[string]string{"type": "two"},
-						},
-					},
-				},
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{corev1.ResourceCPU: "2"})...,
+					).NodeSelector(map[string]string{"type": "two"}).
+					Obj(),
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -1043,7 +1004,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: Preempt, TriedFlavorIdx: -1},
 					},
@@ -1058,9 +1019,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 2_000,
-				},
+				}},
 			},
 		},
 		"each podset requires preemption on a different flavor": {
@@ -1127,15 +1088,15 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 10,
 					},
 				},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:     2_000,
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 10_000,
-				},
+				}},
 			},
 		},
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request("example.com/gpu", "2").
 					Obj(),
 			},
@@ -1147,7 +1108,7 @@ func TestAssignFlavors(t *testing.T) {
 				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						"example.com/gpu": resource.MustParse("2"),
 					},
@@ -1156,12 +1117,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"num pods fit": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 3).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1175,7 +1136,7 @@ func TestAssignFlavors(t *testing.T) {
 
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 
 						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
@@ -1187,16 +1148,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-				},
+				}},
 			},
 			wantRepMode: Fit,
 		},
 		"num pods don't fit": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 3).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1210,7 +1171,7 @@ func TestAssignFlavors(t *testing.T) {
 
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("3"),
@@ -1220,18 +1181,18 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"with reclaimable pods": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 5).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
 			wlReclaimablePods: []kueue.ReclaimablePod{
 				{
-					Name:  "main",
+					Name:  kueue.DefaultPodSetName,
 					Count: 2,
 				},
 			},
@@ -1244,7 +1205,7 @@ func TestAssignFlavors(t *testing.T) {
 				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 
 						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
@@ -1256,16 +1217,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-				},
+				}},
 			},
 			wantRepMode: Fit,
 		},
 		"preempt before try next flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1287,7 +1248,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
@@ -1301,15 +1262,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
 					{Flavor: "one", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"preempt try next flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1330,7 +1291,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
@@ -1341,15 +1302,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: "cpu"}:  9_000,
 					{Flavor: "two", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"borrow try next flavor, found the first flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1381,7 +1342,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				Borrowing: true,
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
@@ -1392,15 +1353,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"borrow try next flavor, found the second flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1432,7 +1393,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
@@ -1443,15 +1404,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"borrow before try next flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1482,7 +1443,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				Borrowing: true,
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
@@ -1493,15 +1454,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  9_000,
 					{Flavor: "one", Resource: "pods"}: 1,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=Borrow": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1539,7 +1500,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				Borrowing: true,
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
@@ -1551,14 +1512,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=Borrow": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1596,7 +1557,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				Borrowing: true,
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
@@ -1608,14 +1569,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1650,7 +1611,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -1659,14 +1620,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed, but borrowingLimit exceeds the quota available in the cohort": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1695,10 +1656,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 				PodSets: []PodSetAssignment{
 					{
-						Name: "main",
+						Name: kueue.DefaultPodSetName,
 						Status: &Status{
 							reasons: []string{"insufficient quota for cpu in flavor one, request > maximum capacity (12 > 11)"},
 						},
@@ -1712,7 +1673,7 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"lend try next flavor, found the second flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1746,7 +1707,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
@@ -1757,15 +1718,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"lend try next flavor, found the first flavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1796,7 +1757,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
@@ -1808,15 +1769,15 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"quota exhausted, but can preempt in cohort and ClusterQueue": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
@@ -1843,7 +1804,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:  {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
@@ -1858,16 +1819,16 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1897,7 +1858,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: Assignment{
 				Borrowing: true,
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
@@ -1909,15 +1870,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohor=Never": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
@@ -1946,7 +1907,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -1955,9 +1916,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-				},
+				}},
 			},
 		},
 	}
@@ -2000,21 +1961,21 @@ func TestAssignFlavors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			clusterQueue := snapshot.ClusterQueues[tc.clusterQueue.Name]
+			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
 
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 			if tc.clusterQueueUsage != nil {
-				clusterQueue.AddUsage(tc.clusterQueueUsage)
+				clusterQueue.AddUsage(workload.Usage{Quota: tc.clusterQueueUsage})
 			}
 
 			if tc.secondaryClusterQueue != nil {
-				secondaryClusterQueue := snapshot.ClusterQueues[tc.secondaryClusterQueue.Name]
+				secondaryClusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.secondaryClusterQueue.Name))
 				if secondaryClusterQueue == nil {
 					t.Fatalf("Failed to create secondary CQ snapshot")
 				}
-				secondaryClusterQueue.AddUsage(tc.secondaryClusterQueueUsage)
+				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
 			}
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{})
@@ -2044,7 +2005,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		wantAssigment          rfMap
 	}{
 		"Select first flavor which fits": {
-			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}: 1,
 			},
@@ -2055,7 +2016,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			wantAssigment: rfMap{"gpu": "tre"},
 		},
 		"Select first flavor where gpu reclamation is possible": {
-			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}: 1,
 			},
@@ -2067,7 +2028,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			wantAssigment: rfMap{"gpu": "due"},
 		},
 		"Select first flavor when flavor fungibility is disabled": {
-			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}: 1,
 			},
@@ -2082,7 +2043,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			wantAssigment: rfMap{"gpu": "uno"},
 		},
 		"Select first flavor where priority based preemption is possible": {
-			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}: 1,
 				{Flavor: "due", Resource: "gpu"}: 1,
@@ -2092,7 +2053,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			wantAssigment: rfMap{"gpu": "uno"},
 		},
 		"Select second flavor where gpu reclamation is possible, as compute Fits": {
-			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10").Request("compute", "10"),
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10").Request("compute", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}:     1,
 				{Flavor: "uno", Resource: "compute"}: 1,
@@ -2163,11 +2124,11 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			otherClusterQueue := snapshot.ClusterQueues["other-clusterqueue"]
-			otherClusterQueue.AddUsage(tc.otherClusterQueueUsage)
+			otherClusterQueue := snapshot.ClusterQueue("other-clusterqueue")
+			otherClusterQueue.AddUsage(workload.Usage{Quota: tc.otherClusterQueueUsage})
 
-			testClusterQueue := snapshot.ClusterQueues["test-clusterqueue"]
-			testClusterQueue.AddUsage(tc.testClusterQueueUsage)
+			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
+			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
 			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
@@ -2199,7 +2160,7 @@ func TestDeletedFlavors(t *testing.T) {
 	}{
 		"multiple flavors, skip missing ResourceFlavor": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
@@ -2215,7 +2176,7 @@ func TestDeletedFlavors(t *testing.T) {
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "flavor", Mode: Fit, TriedFlavorIdx: -1},
 					},
@@ -2224,14 +2185,14 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "flavor", Resource: corev1.ResourceCPU}: 3_000,
-				},
+				}},
 			},
 		},
 		"flavor not found": {
 			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -2243,7 +2204,7 @@ func TestDeletedFlavors(t *testing.T) {
 				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
-					Name: "main",
+					Name: kueue.DefaultPodSetName,
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
@@ -2252,7 +2213,7 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: resources.FlavorResourceQuantities{},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 	}
@@ -2291,7 +2252,7 @@ func TestDeletedFlavors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			clusterQueue := snapshot.ClusterQueues[tc.clusterQueue.Name]
+			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
 			}

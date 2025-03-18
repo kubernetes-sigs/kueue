@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,12 +23,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -81,7 +83,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -90,7 +92,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
 				gomega.Expect(p.Spec.SchedulingGates).
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
-						Name: pod.SchedulingGateName}))
+						Name: podconstants.SchedulingGateName}))
 			}
 			ginkgo.By("Starting admission", func() {
 				// Verify that the Pods start with the appropriate selector.
@@ -124,7 +126,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("Should only admit a complete group", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -138,7 +140,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					for _, origPod := range group[:2] {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: pod.SchedulingGateName}))
+						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 					}
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
@@ -175,14 +177,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
 
 			// First pod runs for much longer, so that there is time to terminate it.
-			group[0].Spec.Containers[0].Args = []string{"-termination-code=1", "10m"}
+			group[0].Spec.Containers[0].Args = util.BehaviorWaitForDeletionFailOnExit
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
@@ -290,7 +292,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -361,7 +363,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "3").
 				MakeGroup(2)
@@ -418,13 +420,13 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"-termination-code=1", "10m"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "2").
 				MakeGroup(2)
 			defaultGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "default-priority-group"}
-			defaultGroupPods := sets.New[types.NamespacedName](
+			defaultGroupPods := sets.New(
 				client.ObjectKeyFromObject(defaultPriorityGroup[0]),
 				client.ObjectKeyFromObject(defaultPriorityGroup[1]),
 			)
@@ -443,7 +445,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"1ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
@@ -491,7 +493,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				for _, origPod := range defaultPriorityGroup {
 					rep := origPod.DeepCopy()
 					rep.Name = "replacement-for-" + rep.Name
-					rep.Spec.Containers[0].Args = []string{"1ms"}
+					rep.Spec.Containers[0].Args = util.BehaviorExitFast
 					gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
 					replacementPods = append(replacementPods, client.ObjectKeyFromObject(rep))
 				}
@@ -515,6 +517,15 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Call high priority group pods to complete", func() {
+				selector, err := labels.Parse("kueue.x-k8s.io/pod-group-name=high-priority-group")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				listOpts := &client.ListOptions{
+					LabelSelector: selector,
+				}
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, listOpts)
 			})
 
 			ginkgo.By("Verify the high priority group completes", func() {
