@@ -3,6 +3,7 @@ on:
     types: [released]
 jobs:
   krew-release:
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
