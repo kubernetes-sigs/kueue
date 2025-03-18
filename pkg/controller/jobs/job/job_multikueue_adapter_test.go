@@ -43,7 +43,7 @@ const (
 )
 
 func TestMultiKueueAdapter(t *testing.T) {
-	objCheckOpts := []cmp.Option{
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}

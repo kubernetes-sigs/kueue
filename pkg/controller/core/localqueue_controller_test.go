@@ -152,7 +152,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				gotLocalQueue = nil
 			}
 
-			cmpOpts := []cmp.Option{
+			cmpOpts := cmp.Options{
 				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,

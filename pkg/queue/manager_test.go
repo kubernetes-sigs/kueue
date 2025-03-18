@@ -40,7 +40,7 @@ import (
 
 const headsTimeout = 3 * time.Second
 
-var cmpDump = []cmp.Option{
+var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }

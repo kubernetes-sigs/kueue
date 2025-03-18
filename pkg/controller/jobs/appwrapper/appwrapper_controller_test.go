@@ -43,7 +43,7 @@ import (
 )
 
 var (
-	podSetCmpOpts = []cmp.Option{
+	podSetCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"), // complex due to defaulting during serialization/deserialization
 	}

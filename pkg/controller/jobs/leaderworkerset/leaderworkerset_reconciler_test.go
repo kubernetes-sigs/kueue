@@ -40,7 +40,7 @@ import (
 )
 
 var (
-	baseCmpOpts = []cmp.Option{
+	baseCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 	}

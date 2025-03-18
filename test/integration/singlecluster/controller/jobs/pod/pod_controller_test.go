@@ -55,7 +55,7 @@ const (
 )
 
 var (
-	wlConditionCmpOpts = []cmp.Option{
+	wlConditionCmpOpts = cmp.Options{
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Reason", "Message", "ObservedGeneration"),
 	}
 )

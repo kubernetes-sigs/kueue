@@ -55,7 +55,7 @@ func TestWlReconcile(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 
-	objCheckOpts := []cmp.Option{
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),

@@ -66,14 +66,14 @@ const (
 	queueingTimeout = time.Second
 )
 
-var cmpDump = []cmp.Option{
+var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 }
 
 func TestSchedule(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	ignoreEventMessageCmpOpts := []cmp.Option{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
+	ignoreEventMessageCmpOpts := cmp.Options{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
 
 	resourceFlavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
@@ -261,7 +261,7 @@ func TestSchedule(t *testing.T) {
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
 		wantScheduled []string
 		// workloadCmpOpts are the cmp options to compare workloads.
-		workloadCmpOpts []cmp.Option
+		workloadCmpOpts cmp.Options
 		// wantWorkloads is the subset of workloads that got admitted in this cycle.
 		wantWorkloads []kueue.Workload
 		// wantLeft is the workload keys that are left in the queues after this cycle.
@@ -273,7 +273,7 @@ func TestSchedule(t *testing.T) {
 		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the cmp options to compare recorded events.
-		eventCmpOpts []cmp.Option
+		eventCmpOpts cmp.Options
 
 		wantSkippedPreemptions map[string]int
 	}{
@@ -309,7 +309,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"sales/foo"},
-			workloadCmpOpts: []cmp.Option{
+			workloadCmpOpts: cmp.Options{
 				cmpopts.EquateEmpty(),
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 				cmpopts.IgnoreFields(
@@ -4283,7 +4283,7 @@ func TestScheduleForTAS(t *testing.T) {
 		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
-		eventCmpOpts []cmp.Option
+		eventCmpOpts cmp.Options
 	}{
 		"workload which does not specify TAS annotation uses the only TAS flavor": {
 			nodes:           defaultSingleNode,
@@ -4320,7 +4320,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4372,7 +4372,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4413,7 +4413,7 @@ func TestScheduleForTAS(t *testing.T) {
 					AssignmentPodCount(1).
 					Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4490,7 +4490,7 @@ func TestScheduleForTAS(t *testing.T) {
 					).
 					Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4534,7 +4534,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4631,7 +4631,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4815,7 +4815,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -4887,7 +4887,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5041,7 +5041,7 @@ func TestScheduleForTAS(t *testing.T) {
 					}).
 					Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5137,7 +5137,7 @@ func TestScheduleForTAS(t *testing.T) {
 					}).
 					Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5226,7 +5226,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5309,7 +5309,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5354,7 +5354,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -5626,7 +5626,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
-		eventCmpOpts []cmp.Option
+		eventCmpOpts cmp.Options
 	}{
 		"only low priority workload is preempted": {
 			// This test case demonstrates the baseline scenario where there
@@ -6226,7 +6226,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
-		eventCmpOpts []cmp.Option
+		eventCmpOpts cmp.Options
 	}{
 		"workload which requires borrowing gets scheduled": {
 			nodes:           defaultTwoNodes,
@@ -6264,7 +6264,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
@@ -6322,7 +6322,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-b": {"default/b1"},
 			},
 			wantPreempted: sets.New("default/a1-admitted"),
-			eventCmpOpts:  []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6433,7 +6433,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-b": {"default/b1"},
 			},
 			wantPreempted: sets.New("default/a1-admitted"),
-			eventCmpOpts:  []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a1-admitted"},
@@ -6522,7 +6522,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-b": {"default/b1"},
 			},
 			wantPreempted: sets.New("default/a2-admitted"),
-			eventCmpOpts:  []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a2-admitted"},
@@ -6648,7 +6648,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-c": {"default/c1"},
 			},
 			wantPreempted: sets.New("default/a2-admitted", "default/a3-admitted"),
-			eventCmpOpts:  []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6725,7 +6725,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6802,7 +6802,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6868,7 +6868,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]string{
 				"tas-cq-b": {"default/b1"},
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6929,7 +6929,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						},
 					}).Obj(),
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
@@ -6992,7 +6992,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]string{
 				"tas-cq-b": {"default/b1"},
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
@@ -7073,7 +7073,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-b": {"default/b1"},
 			},
 			wantPreempted: sets.New("default/a1-admitted"),
-			eventCmpOpts:  []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a2"},
@@ -7155,7 +7155,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]string{
 				"tas-cq-a": {"default/a2"},
 			},
-			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "a2"},

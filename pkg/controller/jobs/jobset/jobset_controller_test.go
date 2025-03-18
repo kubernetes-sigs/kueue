@@ -302,11 +302,11 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	jobCmpOpts = []cmp.Option{
+	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(jobset.JobSet{}, "TypeMeta", "ObjectMeta"),
 	}
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"),
