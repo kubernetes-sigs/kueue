@@ -505,7 +505,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	}
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
-	shouldReportLqMetrics := s.shouldWLReportLQMetrics(ctx, newWorkload)
+	shouldReportLqMetrics := false
+	if features.Enabled(features.LocalQueueMetrics) {
+		shouldReportLqMetrics = s.shouldWLReportLQMetrics(ctx, newWorkload)
+	}
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
