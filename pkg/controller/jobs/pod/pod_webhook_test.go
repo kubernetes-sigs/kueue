@@ -67,7 +67,7 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		namespaceSelector          *metav1.LabelSelector
 		podSelector                *metav1.LabelSelector
-		enableIntegrations         []configapi.KueueIntegrations
+		enableIntegrations         []configapi.IntegrationReference
 		want                       *corev1.Pod
 	}{
 		"pod with queue nil ns selector": {
@@ -133,7 +133,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.BatchJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.BatchJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -147,7 +147,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.RayCluster},
+			enableIntegrations: []configapi.IntegrationReference{configapi.RayCluster},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
@@ -164,7 +164,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v2beta1", Kind: "MPIJob"},
 				).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.MPIJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.MPIJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -184,7 +184,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
 				).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.PyTorchJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.PyTorchJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -204,7 +204,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "TFJob"},
 				).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.TFJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.TFJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -224,7 +224,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "XGBoostJob"},
 				).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.XGBoostJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.XGBoostJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -244,7 +244,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PaddleJob"},
 				).
 				Obj(),
-			enableIntegrations: []configapi.KueueIntegrations{configapi.PaddleJob},
+			enableIntegrations: []configapi.IntegrationReference{configapi.PaddleJob},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(

@@ -146,7 +146,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []KueueIntegrations{defaultJobFrameworkName}
+		cfg.Integrations.Frameworks = []IntegrationReference{defaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}

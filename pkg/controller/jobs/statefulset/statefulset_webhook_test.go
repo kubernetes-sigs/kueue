@@ -50,11 +50,11 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
-		enableIntegrations         []configapi.KueueIntegrations
+		enableIntegrations         []configapi.IntegrationReference
 		want                       *appsv1.StatefulSet
 	}{
 		"statefulset with queue": {
-			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -72,7 +72,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset with queue and priority class": {
-			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -93,7 +93,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset without replicas": {
-			enableIntegrations: []configapi.KueueIntegrations{configapi.Pod},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				Obj(),
@@ -226,7 +226,7 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []configapi.KueueIntegrations
+		integrations []configapi.IntegrationReference
 		oldObj       *appsv1.StatefulSet
 		newObj       *appsv1.StatefulSet
 		wantErr      error
@@ -431,7 +431,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []configapi.KueueIntegrations{appwrapper.FrameworkName},
+			integrations: []configapi.IntegrationReference{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
@@ -449,7 +449,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference)": {
-			integrations: []configapi.KueueIntegrations{appwrapper.FrameworkName},
+			integrations: []configapi.IntegrationReference{appwrapper.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).
@@ -465,7 +465,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []configapi.KueueIntegrations{leaderworkerset.FrameworkName},
+			integrations: []configapi.IntegrationReference{leaderworkerset.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
@@ -483,7 +483,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference)": {
-			integrations: []configapi.KueueIntegrations{leaderworkerset.FrameworkName},
+			integrations: []configapi.IntegrationReference{leaderworkerset.FrameworkName},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).

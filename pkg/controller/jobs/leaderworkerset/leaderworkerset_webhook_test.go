@@ -46,7 +46,7 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
-		enableIntegrations         []configapi.KueueIntegrations
+		enableIntegrations         []configapi.IntegrationReference
 		want                       *leaderworkersetv1.LeaderWorkerSet
 	}{
 		"LeaderWorkerSet with WorkloadPriorityClass": {
@@ -146,7 +146,7 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []configapi.KueueIntegrations
+		integrations []configapi.IntegrationReference
 		lws          *leaderworkersetv1.LeaderWorkerSet
 		wantErr      error
 		wantWarns    admission.Warnings
@@ -251,7 +251,7 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []configapi.KueueIntegrations
+		integrations []configapi.IntegrationReference
 		oldObj       *leaderworkersetv1.LeaderWorkerSet
 		newObj       *leaderworkersetv1.LeaderWorkerSet
 		wantErr      error

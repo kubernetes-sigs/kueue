@@ -76,7 +76,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var defaultEnabledIntegrations sets.Set[configapi.KueueIntegrations] = sets.New(
+var defaultEnabledIntegrations sets.Set[configapi.IntegrationReference] = sets.New(
 	configapi.BatchJob,
 	configapi.MPIJob,
 	configapi.RayCluster,
