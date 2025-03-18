@@ -196,6 +196,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(managerLq.Name).
 				Request("cpu", "1").
 				Request("memory", "2G").
+				TerminationGracePeriod(1).
 				// Give it the time to be observed Active in the live status update step.
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()

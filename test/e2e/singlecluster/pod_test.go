@@ -447,6 +447,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
 				MakeGroup(2)
 			highGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "high-priority-group"}
 

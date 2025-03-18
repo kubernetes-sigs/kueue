@@ -141,3 +141,8 @@ func (d *DeploymentWrapper) PodTemplateAnnotation(k, v string) *DeploymentWrappe
 func (d *DeploymentWrapper) PodTemplateSpecQueue(q string) *DeploymentWrapper {
 	return d.PodTemplateSpecLabel(constants.QueueLabel, q)
 }
+
+func (d *DeploymentWrapper) TerminationGracePeriod(seconds int64) *DeploymentWrapper {
+	d.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	return d
+}

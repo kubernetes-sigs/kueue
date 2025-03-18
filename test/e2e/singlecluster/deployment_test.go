@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			Request(corev1.ResourceCPU, "100m").
+			TerminationGracePeriod(1).
 			Replicas(3).
 			Queue(lq.Name).
 			Obj()
@@ -135,6 +136,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			Request(corev1.ResourceCPU, "100m").
+			TerminationGracePeriod(1).
 			Replicas(3).
 			Queue("invalid-queue-name").
 			Obj()
