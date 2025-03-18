@@ -50,6 +50,7 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 const (
@@ -307,4 +308,20 @@ func GetKuberayTestImage() string {
 	}
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
+}
+
+func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName string) *corev1.Namespace {
+	ginkgo.GinkgoHelper()
+	ns := utiltesting.MakeNamespace(nsName)
+	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
+	return ns
+}
+
+func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Client, nsPrefix string) *corev1.Namespace {
+	ginkgo.GinkgoHelper()
+	ns := utiltesting.MakeNamespaceWithGenerateName(nsPrefix)
+	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
+	return ns
 }

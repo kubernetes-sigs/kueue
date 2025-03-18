@@ -47,8 +47,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("raycluster-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -101,8 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("raycluster-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {

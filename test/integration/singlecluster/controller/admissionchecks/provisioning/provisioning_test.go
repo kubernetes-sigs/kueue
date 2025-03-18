@@ -84,8 +84,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
@@ -917,8 +916,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
 			})
 
-			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 
@@ -1146,8 +1144,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
 			})
 
-			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 			prc = baseConfigWithParameters.Clone().RetryLimit(1).BaseBackoff(1).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
@@ -1492,8 +1489,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			updatedWl      kueue.Workload
 		)
 		ginkgo.JustBeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("provisioning-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 

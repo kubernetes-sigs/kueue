@@ -39,8 +39,7 @@ var _ = ginkgo.Describe("TFJob Webhook", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = testing.MakeNamespaceWithGenerateName("tf-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tf-")
 	})
 
 	ginkgo.AfterEach(func() {

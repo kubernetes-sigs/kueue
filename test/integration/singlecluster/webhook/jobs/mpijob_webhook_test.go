@@ -38,8 +38,7 @@ var _ = ginkgo.Describe("MPIJob Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("mpi-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
 		})
 
 		ginkgo.AfterEach(func() {

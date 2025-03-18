@@ -56,9 +56,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = testing.MakeNamespaceWithGenerateName("core-workload-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Obj()
 	})
 

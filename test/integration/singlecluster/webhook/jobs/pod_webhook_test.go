@@ -29,7 +29,6 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -65,8 +64,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("pod-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -196,8 +194,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("pod-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {

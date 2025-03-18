@@ -50,8 +50,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
 
-		ns = testing.MakeNamespaceWithGenerateName("jobset-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		flavor = testing.MakeResourceFlavor("on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())

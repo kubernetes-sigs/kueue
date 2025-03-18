@@ -35,8 +35,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("rayjob-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
 		})
 
 		ginkgo.AfterEach(func() {

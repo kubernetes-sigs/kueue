@@ -39,8 +39,7 @@ var _ = ginkgo.Describe("PyTorchJob Webhook", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = testing.MakeNamespaceWithGenerateName("pytorch-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-")
 	})
 
 	ginkgo.AfterEach(func() {
