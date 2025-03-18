@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,11 +38,7 @@ var _ = ginkgo.Describe("MPIJob Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "mpi-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("mpi-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 

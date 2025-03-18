@@ -58,7 +58,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-metrics-"}}
+		ns = utiltesting.MakeNamespaceWithGenerateName("e2e-metrics-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()

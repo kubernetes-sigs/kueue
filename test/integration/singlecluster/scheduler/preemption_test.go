@@ -50,11 +50,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "preemption-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("preemption-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		alphaFlavor = testing.MakeResourceFlavor("alpha").Obj()
 		gomega.Expect(k8sClient.Create(ctx, alphaFlavor)).To(gomega.Succeed())

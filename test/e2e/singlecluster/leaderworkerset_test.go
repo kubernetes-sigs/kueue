@@ -49,11 +49,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "lws-e2e-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("lws-e2e-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).NodeLabel("instance-type", "on-demand").Obj()

@@ -50,11 +50,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 	ginkgo.BeforeEach(func() {
 		_ = features.SetEnable(features.TopologyAwareScheduling, true)
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("tas-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 
@@ -1123,11 +1119,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			)
 
 			ginkgo.BeforeEach(func() {
-				ns = &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						GenerateName: "tas-",
-					},
-				}
+				ns = testing.MakeNamespaceWithGenerateName("tas-")
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 				topology = testing.MakeDefaultTwoLevelTopology("default")
@@ -1209,11 +1201,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			)
 
 			ginkgo.BeforeEach(func() {
-				ns = &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						GenerateName: "tas-",
-					},
-				}
+				ns = testing.MakeNamespaceWithGenerateName("tas-")
 				gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 				topology = testing.MakeDefaultThreeLevelTopology("default")

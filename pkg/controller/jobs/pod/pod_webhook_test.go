@@ -46,15 +46,7 @@ import (
 )
 
 func TestDefault(t *testing.T) {
-	defaultNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-ns",
-			Labels: map[string]string{
-				corev1.LabelMetadataName: "test-ns",
-			},
-		},
-	}
-
+	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
 	defaultNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{

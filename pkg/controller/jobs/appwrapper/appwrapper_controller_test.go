@@ -158,14 +158,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	testNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "ns",
-			Labels: map[string]string{
-				corev1.LabelMetadataName: "ns",
-			},
-		},
-	}
+	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *awv1beta2.AppWrapper

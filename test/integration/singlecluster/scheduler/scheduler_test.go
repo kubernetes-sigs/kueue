@@ -54,11 +54,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("core-")
 		_ = features.SetEnable(features.FlavorFungibility, true)
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -845,11 +841,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
-			nsFoo = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "foo-",
-				},
-			}
+			nsFoo = testing.MakeNamespaceWithGenerateName("foo-")
 			gomega.Expect(k8sClient.Create(ctx, nsFoo)).To(gomega.Succeed())
 			queueFoo = testing.MakeLocalQueue("foo", nsFoo.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queueFoo)).Should(gomega.Succeed())
@@ -1681,12 +1673,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Cohort(chName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
-			matchingNS = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "foo-",
-					Labels:       map[string]string{"dep": "eng"},
-				},
-			}
+			matchingNS = testing.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj()
 			gomega.Expect(k8sClient.Create(ctx, matchingNS)).To(gomega.Succeed())
 		})
 

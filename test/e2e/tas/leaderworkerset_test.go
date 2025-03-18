@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-tas-lws-"}}
+		ns = testing.MakeNamespaceWithGenerateName("e2e-tas-lws-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")

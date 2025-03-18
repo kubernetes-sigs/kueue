@@ -114,25 +114,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "multikueue-",
-			},
-		}
+		managerNs = utiltesting.MakeNamespaceWithGenerateName("multikueue-")
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerNs)).To(gomega.Succeed())
 
-		worker1Ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: managerNs.Name,
-			},
-		}
+		worker1Ns = utiltesting.MakeNamespace(managerNs.Name)
 		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Ns)).To(gomega.Succeed())
 
-		worker2Ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: managerNs.Name,
-			},
-		}
+		worker2Ns = utiltesting.MakeNamespace(managerNs.Name)
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Ns)).To(gomega.Succeed())
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
@@ -1753,25 +1741,13 @@ var _ = ginkgo.Describe("Multikueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "multikueue-",
-			},
-		}
+		managerNs = utiltesting.MakeNamespaceWithGenerateName("multikueue-")
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerNs)).To(gomega.Succeed())
 
-		worker1Ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: managerNs.Name,
-			},
-		}
+		worker1Ns = utiltesting.MakeNamespace(managerNs.Name)
 		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Ns)).To(gomega.Succeed())
 
-		worker2Ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: managerNs.Name,
-			},
-		}
+		worker2Ns = utiltesting.MakeNamespace(managerNs.Name)
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Ns)).To(gomega.Succeed())
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
@@ -2006,18 +1982,10 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "multikueue-",
-			},
-		}
+		managerNs = utiltesting.MakeNamespaceWithGenerateName("multikueue-")
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerNs)).To(gomega.Succeed())
 
-		worker1Ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: managerNs.Name,
-			},
-		}
+		worker1Ns = utiltesting.MakeNamespace(managerNs.Name)
 		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Ns)).To(gomega.Succeed())
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()

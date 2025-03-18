@@ -109,11 +109,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "pod-",
-				},
-			}
+			ns = testing.MakeNamespaceWithGenerateName("pod-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 			fl = testing.MakeResourceFlavor("fl").Obj()
@@ -402,11 +398,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				)
 
 				ginkgo.BeforeEach(func() {
-					ns = &corev1.Namespace{
-						ObjectMeta: metav1.ObjectMeta{
-							GenerateName: "pod-ac-namespace-",
-						},
-					}
+					ns = testing.MakeNamespaceWithGenerateName("pod-ac-namespace-")
 					gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 					admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 					gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
@@ -1734,11 +1726,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "pod-sched-namespace-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("pod-sched-namespace-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -1981,7 +1969,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "core-"}}
+		ns = testing.MakeNamespaceWithGenerateName("core-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		fl = testing.MakeResourceFlavor("fl").Obj()
@@ -2178,11 +2166,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-pod-",
-			},
-		}
+		ns = testing.MakeNamespaceWithGenerateName("tas-pod-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		nodes = []corev1.Node{
