@@ -25,12 +25,14 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -50,7 +52,7 @@ type rfReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*rfReconciler)(nil)
-var _ predicate.Predicate = (*rfReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
@@ -70,12 +72,16 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cf
 	nodeHandler := nodeHandler{
 		tasCache: cache.TASCache(),
 	}
-	return TASResourceFlavorController, ctrl.NewControllerManagedBy(mgr).
+	return TASResourceFlavorController, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_resource_flavor_controller").
-		For(&kueue.ResourceFlavor{}).
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.ResourceFlavor{},
+			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
+			r,
+		)).
 		Watches(&corev1.Node{}, &nodeHandler).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
-		WithEventFilter(r).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
 }
 
@@ -162,44 +168,31 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, nil
 }
 
-func (r *rfReconciler) Create(event event.CreateEvent) bool {
-	rf, isRf := event.Object.(*kueue.ResourceFlavor)
-	if isRf {
-		return rf.Spec.TopologyName != nil
-	}
-	return true
+func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
+	return event.Object.Spec.TopologyName != nil
 }
 
-func (r *rfReconciler) Delete(event event.DeleteEvent) bool {
-	rf, isRf := event.Object.(*kueue.ResourceFlavor)
-	if isRf {
-		if rf.Spec.TopologyName != nil {
-			r.tasCache.Delete(kueue.ResourceFlavorReference(rf.Name))
-		}
+func (r *rfReconciler) Delete(event event.TypedDeleteEvent[*kueue.ResourceFlavor]) bool {
+	if event.Object.Spec.TopologyName != nil {
+		r.tasCache.Delete(kueue.ResourceFlavorReference(event.Object.Name))
+	}
+	return false
+}
+
+func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor]) bool {
+	switch {
+	case ptr.Equal(event.ObjectOld.Spec.TopologyName, event.ObjectNew.Spec.TopologyName):
 		return false
+	case event.ObjectOld.Spec.TopologyName == nil:
+		return true
+	default:
+		// topologyName was set so is changed or removed
+		r.tasCache.Delete(kueue.ResourceFlavorReference(*event.ObjectOld.Spec.TopologyName))
+		return event.ObjectNew.Spec.TopologyName != nil
 	}
-	return true
 }
 
-func (r *rfReconciler) Update(event event.UpdateEvent) bool {
-	oldRf, isOldRf := event.ObjectOld.(*kueue.ResourceFlavor)
-	newRf, isNewRf := event.ObjectNew.(*kueue.ResourceFlavor)
-	if isOldRf && isNewRf {
-		switch {
-		case ptr.Equal(oldRf.Spec.TopologyName, newRf.Spec.TopologyName):
-			return false
-		case oldRf.Spec.TopologyName == nil:
-			return true
-		default:
-			// topologyName was set so is changed or removed
-			r.tasCache.Delete(kueue.ResourceFlavorReference(*oldRf.Spec.TopologyName))
-			return newRf.Spec.TopologyName != nil
-		}
-	}
-	return true
-}
-
-func (r *rfReconciler) Generic(event event.GenericEvent) bool {
+func (r *rfReconciler) Generic(event event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {
 	return false
 }
 
