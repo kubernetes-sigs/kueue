@@ -516,14 +516,13 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	podSpec := &ps.Template.Spec
 
 	var bestAssignment ResourceAssignment
+	bestAssignmentIdx := -1
 	bestAssignmentMode := noFit
 
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
-	attemptedFlavorIdx := -1
 	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
-		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
 		flavor, exist := a.resourceFlavors[fName]
 		if !exist {
@@ -584,15 +583,18 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility, needsBorrowing) {
 				bestAssignment = assignments
+				bestAssignmentIdx = idx
 				bestAssignmentMode = representativeMode
 				break
 			}
 			if representativeMode > bestAssignmentMode {
 				bestAssignment = assignments
+				bestAssignmentIdx = idx
 				bestAssignmentMode = representativeMode
 			}
 		} else if representativeMode > bestAssignmentMode {
 			bestAssignment = assignments
+			bestAssignmentIdx = idx
 			bestAssignmentMode = representativeMode
 			if bestAssignmentMode == fit {
 				// All the resources fit in the cohort, no need to check more flavors.
@@ -603,11 +605,11 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	if features.Enabled(features.FlavorFungibility) {
 		for _, assignment := range bestAssignment {
-			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
+			if bestAssignmentIdx == len(resourceGroup.Flavors)-1 {
 				// we have reach the last flavor, try from the first flavor next time
 				assignment.TriedFlavorIdx = -1
 			} else {
-				assignment.TriedFlavorIdx = attemptedFlavorIdx
+				assignment.TriedFlavorIdx = bestAssignmentIdx
 			}
 		}
 		if bestAssignmentMode == fit {
