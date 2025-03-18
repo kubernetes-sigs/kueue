@@ -77,6 +77,7 @@ KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubefl
 KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
 KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
+CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 
 ##@ Tests
 
@@ -106,8 +107,11 @@ test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl gin
 
 CREATE_KIND_CLUSTER ?= true
 
+SINGLECLUSTER-E2E_TARGETS := $(addprefix run-test-e2e-singlecluster-,$(E2E_KIND_VERSION:kindest/node:v%=%))
+CERTMANAGER-E2E_TARGETS := $(addprefix run-test-e2e-certmanager-,$(E2E_KIND_VERSION:kindest/node:v%=%))
+
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top $(SINGLECLUSTER-E2E_TARGETS) $(CERTMANAGER-E2E_TARGETS)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -117,6 +121,9 @@ test-tas-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top ru
 
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-certmanager
+test-e2e-certmanager: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
 MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSIONS})
@@ -171,6 +178,17 @@ run-test-e2e-customconfigs-%: FORCE
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="customconfigs" \
 		JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		./hack/e2e-test.sh
+	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
+
+run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
+run-test-e2e-certmanager-%: FORCE
+	@echo Running certmanager e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="certmanager" \
+		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/e2e-test.sh
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml

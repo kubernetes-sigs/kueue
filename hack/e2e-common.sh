@@ -57,6 +57,10 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
+if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
+    export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
+fi
+
 # agnhost image to use for testing.
 export E2E_TEST_AGNHOST_IMAGE_OLD=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
 E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE_OLD%%@*}
@@ -134,10 +138,29 @@ function cluster_kind_load_image {
     $KIND load docker-image "$2" --name "$1"
 }
 
+# Wait until all cert-manager deployments are available.
+function wait_for_cert_manager_ready() {
+    echo "Waiting for cert-manager components to be ready..."
+    local deployments=(cert-manager cert-manager-cainjector cert-manager-webhook)
+    for dep in "${deployments[@]}"; do
+        echo "Waiting for deployment '$dep'..."
+        if ! kubectl wait --for=condition=Available deployment/"$dep" -n cert-manager --timeout=300s; then
+            echo "Timeout waiting for deployment '$dep' to become available."
+            exit 1
+        fi
+    done
+    echo "All cert-manager components are ready."
+}
+
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k test/e2e/config/default
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+       wait_for_cert_manager_ready
+       kubectl apply --server-side -k test/e2e/config/certmanager
+    else
+       kubectl apply --server-side -k test/e2e/config/default  
+    fi
 }
 
 #$1 - cluster name
@@ -188,6 +211,11 @@ function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
+}
+
+function install_cert_manager {
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${CERTMANAGER_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)

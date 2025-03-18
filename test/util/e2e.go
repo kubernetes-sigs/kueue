@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"time"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -67,6 +68,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
 	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = cmv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueuealpha.AddToScheme(scheme.Scheme)
