@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: metrics-certs
+    mountPath: /etc/kueue/metrics/certs
+    readOnly: true
+
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: metrics-certs
+    secret:
+      secretName: metrics-server-cert
+      optional: false
