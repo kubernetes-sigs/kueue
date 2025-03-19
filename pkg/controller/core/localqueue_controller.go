@@ -286,7 +286,6 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	scaledNew := utilresource.MulResources(newUsage, 1.0-alpha)
 	added := utilresource.AddResources(scaledOld, scaledNew)
 	lq.Status.FairSharingStatus.ConsumedResources = added
-	// lq.Status.FairSharingStatus.ConsumedResources = utilresource.AddResources(utilresource.MulResources(oldUsage, 1.0-alpha), utilresource.MulResources(newUsage, alpha))
 	lq.Status.FairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
 	return r.cache.UpdatedLQUsage(cqName, cachedLq)
 }

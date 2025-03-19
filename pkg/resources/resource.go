@@ -56,24 +56,3 @@ func (frq FlavorResourceQuantities) FlattenFlavors() map[corev1.ResourceName]int
 	}
 	return result
 }
-
-// // func MulResources(resources map[corev1.ResourceName]int64, multiplier float64) map[corev1.ResourceName]int64 {
-// //
-// // }
-
-// func AddResources(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
-// 	result := make(map[corev1.ResourceName]int64)
-
-// 	for rN, aVal := range a {
-// 		result[rN] = aVal
-// 	}
-// 	for rN, bVal := range b {
-// 		if existingValue, ok := result[rN]; ok {
-// 			result[rN] = existingValue + bVal
-// 		} else {
-// 			result[rN] = bVal
-// 		}
-// 	}
-
-// 	return result
-// }
