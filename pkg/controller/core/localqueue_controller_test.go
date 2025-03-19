@@ -19,15 +19,21 @@ package core
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -36,11 +42,14 @@ import (
 )
 
 func TestLocalQueueReconcile(t *testing.T) {
+	now := time.Now()
 	cases := map[string]struct {
 		clusterQueue   *kueue.ClusterQueue
 		localQueue     *kueue.LocalQueue
 		wantLocalQueue *kueue.LocalQueue
 		wantError      error
+		fsConfig       *config.FairSharing
+		runningWls     []kueue.Workload
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
@@ -112,6 +121,177 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Obj(),
 			wantError: nil,
 		},
+		"local queue decaying usage decays if there is no running workloads": {
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("8")},
+					}).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("4")},
+					}).
+				Obj(),
+			fsConfig: &config.FairSharing{
+				Enable:                 true,
+				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
+				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue decaying usage sums the previous state and running workloads with 50/50 ratio": {
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							//
+							corev1.ResourceCPU: resource.MustParse("8000"),
+						},
+					}).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("6000"),
+						},
+					}).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "rf", now).
+					Admitted(true).
+					Obj(),
+			},
+			fsConfig: &config.FairSharing{
+				Enable:                 true,
+				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
+				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue decaying usage sums the previous state and running workloads with 75/25 ratio": {
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("8000"),
+						},
+					}).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("7000"),
+						},
+					}).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "rf", now).
+					Admitted(true).
+					Obj(),
+			},
+			fsConfig: &config.FairSharing{
+				Enable:                 true,
+				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
+				UsageHalfDecayTime:     metav1.Duration{Duration: 10 * time.Minute},
+				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue decaying usage is not reconciled if not enough time has passed": {
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("8")},
+					}).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.FairSharingStatus{
+						LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("8")},
+					}).
+				Obj(),
+			wantError: nil,
+			fsConfig: &config.FairSharing{
+				Enable:                 true,
+				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
+				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -126,11 +306,19 @@ func TestLocalQueueReconcile(t *testing.T) {
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 				Build()
 
-			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache)
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			cqCache := cache.New(cl)
+			cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue)
+			cqCache.AddLocalQueue(tc.localQueue)
+			for _, wl := range tc.runningWls {
+				cqCache.AddOrUpdateWorkload(&wl)
+			}
+			qManager := queue.NewManager(cl, cqCache)
+			qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue)
 			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
-			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache)
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithClock(testingclock.NewFakeClock(now)),
+				WithFairSharingConfig(tc.fsConfig))
 
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
@@ -156,6 +344,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
+				cmpopts.IgnoreFields(kueue.FairSharingStatus{}, "LastUpdate"),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)

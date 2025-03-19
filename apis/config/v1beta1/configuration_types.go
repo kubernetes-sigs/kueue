@@ -449,6 +449,13 @@ const (
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
 )
 
+type FairSharingMode string
+
+const (
+	PreemptionBasedMode FairSharingMode = "PreemptionBased"
+	AdmissionTimeMode   FairSharingMode = "AdmissionTime"
+)
+
 type FairSharing struct {
 	// enable indicates whether to enable Fair Sharing for all cohorts.
 	// Defaults to false.
@@ -471,4 +478,12 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+
+	Modes []FairSharingMode `json:"fairSharingMode,omitempty"`
+
+	UsageHalfDecayTime metav1.Duration `json:"usageHalfDecayTime,omitempty"`
+
+	UsageSamplingFrequency metav1.Duration `json:"usageSamplingFrequency,omitempty"`
+
+	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
 }
