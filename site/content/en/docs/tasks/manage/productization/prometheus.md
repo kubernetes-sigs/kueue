@@ -29,7 +29,7 @@ Kueue supports either Kustomize or installation via a Helm chart.
 
 #### Kustomize Prometheus with certificates
 
-If one wants to require TLS verification for the metrics endpoint, follow the directions below.
+If you want to enable TLS verification for the metrics endpoint, follow the directions below.
 
   1. Set `internalCertManagement.enable` to `false` in the kueue configuration.
   2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
@@ -46,11 +46,11 @@ Kueue can also supports helm deployment for Prometheus.
 
 #### Helm Prometheus with certificates
 
-If one wants to enable secure metrics,
+If you want to secure the metrics endpoints with external certificates:
 
-1. Provide values for the tlsConfig. See below for an example.
-2. Disable internal cert management in the kueue configuration.
-3. Set both `enableCertManager` and `enablePrometheus` to true.
+1. Disable internal cert management in the kueue configuration (see [custom-configuration](https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-released-version) for more details).
+2. Set both `enableCertManager` and `enablePrometheus` to true.
+3. Provide values for the tlsConfig, see the example below:
 
 An example for your tlsConfig in the helm chart could be as follows:
 
