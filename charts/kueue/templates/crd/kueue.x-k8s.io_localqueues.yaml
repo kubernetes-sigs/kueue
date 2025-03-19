@@ -194,6 +194,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               fairSharingStatus:
+                description: FairSharing contains the information about the current
+                  status of fair sharing.
                 properties:
                   consumedResources:
                     additionalProperties:
