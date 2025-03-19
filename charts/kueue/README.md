@@ -35,7 +35,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue`:
 
 ```bash
-helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue --version="v0.10.2" --create-namespace --namespace=kueue-system
+helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue --version="v0.10.3" --create-namespace --namespace=kueue-system
 ```
 
 ##### Verify that controller pods are running properly.
