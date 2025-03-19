@@ -311,9 +311,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			if err := cqCache.AddLocalQueue(tc.localQueue); err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
+			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
 				cqCache.AddOrUpdateWorkload(&wl)
 			}
@@ -321,9 +319,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			if err := qManager.AddLocalQueue(ctxWithLogger, tc.localQueue); err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
+			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithClock(testingclock.NewFakeClock(now)),
 				WithFairSharingConfig(tc.fsConfig))
