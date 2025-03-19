@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -77,6 +78,7 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
+var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -202,4 +204,18 @@ func isRayCluster(owner *metav1.OwnerReference) bool {
 
 func fromObject(o runtime.Object) *RayCluster {
 	return (*RayCluster)(o.(*rayv1.RayCluster))
+}
+
+func (j *RayCluster) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayCluster) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayCluster) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }

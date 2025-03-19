@@ -279,3 +279,8 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 	}
 	return j
 }
+
+func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
+	j.Spec.ManagedBy = &c
+	return j
+}

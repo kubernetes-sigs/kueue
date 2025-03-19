@@ -297,6 +297,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
 	util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
 
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 
