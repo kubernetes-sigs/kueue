@@ -17,7 +17,6 @@ limitations under the License.
 package fairsharing
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -27,11 +26,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -42,7 +43,37 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
+
+		cohorts []*kueuealpha.Cohort
+		cqs     []*kueue.ClusterQueue
+		lqs     []*kueue.LocalQueue
+		wls     []*kueue.Workload
 	)
+
+	var createCohort = func(cohort *kueuealpha.Cohort) *kueuealpha.Cohort {
+		gomega.Expect(k8sClient.Create(ctx, cohort)).To(gomega.Succeed())
+		cohorts = append(cohorts, cohort)
+		return cohort
+	}
+
+	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		cqs = append(cqs, cq)
+
+		lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		lqs = append(lqs, lq)
+		return cq
+	}
+
+	var createWorkload = func(queue string, cpuRequests string) *kueue.Workload {
+		wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+			Queue(queue).
+			Request(corev1.ResourceCPU, cpuRequests).Obj()
+		wls = append(wls, wl)
+		gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+		return wl
+	}
 
 	ginkgo.BeforeEach(func() {
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
@@ -52,59 +83,53 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		for _, wl := range wls {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+		}
+		for _, lq := range lqs {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+		}
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		for _, cq := range cqs {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		}
+		for _, cohort := range cohorts {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
 		var (
 			cqA      *kueue.ClusterQueue
-			lqA      *kueue.LocalQueue
 			cqB      *kueue.ClusterQueue
-			lqB      *kueue.LocalQueue
 			cqShared *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			cqA = testing.MakeClusterQueue("a").
+			cqA = createQueue(testing.MakeClusterQueue("a").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqA)).To(gomega.Succeed())
-			lqA = testing.MakeLocalQueue("a", ns.Name).ClusterQueue("a").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqA)).To(gomega.Succeed())
+				).Obj())
 
-			cqB = testing.MakeClusterQueue("b").
+			cqB = createQueue(testing.MakeClusterQueue("b").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqB)).To(gomega.Succeed())
-			lqB = testing.MakeLocalQueue("b", ns.Name).ClusterQueue("b").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqB)).To(gomega.Succeed())
+				).Obj())
 
-			cqShared = testing.MakeClusterQueue("shared").
+			cqShared = createQueue(testing.MakeClusterQueue("shared").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj(),
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqShared)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqShared, true)
+				).Obj())
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
 
-			aWorkloads := make([]*kueue.Workload, 10)
-			for i := range aWorkloads {
-				aWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("a-%d", i), ns.Name).
-					Queue("a").
-					Request(corev1.ResourceCPU, "1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, aWorkloads[i])).To(gomega.Succeed())
+			for range 10 {
+				createWorkload("a", "1")
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 8)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 2)
@@ -113,13 +138,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
-			util.WaitForNextSecondAfterCreation(aWorkloads[len(aWorkloads)-1])
-			bWorkloads := make([]*kueue.Workload, 5)
-			for i := range bWorkloads {
-				bWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("b-%d", i), ns.Name).
-					Queue("b").
-					Request(corev1.ResourceCPU, "1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, bWorkloads[i])).To(gomega.Succeed())
+			util.WaitForNextSecondAfterCreation(wls[len(wls)-1])
+			for range 5 {
+				createWorkload("b", "1")
 			}
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 5)
 			util.ExpectClusterQueueWeightedShareMetric(cqA, 625)
@@ -160,12 +181,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Shouldn't reserve quota because not enough resources", func() {
-			wl := testing.MakeWorkload("wl", ns.Name).
-				Queue(lqA.Name).
-				Request("cpu", "10").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
-
+			wl := createWorkload("a", "10")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
@@ -183,65 +199,42 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Preemption is enabled", func() {
 		var (
 			cqA *kueue.ClusterQueue
-			lqA *kueue.LocalQueue
 			cqB *kueue.ClusterQueue
-			lqB *kueue.LocalQueue
 			cqC *kueue.ClusterQueue
-			lqC *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
-			cqA = testing.MakeClusterQueue("a").
+			cqA = createQueue(testing.MakeClusterQueue("a").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
 				).Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqA)).To(gomega.Succeed())
-			lqA = testing.MakeLocalQueue("a", ns.Name).ClusterQueue("a").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqA)).To(gomega.Succeed())
+			}).Obj())
 
-			cqB = testing.MakeClusterQueue("b").
+			cqB = createQueue(testing.MakeClusterQueue("b").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
 				).Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqB)).To(gomega.Succeed())
-			lqB = testing.MakeLocalQueue("b", ns.Name).ClusterQueue("b").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqB)).To(gomega.Succeed())
+			}).Obj())
 
-			cqC = testing.MakeClusterQueue("c").
+			cqC = createQueue(testing.MakeClusterQueue("c").
 				Cohort("all").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
 				).Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqC)).To(gomega.Succeed())
-			lqC = testing.MakeLocalQueue("c", ns.Name).ClusterQueue("c").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqC)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqA)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqB)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqC)).To(gomega.Succeed())
+			}).Obj())
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
-
-			aWorkloads := make([]*kueue.Workload, 10)
-			for i := range aWorkloads {
-				aWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("a-%d", i), ns.Name).
-					Queue("a").
-					Request(corev1.ResourceCPU, "1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, aWorkloads[i])).To(gomega.Succeed())
+			for range 10 {
+				createWorkload("a", "1")
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 9)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
@@ -250,12 +243,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
-			bWorkloads := make([]*kueue.Workload, 5)
-			for i := range bWorkloads {
-				bWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("b-%d", i), ns.Name).
-					Queue("b").
-					Request(corev1.ResourceCPU, "1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, bWorkloads[i])).To(gomega.Succeed())
+			for range 5 {
+				createWorkload("b", "1")
 			}
 			util.ExpectPendingWorkloadsMetric(cqB, 5, 0)
 
@@ -293,19 +282,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("using hierarchical cohorts", func() {
-		var (
-			cohortFirstLeft   *kueuealpha.Cohort
-			cohortFirstRight  *kueuealpha.Cohort
-			cohortSecondLeft  *kueuealpha.Cohort
-			cohortSecondRight *kueuealpha.Cohort
-			cohortBank        *kueuealpha.Cohort
-			cqSecondLeft      *kueue.ClusterQueue
-			cqSecondRight     *kueue.ClusterQueue
-			lqSecondLeft      *kueue.LocalQueue
-			lqSecondRight     *kueue.LocalQueue
-		)
-
-		ginkgo.BeforeEach(func() {
+		ginkgo.It("admits workloads respecting fair share", func() {
 			//         root
 			//        /    \
 			//       fl     fr
@@ -313,88 +290,38 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			//    sl   sr    bank
 			//    /     \
 			//   cqL    cqR
-
-			cohortFirstLeft = testing.MakeCohort("first-left").Parent("root").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohortFirstLeft)).To(gomega.Succeed())
-
-			cohortFirstRight = testing.MakeCohort("first-right").Parent("root").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohortFirstRight)).To(gomega.Succeed())
-
-			cohortSecondLeft = testing.MakeCohort("second-left").Parent(kueue.CohortReference(cohortFirstLeft.Name)).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohortSecondLeft)).To(gomega.Succeed())
-
-			cohortSecondRight = testing.MakeCohort("second-right").Parent(kueue.CohortReference(cohortFirstLeft.Name)).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohortSecondRight)).To(gomega.Succeed())
-
-			cohortBank = testing.MakeCohort("bank").Parent(kueue.CohortReference(cohortFirstRight.Name)).
+			cohortFirstLeft := createCohort(testing.MakeCohort("first-left").Parent("root").Obj())
+			cohortFirstRight := createCohort(testing.MakeCohort("first-right").Parent("root").Obj())
+			cohortSecondLeft := createCohort(testing.MakeCohort("second-left").Parent("first-left").Obj())
+			cohortSecondRight := createCohort(testing.MakeCohort("second-right").Parent("first-left").Obj())
+			cohortBank := createCohort(testing.MakeCohort("bank").Parent("first-right").
 				ResourceGroup(
 					testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").FlavorQuotas,
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohortBank)).To(gomega.Succeed())
+				).Obj())
 
-			cqSecondLeft = testing.MakeClusterQueue("second-left").
-				Cohort(kueue.CohortReference(cohortSecondLeft.Name)).
+			cqSecondLeft := createQueue(testing.MakeClusterQueue("second-left").
+				Cohort("second-left").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj(),
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqSecondLeft)).To(gomega.Succeed())
+				).Obj())
 
-			cqSecondRight = testing.MakeClusterQueue("second-right").
-				Cohort(kueue.CohortReference(cohortSecondRight.Name)).
+			cqSecondRight := createQueue(testing.MakeClusterQueue("second-right").
+				Cohort("second-right").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj(),
-				).Obj()
-			gomega.Expect(k8sClient.Create(ctx, cqSecondRight)).To(gomega.Succeed())
-
-			lqSecondLeft = testing.MakeLocalQueue("second-left", ns.Name).ClusterQueue(cqSecondLeft.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqSecondLeft)).To(gomega.Succeed())
-
-			lqSecondRight = testing.MakeLocalQueue("second-right", ns.Name).ClusterQueue(cqSecondRight.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lqSecondRight)).To(gomega.Succeed())
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqSecondLeft, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqSecondRight, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortFirstLeft, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortFirstRight, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortSecondLeft, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortSecondRight, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortBank, true)
-		})
-
-		ginkgo.It("admits workloads respecting fair share", func() {
-			util.ExpectCohortWeightedShareMetric(cohortFirstLeft, 0)
-			util.ExpectCohortWeightedShareMetric(cohortFirstRight, 0)
-			util.ExpectCohortWeightedShareMetric(cohortBank, 0)
+				).Obj())
+			expectCohortWeightedShare(cohortFirstLeft.Name, 0)
+			expectCohortWeightedShare(cohortFirstRight.Name, 0)
+			expectCohortWeightedShare(cohortBank.Name, 0)
 
 			ginkgo.By("Adding workloads to cqSecondLeft and cqSecondRight in round-robin fashion")
-			const totalWorkloads = 10
-			workloads := make([]*kueue.Workload, totalWorkloads)
-			for i := 0; i < totalWorkloads; i++ {
-				if i%2 == 0 {
-					// Add to cqSecondLeft on even iterations
-					workloads[i] = testing.MakeWorkload(fmt.Sprintf("wl-left-%d", i/2), ns.Name).
-						Queue(cqSecondLeft.Name).
-						Request(corev1.ResourceCPU, "1").Obj()
-				} else {
-					// Add to cqSecondRight on odd iterations
-					workloads[i] = testing.MakeWorkload(fmt.Sprintf("wl-right-%d", i/2), ns.Name).
-						Queue(cqSecondRight.Name).
-						Request(corev1.ResourceCPU, "1").Obj()
-				}
-				gomega.Expect(k8sClient.Create(ctx, workloads[i])).To(gomega.Succeed())
+			for range 5 {
+				createWorkload("second-left", "1")
+				createWorkload("second-right", "1")
 			}
 
 			util.ExpectReservingActiveWorkloadsMetric(cqSecondLeft, 5)
 			util.ExpectReservingActiveWorkloadsMetric(cqSecondRight, 5)
-			util.ExpectCohortWeightedShareMetric(cohortFirstLeft, 428)
-			util.ExpectCohortWeightedShareMetric(cohortFirstRight, 0)
-			util.ExpectCohortWeightedShareMetric(cohortSecondLeft, 214)
-			util.ExpectCohortWeightedShareMetric(cohortSecondRight, 214)
-			util.ExpectCohortWeightedShareMetric(cohortBank, 0)
-
 			expectCohortWeightedShare(cohortFirstLeft.Name, 428)
 			expectCohortWeightedShare(cohortFirstRight.Name, 0)
 			expectCohortWeightedShare(cohortSecondLeft.Name, 214)
@@ -405,10 +332,21 @@ var _ = ginkgo.Describe("Scheduler", func() {
 })
 
 func expectCohortWeightedShare(cohortName string, weightedShare int64) {
-	cohort := &kueuealpha.Cohort{}
-	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKey{Name: cohortName}, cohort)).Should(gomega.Succeed())
-	gomega.ExpectWithOffset(1, cohort.Status.FairSharing).ShouldNot(gomega.BeNil())
-	gomega.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(weightedShare))
+	// check Status
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		cohort := &kueuealpha.Cohort{}
+		g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKey{Name: cohortName}, cohort)).Should(gomega.Succeed())
+		g.ExpectWithOffset(1, cohort.Status.FairSharing).ShouldNot(gomega.BeNil())
+		g.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(weightedShare))
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+	// check Metric
+	metric := metrics.CohortWeightedShare.WithLabelValues(cohortName)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		g.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
+		g.ExpectWithOffset(1, int64(v)).Should(gomega.Equal(weightedShare))
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
 func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
