@@ -585,7 +585,7 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 <tbody>
     
   
-<tr><td><code>AdmissionMode</code> <B>[Required]</B><br/>
+<tr><td><code>admissionMode</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionMode"><code>AdmissionMode</code></a>
 </td>
 <td>

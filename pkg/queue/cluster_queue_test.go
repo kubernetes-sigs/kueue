@@ -154,7 +154,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(nil, nil, defaultOrdering, fakeClock, nil, false)
+			cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, fakeClock, nil, false)
 
 			if cq.Pending() != 0 {
 				t.Error("ClusterQueue should be empty")
@@ -183,7 +183,7 @@ func Test_PushOrUpdate(t *testing.T) {
 
 func Test_Pop(t *testing.T) {
 	now := time.Now()
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(now), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(now), nil, false)
 	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
 	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
 	if cq.Pop() != nil {
@@ -205,7 +205,7 @@ func Test_Pop(t *testing.T) {
 }
 
 func Test_Delete(t *testing.T) {
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
 	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
@@ -226,7 +226,7 @@ func Test_Delete(t *testing.T) {
 }
 
 func Test_Info(t *testing.T) {
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	if info := cq.Info(workload.Key(wl)); info != nil {
 		t.Error("Workload should not exist")
@@ -238,7 +238,7 @@ func Test_Info(t *testing.T) {
 }
 
 func Test_AddFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
 		items: map[string]*workload.Info{
@@ -256,7 +256,7 @@ func Test_AddFromLocalQueue(t *testing.T) {
 }
 
 func Test_DeleteFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
 	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
 	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
@@ -411,7 +411,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(nil, nil, defaultOrdering, fakeClock, nil, false)
+			cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, fakeClock, nil, false)
 			err := cq.Update(utiltesting.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -464,7 +464,7 @@ func TestClusterQueueImpl(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
-	cq := newClusterQueueImpl(nil, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
+	cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false)
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
@@ -548,7 +548,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(nil, nil, defaultOrdering, fakeClock, nil, false)
+			cq := newClusterQueueImpl(context.TODO(), nil, defaultOrdering, fakeClock, nil, false)
 			got := cq.backoffWaitingTimeExpired(tc.workloadInfo)
 			if tc.want != got {
 				t.Errorf("Unexpected result from backoffWaitingTimeExpired\nwant: %v\ngot: %v\n", tc.want, got)
@@ -605,7 +605,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq, _ := newClusterQueue(nil, nil,
+			cq, _ := newClusterQueue(context.TODO(), nil,
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.BestEffortFIFO,
@@ -633,7 +633,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 }
 
 func TestFIFOClusterQueue(t *testing.T) {
-	q, err := newClusterQueue(nil, nil,
+	q, err := newClusterQueue(context.TODO(), nil,
 		&kueue.ClusterQueue{
 			Spec: kueue.ClusterQueueSpec{
 				QueueingStrategy: kueue.StrictFIFO,
@@ -838,7 +838,7 @@ func TestStrictFIFO(t *testing.T) {
 				// The default ordering:
 				tt.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
 			}
-			q, err := newClusterQueue(nil, nil,
+			q, err := newClusterQueue(context.TODO(), nil,
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.StrictFIFO,
@@ -881,7 +881,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 
 	for reason, test := range tests {
 		t.Run(string(reason), func(t *testing.T) {
-			cq, _ := newClusterQueue(nil, nil,
+			cq, _ := newClusterQueue(context.TODO(), nil,
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.StrictFIFO,

@@ -154,7 +154,7 @@ type AdmissionCheckStrategyRule struct {
 }
 
 type AdmissionScope struct {
-	AdmissionMode AdmissionMode
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
 }
 
 type AdmissionMode string

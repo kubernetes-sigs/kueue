@@ -281,7 +281,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) LqUsage(c client.Client, ctx context.Context, fsConfig *config.FairSharing) (error, float64) {
+func (i *Info) LqUsage(ctx context.Context, c client.Client, fsConfig *config.FairSharing) (error, float64) {
 	var lq kueue.LocalQueue
 	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: i.Obj.Spec.QueueName}
 	if err := c.Get(ctx, lqKey, &lq); err != nil {

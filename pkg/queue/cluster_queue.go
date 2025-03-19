@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -426,17 +427,20 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
 func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsConfig *config.FairSharing, enableAdmissionFs bool) func(a, b *workload.Info) bool {
+	log := ctrl.LoggerFrom(ctx)
+
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
-			err, lqAUsage := a.LqUsage(c, ctx, fsConfig)
+			err, lqAUsage := a.LqUsage(ctx, c, fsConfig)
 			if err != nil {
-				// log
-				// fallback to priorities
+				log.Error(err, "Error fetching LocalQueue from informer")
+				// TODO fallback to priorities
 			}
-			err, lqBUsage := b.LqUsage(c, ctx, fsConfig)
+			err, lqBUsage := b.LqUsage(ctx, c, fsConfig)
 			if err != nil {
-				// log
-				// fallback to priorities
+				log.Error(err, "Error fetching LocalQueue from informer")
+
+				// TODO fallback to priorities
 			}
 
 			if lqAUsage != lqBUsage {
