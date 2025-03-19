@@ -44,8 +44,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = testing.MakeNamespaceWithGenerateName("pod-e2e-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandRF)).To(gomega.Succeed())
 	})

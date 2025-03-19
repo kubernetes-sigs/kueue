@@ -36,8 +36,7 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
 		})
 		ginkgo.BeforeEach(func() {
-			ns = testing.MakeNamespaceWithGenerateName("jobset-")
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

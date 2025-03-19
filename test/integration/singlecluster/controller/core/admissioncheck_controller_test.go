@@ -40,8 +40,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = utiltesting.MakeNamespaceWithGenerateName("core-admissioncheck-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-admissioncheck-")
 	})
 
 	ginkgo.AfterEach(func() {

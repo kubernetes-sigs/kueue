@@ -50,8 +50,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = testing.MakeNamespaceWithGenerateName("sts-e2e-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").

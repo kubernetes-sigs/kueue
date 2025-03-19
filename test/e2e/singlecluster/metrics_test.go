@@ -58,8 +58,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = utiltesting.MakeNamespaceWithGenerateName("e2e-metrics-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
 		gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())

@@ -61,10 +61,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsA = testing.MakeNamespaceWithGenerateName("e2e-")
-		gomega.Expect(k8sClient.Create(ctx, nsA)).To(gomega.Succeed())
-		nsB = testing.MakeNamespaceWithGenerateName("e2e-")
-		gomega.Expect(k8sClient.Create(ctx, nsB)).To(gomega.Succeed())
+		nsA = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsB = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsA)).To(gomega.Succeed())

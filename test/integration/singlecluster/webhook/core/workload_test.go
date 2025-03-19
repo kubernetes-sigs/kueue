@@ -45,8 +45,7 @@ const (
 )
 
 var _ = ginkgo.BeforeEach(func() {
-	ns = testing.MakeNamespaceWithGenerateName("core-")
-	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 })
 
 var _ = ginkgo.AfterEach(func() {

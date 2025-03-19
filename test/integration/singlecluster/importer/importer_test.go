@@ -43,8 +43,7 @@ var _ = ginkgo.Describe("Importer", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = utiltesting.MakeNamespaceWithGenerateName("import-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-")
 
 		flavor = utiltesting.MakeResourceFlavor("f1").Obj()
 		gomega.Expect(k8sClient.Create(ctx, flavor)).To(gomega.Succeed())

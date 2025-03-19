@@ -85,8 +85,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
-		ns = testing.MakeNamespaceWithGenerateName("podsready-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
 
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("all").
@@ -588,8 +587,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
-		ns = testing.MakeNamespaceWithGenerateName("podsready-nonblocking-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-nonblocking-")
 
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("all").
