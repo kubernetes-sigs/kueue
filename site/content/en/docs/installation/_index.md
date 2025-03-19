@@ -40,11 +40,7 @@ Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow these steps:
-
-  1. Set `internalCertManagement.enable` to `false` in [config file](#install-a-custom-configured-released-version).
-  2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
-  3. Enable `cert-manager` in `config/default/kustomization.yaml` and uncomment all sections with 'CERTMANAGER'.
+  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
