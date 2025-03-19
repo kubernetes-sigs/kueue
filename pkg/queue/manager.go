@@ -261,12 +261,11 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	return nil
 }
 
-func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) {
 	m.Lock()
 	defer m.Unlock()
 	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 	cqImpl.Heapify(lqName)
-	return nil
 }
 
 func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {

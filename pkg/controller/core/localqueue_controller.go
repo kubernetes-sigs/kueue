@@ -21,8 +21,6 @@ import (
 	"math"
 	"strconv"
 
-	// "time"
-
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -182,7 +180,9 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return ctrl.Result{RequeueAfter: recheckAfter}, client.IgnoreNotFound(err)
 			}
 
-			r.ReconcileConsumedUsage(&queueObj, cq.Name)
+			if err := r.ReconcileConsumedUsage(&queueObj, cq.Name); err != nil {
+				r.log.Error(err, err.Error())
+			}
 			if err := r.client.Status().Update(ctx, &queueObj); err != nil {
 				r.log.Error(err, err.Error())
 			}
@@ -277,8 +277,7 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	if len(oldUsage) == 0 {
 		// first loop
 		lq.Status.FairSharingStatus.ConsumedResources = oldUsage
-		r.cache.UpdatedLQUsage(cqName, cachedLq)
-		return nil
+		return r.cache.UpdatedLQUsage(cqName, cachedLq)
 	}
 	newUsage := utilmaps.MapValues(cachedLq.GetAdmittedUsage().FlattenFlavors(),
 		func(val int64) resource.Quantity { return resource.MustParse(strconv.FormatInt(val, 10)) },
@@ -289,8 +288,7 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	lq.Status.FairSharingStatus.ConsumedResources = added
 	// lq.Status.FairSharingStatus.ConsumedResources = utilresource.AddResources(utilresource.MulResources(oldUsage, 1.0-alpha), utilresource.MulResources(newUsage, alpha))
 	lq.Status.FairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
-	r.cache.UpdatedLQUsage(cqName, cachedLq)
-	return nil
+	return r.cache.UpdatedLQUsage(cqName, cachedLq)
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {

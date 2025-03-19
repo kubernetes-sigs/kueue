@@ -47,12 +47,12 @@ func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 
 func (frq FlavorResourceQuantities) FlattenFlavors() map[corev1.ResourceName]int64 {
 	resources := sets.New[corev1.ResourceName]()
-	for key, _ := range frq {
+	for key := range frq {
 		resources.Insert(key.Resource)
 	}
 	result := make(map[corev1.ResourceName]int64, resources.Len())
 	for key, val := range frq {
-		result[key.Resource] = result[key.Resource] + val
+		result[key.Resource] += val
 	}
 	return result
 }
