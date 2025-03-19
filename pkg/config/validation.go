@@ -177,9 +177,14 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme) fi
 		return field.ErrorList{field.Required(integrationsFrameworksPath, "cannot be empty")}
 	}
 
+	frameworkTransformed := []string{}
+	for _, val := range c.Integrations.Frameworks {
+		frameworkTransformed = append(frameworkTransformed, string(val))
+	}
+
 	managedFrameworks := sets.New[string]()
 	availableBuiltInFrameworks := jobframework.GetIntegrationsList()
-	for idx, framework := range c.Integrations.Frameworks {
+	for idx, framework := range frameworkTransformed {
 		if cb, found := jobframework.GetIntegration(framework); !found {
 			allErrs = append(allErrs, field.NotSupported(integrationsFrameworksPath.Index(idx), framework, availableBuiltInFrameworks))
 		} else if gvk, err := apiutil.GVKForObject(cb.JobType, scheme); err == nil {
