@@ -2077,8 +2077,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
-						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Reason:  kueue.LocalQueueActive,
+						Message: "Can submit new workloads to localQueue",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2147,8 +2147,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
-						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Reason:  kueue.LocalQueueActive,
+						Message: "Can submit new workloads to localQueue",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
