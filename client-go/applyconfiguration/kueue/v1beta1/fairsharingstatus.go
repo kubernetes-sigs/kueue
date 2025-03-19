@@ -17,10 +17,18 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	v1 "k8s.io/api/core/v1"
+	resource "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // FairSharingStatusApplyConfiguration represents a declarative configuration of the FairSharingStatus type for use
 // with apply.
 type FairSharingStatusApplyConfiguration struct {
-	WeightedShare *int64 `json:"weightedShare,omitempty"`
+	WeightedShare     *int64                                `json:"weightedShare,omitempty"`
+	ConsumedResources map[v1.ResourceName]resource.Quantity `json:"consumedResources,omitempty"`
+	LastUpdate        *metav1.Time                          `json:"lastUpdate,omitempty"`
 }
 
 // FairSharingStatusApplyConfiguration constructs a declarative configuration of the FairSharingStatus type for use with
@@ -34,5 +42,27 @@ func FairSharingStatus() *FairSharingStatusApplyConfiguration {
 // If called multiple times, the WeightedShare field is set to the value of the last call.
 func (b *FairSharingStatusApplyConfiguration) WithWeightedShare(value int64) *FairSharingStatusApplyConfiguration {
 	b.WeightedShare = &value
+	return b
+}
+
+// WithConsumedResources puts the entries into the ConsumedResources field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the ConsumedResources field,
+// overwriting an existing map entries in ConsumedResources field with the same key.
+func (b *FairSharingStatusApplyConfiguration) WithConsumedResources(entries map[v1.ResourceName]resource.Quantity) *FairSharingStatusApplyConfiguration {
+	if b.ConsumedResources == nil && len(entries) > 0 {
+		b.ConsumedResources = make(map[v1.ResourceName]resource.Quantity, len(entries))
+	}
+	for k, v := range entries {
+		b.ConsumedResources[k] = v
+	}
+	return b
+}
+
+// WithLastUpdate sets the LastUpdate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastUpdate field is set to the value of the last call.
+func (b *FairSharingStatusApplyConfiguration) WithLastUpdate(value metav1.Time) *FairSharingStatusApplyConfiguration {
+	b.LastUpdate = &value
 	return b
 }

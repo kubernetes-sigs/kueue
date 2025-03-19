@@ -30,7 +30,9 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -89,8 +91,12 @@ func workloadKey(i *workload.Info) string {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(wo, realClock)
+func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, fsConfig *config.FairSharing) (*ClusterQueue, error) {
+	enableAdmissionFs := false
+	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedFairSharing {
+		enableAdmissionFs = true
+	}
+	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsConfig, enableAdmissionFs)
 	err := cqImpl.Update(cq)
 	if err != nil {
 		return nil, err
@@ -98,8 +104,8 @@ func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*ClusterQueu
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue {
-	lessFunc := queueOrderingFunc(wo)
+func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsConfig *config.FairSharing, enableAdmissionFs bool) *ClusterQueue {
+	lessFunc := queueOrderingFunc(ctx, client, wo, fsConfig, enableAdmissionFs)
 	return &ClusterQueue{
 		heap:                   *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
@@ -169,6 +175,15 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		return
 	}
 	c.heap.PushOrUpdate(wInfo)
+}
+
+func (c *ClusterQueue) Heapify(lqName string) {
+	for _, wl := range c.heap.List() {
+		if wl.Obj.Labels[constants.QueueLabel] != lqName {
+			continue
+		}
+		c.heap.PushOrUpdate(wl)
+	}
 }
 
 // backoffWaitingTimeExpired returns true if the current time is after the requeueAt
@@ -410,8 +425,25 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
+func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsConfig *config.FairSharing, enableAdmissionFs bool) func(a, b *workload.Info) bool {
 	return func(a, b *workload.Info) bool {
+		if enableAdmissionFs {
+			err, lqAUsage := a.LqUsage(c, ctx, fsConfig)
+			if err != nil {
+				// log
+				// fallback to priorities
+			}
+			err, lqBUsage := b.LqUsage(c, ctx, fsConfig)
+			if err != nil {
+				// log
+				// fallback to priorities
+			}
+
+			if lqAUsage != lqBUsage {
+				return lqAUsage < lqBUsage
+			}
+		}
+
 		p1 := utilpriority.Priority(a.Obj)
 		p2 := utilpriority.Priority(b.Obj)
 

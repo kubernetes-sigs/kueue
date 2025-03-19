@@ -141,7 +141,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
-		localQueues:         make(map[string]*queue),
+		localQueues:         make(map[string]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
@@ -397,7 +397,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for _, q := range queues.Items {
 		qKey := queueKey(&q)
-		qImpl := &queue{
+		qImpl := &LocalQueue{
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
@@ -501,6 +501,22 @@ func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 		return
 	}
 	cq.deleteLocalQueue(q)
+}
+
+func (c *Cache) GetCacheLocalQueue(cqName string, lq *kueue.LocalQueue) (error, *LocalQueue) {
+	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqName))
+	if cacheLq, ok := cq.localQueues[queueKey(lq)]; ok {
+		return nil, cacheLq
+	}
+	return errQNotFound, nil
+}
+
+func (c *Cache) UpdatedLQUsage(cqName string, lq *LocalQueue) error {
+	c.Lock()
+	defer c.Unlock()
+	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqName))
+	cq.localQueues[lq.key] = lq
+	return nil
 }
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {

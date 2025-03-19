@@ -559,6 +559,41 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
+## `AdmissionMode`     {#kueue-x-k8s-io-v1beta1-AdmissionMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [AdmissionScope](#kueue-x-k8s-io-v1beta1-AdmissionScope)
+
+
+
+
+
+## `AdmissionScope`     {#kueue-x-k8s-io-v1beta1-AdmissionScope}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>AdmissionMode</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionMode"><code>AdmissionMode</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
 ## `BorrowWithinCohort`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohort}
     
 
@@ -917,6 +952,12 @@ participating in FairSharing.  The values are only relevant
 if FairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
+<tr><td><code>admissionScope</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionScope"><code>AdmissionScope</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
 </tbody>
 </table>
 
@@ -1027,6 +1068,8 @@ subdomain in DNS (RFC 1123).</p>
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
+
 
 <p>FairSharing contains the properties of the ClusterQueue or Cohort,
 when participating in FairSharing.</p>
@@ -1066,6 +1109,8 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
 
 <p>fairSharing contains the information about the current status of Fair Sharing.</p>
 
@@ -1086,6 +1131,22 @@ divided by the weight.  If zero, it means that the usage of
 the Node is below the nominal quota.  If the Node has a
 weight of zero, this will return 9223372036854775807, the
 maximum possible share value.</p>
+</td>
+</tr>
+<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>map[ResourceName]k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>ConsumedResources represents the aggregated usage of resources over time,
+with decaying function applied.
+The value is populated if usage consumption functionality is enabled in Kueue config.</p>
+</td>
+</tr>
+<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>LastUpdate is the time when share and consumed resources were updated.</p>
 </td>
 </tr>
 </tbody>
@@ -1403,6 +1464,15 @@ no new reservation being made.</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the LocalQueue when
+participating in FairSharing.  The values are only relevant
+if FairSharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1475,6 +1545,12 @@ workloads assigned to this LocalQueue.</p>
 <td>
    <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
 </td>
+</tr>
+<tr><td><code>fairSharingStatus</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 </tbody>
 </table>

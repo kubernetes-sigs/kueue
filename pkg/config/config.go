@@ -178,3 +178,12 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 func WaitForPodsReadyIsEnabled(cfg *configapi.Configuration) bool {
 	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }
+
+func HasAdmissionTimeMode(modes []configapi.FairSharingMode) bool {
+	for _, mode := range modes {
+		if mode == configapi.AdmissionTimeMode {
+			return true
+		}
+	}
+	return false
+}

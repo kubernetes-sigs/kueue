@@ -281,6 +281,24 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+func (i *Info) LqUsage(c client.Client, ctx context.Context, fsConfig *config.FairSharing) (error, float64) {
+	var lq kueue.LocalQueue
+	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: i.Obj.Spec.QueueName}
+	if err := c.Get(ctx, lqKey, &lq); err != nil {
+		return err, 0
+	}
+	usage := float64(0)
+	for resName, resVal := range lq.Status.FairSharingStatus.ConsumedResources {
+		weight, found := fsConfig.ResourceWeights[resName]
+		if !found {
+			weight = 1
+		}
+		usage += weight * resVal.AsApproximateFloat64()
+	}
+	usage *= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	return nil, usage
+}
+
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
 	return slices.ContainsFunc(i.TotalRequests,

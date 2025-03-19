@@ -486,8 +486,44 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </ul>
 </td>
 </tr>
+<tr><td><code>fairSharingMode</code> <B>[Required]</B><br/>
+<a href="#FairSharingMode"><code>[]FairSharingMode</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>usageHalfDecayTime</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>usageSamplingFrequency</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>resourceWeights</code> <B>[Required]</B><br/>
+<code>map[ResourceName]float64</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
 </tbody>
 </table>
+
+## `FairSharingMode`     {#FairSharingMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FairSharing](#FairSharing)
+
+
+
+
 
 ## `Integrations`     {#Integrations}
     

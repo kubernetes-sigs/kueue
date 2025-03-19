@@ -38,7 +38,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconst "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -228,7 +228,7 @@ func validateNamespaceSelectorForPodIntegration(c *configapi.Configuration, name
 func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if !slices.Contains(c.Integrations.Frameworks, podworkload.FrameworkName) {
+	if !slices.Contains(c.Integrations.Frameworks, podconst.FrameworkName) {
 		return allErrs
 	}
 
