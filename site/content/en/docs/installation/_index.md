@@ -69,8 +69,8 @@ kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=avai
 To install a released version of Kueue in your cluster by [Helm](https://helm.sh/), run the following command:
 
 ```shell
-helm install kueue oci://registry.k8s.io/charts/kueue \
-  --version={{< param "version" >}} \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
+  --version={{< param "chart_version" >}} \
   --namespace  kueue-system \
   --create-namespace \
   --wait --timeout 300s
