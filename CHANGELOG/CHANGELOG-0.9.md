@@ -1,3 +1,21 @@
+## v0.9.5
+
+Changes since `v0.9.4`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fixes a bug that would result in default values not being properly set on creation for enabled integrations whose API was not available when the Kueue controller started. (#4559, @dgrove-oss)
+- Helm: Fixed a bug that prometheus namespace is enforced with namespace the same as kueue-controller-manager (#4488, @kannon92)
+- TAS: Fix a bug that TopolologyUngator cound not be triggered the leader change when enabled HA mode (#4657, @tenzen-y)
+- Update FairSharing to be incompatible with ClusterQueue.Preemption.BorrowWithinCohort. Using these parameters together is a no-op, and will be validated against in future releases. This change fixes an edge case which triggered an infinite preemption loop when these two parameters were combined. (#4165, @gabesaba)
+
+### Other (Cleanup or Flake)
+
+- Publish helm charts to the Kueue staging repository `http://us-central1-docker.pkg.dev/k8s-staging-images/kueue/charts`,
+  so that they can be promoted to the permanent location under `registry.k8s.io/kueue/charts`. (#4685, @mimowo)
+
 ## v0.9.4
 
 Changes since `v0.9.3`:
