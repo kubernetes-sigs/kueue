@@ -113,6 +113,8 @@ spec:
                     type: array
                 type: object
               admissionScope:
+                description: admissionScope indicates whether ClusterQueue uses the
+                  Admission Fair Sharing
                 properties:
                   admissionMode:
                     type: string

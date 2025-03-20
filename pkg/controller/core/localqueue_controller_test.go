@@ -151,10 +151,12 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			fsConfig: &config.FairSharing{
-				Enable:                 true,
-				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
-				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
-				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				Enable: true,
+				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: config.AdmissionFairSharing{
+					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				},
 			},
 		},
 		"local queue decaying usage sums the previous state and running workloads with 50/50 ratio": {
@@ -200,10 +202,12 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Obj(),
 			},
 			fsConfig: &config.FairSharing{
-				Enable:                 true,
-				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
-				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
-				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				Enable: true,
+				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: config.AdmissionFairSharing{
+					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				},
 			},
 		},
 		"local queue decaying usage sums the previous state and running workloads with 75/25 ratio": {
@@ -248,10 +252,12 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Obj(),
 			},
 			fsConfig: &config.FairSharing{
-				Enable:                 true,
-				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
-				UsageHalfDecayTime:     metav1.Duration{Duration: 10 * time.Minute},
-				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				Enable: true,
+				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: config.AdmissionFairSharing{
+					UsageHalfDecayTime:     metav1.Duration{Duration: 10 * time.Minute},
+					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				},
 			},
 		},
 		"local queue decaying usage is not reconciled if not enough time has passed": {
@@ -286,10 +292,12 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Obj(),
 			wantError: nil,
 			fsConfig: &config.FairSharing{
-				Enable:                 true,
-				Modes:                  []config.FairSharingMode{config.AdmissionTimeMode},
-				UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
-				UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				Enable: true,
+				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: config.AdmissionFairSharing{
+					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
+					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
+				},
 			},
 		},
 	}
