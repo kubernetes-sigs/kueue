@@ -33,7 +33,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -180,7 +179,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 
 func (c *ClusterQueue) Heapify(lqName string) {
 	for _, wl := range c.heap.List() {
-		if wl.Obj.Labels[constants.QueueLabel] != lqName {
+		if wl.Obj.Spec.QueueName != lqName {
 			continue
 		}
 		c.heap.PushOrUpdate(wl)
@@ -431,23 +430,17 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
-			err, lqAUsage := a.LqUsage(ctx, c, fsConfig)
-			if err != nil {
-				log.Error(err, "Error fetching LocalQueue from informer")
-				// TODO fallback to priorities
-			}
-			err, lqBUsage := b.LqUsage(ctx, c, fsConfig)
-			if err != nil {
-				log.Error(err, "Error fetching LocalQueue from informer")
-
-				// TODO fallback to priorities
-			}
-
-			if lqAUsage != lqBUsage {
+			errA, lqAUsage := a.LqUsage(ctx, c, fsConfig)
+			errB, lqBUsage := b.LqUsage(ctx, c, fsConfig)
+			switch {
+			case errA != nil:
+				log.Error(errA, "Error fetching LocalQueue from informer")
+			case errB != nil:
+				log.Error(errB, "Error fetching LocalQueue from informer")
+			case lqAUsage != lqBUsage:
 				return lqAUsage < lqBUsage
 			}
 		}
-
 		p1 := utilpriority.Priority(a.Obj)
 		p2 := utilpriority.Priority(b.Obj)
 
