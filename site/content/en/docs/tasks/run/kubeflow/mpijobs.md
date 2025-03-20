@@ -24,8 +24,8 @@ You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manage
 {{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
-While using both MPI Operator and Training Operator, it is required to disable Training Operator's MPIJob option.
-Training Operator deployment needs to be  modified to enable all kubeflow jobs except MPIJob, as mentioned [here](https://github.com/kubeflow/training-operator/issues/1777).
+While using both MPI Operator and Trainer, it is required to disable Trainer's MPIJob option.
+Trainer deployment needs to be  modified to enable all kubeflow jobs except MPIJob, as mentioned [here](https://github.com/kubeflow/trainer/issues/1777).
 {{% /alert %}}
 
 ## MPI Operator definition

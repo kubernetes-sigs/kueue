@@ -14,7 +14,12 @@ The tasks below show you how to run Kueue managed Kubeflow Jobs.
 ### [MPI Operator](https://github.com/kubeflow/mpi-operator) Integration
 - [Run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_kubeflow_jobs/run_mpijobs).
 
-### [Training Operator](https://github.com/kubeflow/training-operator) Integration
+### [Trainer](https://github.com/kubeflow/trainer) Integration
+
+{{% alert title="Note" color="primary" %}}
+Kueue supports only traditional Jobs served until Trainer v1.9.x and does not support new TrainJob. 
+{{% /alert %}}
+
 - [Run a Kueue managed Kubeflow PyTorchJob](/docs/tasks/run_kubeflow_jobs/run_pytorchjobs).
 - [Run a Kueue managed Kubeflow TFJob](/docs/tasks/run_kubeflow_jobs/run_tfjobs).
 - [Run a Kueue managed Kubeflow XGBoostJob](/docs/tasks/run_kubeflow_jobs/run_xgboostjobs).

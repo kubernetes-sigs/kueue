@@ -16,7 +16,7 @@ For the proper setup and use it is required using at least Kueue v0.9.0 and for 
 ### Installation on the Clusters
 
 {{% alert title="Note" color="primary" %}}
-Note: While both MPI Operator and Training Operator must be running on the same cluster, there are special steps that has to be applied to Training Operator deployment.
+Note: While both MPI Operator and Trainer must be running on the same cluster, there are special steps that has to be applied to Trainer deployment.
 See [Working alongside MPI Operator](/docs/tasks/run/multikueue/kubeflow#working-alongside-mpi-operator) for more details.
 {{% /alert %}}
 

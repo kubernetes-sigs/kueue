@@ -51,7 +51,7 @@ To create a Kubeconfig that can be used in the manager cluster to delegate Jobs 
 
 ### Kubeflow Installation
 
-Install Kubeflow Training-operator in the Worker cluster (see [Kubeflow Training-operator Installation](https://www.kubeflow.org/docs/components/training/installation/)
+Install Kubeflow Trainer in the Worker cluster (see [Kubeflow Trainer Installation](https://www.kubeflow.org/docs/components/training/installation/)
 for more details). Please use version v1.7.0 or a newer version for MultiKueue.
 
 ## In the Manager Cluster
