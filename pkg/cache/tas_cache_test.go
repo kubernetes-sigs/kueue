@@ -2094,7 +2094,157 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
+		"multiple podsets; block required for one, unconstrained for another; LeastFreeCapacity": {
+			nodes:              defaultNodes,
+			levels:             defaultThreeLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []TASPodSetRequests{
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset1",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: ptr.To(tasBlockLabel),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					Count: 2,
+				},
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset2",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Unconstrained: ptr.To(true),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					Count: 1,
+				},
+			},
+			wantResult: TASAssignmentsResult{
+				"podset1": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: []string{"kubernetes.io/hostname"},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x5"}},
+							{Count: 1, Values: []string{"x6"}},
+						},
+					},
+				},
+				"podset2": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: []string{"kubernetes.io/hostname"},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}}, // can be any node but its failing
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets; rack required for both, different resource requests; LeastFreeCapacity": {
+			nodes:              defaultNodes,
+			levels:             defaultTwoLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []TASPodSetRequests{
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset1",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: ptr.To(tasRackLabel),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					Count: 2,
+				},
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset2",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: ptr.To(tasRackLabel),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceMemory: 1024,
+						corev1.ResourceCPU:    1000,
+					},
+					Count: 1,
+				},
+			},
+			wantResult: TASAssignmentsResult{
+				"podset1": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"b2", "r2"}},
+						},
+					},
+				},
+				"podset2": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"b1", "r1"}},
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets; one fits, one doesn't due to capacity; LeastFreeCapacity": {
+			nodes:              defaultNodes,
+			levels:             defaultTwoLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []TASPodSetRequests{
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset1",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: ptr.To(tasRackLabel),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					Count: 3,
+				},
+				{
+					PodSet: &kueue.PodSet{
+						Name: "podset2",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: ptr.To(tasRackLabel),
+						},
+					},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					Count: 2,
+				},
+			},
+			wantResult: TASAssignmentsResult{
+				"podset1": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 3, Values: []string{"b1", "r2"}},
+						},
+					},
+				},
+				"podset2": tasPodSetAssignmentResult{
+					TopologyAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"b2", "r2"}},
+						},
+					},
+				},
+			},
+		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -2102,13 +2252,30 @@ func TestFindTopologyAssignment(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, gate, true)
 			}
 
-			initialObjects := make([]client.Object, 0)
-			for i := range tc.nodes {
-				initialObjects = append(initialObjects, &tc.nodes[i])
+			nodes := make([]corev1.Node, len(tc.nodes))
+			for i, n := range tc.nodes {
+				nodes[i] = *n.DeepCopy()
+			}
+			initialObjects := make([]client.Object, 0, len(nodes)+len(tc.pods))
+			for i := range nodes {
+				initialObjects = append(initialObjects, &nodes[i])
 			}
 			for i := range tc.pods {
 				initialObjects = append(initialObjects, &tc.pods[i])
 			}
+
+			for _, node := range nodes {
+				cpu := node.Status.Allocatable[corev1.ResourceCPU]
+				t.Logf("Node %s: Allocatable CPU=%v", node.Name, cpu.String())
+			}
+			if len(tc.pods) > 0 {
+				t.Logf("Pre-existing pods: %d", len(tc.pods))
+				for _, pod := range tc.pods {
+					cpu := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+					t.Logf("Pod %s on %s: CPU=%v", pod.Name, pod.Spec.NodeName, cpu.String())
+				}
+			}
+
 			clientBuilder := utiltesting.NewClientBuilder()
 			clientBuilder.WithObjects(initialObjects...)
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
@@ -2120,6 +2287,10 @@ func TestFindTopologyAssignment(t *testing.T) {
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
 				t.Fatalf("failed to build the snapshot: %v", err)
+			}
+			for domainID, leaf := range snapshot.leaves {
+				cpu := leaf.freeCapacity[corev1.ResourceCPU]
+				t.Logf("Rack %s: Free CPU=%v", domainID, cpu)
 			}
 
 			flavorTASRequests := tc.podSets
