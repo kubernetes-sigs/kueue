@@ -7,11 +7,11 @@ metadata:
   namespace: system
 spec:
   dnsNames:
-  # SERVICE_NAME and SERVICE_NAMESPACE will be substituted by kustomize
+  # METRICS_SERVICE_NAME and METRICS_SERVICE_NAMESPACE will be substituted by kustomize
   # replacements in the config/default/kustomization.yaml file.
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  - $(METRICS_SERVICE_NAME).$(METRICS_SERVICE_NAMESPACE).svc
+  - $(METRICS_SERVICE_NAME).$(METRICS_SERVICE_NAMESPACE).svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: ca-issuer
   secretName: metrics-server-cert

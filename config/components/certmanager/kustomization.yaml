@@ -1,5 +1,6 @@
 resources:
 - certificate.yaml
+- ca-crt.yaml
 - certificate-metrics.yaml
 
 
