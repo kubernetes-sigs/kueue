@@ -72,17 +72,24 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	if suspend {
 		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			wh.podTemplateSpecDefault(lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
+			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
 		}
-		wh.podTemplateSpecDefault(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
+		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 	}
 
 	return nil
 }
 
-func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpec) {
+func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
+	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
+		if podTemplateSpec.Labels == nil {
+			podTemplateSpec.Labels = make(map[string]string, 1)
+		}
+		podTemplateSpec.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+	}
+
 	if podTemplateSpec.Annotations == nil {
-		podTemplateSpec.Annotations = make(map[string]string, 1)
+		podTemplateSpec.Annotations = make(map[string]string, 2)
 	}
 	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue

@@ -130,6 +130,15 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorker
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
 }
 
+// LeaderTemplateSpecLabel sets the label of the pod template spec of the LeaderLeaderSet
+func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecLabel(k, v string) *LeaderWorkerSetWrapper {
+	if w.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels == nil {
+		w.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels = make(map[string]string, 1)
+	}
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels[k] = v
+	return w
+}
+
 // LeaderTemplateSpecAnnotation sets the annotation of the pod template spec of the LeaderLeaderSet
 func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *LeaderWorkerSetWrapper {
 	if w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations == nil {
@@ -209,4 +218,9 @@ func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWo
 	}
 	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.TerminationGracePeriodSeconds = &seconds
 	return w
+}
+
+// WorkloadPriorityClass sets workloadpriorityclass.
+func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorkerSetWrapper {
+	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
 }
