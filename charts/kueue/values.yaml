@@ -17,7 +17,7 @@ controllerManager:
   manager:
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
-      # This should be set to 'IfNotPresent' for released version      
+      # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
     podAnnotations: {}
     resources:
@@ -67,6 +67,7 @@ managerConfig:
     # enableClusterQueueResources: true
     webhook:
       port: 9443
+      reinvocationPolicy: Never
     leaderElection:
       leaderElect: true
       resourceName: c1f6bfd2.kueue.x-k8s.io
