@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -64,8 +64,8 @@ func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 	return &j.JobSet
 }
 
-// DeepCopy returns a DeepCopy of j.
-func (j *JobSetWrapper) DeepCopy() *JobSetWrapper {
+// Clone returns a DeepCopy of j.
+func (j *JobSetWrapper) Clone() *JobSetWrapper {
 	return &JobSetWrapper{JobSet: *j.JobSet.DeepCopy()}
 }
 
@@ -117,6 +117,12 @@ func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrappe
 	return j
 }
 
+func (j *JobSetWrapper) SetTypeMeta() *JobSetWrapper {
+	j.APIVersion = jobsetapi.SchemeGroupVersion.String()
+	j.Kind = "JobSet"
+	return j
+}
+
 // Queue updates the queue name of the JobSet.
 func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	return j.Label(constants.QueueLabel, queue)
@@ -146,6 +152,11 @@ func (j *JobSetWrapper) Limit(replicatedJobName string, r corev1.ResourceName, v
 		}
 	}
 	return j
+}
+
+// RequestAndLimit adds a resource request and limit to the first container of the target replicatedJob.
+func (j *JobSetWrapper) RequestAndLimit(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
+	return j.Request(replicatedJobName, r, v).Limit(replicatedJobName, r, v)
 }
 
 // PriorityClass updates JobSet priorityclass.

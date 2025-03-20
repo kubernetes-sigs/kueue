@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -51,7 +52,7 @@ func init() {
 		JobType:                &kfmpi.MPIJob{},
 		AddToScheme:            kfmpi.AddToScheme,
 		IsManagingObjectsOwner: isMPIJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
@@ -80,6 +81,7 @@ type MPIJob kfmpi.MPIJob
 
 var _ jobframework.GenericJob = (*MPIJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*MPIJob)(nil)
+var _ jobframework.JobWithManagedBy = (*MPIJob)(nil)
 
 func (j *MPIJob) Object() client.Object {
 	return (*kfmpi.MPIJob)(j)
@@ -114,18 +116,18 @@ func (j *MPIJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
-func (j *MPIJob) PodSets() []kueue.PodSet {
+func (j *MPIJob) PodSets() ([]kueue.PodSet, error) {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:            strings.ToLower(string(mpiReplicaType)),
+			Name:            kueue.NewPodSetReference(string(mpiReplicaType)),
 			Template:        *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
 			Count:           podsCount(&j.Spec, mpiReplicaType),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta, ptr.To(kfmpi.ReplicaIndexLabel), nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
@@ -195,6 +197,20 @@ func (j *MPIJob) PodsReady() bool {
 		}
 	}
 	return false
+}
+
+func (j *MPIJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.RunPolicy.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == kfmpi.KubeflowJobController)
+}
+
+func (j *MPIJob) ManagedBy() *string {
+	return j.Spec.RunPolicy.ManagedBy
+}
+
+func (j *MPIJob) SetManagedBy(managedBy *string) {
+	j.Spec.RunPolicy.ManagedBy = managedBy
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

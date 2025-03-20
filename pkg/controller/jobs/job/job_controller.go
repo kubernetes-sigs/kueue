@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -64,7 +65,7 @@ func init() {
 		SetupWebhook:           SetupWebhook,
 		JobType:                &batchv1.Job{},
 		IsManagingObjectsOwner: isJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
@@ -144,6 +145,7 @@ type Job batchv1.Job
 var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
+var _ jobframework.JobWithManagedBy = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -246,7 +248,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	return pt
 }
 
-func (j *Job) PodSets() []kueue.PodSet {
+func (j *Job) PodSets() ([]kueue.PodSet, error) {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
@@ -256,7 +258,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta,
 				ptr.To(batchv1.JobCompletionIndexAnnotation), nil, nil),
 		},
-	}
+	}, nil
 }
 
 func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
@@ -312,7 +314,26 @@ func (j *Job) Finished() (message string, success, finished bool) {
 
 func (j *Job) PodsReady() bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
-	return j.Status.Succeeded+ready >= j.podsCount()
+	uncountedTerminatedSucceeded := 0
+	if j.Status.UncountedTerminatedPods != nil {
+		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
+}
+
+func (j *Job) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
+		features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
+}
+
+func (j *Job) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *Job) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func (j *Job) podsCount() int32 {

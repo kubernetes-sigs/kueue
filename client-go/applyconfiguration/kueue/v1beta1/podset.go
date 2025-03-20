@@ -18,14 +18,15 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/client-go/applyconfigurations/core/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // PodSetApplyConfiguration represents a declarative configuration of the PodSet type for use
 // with apply.
 type PodSetApplyConfiguration struct {
-	Name            *string                                  `json:"name,omitempty"`
-	Template        *v1.PodTemplateSpec                      `json:"template,omitempty"`
+	Name            *kueuev1beta1.PodSetReference            `json:"name,omitempty"`
+	Template        *v1.PodTemplateSpecApplyConfiguration    `json:"template,omitempty"`
 	Count           *int32                                   `json:"count,omitempty"`
 	MinCount        *int32                                   `json:"minCount,omitempty"`
 	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
@@ -40,7 +41,7 @@ func PodSet() *PodSetApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *PodSetApplyConfiguration) WithName(value string) *PodSetApplyConfiguration {
+func (b *PodSetApplyConfiguration) WithName(value kueuev1beta1.PodSetReference) *PodSetApplyConfiguration {
 	b.Name = &value
 	return b
 }
@@ -48,8 +49,8 @@ func (b *PodSetApplyConfiguration) WithName(value string) *PodSetApplyConfigurat
 // WithTemplate sets the Template field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Template field is set to the value of the last call.
-func (b *PodSetApplyConfiguration) WithTemplate(value v1.PodTemplateSpec) *PodSetApplyConfiguration {
-	b.Template = &value
+func (b *PodSetApplyConfiguration) WithTemplate(value *v1.PodTemplateSpecApplyConfiguration) *PodSetApplyConfiguration {
+	b.Template = value
 	return b
 }
 

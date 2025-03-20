@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -98,7 +98,7 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 // validateNodeTaints is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
 func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorList {
-	allErrors := field.ErrorList{}
+	var allErrors field.ErrorList
 
 	uniqueTaints := make(map[corev1.TaintEffect]sets.Set[string])
 

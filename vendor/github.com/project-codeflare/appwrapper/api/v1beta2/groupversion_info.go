@@ -28,6 +28,9 @@ var (
 	// GroupVersion is group version used to register these objects
 	GroupVersion = schema.GroupVersion{Group: "workload.codeflare.dev", Version: "v1beta2"}
 
+	// AppWrapperKind is the kind name
+	AppWrapperKind = "AppWrapper"
+
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 

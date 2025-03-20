@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ func DefaultQueueKey(namespace string) string {
 // LocalQueue is the internal implementation of kueue.LocalQueue.
 type LocalQueue struct {
 	Key          string
-	ClusterQueue string
+	ClusterQueue kueue.ClusterQueueReference
 
 	items map[string]*workload.Info
 }
@@ -51,7 +51,7 @@ func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 }
 
 func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
-	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
+	q.ClusterQueue = apiQueue.Spec.ClusterQueue
 }
 
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {

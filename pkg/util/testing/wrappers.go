@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -62,17 +63,25 @@ func (p *PriorityClassWrapper) Obj() *schedulingv1.PriorityClass {
 
 type WorkloadWrapper struct{ kueue.Workload }
 
-// MakeWorkload creates a wrapper for a Workload with a single
-// pod with a single container.
+// MakeWorkload creates a wrapper for a Workload with a single pod
+// with a single container.
 func MakeWorkload(name, ns string) *WorkloadWrapper {
 	return &WorkloadWrapper{kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
-				*MakePodSet("main", 1).Obj(),
+				*MakePodSet(kueue.DefaultPodSetName, 1).Obj(),
 			},
 		},
 	}}
+}
+
+// MakeWorkloadWithGeneratedName creates a wrapper for a Workload with a single pod
+// with a single container.
+func MakeWorkloadWithGeneratedName(namePrefix, ns string) *WorkloadWrapper {
+	wl := MakeWorkload("", ns)
+	wl.GenerateName = namePrefix
+	return wl
 }
 
 func (w *WorkloadWrapper) Obj() *kueue.Workload {
@@ -119,6 +128,10 @@ func (w *WorkloadWrapper) Limit(r corev1.ResourceName, q string) *WorkloadWrappe
 		res.Limits[r] = resource.MustParse(q)
 	}
 	return w
+}
+
+func (w *WorkloadWrapper) RequestAndLimit(r corev1.ResourceName, q string) *WorkloadWrapper {
+	return w.Request(r, q).Limit(r, q)
 }
 
 func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
@@ -284,6 +297,14 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
+	if w.ObjectMeta.Annotations == nil {
+		w.ObjectMeta.Annotations = make(map[string]string)
+	}
+	w.ObjectMeta.Annotations[k] = v
+	return w
+}
+
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
 	return w
@@ -300,24 +321,12 @@ func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	w.appendOwnerReference(gvk, name, uid, ptr.To(true), ptr.To(true))
+	appendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
 func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	w.appendOwnerReference(gvk, name, uid, nil, nil)
-	return w
-}
-
-func (w *WorkloadWrapper) appendOwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) *WorkloadWrapper {
-	w.OwnerReferences = append(w.OwnerReferences, metav1.OwnerReference{
-		APIVersion:         gvk.GroupVersion().String(),
-		Kind:               gvk.Kind,
-		Name:               name,
-		UID:                types.UID(uid),
-		Controller:         controller,
-		BlockOwnerDeletion: blockDeletion,
-	})
+	appendOwnerReference(&w.Workload, gvk, name, uid, nil, nil)
 	return w
 }
 
@@ -366,7 +375,7 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 
 type PodSetWrapper struct{ kueue.PodSet }
 
-func MakePodSet(name string, count int) *PodSetWrapper {
+func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {
 	return &PodSetWrapper{
 		kueue.PodSet{
 			Name:  name,
@@ -386,6 +395,11 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 			},
 		},
 	}
+}
+
+func (p *PodSetWrapper) PodSpec(ps corev1.PodSpec) *PodSetWrapper {
+	p.Template.Spec = ps
+	return p
 }
 
 func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
@@ -485,6 +499,23 @@ func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodSetWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
+}
+
 func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 	p.Template.Spec.NodeName = name
 	return p
@@ -513,7 +544,7 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
+func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
 	wrap := &AdmissionWrapper{kueue.Admission{
 		ClusterQueue: kueue.ClusterQueueReference(cq),
 	}}
@@ -658,14 +689,21 @@ func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 	return q
 }
 
+// GeneratedName sets the prefix for the server to generate unique name.
+// No name should be given in the MakeClusterQueue for the GeneratedName to work.
+func (q *LocalQueueWrapper) GeneratedName(name string) *LocalQueueWrapper {
+	q.ObjectMeta.GenerateName = name
+	return q
+}
+
 type CohortWrapper struct {
 	kueuealpha.Cohort
 }
 
-func MakeCohort(name string) *CohortWrapper {
+func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	return &CohortWrapper{kueuealpha.Cohort{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name: string(name),
 		},
 	}}
 }
@@ -674,7 +712,7 @@ func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
 	return &c.Cohort
 }
 
-func (c *CohortWrapper) Parent(parentName string) *CohortWrapper {
+func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
 	c.Cohort.Spec.Parent = parentName
 	return c
 }
@@ -682,6 +720,14 @@ func (c *CohortWrapper) Parent(parentName string) *CohortWrapper {
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
+	if c.Spec.FairSharing == nil {
+		c.Spec.FairSharing = &kueue.FairSharing{}
+	}
+	c.Spec.FairSharing.Weight = &w
 	return c
 }
 
@@ -712,7 +758,7 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 }
 
 // Cohort sets the borrowing cohort.
-func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueueWrapper {
 	c.Spec.Cohort = cohort
 	return c
 }
@@ -722,6 +768,13 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
 	}
 	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
+	return c
+}
+
+// GeneratedName sets the prefix for the server to generate unique name.
+// No name should be given in the MakeClusterQueue for the GeneratedName to work.
+func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
+	c.ObjectMeta.GenerateName = name
 	return c
 }
 
@@ -810,7 +863,7 @@ func (c *ClusterQueueWrapper) FairWeight(w resource.Quantity) *ClusterQueueWrapp
 	if c.Spec.FairSharing == nil {
 		c.Spec.FairSharing = &kueue.FairSharing{}
 	}
-	c.Spec.FairSharing.Weight = ptr.To(w)
+	c.Spec.FairSharing.Weight = &w
 	return c
 }
 
@@ -1069,6 +1122,8 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 	case "Default":
 		target = lr.Spec.Limits[0].Default
 	case "Max":
+	case "MaxLimitRequestRatio":
+		target = lr.Spec.Limits[0].MaxLimitRequestRatio
 	// nothing
 	default:
 		panic("Unexpected member " + member)
@@ -1300,12 +1355,28 @@ func (c *ContainerWrapper) Obj() *corev1.Container {
 	return &c.Container
 }
 
+// Name sets the name of the container.
+func (c *ContainerWrapper) Name(name string) *ContainerWrapper {
+	c.Container.Name = name
+	return c
+}
+
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
 	requests := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Requests, corev1.ResourceList{
 		resourceName: resource.MustParse(quantity),
 	})
 	c.Container.Resources.Requests = requests
+
+	return c
+}
+
+// WithResourceLimit appends a resource limit to the container.
+func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
+	limits := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Limits, corev1.ResourceList{
+		resourceName: resource.MustParse(quantity),
+	})
+	c.Container.Resources.Limits = limits
 
 	return c
 }
@@ -1405,4 +1476,100 @@ func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigW
 
 func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
 	return &prc.ProvisioningRequestConfig
+}
+
+type PodTemplateWrapper struct {
+	corev1.PodTemplate
+}
+
+func MakePodTemplate(name, namespace string) *PodTemplateWrapper {
+	return &PodTemplateWrapper{
+		corev1.PodTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+		},
+	}
+}
+
+func (w *PodTemplateWrapper) Obj() *corev1.PodTemplate {
+	return &w.PodTemplate
+}
+
+func (w *PodTemplateWrapper) Clone() *PodTemplateWrapper {
+	return &PodTemplateWrapper{PodTemplate: *w.DeepCopy()}
+}
+
+func (w *PodTemplateWrapper) Label(k, v string) *PodTemplateWrapper {
+	if w.ObjectMeta.Labels == nil {
+		w.ObjectMeta.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[k] = v
+	return w
+}
+
+func (w *PodTemplateWrapper) Containers(containers ...corev1.Container) *PodTemplateWrapper {
+	w.Template.Spec.Containers = containers
+	return w
+}
+
+func (w *PodTemplateWrapper) NodeSelector(k, v string) *PodTemplateWrapper {
+	if w.Template.Spec.NodeSelector == nil {
+		w.Template.Spec.NodeSelector = make(map[string]string)
+	}
+	w.Template.Spec.NodeSelector[k] = v
+	return w
+}
+
+func (w *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTemplateWrapper {
+	w.Template.Spec.Tolerations = append(w.Template.Spec.Tolerations, toleration)
+	return w
+}
+
+func (w *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
+	appendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	return w
+}
+
+type NamespaceWrapper struct {
+	corev1.Namespace
+}
+
+func MakeNamespaceWrapper(name string) *NamespaceWrapper {
+	return &NamespaceWrapper{
+		corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (w *NamespaceWrapper) Obj() *corev1.Namespace {
+	return &w.Namespace
+}
+
+func (w *NamespaceWrapper) GenerateName(generateName string) *NamespaceWrapper {
+	w.Namespace.GenerateName = generateName
+	return w
+}
+
+func (w *NamespaceWrapper) Label(k, v string) *NamespaceWrapper {
+	if w.ObjectMeta.Labels == nil {
+		w.ObjectMeta.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[k] = v
+	return w
+}
+
+func appendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
+	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               name,
+		UID:                types.UID(uid),
+		Controller:         controller,
+		BlockOwnerDeletion: blockDeletion,
+	}))
 }

@@ -1,0 +1,50 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kueue-system
+
+resources:
+  - ../default
+  - ../../../../config/components/certmanager
+
+transformers:
+  - |
+    apiVersion: builtin
+    kind: PatchTransformer
+    metadata:
+      name: fix-visibility-role-binding-namespace
+    patch: '[{"op": "replace", "path": "/metadata/namespace", "value": "kube-system"}]'
+    target:
+      kind: RoleBinding
+      name: visibility-server-auth-reader
+patches:
+  - path: mutating_webhookcainjection_patch.yaml
+    target:
+      group: admissionregistration.k8s.io
+      version: v1
+      kind: MutatingWebhookConfiguration
+      name: mutating-webhook-configuration
+  - path: validating_webhookcainjection_patch.yaml
+    target:
+      group: admissionregistration.k8s.io
+      version: v1
+      kind: ValidatingWebhookConfiguration
+      name: validating-webhook-configuration
+  - path: cert_metrics_manager_patch.yaml
+    target:
+      kind: Deployment
+
+
+vars:
+- name: SERVICE_NAMESPACE
+  objref:
+    kind: Service
+    version: v1
+    name: webhook-service
+  fieldref:
+    fieldpath: metadata.namespace
+- name: SERVICE_NAME
+  objref:
+    kind: Service
+    version: v1
+    name: webhook-service

@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	applyconfigurationkueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,32 +37,33 @@ type WorkloadPriorityClassesGetter interface {
 
 // WorkloadPriorityClassInterface has methods to work with WorkloadPriorityClass resources.
 type WorkloadPriorityClassInterface interface {
-	Create(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.CreateOptions) (*v1beta1.WorkloadPriorityClass, error)
-	Update(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.UpdateOptions) (*v1beta1.WorkloadPriorityClass, error)
+	Create(ctx context.Context, workloadPriorityClass *kueuev1beta1.WorkloadPriorityClass, opts v1.CreateOptions) (*kueuev1beta1.WorkloadPriorityClass, error)
+	Update(ctx context.Context, workloadPriorityClass *kueuev1beta1.WorkloadPriorityClass, opts v1.UpdateOptions) (*kueuev1beta1.WorkloadPriorityClass, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.WorkloadPriorityClass, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.WorkloadPriorityClassList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1beta1.WorkloadPriorityClass, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1beta1.WorkloadPriorityClassList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.WorkloadPriorityClass, err error)
-	Apply(ctx context.Context, workloadPriorityClass *kueuev1beta1.WorkloadPriorityClassApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.WorkloadPriorityClass, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1beta1.WorkloadPriorityClass, err error)
+	Apply(ctx context.Context, workloadPriorityClass *applyconfigurationkueuev1beta1.WorkloadPriorityClassApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.WorkloadPriorityClass, err error)
 	WorkloadPriorityClassExpansion
 }
 
 // workloadPriorityClasses implements WorkloadPriorityClassInterface
 type workloadPriorityClasses struct {
-	*gentype.ClientWithListAndApply[*v1beta1.WorkloadPriorityClass, *v1beta1.WorkloadPriorityClassList, *kueuev1beta1.WorkloadPriorityClassApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1beta1.WorkloadPriorityClass, *kueuev1beta1.WorkloadPriorityClassList, *applyconfigurationkueuev1beta1.WorkloadPriorityClassApplyConfiguration]
 }
 
 // newWorkloadPriorityClasses returns a WorkloadPriorityClasses
 func newWorkloadPriorityClasses(c *KueueV1beta1Client) *workloadPriorityClasses {
 	return &workloadPriorityClasses{
-		gentype.NewClientWithListAndApply[*v1beta1.WorkloadPriorityClass, *v1beta1.WorkloadPriorityClassList, *kueuev1beta1.WorkloadPriorityClassApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1beta1.WorkloadPriorityClass, *kueuev1beta1.WorkloadPriorityClassList, *applyconfigurationkueuev1beta1.WorkloadPriorityClassApplyConfiguration](
 			"workloadpriorityclasses",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1beta1.WorkloadPriorityClass { return &v1beta1.WorkloadPriorityClass{} },
-			func() *v1beta1.WorkloadPriorityClassList { return &v1beta1.WorkloadPriorityClassList{} }),
+			func() *kueuev1beta1.WorkloadPriorityClass { return &kueuev1beta1.WorkloadPriorityClass{} },
+			func() *kueuev1beta1.WorkloadPriorityClassList { return &kueuev1beta1.WorkloadPriorityClassList{} },
+		),
 	}
 }

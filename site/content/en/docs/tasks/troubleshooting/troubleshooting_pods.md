@@ -23,11 +23,22 @@ resource usage of this Pod directly.
 A Pod might not have the `kueue.x-k8s.io/managed` due to one of the following reasons:
 
 1. The [Pod integration is disabled](/docs/tasks/run/plain_pods/#before-you-begin).
-2. The Pod belongs to a namespace or has labels that don't satisfy the requirements of
-   the [`podOptions`](/docs/reference/kueue-config.v1beta1/#PodIntegrationOptions) configured for the Pod integration.
+2. The Pod belongs to a namespace that don't satisfy the requirements of
+   the [`managedJobsNamespaceSelector`](/docs/reference/kueue-config.v1beta1/#Configuration).
 3. The Pod is owned by a Job or equivalent CRD that is managed by Kueue.
 4. The Pod doesn't have a `kueue.x-k8s.io/queue-name` label and [`manageJobsWithoutQueueName`](/docs/reference/kueue-config.v1beta1/#Configuration)
    is set to `false`.
+
+{{< feature-state state="beta" for_version="v0.10" >}}
+{{% alert title="Note" color="primary" %}}
+
+`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
+You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+
+Prior to Kueue v0.10, the Configuration field `integrations.podOptions.namespaceSelector`
+was used instead. The use of `podOptions` was
+deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.
+{{% /alert %}}
 
 ## Identifying the Workload for your Pod
 

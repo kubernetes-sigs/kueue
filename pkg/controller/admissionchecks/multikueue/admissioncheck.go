@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -62,12 +62,12 @@ type ACReconciler struct {
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
 
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
 	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueue.MultiKueueControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile AdmissionCheck")
 
 	newCondition := metav1.Condition{
@@ -177,7 +177,7 @@ func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconcil
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue-admissioncheck").
+		Named("multikueue_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).

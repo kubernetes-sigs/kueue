@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -36,11 +37,13 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
-type multikueueAdapter struct{}
+type multiKueueAdapter struct{}
 
-var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -55,6 +58,12 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
+		if fromObject(&localJob).IsSuspended() {
+			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+			log.V(2).Info("Skipping the sync since the local job is still suspended")
+			return nil
+		}
+
 		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
 			return true, nil
@@ -79,7 +88,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := jobset.JobSet{}
 	err := remoteClient.Get(ctx, key, &job)
 	if err != nil {
@@ -88,11 +97,11 @@ func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
+func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	js := jobset.JobSet{}
 	err := c.Get(ctx, key, &js)
 	if err != nil {
@@ -105,17 +114,17 @@ func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 	return true, "", nil
 }
 
-func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
+func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
-func (*multikueueAdapter) GetEmptyList() client.ObjectList {
+func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &jobset.JobSetList{}
 }
 
-func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	jobSet, isJobSet := o.(*jobset.JobSet)
 	if !isJobSet {
 		return types.NamespacedName{}, errors.New("not a jobset")

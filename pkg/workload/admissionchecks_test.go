@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -444,7 +444,7 @@ func TestSetCheckState(t *testing.T) {
 
 			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
 
-			opts := []cmp.Option{}
+			opts := cmp.Options{}
 			if tc.state.LastTransitionTime.IsZero() {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
 

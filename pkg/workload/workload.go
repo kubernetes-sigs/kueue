@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -44,8 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -157,12 +156,13 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue   string
+	ClusterQueue   kueue.ClusterQueueReference
 	LastAssignment *AssignmentClusterQueueState
 }
 
 type PodSetResources struct {
-	Name string
+	// Name is the name of the PodSet.
+	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
 	Requests resources.Requests
 	// Count indicates how many pods are in the podset.
@@ -175,14 +175,24 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+func (p *PodSetResources) SinglePodRequests() resources.Requests {
+	return p.Requests.ScaledDown(int64(p.Count))
+}
+
 type TopologyRequest struct {
 	Levels         []string
 	DomainRequests []TopologyDomainRequests
 }
 
 type TopologyDomainRequests struct {
-	Values   []string
-	Requests resources.Requests
+	Values            []string
+	SinglePodRequests resources.Requests
+	// Count indicates how many pods are requested in this TopologyDomain.
+	Count int32
+}
+
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
+	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -197,8 +207,8 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	}
 
 	if psr.Count != 0 && psr.Count != newCount {
-		scaleDown(ret.Requests, int64(ret.Count))
-		scaleUp(ret.Requests, int64(newCount))
+		ret.Requests.Divide(int64(ret.Count))
+		ret.Requests.Mul(int64(newCount))
 		ret.Count = newCount
 	}
 	return ret
@@ -213,7 +223,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		Obj: w,
 	}
 	if w.Status.Admission != nil {
-		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
+		info.ClusterQueue = w.Status.Admission.ClusterQueue
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w, &options)
@@ -227,6 +237,15 @@ func (i *Info) Update(wl *kueue.Workload) {
 
 func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
+}
+
+// Usage returns the total resource usage for the workload, including regular
+// quota and TAS usage.
+func (i *Info) Usage() Usage {
+	return Usage{
+		Quota: i.FlavorResourceUsage(),
+		TAS:   i.TASUsage(),
+	}
 }
 
 // FlavorResourceUsage returns the total resource usage for the workload,
@@ -270,9 +289,20 @@ func (i *Info) IsUsingTAS() bool {
 		})
 }
 
+// IsRequestingTAS returns information if the workload is requesting TAS
+func (i *Info) IsRequestingTAS() bool {
+	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
+			return ps.TopologyRequest != nil
+		})
+}
+
 // TASUsage returns topology usage requested by the Workload
-func (i *Info) TASUsage() map[kueue.ResourceFlavorReference][]TopologyDomainRequests {
-	result := make(map[kueue.ResourceFlavorReference][]TopologyDomainRequests, 0)
+func (i *Info) TASUsage() TASUsage {
+	if !features.Enabled(features.TopologyAwareScheduling) || !i.IsUsingTAS() {
+		return nil
+	}
+	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
 		if ps.TopologyRequest != nil {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -337,19 +367,19 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
-func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
-	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (string, int32) {
+func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, int32) {
+func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
 	})
 }
 
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
+func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	totalCounts := podSetsCounts(wl)
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
@@ -360,8 +390,8 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func PodSetNameToTopologyRequest(wl *kueue.Workload) map[string]*kueue.PodSetTopologyRequest {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, *kueue.PodSetTopologyRequest) {
+func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*kueue.PodSetTopologyRequest {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, *kueue.PodSetTopologyRequest) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].TopologyRequest
 	})
 }
@@ -378,13 +408,13 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
+		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		if features.Enabled(features.ConfigurableResourceTransformations) {
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		}
 		setRes.Requests = resources.NewRequests(effectiveRequests)
-		scaleUp(setRes.Requests, int64(count))
+		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
 	return res
@@ -409,12 +439,10 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				Levels: psa.TopologyAssignment.Levels,
 			}
 			for _, domain := range psa.TopologyAssignment.Domains {
-				domainRequests := setRes.Requests.Clone()
-				scaleDown(domainRequests, int64(setRes.Count))
-				scaleUp(domainRequests, int64(domain.Count))
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
-					Values:   domain.Values,
-					Requests: domainRequests,
+					Values:            domain.Values,
+					SinglePodRequests: setRes.SinglePodRequests(),
+					Count:             domain.Count,
 				})
 			}
 		}
@@ -422,8 +450,8 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		// If countAfterReclaim is lower then the admission count indicates that
 		// additional pods are marked as reclaimable, and the consumption should be scaled down.
 		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
-			scaleDown(setRes.Requests, int64(setRes.Count))
-			scaleUp(setRes.Requests, int64(countAfterReclaim))
+			setRes.Requests.Divide(int64(setRes.Count))
+			setRes.Requests.Mul(int64(countAfterReclaim))
 			setRes.Count = countAfterReclaim
 		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
@@ -431,18 +459,6 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		res = append(res, setRes)
 	}
 	return res
-}
-
-func scaleUp(r resources.Requests, f int64) {
-	for name := range r {
-		r[name] *= f
-	}
-}
-
-func scaleDown(r resources.Requests, f int64) {
-	for name := range r {
-		r[name] /= f
-	}
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
@@ -632,9 +648,6 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
-	if !features.Enabled(features.WorkloadResourceRequestsSummary) {
-		return false
-	}
 	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
 		match := true
 		for idx := range w.Status.ResourceRequests {
@@ -752,8 +765,8 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	ma := utilslices.ToMap(a, func(i int) (string, int32) { return a[i].Name, a[i].Count })
-	mb := utilslices.ToMap(b, func(i int) (string, int32) { return b[i].Name, b[i].Count })
+	ma := utilslices.ToMap(a, func(i int) (kueue.PodSetReference, int32) { return a[i].Name, a[i].Count })
+	mb := utilslices.ToMap(b, func(i int) (kueue.PodSetReference, int32) { return b[i].Name, b[i].Count })
 	return maps.Equal(ma, mb)
 }
 
@@ -799,6 +812,28 @@ func IsEvicted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
 }
 
+// HasConditionWithTypeAndReason checks if there is a condition in Workload's status
+// with exactly the same Type, Status and Reason
+func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bool {
+	for _, statusCond := range w.Status.Conditions {
+		if statusCond.Type == cond.Type && statusCond.Reason == cond.Reason &&
+			statusCond.Status == cond.Status {
+			return true
+		}
+	}
+	return false
+}
+
+func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+	return metav1.Condition{
+		Type:    kueue.WorkloadPodsReady,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+		// ObservedGeneration is added via workload.UpdateStatus
+	}
+}
+
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)
@@ -819,7 +854,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 		}
 	}
 	if allFlavors {
-		return sets.New(utilmaps.Keys(admissionChecks)...)
+		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
 	}
 
 	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
@@ -852,7 +887,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string) {
+func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
 	metrics.ReportEvictedWorkloads(cqName, reason)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -227,7 +227,22 @@ func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v
 	return j
 }
 
-func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *JobWrapper {
+// Limit adds a resource request to the default container.
+func (j *JobWrapper) Limit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
+	if rayType == rayv1.HeadNode {
+		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	} else if rayType == rayv1.WorkerNode {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	}
+	return j
+}
+
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *JobWrapper) RequestAndLimit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
+	return j.Request(rayType, r, v).Limit(rayType, r, v)
+}
+
+func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args ...string) *JobWrapper {
 	if rayType == rayv1.HeadNode {
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
@@ -262,5 +277,10 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 		}
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
 	}
+	return j
+}
+
+func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
+	j.Spec.ManagedBy = &c
 	return j
 }

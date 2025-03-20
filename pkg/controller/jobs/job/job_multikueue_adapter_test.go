@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,8 +42,8 @@ const (
 	TestNamespace = "ns"
 )
 
-func TestMultikueueAdapter(t *testing.T) {
-	objCheckOpts := []cmp.Option{
+func TestMultiKueueAdapter(t *testing.T) {
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}
@@ -56,18 +56,17 @@ func TestMultikueueAdapter(t *testing.T) {
 		workerJobs          []batchv1.Job
 		withoutJobManagedBy bool
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError        error
 		wantManagersJobs []batchv1.Job
 		wantWorkerJobs   []batchv1.Job
 	}{
-
 		"sync creates missing remote job": {
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -92,7 +91,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Active(2).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -103,6 +102,37 @@ func TestMultikueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Active(2).
+					Obj(),
+			},
+		},
+		"skip to sync intermediate status from remote suspended job": {
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					Active(2).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
 					Active(2).
 					Obj(),
 			},
@@ -118,7 +148,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -147,7 +177,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			withoutJobManagedBy: true,
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -174,7 +204,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			withoutJobManagedBy: true,
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -199,12 +229,12 @@ func TestMultikueueAdapter(t *testing.T) {
 					Active(2).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace})
 			},
 		},
 		"missing job is not considered managed": {
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -215,7 +245,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
@@ -225,12 +255,11 @@ func TestMultikueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().Obj(),
 			},
 		},
-
 		"job managedBy multikueue": {
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
@@ -245,7 +274,7 @@ func TestMultikueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().Obj(),
 			},
 			withoutJobManagedBy: true,
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
@@ -270,7 +299,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

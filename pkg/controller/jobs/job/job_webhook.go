@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,12 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -86,32 +83,9 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
+	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
-	if canDefaultManagedBy(job.Spec.ManagedBy) {
-		localQueueName, found := job.Labels[constants.QueueLabel]
-		if !found {
-			return nil
-		}
-		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.ObjectMeta.Namespace, localQueueName))
-		if !ok {
-			log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
-			return nil
-		}
-		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == kueue.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", job.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
-				job.Spec.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
-				return nil
-			}
-		}
-	}
 	return nil
-}
-
-func canDefaultManagedBy(jobSpecManagedBy *string) bool {
-	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
-		features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
 }
 
 // +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1

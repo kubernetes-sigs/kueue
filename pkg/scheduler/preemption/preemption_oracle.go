@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,8 +41,14 @@ func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQ
 	if cq.BorrowingWith(fr, quantity) {
 		return false
 	}
-
-	for _, candidate := range p.preemptor.getTargets(log, wl, resources.FlavorResourceQuantities{fr: quantity}, sets.New(fr), p.snapshot) {
+	for _, candidate := range p.preemptor.getTargets(&preemptionCtx{
+		log:               log,
+		preemptor:         wl,
+		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
+		snapshot:          p.snapshot,
+		frsNeedPreemption: sets.New(fr),
+		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
+	}) {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 			return false
 		}

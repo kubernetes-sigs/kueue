@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -179,6 +179,11 @@ func (j *PyTorchJobWrapper) Limit(replicaType kftraining.ReplicaType, r corev1.R
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *PyTorchJobWrapper) RequestAndLimit(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
+	return j.Request(replicaType, r, v).Limit(replicaType, r, v)
+}
+
 // Parallelism updates job parallelism.
 func (j *PyTorchJobWrapper) Parallelism(p int32) *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Replicas = ptr.To(p)
@@ -215,7 +220,7 @@ func (j *PyTorchJobWrapper) PodLabel(replicaType kftraining.ReplicaType, k, v st
 	return j
 }
 
-// Condition adds a condition
+// StatusConditions adds a condition.
 func (j *PyTorchJobWrapper) StatusConditions(c kftraining.JobCondition) *PyTorchJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
@@ -230,5 +235,17 @@ func (j *PyTorchJobWrapper) Image(replicaType kftraining.ReplicaType, image stri
 func (j *PyTorchJobWrapper) SetTypeMeta() *PyTorchJobWrapper {
 	j.APIVersion = kftraining.GroupVersion.String()
 	j.Kind = kftraining.PyTorchJobKind
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *PyTorchJobWrapper) ManagedBy(c string) *PyTorchJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}
+
+func (j *PyTorchJobWrapper) TerminationGracePeriodSeconds(seconds int64) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
 }

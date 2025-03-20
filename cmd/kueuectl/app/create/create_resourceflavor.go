@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ var (
 
   		# Create a resource flavor with labels
 		kueuectl create resourceflavor my-resource-flavor \
-		--node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
+		--node-labels kubernetes.io/arch=arm64,kubernetes.io/os=linux
 
 		# Create a resource flavor with node taints
   		kueuectl create resourceflavor my-resource-flavor \

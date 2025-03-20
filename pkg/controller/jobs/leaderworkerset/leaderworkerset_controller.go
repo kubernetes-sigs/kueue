@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,19 +35,20 @@ var (
 )
 
 const (
-	FrameworkName = "leaderworkerset"
+	FrameworkName = "leaderworkerset.x-k8s.io/leaderworkerset"
 )
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewReconciler:          NewPodReconciler,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &leaderworkersetv1.LeaderWorkerSet{},
-		AddToScheme:            leaderworkersetv1.AddToScheme,
-		DependencyList:         []string{"pod"},
-		IsManagingObjectsOwner: isLeaderWorkerSet,
-		GVK:                    gvk,
+		SetupIndexes:             SetupIndexes,
+		NewReconciler:            NewReconciler,
+		NewAdditionalReconcilers: []jobframework.ReconcilerFactory{NewPodReconciler},
+		SetupWebhook:             SetupWebhook,
+		JobType:                  &leaderworkersetv1.LeaderWorkerSet{},
+		AddToScheme:              leaderworkersetv1.AddToScheme,
+		DependencyList:           []string{"pod"},
+		IsManagingObjectsOwner:   isLeaderWorkerSet,
+		GVK:                      gvk,
 	}))
 }
 

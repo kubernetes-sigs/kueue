@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,4 +46,14 @@ func MakeDefaultThreeLevelTopology(name string) *kueuealpha.Topology {
 	return MakeTopology(name).
 		Levels(DefaultBlockTopologyLevel, DefaultRackTopologyLevel, corev1.LabelHostname).
 		Obj()
+}
+
+// MakeNamespace creates a default namespace with name.
+func MakeNamespace(name string) *corev1.Namespace {
+	return MakeNamespaceWrapper(name).Obj()
+}
+
+// MakeNamespaceWithGenerateName creates a default namespace with generate name.
+func MakeNamespaceWithGenerateName(prefix string) *corev1.Namespace {
+	return MakeNamespaceWrapper("").GenerateName(prefix).Obj()
 }

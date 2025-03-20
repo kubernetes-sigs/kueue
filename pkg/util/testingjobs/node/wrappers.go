@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,11 @@ func (n *NodeWrapper) Obj() *corev1.Node {
 	return &n.Node
 }
 
+// Clone returns a deep copy of the NodeWrapper.
+func (n *NodeWrapper) Clone() *NodeWrapper {
+	return &NodeWrapper{Node: *n.Obj().DeepCopy()}
+}
+
 // Name updates the name of the node
 func (n *NodeWrapper) Name(name string) *NodeWrapper {
 	n.ObjectMeta.Name = name
@@ -63,8 +68,13 @@ func (n *NodeWrapper) StatusConditions(conditions ...corev1.NodeCondition) *Node
 }
 
 // StatusAllocatable updates the allocatable resources of the Node.
-func (n *NodeWrapper) StatusAllocatable(resourceList corev1.ResourceList) *NodeWrapper {
-	n.Status.Allocatable = resourceList
+func (n *NodeWrapper) StatusAllocatable(resources corev1.ResourceList) *NodeWrapper {
+	if n.Status.Allocatable == nil {
+		n.Status.Allocatable = make(corev1.ResourceList, len(resources))
+	}
+	for rName, rQuantity := range resources {
+		n.Status.Allocatable[rName] = rQuantity
+	}
 	return n
 }
 

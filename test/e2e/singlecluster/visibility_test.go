@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 	const defaultFlavor = "default-flavor"
 
 	// We do not check workload's Name, CreationTimestamp, and its OwnerReference's UID as they are generated at the server-side.
-	var pendingWorkloadsCmpOpts = []cmp.Option{
+	var pendingWorkloadsCmpOpts = cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "CreationTimestamp"),
 		cmpopts.IgnoreFields(metav1.OwnerReference{}, "UID"),
@@ -61,22 +61,14 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsA = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, nsA)).To(gomega.Succeed())
-		nsB = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, nsB)).To(gomega.Succeed())
+		nsA = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsB = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsA)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsB)).To(gomega.Succeed())
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, nsA)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, nsB)
 	})
 
 	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
@@ -111,8 +103,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
 					Queue(localQueueA.Name).
-					Image(util.E2eTestSleepImage, []string{"1m"}).
-					Request(corev1.ResourceCPU, "1").
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
 					PriorityClass(highPriorityClass.Name).
@@ -151,8 +143,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
-					Image(util.E2eTestSleepImage, []string{"1ms"}).
-					Request(corev1.ResourceCPU, "1").
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
@@ -213,8 +205,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
-						Image(util.E2eTestSleepImage, []string{"1ms"}).
-						Request(corev1.ResourceCPU, "1").
+						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -272,8 +264,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
-					Image(util.E2eTestSleepImage, []string{"1ms"}).
-					Request(corev1.ResourceCPU, "1").
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
@@ -334,8 +326,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
-						Image(util.E2eTestSleepImage, []string{"1ms"}).
-						Request(corev1.ResourceCPU, "1").
+						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -427,8 +419,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 						Queue(jobCase.LocalQueueName).
-						Image(util.E2eTestSleepImage, []string{"1ms"}).
-						Request(corev1.ResourceCPU, "1").
+						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())

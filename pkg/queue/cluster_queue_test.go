@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	now := time.Now()
 	minuteLater := now.Add(time.Minute)
 	fakeClock := testingclock.NewFakeClock(now)
-	cmpOpts := []cmp.Option{
+	cmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
@@ -290,9 +290,9 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 func TestClusterQueueImpl(t *testing.T) {
 	cl := utiltesting.NewFakeClient(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Labels: map[string]string{"dep": "eng"}}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Labels: map[string]string{"dep": "sales"}}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns3", Labels: map[string]string{"dep": "marketing"}}},
+		utiltesting.MakeNamespaceWrapper("ns1").Label("dep", "eng").Obj(),
+		utiltesting.MakeNamespaceWrapper("ns2").Label("dep", "sales").Obj(),
+		utiltesting.MakeNamespaceWrapper("ns3").Label("dep", "marketing").Obj(),
 	)
 
 	now := time.Now()
@@ -393,11 +393,11 @@ func TestClusterQueueImpl(t *testing.T) {
 		},
 		"update reclaimable pods in inadmissible": {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{
-				workload.NewInfo(utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
+				workload.NewInfo(utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj()),
 			},
 			workloadsToUpdate: []*kueue.Workload{
-				utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReclaimablePods(kueue.ReclaimablePod{Name: "main", Count: 1}).
+				utiltesting.MakeWorkload("w", "").PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.DefaultPodSetName, Count: 1}).
 					Obj(),
 			},
 			wantActiveWorkloads: []string{"/w"},
@@ -463,12 +463,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	cl := utiltesting.NewFakeClient(
-		wl,
-		&corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace},
-		},
-	)
+	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
 	ctx := context.Background()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 

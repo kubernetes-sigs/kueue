@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -44,8 +43,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		rf = utiltesting.MakeResourceFlavor("rf").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
@@ -89,6 +87,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("the cluster queue starts borrowing", func() {
@@ -97,11 +96,11 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			for i := 0; i < 4; i++ {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(lq1.Name).
-					Image(util.E2eTestSleepImage, []string{"1ns"}).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					Parallelism(3).
 					Completions(3).
-					Request("cpu", "1").
-					Request("memory", "200Mi").
+					RequestAndLimit("cpu", "1").
+					RequestAndLimit("memory", "200Mi").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 			}

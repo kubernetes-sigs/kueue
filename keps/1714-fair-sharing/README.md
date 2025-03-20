@@ -27,7 +27,7 @@
 <!-- /toc -->
 
 ## Summary
-This KEP introduces weight-based fair sharing of unused resources across 
+This KEP introduces weight-based Fair Sharing of unused resources across 
 needing ClusterQueues, respecting borrowing and lending limits, multi-level
 hierarchy and preferences of cohorts to distribute unused resources 
 internally.
@@ -44,7 +44,7 @@ use the highest one, breaking the whole idea altogether). Thus a more comprehens
 solution of distributing unused resources is needed.
 
 ### Goals
-* Create a mechanism to enforce fair sharing of resources. Two equally important
+* Create a mechanism to enforce Fair Sharing of resources. Two equally important
 sub-organizations (Cohorts or ClusterQueues), placed in the similar spots in the
 whole organization (hierarchy of Cohorts), actively competing for the same
 resources (having workloads needing more than nominal quota), should 
@@ -59,10 +59,10 @@ under the same parent.
 sub-organization and only after they have been fulfilled, proceed with distribution
 outside of the suborganization.
 
-* When enforcing fair sharing, ignore workload priorities unless:
+* When enforcing Fair Sharing, ignore workload priorities unless:
 
    * The workload's priority is above admin-defined high priority. Super high
-priority workloads overrule fair sharing and are treated according to KEP [#1337](https://github.com/kubernetes-sigs/kueue/tree/main/keps/1337-preempt-within-cohort-while-borrowing).
+priority workloads overrule Fair Sharing and are treated according to KEP [#1337](https://github.com/kubernetes-sigs/kueue/tree/main/keps/1337-preempt-within-cohort-while-borrowing).
 
    * There is a need to preempt some non top priority workload from a ClusterQueue.
 Then the lowest priority workloads from a CQ that is over its fair share should
@@ -76,30 +76,30 @@ in particular:
    * Guaranteed/nominal quota
    * Hierarchical cohorts
 
-* Fair sharing should not limit Kueue scalability. Kueue, with fair sharing enabled,
+* Fair Sharing should not limit Kueue scalability. Kueue, with Fair Sharing enabled,
 should be able to handle >1k ClusterQueues, >100 Cohorts and >10k workloads (that
 are either running or queued) within a single hierarchical organization.
 
 * The proposed system should be hard to game, for example by creating big workloads
 that consume all capacity.
 
-* Fair sharing enforcement should not significantly decrease overall utilization,
+* Fair Sharing enforcement should not significantly decrease overall utilization,
 however, pathological situations (like a single workload consuming all otherwise
-unused capacity) should be resolved in favor of fair sharing than maximizing the
+unused capacity) should be resolved in favor of Fair Sharing than maximizing the
 utilization (the big greedy workload should be preempted to admit smaller
 workloads from other CQ that consume only their fair share).
 
 ### Non-Goals
 * Use historical data (for example CQ A used a lot of shared capacity for the last
 week, so now it should get less because others, who didn't need anything then, have
-pending workloads). Fair sharing should be based on point-in-time situation, although,
-ideally it should be expandable to support history-based fair sharing(for example with #26)
+pending workloads). Fair Sharing should be based on point-in-time situation, although,
+ideally it should be expandable to support history-based Fair Sharing(for example with #26)
 without major redesign.
 
-* Enable fair sharing only for some part of the resources or Cohort hierarchy.
-Fair sharing will be a global switch (at least initially).
+* Enable Fair Sharing only for some part of the resources or Cohort hierarchy.
+Fair Sharing will be a global switch (at least initially).
 
-* Maximize utilization at the cost of fair sharing.
+* Maximize utilization at the cost of Fair Sharing.
 
 ## Proposal
 
@@ -108,7 +108,7 @@ on top of the given nominal quota, that doesn't justify "complains" against
 any other similar CQ about excessive extra resources that CQ was given. Basically
 the sharing of unused resources is fair, if no CQ can say it is grossly unfair.
 
-Introduce a global fair sharing mechanism that is based on preemptions. As long
+Introduce a global Fair Sharing mechanism that is based on preemptions. As long
 as there are some free and accessible resources in the cohort hierarchy, Kueue
 will admit workloads without any limits. However, once the capacity is gone,
 new workloads from Cohorts/CQ that have not received their fair share yet will
@@ -126,7 +126,7 @@ We will add an optional weight field to both Cohorts and CQ. The weight will
 indicate how to fair share resources between sub-organizations (CQs or Cohorts)
 under the same Cohort.
 
-Fair sharing will be configured for the whole cluster, using the configuration
+Fair Sharing will be configured for the whole cluster, using the configuration
 file. In Alpha it will be just a feature gate.
 
 ### User Stories (Optional)
@@ -176,13 +176,13 @@ to execute. I want to distribute the resources from CS in the following way:
 
 ### Risks and Mitigations
 
-* Fair sharing may increase the number of preemptions in the system vs current
+* Fair Sharing may increase the number of preemptions in the system vs current
 state where the first workload to acquire unused resources keeps them until it
 finishes. Mitigations include:
-    * Introduce minimum execution time before workloads can be preempted for fair sharing.
+    * Introduce minimum execution time before workloads can be preempted for Fair Sharing.
     * Introduce delayed fair share enforcement - new workloads have to wait a bit before preempting others to get their share.
 
-* Fair sharing may decrease utilization of the unused resources while attempting to
+* Fair Sharing may decrease utilization of the unused resources while attempting to
 distribute them fairly, vs provide the tighties bin-packing. To avoid these scenarios,
 users should prefer to run massive workloads under nominal quotas.
 
@@ -255,7 +255,7 @@ When a CQ x fails to admit a workload w, one of the following scenarios may occu
 
 * [S2] A sub-organization to which CQ x belongs is borrowing, however it seems that it is
 borrowing too little compared to other sub-organizations that are also borrowing, so some
-action is needed to enforce fair sharing. We should compare how much the sub-orgs are
+action is needed to enforce Fair Sharing. We should compare how much the sub-orgs are
 borrowing compared to each other, and preempt some workloads up to the point when its fair
 share would be smaller than the sub-org for which preemptions are executed.
 
@@ -291,7 +291,7 @@ For each workload z in y we check whether if:
 
 [S2-a] value of AlmostLCA(y,x) **without z** is still higher (or equal) than value of AlmostLCA(x,y)
 with admitted workload w. Y’s sub-orgs will still be better than X’s sub-org after we
-preempt z and admit w, thus z is a reasonable candidate to re-balance fair sharing.
+preempt z and admit w, thus z is a reasonable candidate to re-balance Fair Sharing.
 
 
 [S2-b] value of AlmostLCA(y,x) (with z) is strictly higher than AlmostLCA(x,y) with admitted workload w.
@@ -355,8 +355,8 @@ This is a very complex feature so there will be lots of unit, integration and e2
 #### Alpha
 
 The alpha will be split among two releases.
-Release v0.7 will only implement fair sharing in the existing flat structure (cohorts don’t have parents).
-Release v0.8 will incorporate fair sharing with arbitrary hierarchies (KEP #79)
+Release v0.7 will only implement Fair Sharing in the existing flat structure (cohorts don’t have parents).
+Release v0.8 will incorporate Fair Sharing with arbitrary hierarchies (KEP #79)
 
 The following metrics will be added:
 * ClusterQueue fairness value

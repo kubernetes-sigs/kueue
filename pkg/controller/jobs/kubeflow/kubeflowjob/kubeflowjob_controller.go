@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package kubeflowjob
 
 import (
 	"sort"
-	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -39,6 +39,7 @@ type KubeflowJob struct {
 var _ jobframework.GenericJob = (*KubeflowJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*KubeflowJob)(nil)
 var _ jobframework.JobWithCustomValidation = (*KubeflowJob)(nil)
+var _ jobframework.JobWithManagedBy = (*KubeflowJob)(nil)
 
 func (j *KubeflowJob) Object() client.Object {
 	return j.KFJobControl.Object()
@@ -97,19 +98,19 @@ func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 	return "", true, false
 }
 
-func (j *KubeflowJob) PodSets() []kueue.PodSet {
+func (j *KubeflowJob) PodSets() ([]kueue.PodSet, error) {
 	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:     strings.ToLower(string(replicaType)),
+			Name:     kueue.NewPodSetReference(string(replicaType)),
 			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 				ptr.To(kftraining.ReplicaIndexLabel), nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *KubeflowJob) IsActive() bool {
@@ -195,4 +196,18 @@ func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) field.ErrorLis
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {
 	return ptr.Deref(replicaSpecs[replicaType].Replicas, 1)
+}
+
+func (j *KubeflowJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.KFJobControl.RunPolicy().ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == kftraining.KubeflowJobsController)
+}
+
+func (j *KubeflowJob) ManagedBy() *string {
+	return j.KFJobControl.RunPolicy().ManagedBy
+}
+
+func (j *KubeflowJob) SetManagedBy(managedBy *string) {
+	j.KFJobControl.RunPolicy().ManagedBy = managedBy
 }

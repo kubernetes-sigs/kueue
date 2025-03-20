@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,8 +41,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-tas-sts-"}}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-sts-")
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -70,6 +68,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a StatefulSet", func() {
@@ -78,12 +77,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 
 			const replicas = 3
 			sts := statefulset.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).
 				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				TerminationGracePeriod(1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 

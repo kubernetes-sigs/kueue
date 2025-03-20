@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -73,12 +72,12 @@ func TestValidateCreate(t *testing.T) {
 			name: "valid topology request",
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
@@ -87,18 +86,19 @@ func TestValidateCreate(t *testing.T) {
 			name: "invalid topology request",
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
-				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)}.ToAggregate(),
+				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 		},
 	}
 
@@ -124,12 +124,12 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name: "set valid topology request",
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
-				Name:        "worker",
-				Annotations: map[string]string{},
+				Name:           "worker",
+				PodAnnotations: map[string]string{},
 			}).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
@@ -137,18 +137,19 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name: "attempt to set invalid topology request",
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
-				Name:        "worker",
-				Annotations: map[string]string{},
+				Name:           "worker",
+				PodAnnotations: map[string]string{},
 			}).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
-				Annotations: map[string]string{
+				PodAnnotations: map[string]string{
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
-				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)},
+				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 		},
 	}
 
@@ -395,10 +396,7 @@ func TestDefault(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
-				)
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)

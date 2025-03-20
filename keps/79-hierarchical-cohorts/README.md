@@ -43,7 +43,7 @@ team and quota/budget structures.
 
 * Change the existing API and mechanics in a not backward-compatible way.
 * Introduce an alternative API to ClusterQueue.
-* Introduce new ways of fair sharing, like ratio-based sharing (at least 
+* Introduce new ways of Fair Sharing, like ratio-based sharing (at least 
 not in this KEP).
 * Introduce additional preemption models (this will be in a separate KEP).
 
@@ -128,33 +128,53 @@ type Cohort struct {
     metav1.ObjectMeta `json:"metadata,omitempty"`
 
     Spec   CohortSpec   `json:"spec,omitempty"`
+    Status CohortStatus `json:"status,omitempty"`
 }
 
 type CohortSpec struct {
-    // Cohort parent name. The parent Cohort object doesn't have to exist.
-    // In such case, it is assumed that parent simply doesn't have any
-    // quota and limits and doesn't have any other custom settings.
-    Parent string `json:"parent,omitempty"`
+    // Parent references the name of the Cohort's parent, if
+    // any. It satisfies one of three cases:
+    // 1) Unset. This Cohort is the root of its Cohort tree.
+    // 2) References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).
+    // 3) References an existent Cohort.
+    //
+    // If a cycle is created, we disable all members of the
+    // Cohort, including ClusterQueues, until the cycle is
+    // removed.  We prevent further admission while the cycle
+    // exists.
+    Parent kueuebeta.CohortReference `json:"parent,omitempty"`
+    
+    // ResourceGroups describes groupings of Resources and
+    // Flavors.  Each ResourceGroup defines a list of Resources
+    // and a list of Flavors which provide quotas for these
+    // Resources. Each Resource and each Flavor may only form part
+    // of one ResourceGroup.  There may be up to 16 ResourceGroups
+    // within a Cohort.
+    //
+    // BorrowingLimit limits how much members of this Cohort
+    // subtree can borrow from the parent subtree.
+    //
+    // LendingLimit limits how much members of this Cohort subtree
+    // can lend to the parent subtree.
+    //
+    // Borrowing and Lending limits must only be set when the
+    // Cohort has a parent.  Otherwise, the Cohort create/update
+    // will be rejected by the webhook.
+    //
+    //+listType=atomic
+    //+kubebuilder:validation:MaxItems=16
+    ResourceGroups []kueuebeta.ResourceGroup `json:"resourceGroups,omitempty"`
+    
+    // fairSharing defines the properties of the Cohort when
+    // participating in FairSharing. The values are only relevant
+    // if FairSharing is enabled in the Kueue configuration.
+    // +optional
+    FairSharing *kueuebeta.FairSharing `json:"fairSharing,omitempty"`
+}
 
-    // resourceGroups describes groups of resources that the Cohort can
-    // share with ClusterQueues within the same group of Cohorts/ClusterQueues.
-    // Each resource group defines the list of resources and a list of flavors
-    // that provide quotas for these resources.
-    // Each resource and each flavor can only form part of one resource group.
-    // resourceGroups can be up to 16.
-    //
-    // BorrowingLimit specifies how much ClusterQueues under this Cohort can borrow
-    // from ClusterQueues/Cohorts that are NOT under this Cohort. For Cohorts without
-    // a parent (top of the hierarchy) the BorrowingLimit has to be 0.
-    //
-    // LendingLimit specifies how much ClusterQueues that are NOT under this Cohort
-    // can borrow from the ClusterQueues/Cohorts that are under this Cohort.
-    // If any of the Limits is not specified it means that there is no limit
-    // and ClusterQueues can borrow/lend as much as they want/have.
-    // 
-    // +listType=atomic
-    // +kubebuilder:validation:MaxItems=16
-    ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
+type CohortStatus struct {
+    // +optional
+    FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
 }
 ```
 

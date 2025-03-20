@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,11 +37,11 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
-type multikueueAdapter struct{}
+type multiKueueAdapter struct{}
 
-var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	localJob := rayv1.RayJob{}
@@ -80,35 +81,47 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
+	// clear the managedBy enables the controller to take over
+	remoteJob.Spec.ManagedBy = nil
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := rayv1.RayJob{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
+func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	job := rayv1.RayJob{}
+	err := c.Get(ctx, key, &job)
+	if err != nil {
+		return false, "", err
+	}
+	jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
+	if jobControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	}
 	return true, "", nil
 }
 
-func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
+func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
-func (*multikueueAdapter) GetEmptyList() client.ObjectList {
+func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &rayv1.RayJobList{}
 }
 
-func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isJob := o.(*rayv1.RayJob)
 	if !isJob {
 		return types.NamespacedName{}, errors.New("not a rayjob")

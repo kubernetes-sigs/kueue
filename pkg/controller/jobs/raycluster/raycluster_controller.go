@@ -1,9 +1,12 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -51,12 +55,13 @@ func init() {
 		JobType:                &rayv1.RayCluster{},
 		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayCluster,
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;update
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
@@ -73,6 +78,7 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
+var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -98,7 +104,7 @@ func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
-func (j *RayCluster) PodSets() []kueue.PodSet {
+func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
 
@@ -121,13 +127,13 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
+			Name:            kueue.NewPodSetReference(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
@@ -198,4 +204,18 @@ func isRayCluster(owner *metav1.OwnerReference) bool {
 
 func fromObject(o runtime.Object) *RayCluster {
 	return (*RayCluster)(o.(*rayv1.RayCluster))
+}
+
+func (j *RayCluster) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayCluster) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayCluster) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }

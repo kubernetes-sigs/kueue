@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	applyconfigurationkueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,32 +37,35 @@ type ProvisioningRequestConfigsGetter interface {
 
 // ProvisioningRequestConfigInterface has methods to work with ProvisioningRequestConfig resources.
 type ProvisioningRequestConfigInterface interface {
-	Create(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.CreateOptions) (*v1beta1.ProvisioningRequestConfig, error)
-	Update(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.UpdateOptions) (*v1beta1.ProvisioningRequestConfig, error)
+	Create(ctx context.Context, provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfig, opts v1.CreateOptions) (*kueuev1beta1.ProvisioningRequestConfig, error)
+	Update(ctx context.Context, provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfig, opts v1.UpdateOptions) (*kueuev1beta1.ProvisioningRequestConfig, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.ProvisioningRequestConfig, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.ProvisioningRequestConfigList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1beta1.ProvisioningRequestConfig, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1beta1.ProvisioningRequestConfigList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ProvisioningRequestConfig, err error)
-	Apply(ctx context.Context, provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ProvisioningRequestConfig, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1beta1.ProvisioningRequestConfig, err error)
+	Apply(ctx context.Context, provisioningRequestConfig *applyconfigurationkueuev1beta1.ProvisioningRequestConfigApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.ProvisioningRequestConfig, err error)
 	ProvisioningRequestConfigExpansion
 }
 
 // provisioningRequestConfigs implements ProvisioningRequestConfigInterface
 type provisioningRequestConfigs struct {
-	*gentype.ClientWithListAndApply[*v1beta1.ProvisioningRequestConfig, *v1beta1.ProvisioningRequestConfigList, *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1beta1.ProvisioningRequestConfig, *kueuev1beta1.ProvisioningRequestConfigList, *applyconfigurationkueuev1beta1.ProvisioningRequestConfigApplyConfiguration]
 }
 
 // newProvisioningRequestConfigs returns a ProvisioningRequestConfigs
 func newProvisioningRequestConfigs(c *KueueV1beta1Client) *provisioningRequestConfigs {
 	return &provisioningRequestConfigs{
-		gentype.NewClientWithListAndApply[*v1beta1.ProvisioningRequestConfig, *v1beta1.ProvisioningRequestConfigList, *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1beta1.ProvisioningRequestConfig, *kueuev1beta1.ProvisioningRequestConfigList, *applyconfigurationkueuev1beta1.ProvisioningRequestConfigApplyConfiguration](
 			"provisioningrequestconfigs",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1beta1.ProvisioningRequestConfig { return &v1beta1.ProvisioningRequestConfig{} },
-			func() *v1beta1.ProvisioningRequestConfigList { return &v1beta1.ProvisioningRequestConfigList{} }),
+			func() *kueuev1beta1.ProvisioningRequestConfig { return &kueuev1beta1.ProvisioningRequestConfig{} },
+			func() *kueuev1beta1.ProvisioningRequestConfigList {
+				return &kueuev1beta1.ProvisioningRequestConfigList{}
+			},
+		),
 	}
 }

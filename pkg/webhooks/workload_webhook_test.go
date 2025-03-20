@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -50,14 +49,8 @@ func TestValidateWorkload(t *testing.T) {
 	}{
 		"valid": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				kueue.PodSet{
-					Name:  "driver",
-					Count: 1,
-				},
-				kueue.PodSet{
-					Name:  "workers",
-					Count: 100,
-				},
+				*testingutil.MakePodSet("driver", 1).Obj(),
+				*testingutil.MakePodSet("workers", 100).Obj(),
 			).Obj(),
 		},
 		"should have a valid podSet name in status assignment": {
@@ -70,7 +63,7 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"assignment usage should be divisible by count": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*testingutil.MakePodSet("main", 3).
+				PodSets(*testingutil.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue").
@@ -84,32 +77,16 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"should not request num-pods resource": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(kueue.PodSet{
-					Name:  "bad",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							InitContainers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-							Containers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-						},
-					},
-				}).
+				PodSets(
+					*testingutil.MakePodSet("bad", 1).
+						InitContainers(testingutil.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourcePods: "1",
+						})...).
+						Containers(testingutil.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourcePods: "1",
+						})...).
+						Obj(),
+				).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
@@ -184,7 +161,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid label name of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"@abc": "foo"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"@abc": "foo"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -194,7 +171,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid node selector name of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"@abc": "foo"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, NodeSelector: map[string]string{"@abc": "foo"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -204,7 +181,7 @@ func TestValidateWorkload(t *testing.T) {
 		"invalid label value of podSetUpdate": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				AdmissionChecks(
-					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"foo": "@abc"}}}},
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "@abc"}}}},
 				).
 				Obj(),
 			wantErr: field.ErrorList{

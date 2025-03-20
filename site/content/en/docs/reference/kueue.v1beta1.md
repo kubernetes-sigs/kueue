@@ -568,7 +568,8 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 
 
 <p>BorrowWithinCohort contains configuration which allows to preempt workloads
-within cohort while borrowing.</p>
+within cohort while borrowing. It only works with Classical Preemption,
+<strong>not</strong> with Fair Sharing.</p>
 
 
 <table class="table">
@@ -704,6 +705,23 @@ in the cluster queue.</p>
 
 <p>ClusterQueuePreemption contains policies to preempt Workloads from this
 ClusterQueue or the ClusterQueue's cohort.</p>
+<p>Preemption may be configured to work in the following scenarios:</p>
+<ul>
+<li>When a Workload fits within the nominal quota of the ClusterQueue, but
+the quota is currently borrowed by other ClusterQueues in the cohort.
+We preempt workloads in other ClusterQueues to allow this ClusterQueue to
+reclaim its nominal quota. Configured using reclaimWithinCohort.</li>
+<li>When a Workload doesn't fit within the nominal quota of the ClusterQueue
+and there are admitted Workloads in the ClusterQueue with lower priority.
+Configured using withinClusterQueue.</li>
+<li>When a Workload may fit while both borrowing and preempting
+low priority workloads in the Cohort. Configured using borrowWithinCohort.</li>
+<li>When FairSharing is enabled, to maintain fair distribution of
+unused resources. See FairSharing documentation.</li>
+</ul>
+<p>The preemption algorithm tries to find a minimal set of Workloads to
+preempt to accomomdate the pending Workload, preempting Workloads with
+lower priority first.</p>
 
 
 <table class="table">
@@ -725,11 +743,11 @@ fits within the nominal quota of its ClusterQueue, only preempt
 Workloads in the cohort that have lower priority than the pending
 Workload. <strong>Fair Sharing</strong> only preempt Workloads in the cohort that
 have lower priority than the pending Workload and that satisfy the
-fair sharing preemptionStategies.</li>
+Fair Sharing preemptionStategies.</li>
 <li><code>Any</code>: <strong>Classic Preemption</strong> if the pending Workload fits within
 the nominal quota of its ClusterQueue, preempt any Workload in the
 cohort, irrespective of priority. <strong>Fair Sharing</strong> preempt Workloads
-in the cohort that satisfy the fair sharing preemptionStrategies.</li>
+in the cohort that satisfy the Fair Sharing preemptionStrategies.</li>
 </ul>
 </td>
 </tr>
@@ -737,9 +755,7 @@ in the cohort that satisfy the fair sharing preemptionStrategies.</li>
 <a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohort"><code>BorrowWithinCohort</code></a>
 </td>
 <td>
-   <p>borrowWithinCohort provides configuration to allow preemption within
-cohort while borrowing.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>withinClusterQueue</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PreemptionPolicy"><code>PreemptionPolicy</code></a>
@@ -805,7 +821,7 @@ resourceGroups can be up to 16.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
    <p>cohort that this ClusterQueue belongs to. CQs that belong to the
@@ -818,8 +834,6 @@ If empty, this ClusterQueue cannot borrow from any other ClusterQueue and
 vice versa.</p>
 <p>A cohort is a name that links CQs together, but it doesn't reference any
 object.</p>
-<p>Validation of a cohort name is equivalent to that of object names:
-subdomain in DNS (RFC 1123).</p>
 </td>
 </tr>
 <tr><td><code>queueingStrategy</code> <B>[Required]</B><br/>
@@ -862,21 +876,7 @@ before borrowing or preempting in the flavor being evaluated.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption"><code>ClusterQueuePreemption</code></a>
 </td>
 <td>
-   <p>preemption describes policies to preempt Workloads from this ClusterQueue
-or the ClusterQueue's cohort.</p>
-<p>Preemption can happen in two scenarios:</p>
-<ul>
-<li>When a Workload fits within the nominal quota of the ClusterQueue, but
-the quota is currently borrowed by other ClusterQueues in the cohort.
-Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-reclaim its nominal quota.</li>
-<li>When a Workload doesn't fit within the nominal quota of the ClusterQueue
-and there are admitted Workloads in the ClusterQueue with lower priority.</li>
-</ul>
-<p>The preemption algorithm tries to find a minimal set of Workloads to
-preempt to accommodate the pending Workload, preempting Workloads with
-lower priority first.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>admissionChecks</code><br/>
 <code>[]string</code>
@@ -908,12 +908,13 @@ made.</p>
 </ul>
 </td>
 </tr>
-<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<tr><td><code>fairSharing</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
-   <p>fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
-The values are only relevant if fair sharing is enabled in the Kueue configuration.</p>
+   <p>fairSharing defines the properties of the ClusterQueue when
+participating in FairSharing.  The values are only relevant
+if FairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 </tbody>
@@ -998,11 +999,26 @@ instead.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <p>FairSharing contains the information about the current status of fair sharing.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 </tbody>
 </table>
+
+## `CohortReference`     {#kueue-x-k8s-io-v1beta1-CohortReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+<p>CohortReference is the name of the Cohort.</p>
+<p>Validation of a cohort name is equivalent to that of object names:
+subdomain in DNS (RFC 1123).</p>
+
+
+
 
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
@@ -1012,7 +1028,11 @@ instead.</p>
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 
-<p>FairSharing contains the properties of the ClusterQueue when participating in fair sharing.</p>
+<p>FairSharing contains the properties of the ClusterQueue or Cohort,
+when participating in FairSharing.</p>
+<p>Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
+which has a parent) as of v0.11. Using these features together in
+V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
@@ -1024,14 +1044,16 @@ instead.</p>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
-   <p>weight gives a comparative advantage to this ClusterQueue when competing for unused
-resources in the cohort against other ClusterQueues.
-The share of a ClusterQueue is based on the dominant resource usage above nominal
-quotas for each resource, divided by the weight.
-Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
-and preempting workloads from the ClusterQueues with the highest share.
-A zero weight implies infinite share value, meaning that this ClusterQueue will always
-be at disadvantage against other ClusterQueues.</p>
+   <p>weight gives a comparative advantage to this ClusterQueue
+or Cohort when competing for unused resources in the
+Cohort.  The share is based on the dominant resource usage
+above nominal quotas for each resource, divided by the
+weight.  Admission prioritizes scheduling workloads from
+ClusterQueues and Cohorts with the lowest share and
+preempting workloads from the ClusterQueues and Cohorts
+with the highest share.  A zero weight implies infinite
+share value, meaning that this Node will always be at
+disadvantage against other ClusterQueues and Cohorts.</p>
 </td>
 </tr>
 </tbody>
@@ -1045,6 +1067,8 @@ be at disadvantage against other ClusterQueues.</p>
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 
+<p>fairSharing contains the information about the current status of Fair Sharing.</p>
+
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
@@ -1055,12 +1079,13 @@ be at disadvantage against other ClusterQueues.</p>
 <code>int64</code>
 </td>
 <td>
-   <p>WeightedShare represent the maximum of the ratios of usage above nominal
-quota to the lendable resources in the cohort, among all the resources
-provided by the ClusterQueue, and divided by the weight.
-If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
-the maximum possible share value.</p>
+   <p>WeightedShare represent the maximum of the ratios of usage
+above nominal quota to the lendable resources in the
+Cohort, among all the resources provided by the Node, and
+divided by the weight.  If zero, it means that the usage of
+the Node is below the nominal quota.  If the Node has a
+weight of zero, this will return 9223372036854775807, the
+maximum possible share value.</p>
 </td>
 </tr>
 </tbody>
@@ -1265,6 +1290,15 @@ have the same labels.</p>
 <td>
    <p>nodeTaints are taints that the nodes associated with this ResourceFlavor
 have.</p>
+</td>
+</tr>
+<tr><td><code>topology</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-Topology"><code>Topology</code></a>
+</td>
+<td>
+   <p>topology is the topology that associated with this ResourceFlavor.</p>
+<p>This is an alpha field and requires enabling the TopologyAwareScheduling
+feature gate.</p>
 </td>
 </tr>
 </tbody>
@@ -1559,7 +1593,7 @@ workloads assigned to this LocalQueue.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the PodSet name.</p>
@@ -1625,7 +1659,7 @@ enabled.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>Name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
@@ -1712,6 +1746,28 @@ count: 2</li>
 </tbody>
 </table>
 
+## `PodSetReference`     {#kueue-x-k8s-io-v1beta1-PodSetReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PodSet](#kueue-x-k8s-io-v1beta1-PodSet)
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
+
+- [PodSetRequest](#kueue-x-k8s-io-v1beta1-PodSetRequest)
+
+- [PodSetUpdate](#kueue-x-k8s-io-v1beta1-PodSetUpdate)
+
+- [ReclaimablePod](#kueue-x-k8s-io-v1beta1-ReclaimablePod)
+
+
+<p>PodSetReference is the name of a PodSet.</p>
+
+
+
+
 ## `PodSetRequest`     {#kueue-x-k8s-io-v1beta1-PodSetRequest}
     
 
@@ -1727,7 +1783,7 @@ count: 2</li>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
@@ -1778,6 +1834,15 @@ annotation.</p>
    <p>preferred indicates the topology level preferred by the PodSet, as
 indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
 annotation.</p>
+</td>
+</tr>
+<tr><td><code>unconstrained</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>unconstrained indicates that Kueue has the freedom to schedule the PodSet within
+the entire available capacity, without constraints on the compactness of the placement.
+This is indicated by the <code>kueue.x-k8s.io/podset-unconstrained-topology</code> PodSet annotation.</p>
 </td>
 </tr>
 <tr><td><code>podIndexLabel</code> <B>[Required]</B><br/>
@@ -1832,7 +1897,7 @@ result in failure during workload admission.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>Name of the PodSet to modify. Should match to one of the Workload's PodSets.</p>
@@ -2015,7 +2080,7 @@ re-queuing an evicted workload.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
    <p>name is the PodSet name.</p>
@@ -2324,6 +2389,37 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 
 
+## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
+    
+
+**Appears in:**
+
+- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
+</td>
+<td>
+   <p>name is the name of the topology.</p>
+</td>
+</tr>
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
     
 
@@ -2399,6 +2495,8 @@ domain indicated by the values field.</p>
 **Appears in:**
 
 - [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec)
+
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
 
 
 <p>TopologyReference is the name of the Topology.</p>

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -213,5 +213,11 @@ func (j *XGBoostJobWrapper) Active(rType kftraining.ReplicaType, c int32) *XGBoo
 // StatusConditions updates status conditions of the XGBoostJob.
 func (j *XGBoostJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *XGBoostJobWrapper {
 	j.Status.Conditions = conditions
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *XGBoostJobWrapper) ManagedBy(c string) *XGBoostJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
 	return j
 }

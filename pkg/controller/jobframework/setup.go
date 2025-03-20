@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -85,11 +85,17 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				if !meta.IsNoMatchError(err) {
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 				}
-				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
+				// Webhook must be registered now; controller can be registered later.
+				// The issue is that the controller-runtime silently ignores attempts to update the webhook
+				// for an endpoint that already has one and we don't want the NoopWebhook to be installed.
+				if err := cb.SetupWebhook(mgr, opts...); err != nil {
+					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
+				}
+				logger.Info("No matching API in the server for job framework, deferring setting up controller")
 				go waitForAPI(ctx, mgr, log, gvk, func() {
-					log.Info("API now available, starting controller and webhook", "gvk", gvk)
+					log.Info("API now available, starting controller", "gvk", gvk)
 					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
-						log.Error(err, "Failed to setup controller and webhook for job framework")
+						log.Error(err, "Failed to setup controller for job framework")
 					}
 				})
 			} else {
@@ -112,6 +118,15 @@ func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name st
 		opts...,
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+	}
+	for _, rec := range cb.NewAdditionalReconcilers {
+		if err := rec(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+			opts...,
+		).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+		}
 	}
 	if err := cb.SetupWebhook(mgr, opts...); err != nil {
 		return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)

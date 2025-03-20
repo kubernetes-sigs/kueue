@@ -18,10 +18,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 // TopologyLister helps list Topologies.
@@ -29,19 +29,19 @@ import (
 type TopologyLister interface {
 	// List lists all Topologies in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.Topology, err error)
+	List(selector labels.Selector) (ret []*kueuev1alpha1.Topology, err error)
 	// Get retrieves the Topology from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.Topology, error)
+	Get(name string) (*kueuev1alpha1.Topology, error)
 	TopologyListerExpansion
 }
 
 // topologyLister implements the TopologyLister interface.
 type topologyLister struct {
-	listers.ResourceIndexer[*v1alpha1.Topology]
+	listers.ResourceIndexer[*kueuev1alpha1.Topology]
 }
 
 // NewTopologyLister returns a new TopologyLister.
 func NewTopologyLister(indexer cache.Indexer) TopologyLister {
-	return &topologyLister{listers.New[*v1alpha1.Topology](indexer, v1alpha1.Resource("topology"))}
+	return &topologyLister{listers.New[*kueuev1alpha1.Topology](indexer, kueuev1alpha1.Resource("topology"))}
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package statefulset
 
 import (
 	"fmt"
-	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -102,6 +101,12 @@ func (ss *StatefulSetWrapper) WithOwnerReference(ownerReference metav1.OwnerRefe
 	return ss
 }
 
+// Template sets the template of the StatefulSet.
+func (ss *StatefulSetWrapper) Template(template corev1.PodTemplateSpec) *StatefulSetWrapper {
+	ss.Spec.Template = template
+	return ss
+}
+
 // PodTemplateSpecLabel sets the label of the pod template spec of the StatefulSet
 func (ss *StatefulSetWrapper) PodTemplateSpecLabel(k, v string) *StatefulSetWrapper {
 	if ss.Spec.Template.Labels == nil {
@@ -144,23 +149,38 @@ func (ss *StatefulSetWrapper) StatusReplicas(r int32) *StatefulSetWrapper {
 	return ss
 }
 
+func (ss *StatefulSetWrapper) ReadyReplicas(r int32) *StatefulSetWrapper {
+	ss.Status.ReadyReplicas = r
+	return ss
+}
+
+func (ss *StatefulSetWrapper) CurrentRevision(currentRevision string) *StatefulSetWrapper {
+	ss.Status.CurrentRevision = currentRevision
+	return ss
+}
+
+func (ss *StatefulSetWrapper) UpdateRevision(updateRevision string) *StatefulSetWrapper {
+	ss.Status.UpdateRevision = updateRevision
+	return ss
+}
+
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
 	ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind,
 ) *StatefulSetWrapper {
 	gvk := jobframework.GetWorkloadNameForOwnerWithGVK(ownerName, ownerUID, ownerGVK)
-	return ss.PodTemplateSpecLabel(pod.GroupNameLabel, gvk)
+	return ss.PodTemplateSpecLabel(podconstants.GroupNameLabel, gvk)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupTotalCountAnnotation, fmt.Sprint(replicas))
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation() *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue)
 }
 
-func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation(enabled bool) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupServingAnnotation, strconv.FormatBool(enabled))
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation() *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue)
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
@@ -188,5 +208,16 @@ func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSe
 		ss.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
 	}
 	ss.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	return ss
+}
+
+// RequestAndLimit adds a resource request and limit to the default container.
+func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	return ss.Request(r, v).Limit(r, v)
+}
+
+// TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
+func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
 	return ss
 }

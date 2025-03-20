@@ -40,11 +40,7 @@ Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow these steps:
-
-  1. Set `internalCertManagement.enable` to `false` in [config file](#install-a-custom-configured-released-version).
-  2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
-  3. Enable `cert-manager` in `config/default/kustomization.yaml` and uncomment all sections with 'CERTMANAGER'.
+  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
@@ -263,7 +259,7 @@ spec:
 +       - --feature-gates=PartialAdmission=true
 ```
 
-The currently supported features are:
+### Feature gates for alpha and beta features
 
 | Feature                               | Default | Stage      | Since | Until |
 |---------------------------------------|---------|------------|-------|-------|
@@ -276,7 +272,6 @@ The currently supported features are:
 | `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
 | `QueueVisibility`                     | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
 | `VisibilityOnDemand`                  | `false` | Alpha      | 0.6   |  0.8  |
 | `VisibilityOnDemand`                  | `true`  | Beta       | 0.9   |       |
 | `PrioritySortingWithinCohort`         | `true`  | Beta       | 0.6   |       |
@@ -288,12 +283,25 @@ The currently supported features are:
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.9   |
-| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  |       |
-| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
-| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
+| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.10  |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
 | `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
+
+### Feature gates for graduated or deprecated features
+
+| Feature                               | Default | Stage      | Since | Until |
+|---------------------------------------|---------|------------|-------|-------|
+| `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
+| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
+| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   |       |
+| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   |       |
+| `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
+| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |
+| `MultiplePreemptions`                 | `true`  | GA         | 0.10  |       |
+| `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   | 0.10  |
+| `WorkloadResourceRequestsSummary`     | `true`  | Beta       | 0.10  | 0.11  |
+| `WorkloadResourceRequestsSummary`     | `true`  | GA         | 0.11  |       |
 
 ## What's next
 

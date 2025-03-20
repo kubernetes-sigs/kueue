@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 type podTestCase struct {
@@ -60,6 +61,8 @@ type podTestCase struct {
 
 func TestPodCmd(t *testing.T) {
 	testStartTime := time.Now()
+	basePod := testingpod.MakePod("", metav1.NamespaceDefault).
+		CreationTimestamp(testStartTime.Add(-time.Hour).Truncate(time.Second))
 
 	testCases := []podTestCase{
 		{
@@ -77,29 +80,14 @@ func TestPodCmd(t *testing.T) {
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
-					},
-				}, {
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+				*basePod.Clone().
+					Name("valid-pod-2").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -132,29 +120,14 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
-					},
-				}, {
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+				*basePod.Clone().
+					Name("valid-pod-2").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -247,29 +220,16 @@ valid-pod-2   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: "dev-team-a",
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-					},
-				}, {
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: "dev-team-b",
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Namespace("dev-team-a").
+					Label(batchv1.JobNameLabel, "sample-job").
+					Obj(),
+				*basePod.Clone().
+					Name("valid-pod-2").
+					Namespace("dev-team-b").
+					Label(batchv1.JobNameLabel, "sample-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -303,19 +263,11 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "pytorchjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(kftraining.OperatorNameLabel, "pytorchjob-controller").
+					Label(kftraining.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -329,51 +281,6 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 				},
 			},
 			args: []string{"--for", "pytorchjob/test-job"},
-			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          <unknown>
-`,
-		}, {
-			name: "list pods for kubeflow.org/MXjob type",
-			job: &kftraining.MXJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "MXJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "mxjob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
-				},
-			},
-			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mxjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
-			},
-			mapperGVKs: []schema.GroupVersionKind{
-				{
-					Group:   "kubeflow.org",
-					Version: "v1",
-					Kind:    "MXJob",
-				}, {
-					Group:   "",
-					Version: "v1",
-					Kind:    "Pod",
-				},
-			},
-			args: []string{"--for", "mxjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
@@ -393,19 +300,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "paddlejob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(kftraining.OperatorNameLabel, "paddlejob-controller").
+					Label(kftraining.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -438,19 +337,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "tfjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(kftraining.OperatorNameLabel, "tfjob-controller").
+					Label(kftraining.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -483,19 +374,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mpijob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(kftraining.OperatorNameLabel, "mpijob-controller").
+					Label(kftraining.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -528,19 +411,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "xgboostjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(kftraining.OperatorNameLabel, "xgboostjob-controller").
+					Label(kftraining.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -573,18 +448,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 				Status: rayv1.RayJobStatus{RayClusterName: "test-cluster"},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -616,18 +483,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "test-cluster",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(rayutils.RayClusterLabelKey, "test-cluster").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -659,18 +518,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(jobsetapi.JobSetNameKey, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
@@ -702,18 +553,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 				},
 			},
 			pods: []corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "test-job",
-						},
-					},
-				},
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(jobsetapi.JobSetNameKey, "test-job").
+					Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,9 +20,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/field"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -46,37 +47,17 @@ func TestSummarize(t *testing.T) {
 		},
 		"podDefaults": {
 			ranges: []corev1.LimitRange{
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Default: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-								DefaultRequest: corev1.ResourceList{
-									corev1.ResourceCPU:    ar500m,
-									corev1.ResourceMemory: ar1Gi,
-								},
-							},
-						},
-					},
-				},
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Default: corev1.ResourceList{
-									corev1.ResourceMemory: ar2Gi,
-								},
-								DefaultRequest: corev1.ResourceList{
-									corev1.ResourceCPU: ar1,
-								},
-							},
-						},
-					},
-				},
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Default", corev1.ResourceCPU, ar2.String()).
+					WithValue("DefaultRequest", corev1.ResourceCPU, ar500m.String()).
+					WithValue("DefaultRequest", corev1.ResourceMemory, ar1Gi.String()).
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Default", corev1.ResourceMemory, ar2Gi.String()).
+					WithValue("DefaultRequest", corev1.ResourceCPU, ar1.String()).
+					Obj(),
 			},
 			expected: map[corev1.LimitType]corev1.LimitRangeItem{
 				corev1.LimitTypePod: {
@@ -93,43 +74,19 @@ func TestSummarize(t *testing.T) {
 		},
 		"limits": {
 			ranges: []corev1.LimitRange{
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Max: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-								Min: corev1.ResourceList{
-									corev1.ResourceCPU:    ar500m,
-									corev1.ResourceMemory: ar1Gi,
-								},
-								MaxLimitRequestRatio: corev1.ResourceList{
-									corev1.ResourceCPU: ar2,
-								},
-							},
-						},
-					},
-				},
-				{
-					Spec: corev1.LimitRangeSpec{
-						Limits: []corev1.LimitRangeItem{
-							{
-								Type: corev1.LimitTypePod,
-								Max: corev1.ResourceList{
-									corev1.ResourceMemory: ar2Gi,
-								},
-								Min: corev1.ResourceList{
-									corev1.ResourceCPU: ar1,
-								},
-								MaxLimitRequestRatio: corev1.ResourceList{
-									corev1.ResourceCPU: ar500m,
-								},
-							},
-						},
-					},
-				},
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceCPU, ar2.String()).
+					WithValue("Min", corev1.ResourceCPU, ar500m.String()).
+					WithValue("Min", corev1.ResourceMemory, ar1Gi.String()).
+					WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, ar2.String()).
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceMemory, ar2Gi.String()).
+					WithValue("Min", corev1.ResourceCPU, ar1.String()).
+					WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, ar500m.String()).
+					Obj(),
 			},
 			expected: Summary{
 				corev1.LimitTypePod: {
@@ -152,216 +109,15 @@ func TestSummarize(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			result := Summarize(tc.ranges...)
-			if diff := cmp.Diff(tc.expected, result); diff != "" {
+			if diff := cmp.Diff(tc.expected, result, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestTotalRequest(t *testing.T) {
-	cases := map[string]struct {
-		podSpec *corev1.PodSpec
-		want    corev1.ResourceList
-	}{
-		"pod without init containers. request sum(containers)": {
-			podSpec: &corev1.PodSpec{
-				Containers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("2.5"),
-				corev1.ResourceMemory: resource.MustParse("2Gi"),
-				"example.com/gpu":     resource.MustParse("2"),
-			},
-		},
-		"pod only with regular init containers. request max( max(each initContainerUse), sum(containers) )": {
-			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-				},
-				Containers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("4"),
-				corev1.ResourceMemory: resource.MustParse("2Gi"),
-				"example.com/gpu":     resource.MustParse("2"),
-			},
-		},
-		"pod only with sidecar containers. request max( max(each initContainerUse), sum(sidecarContainers) + sum(containers) )": {
-			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						AsSidecar().
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						AsSidecar().
-						Obj(),
-				},
-				Containers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("8"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
-				"example.com/gpu":     resource.MustParse("4"),
-			},
-		},
-		"pod only with regular init and sidecar containers. request max( max(each InitContainerUse), sum(sidecarContainers) )": {
-			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "1Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "2").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "3").
-						WithResourceReq(corev1.ResourceMemory, "3Gi").
-						AsSidecar().
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq(corev1.ResourceMemory, "4Gi").
-						AsSidecar().
-						Obj(),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("7"),
-				corev1.ResourceMemory: resource.MustParse("7Gi"),
-			},
-		},
-		"pod with regular init and sidecar containers. request max( max(each InitContainer), sum(sidecarContainers) + sum(containers) )": {
-			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "1Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "2").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "3").
-						WithResourceReq(corev1.ResourceMemory, "3Gi").
-						AsSidecar().
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq(corev1.ResourceMemory, "4Gi").
-						AsSidecar().
-						Obj(),
-				},
-				Containers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "2").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq("example.com/gpu", "4").
-						Obj(),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("13"),
-				corev1.ResourceMemory: resource.MustParse("9Gi"),
-				"example.com/gpu":     resource.MustParse("4"),
-			},
-		},
-		"adds overhead. request max( max(each InitContainer), sum(sidecarContainers) + sum(containers) ) + overhead": {
-			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "4").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						WithResourceReq("example.com/gpu", "2").
-						AsSidecar().
-						Obj(),
-				},
-				Containers: []corev1.Container{
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1").
-						WithResourceReq(corev1.ResourceMemory, "2Gi").
-						Obj(),
-					*testingutil.MakeContainer().
-						WithResourceReq(corev1.ResourceCPU, "1.5").
-						WithResourceReq("example.com/gpu", "2").
-						Obj(),
-				},
-				Overhead: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-					"example.com/gpu":     resource.MustParse("1"),
-				},
-			},
-			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("5"),
-				corev1.ResourceMemory: resource.MustParse("5Gi"),
-				"example.com/gpu":     resource.MustParse("5"),
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			result := TotalRequests(tc.podSpec)
-			if diff := cmp.Diff(tc.want, result); diff != "" {
-				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
 func TestValidatePodSpec(t *testing.T) {
+	podSpecPath := field.NewPath("spec").Child("podSets").Index(0).Child("template").Child("spec")
 	podSpec := &corev1.PodSpec{
 		Containers: []corev1.Container{
 			*testingutil.MakeContainer().
@@ -393,19 +149,22 @@ func TestValidatePodSpec(t *testing.T) {
 	}
 	cases := map[string]struct {
 		summary Summary
-		want    []string
+		want    field.ErrorList
 	}{
 		"empty": {
 			summary: Summary{},
-			want:    []string{},
 		},
 		"init container over": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Max", "example.com/initContainerGpu", "1").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]corev1.ResourceName{"example.com/initContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
 			},
 		},
 		"init container under": {
@@ -413,8 +172,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Min", "example.com/initContainerGpu", "3").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]corev1.ResourceName{"example.com/initContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
 			},
 		},
 		"container over": {
@@ -422,8 +185,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Max", "example.com/mainContainerGpu", "1").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{"example.com/mainContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
 			},
 		},
 		"container under": {
@@ -431,8 +198,12 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("Min", "example.com/mainContainerGpu", "3").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{"example.com/mainContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
 			},
 		},
 		"pod over": {
@@ -440,8 +211,8 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypePod).
 				WithValue("Max", corev1.ResourceCPU, "4").
 				Obj()),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
 			},
 		},
 		"pod under": {
@@ -449,8 +220,8 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypePod).
 				WithValue("Min", corev1.ResourceCPU, "6").
 				Obj()),
-			want: []string{
-				violateMinMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeBelowLimitRangeMinMessage),
 			},
 		},
 		"multiple": {
@@ -468,10 +239,18 @@ func TestValidatePodSpec(t *testing.T) {
 					WithValue("Max", "example.com/initContainerGpu", "1").
 					Obj(),
 			),
-			want: []string{
-				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
-				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
-				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("initContainers").Index(1),
+					[]corev1.ResourceName{"example.com/initContainerGpu"},
+					RequestsMustNotBeAboveLimitRangeMaxMessage,
+				),
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{"example.com/mainContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
 			},
 		},
 		"multiple valid": {
@@ -489,12 +268,11 @@ func TestValidatePodSpec(t *testing.T) {
 					WithValue("Max", "example.com/initContainerGpu", "2").
 					Obj(),
 			),
-			want: []string{},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			result := tc.summary.ValidatePodSpec(podSpec, field.NewPath("testPodSet"))
+			result := tc.summary.ValidatePodSpec(podSpec, podSpecPath)
 			if diff := cmp.Diff(tc.want, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}

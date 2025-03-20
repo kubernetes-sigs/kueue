@@ -1,0 +1,26 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kueue-viz-backend-ingress
+  namespace: system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - backend.kueue-viz.local
+      secretName: kueue-viz-tls-secret
+  rules:
+    - host: backend.kueue-viz.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kueue-viz-backend
+                port:
+                  number: 8080
+

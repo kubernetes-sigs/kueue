@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,14 +23,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type ClusterQueueSnapshot struct {
-	Name              string
+	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -51,6 +53,7 @@ type ClusterQueueSnapshot struct {
 	hierarchy.ClusterQueue[*CohortSnapshot]
 
 	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+	tasOnly    bool
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -64,21 +67,80 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) {
-	for fr, q := range frq {
+// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// corresponding to the list of workloads. It returns a function which
+// can be used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	usage := make([]workload.Usage, 0, len(workloads))
+	for _, w := range workloads {
+		usage = append(usage, w.Usage())
+	}
+	for _, u := range usage {
+		c.RemoveUsage(u)
+	}
+	return func() {
+		for _, u := range usage {
+			c.AddUsage(u)
+		}
+	}
+}
+
+// SimulateUsageAddition modifies the snapshot by adding usage, and
+// returns a function used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateUsageAddition(usage workload.Usage) func() {
+	c.AddUsage(usage)
+	return func() {
+		c.RemoveUsage(usage)
+	}
+}
+
+// SimulateUsageRemoval modifies the snapshot by removing usage, and
+// returns a function used to restore the usage.
+func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func() {
+	c.RemoveUsage(usage)
+	return func() {
+		c.AddUsage(usage)
+	}
+}
+
+func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
+	for fr, q := range usage.Quota {
 		addUsage(c, fr, q)
 	}
+	c.updateTASUsage(usage.TAS, add)
 }
 
-func (c *ClusterQueueSnapshot) removeUsage(frq resources.FlavorResourceQuantities) {
-	for fr, q := range frq {
+func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
+	for fr, q := range usage.Quota {
 		removeUsage(c, fr, q)
+	}
+	c.updateTASUsage(usage.TAS, subtract)
+}
+
+func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageOp) {
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for tasFlavor, tasUsage := range usage {
+			if tasFlvCache := c.TASFlavors[tasFlavor]; tasFlvCache != nil {
+				for _, tr := range tasUsage {
+					domainID := utiltas.DomainID(tr.Values)
+					tasFlvCache.updateTASUsage(domainID, tr.TotalRequests(), op, tr.Count)
+				}
+			}
+		}
 	}
 }
 
-func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantities) bool {
-	for fr, q := range frq {
+func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
+	for fr, q := range usage.Quota {
 		if c.Available(fr) < q {
+			return false
+		}
+	}
+	for tasFlavor, flvUsage := range usage.TAS {
+		// We assume the `tasFlavor` is already in the snapshot as this was
+		// already checked earlier during flavor assignment, and the set of
+		// flavors is immutable in snapshot.
+		if !c.TASFlavors[tasFlavor].Fits(flvUsage) {
 			return false
 		}
 	}
@@ -94,7 +156,7 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.usageFor(fr)+val > c.QuotaFor(fr).Nominal
+	return c.ResourceNode.Usage[fr]+val > c.QuotaFor(fr).Nominal
 }
 
 // Available returns the current capacity available, before preempting
@@ -112,27 +174,14 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 	return potentialAvailable(c, fr)
 }
 
-// The methods below implement several interfaces. See
-// dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
+func (c *ClusterQueueSnapshot) GetName() kueue.ClusterQueueReference {
+	return c.Name
+}
+
+// Implements dominantResourceShareNode interface.
 
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
-}
-
-func (c *ClusterQueueSnapshot) usageFor(fr resources.FlavorResource) int64 {
-	return c.ResourceNode.Usage[fr]
-}
-
-func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
-	return c.ResourceGroups
-}
-
-func (c *ClusterQueueSnapshot) parentResources() ResourceNode {
-	return c.Parent().ResourceNode
-}
-
-func (c *ClusterQueueSnapshot) GetName() string {
-	return c.Name
 }
 
 // The methods below implement hierarchicalResourceNode interface.
@@ -143,4 +192,32 @@ func (c *ClusterQueueSnapshot) getResourceNode() ResourceNode {
 
 func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
+}
+
+func (c *ClusterQueueSnapshot) DominantResourceShare() int {
+	share, _ := dominantResourceShare(c, nil)
+	return share
+}
+
+type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
+
+func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
+	tasRequestsByFlavor WorkloadTASRequests,
+	simulateEmpty bool) TASAssignmentsResult {
+	result := make(TASAssignmentsResult)
+	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
+		// We assume the `tasFlavor` is already in the snapshot as this was
+		// already checked earlier during flavor assignment, and the set of
+		// flavors is immutable in snapshot.
+		tasFlavorCache := c.TASFlavors[tasFlavor]
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, simulateEmpty)
+		for psName, psAssignment := range flvResult {
+			result[psName] = psAssignment
+		}
+	}
+	return result
+}
+
+func (c *ClusterQueueSnapshot) IsTASOnly() bool {
+	return c.tasOnly
 }

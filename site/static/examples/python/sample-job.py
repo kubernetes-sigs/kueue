@@ -25,13 +25,13 @@ def get_parser():
     parser.add_argument(
         "--image",
         help="container image to use",
-        default="gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
+        default="registry.k8s.io/e2e-test-images/agnhost:2.53",
     )
     parser.add_argument(
         "--args",
         nargs="+",
         help="args for container",
-        default=["30s"],
+        default=["entrypoint-tester", "hello", "world"],
     )
     return parser
 

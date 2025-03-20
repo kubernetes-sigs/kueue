@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -264,14 +264,14 @@ func TestResourceFlavorCmd(t *testing.T) {
 		},
 		"should create resource flavor with node labels": {
 			rfName: "rf",
-			args:   []string{"--node-labels", "beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux"},
+			args:   []string{"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux"},
 			wantRf: &v1beta1.ResourceFlavor{
 				TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
 				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
 				Spec: v1beta1.ResourceFlavorSpec{
 					NodeLabels: map[string]string{
-						"beta.kubernetes.io/arch": "arm64",
-						"beta.kubernetes.io/os":   "linux",
+						corev1.LabelArchStable: "arm64",
+						corev1.LabelOSStable:   "linux",
 					},
 				},
 			},

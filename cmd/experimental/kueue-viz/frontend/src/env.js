@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-export const env = { ...process.env, ...window['env'] }
+// Combine Vite's environment variables with window.env
+export const env = { 
+  ...import.meta.env,
+  ...(window['env'] || {})
+}
 
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,28 +41,35 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var snapCmpOpts = []cmp.Option{
-	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(hierarchy.Cohort[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*cache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.CycleChecker{}),
-	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
-	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[string] {
-		result := make(sets.Set[string], len(s))
-		for cq := range s {
-			result.Insert(cq.Name)
-		}
-		return result
-	}), // avoid recursion.
+var snapCmpOpts = cmp.Options{
+	// ignore zero values during comparison, as we consider
+	// zero FlavorResource usage to be same as no map entry.
+	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
+}
+
+type nodeKey struct {
+	cohort       kueue.CohortReference
+	clusterQueue kueue.ClusterQueueReference
+}
+
+func resourceNodes(snapshot *cache.Snapshot) map[nodeKey]cache.ResourceNode {
+	nodes := map[nodeKey]cache.ResourceNode{}
+	for _, cohort := range snapshot.Cohorts() {
+		nodes[nodeKey{cohort: cohort.Name}] = cohort.ResourceNode
+	}
+	for _, cq := range snapshot.ClusterQueues() {
+		nodes[nodeKey{clusterQueue: cq.Name}] = cq.ResourceNode
+	}
+	return nodes
 }
 
 func TestPreemption(t *testing.T) {
@@ -284,7 +291,7 @@ func TestPreemption(t *testing.T) {
 		cohorts             []*kueuealpha.Cohort
 		admitted            []kueue.Workload
 		incoming            *kueue.Workload
-		targetCQ            string
+		targetCQ            kueue.ClusterQueueReference
 		assignment          flavorassigner.Assignment
 		wantPreempted       sets.Set[string]
 		disableLendingLimit bool
@@ -295,16 +302,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -326,16 +342,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -358,11 +383,17 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -383,11 +414,17 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -407,16 +444,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -438,16 +484,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -469,16 +524,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceMemory, "1Gi").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceMemory, "1Gi").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -505,16 +569,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "6").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "6000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "6000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -573,12 +646,18 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -599,17 +678,26 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-2", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -630,17 +718,26 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-high-2", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -667,17 +764,26 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -699,17 +805,26 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("d1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("d1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("d2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("d2").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("d2").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -731,22 +846,34 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "5000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "5000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-2", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-3", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -773,12 +900,18 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("l1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("l1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -799,15 +932,24 @@ func TestPreemption(t *testing.T) {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("c1", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-1", "").
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-2", "").
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -826,16 +968,25 @@ func TestPreemption(t *testing.T) {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("c1-1", "").
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-2", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -856,20 +1007,32 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-mid", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -890,7 +1053,10 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -911,12 +1077,18 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low-alpha", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("low-beta", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					ReserveQuota(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "2Gi").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "2Gi").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -960,24 +1132,28 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("wl1", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("wl2", "").
 					Priority(1).
 					Creation(now).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
-					SetOrReplaceCondition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
-					}).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						now.Add(time.Second),
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("wl3", "").
 					Priority(1).
 					Creation(now).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1010,12 +1186,18 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a_best_effort_low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "10").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b_best_effort_low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1036,7 +1218,10 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("b_standard", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1058,7 +1243,10 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("b_standard", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "13").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1081,7 +1269,10 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a_standard", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "13").
-					ReserveQuota(utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1102,22 +1293,34 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a_standard_1", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a_standard_2", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b_standard_1", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b_standard_2", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1139,22 +1342,34 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("b_standard_high", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b_standard_mid", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a_best_effort_low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a_best_effort_lower", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1176,16 +1391,25 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("lend1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-mid", "").
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1207,20 +1431,32 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("lend1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend1-mid", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-mid", "").
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1241,7 +1477,10 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("lend2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "10").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1262,32 +1501,50 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a1", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a2", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a3", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b1", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b3", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1310,37 +1567,55 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a2", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a3", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b1", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b3", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1367,32 +1642,50 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a1", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a2", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("a3", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b1", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b3", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1419,32 +1712,50 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("a1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b1", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b3", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b4", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("b5", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -1485,7 +1796,10 @@ func TestPreemption(t *testing.T) {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("to-be-preempted", "").
 					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltesting.MakeAdmission("cq-right").Assignment(corev1.ResourceCPU, "default", "5").Obj()).
+					ReserveQuotaAt(
+						utiltesting.MakeAdmission("cq-right").Assignment(corev1.ResourceCPU, "default", "5").Obj(),
+						now,
+					).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -1542,7 +1856,7 @@ func TestPreemption(t *testing.T) {
 				return nil
 			}
 
-			startingSnapshot, err := cqCache.Snapshot(ctx)
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
@@ -1564,7 +1878,10 @@ func TestPreemption(t *testing.T) {
 			if preempted != tc.wantPreempted.Len() {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
-			if diff := cmp.Diff(startingSnapshot, snapshotWorkingCopy, snapCmpOpts...); diff != "" {
+
+			beforeResourceNodes := resourceNodes(beforeSnapshot)
+			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
+			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
@@ -1625,10 +1942,11 @@ func TestFairPreemptions(t *testing.T) {
 	unitWl := *utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
+		cohorts       []*kueuealpha.Cohort
 		strategies    []config.PreemptionStrategy
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
-		targetCQ      string
+		targetCQ      kueue.ClusterQueueReference
 		wantPreempted sets.Set[string]
 	}{
 		"reclaim nominal from user using the most": {
@@ -1856,7 +2174,12 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
 			targetCQ: "a",
 		},
-		"workloads under priority threshold can always be preempted": {
+		// preemption.borrowWithinCohort does not affect how
+		// we handle Fair Sharing preemptions. Lower priority
+		// workloads are not preempted unless
+		// DominantResourceShare value indicates that they
+		// should be preempted.
+		"workloads under priority threshold not capriciously preempted": {
 			clusterQueues: baseCQs,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -1869,12 +2192,9 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("preemptible2").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 				*unitWl.Clone().Name("preemptible3").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ: "a",
-			wantPreempted: sets.New(
-				targetKeyReason("/preemptible1", kueue.InCohortFairSharingReason),
-				targetKeyReason("/preemptible2", kueue.InCohortReclaimWhileBorrowingReason),
-			),
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
 		},
 		"preempt lower priority first, even if big": {
 			clusterQueues: baseCQs,
@@ -2032,6 +2352,293 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ: "a",
 		},
+		"can preempt within cluster queue when no cohort": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").Priority(1000).Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+			),
+		},
+		// Each Cohort provides 5 capacity, while each CQ
+		// provides 1 capacity.
+		//
+		// Here is a representation of the tree the 3 tuple
+		// is: (Usage,Quota,SubtreeQuota)
+		//
+		//                ROOT(20,5,20)
+		//             /       |         \
+		//       LEFT(5,5,7)  c(5,1,1)   RIGHT(10,5,7)
+		//       /       \               /      \
+		//     a(0,1,1)    b(5,1,1)   d(5,1,1)    e(5,1,1)
+		//
+		// We show how ClusterQueue a is able to preempt
+		// workloads in all of these ClusterQueues.  We set
+		// FairWeight of a, and LEFT, to 2.0, to make this
+		// possible.  We set FairWeight of e to 0.99, to make
+		// preemptions deterministic
+		"hierarchical preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("LEFT").
+					FairWeight(resource.MustParse("2")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("LEFT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				utiltesting.MakeClusterQueue("c").
+					Cohort("ROOT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				utiltesting.MakeClusterQueue("d").
+					Cohort("RIGHT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				utiltesting.MakeClusterQueue("e").
+					Cohort("RIGHT").
+					// for determinism, we slightly prefer preemptions from e
+					// compared to d.
+					FairWeight(resource.MustParse("0.99")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("ROOT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+				utiltesting.MakeCohort("LEFT").
+					FairWeight(resource.MustParse("2")).
+					Parent("ROOT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+				utiltesting.MakeCohort("RIGHT").
+					Parent("ROOT").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("b1").Priority(1).SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").Priority(2).SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").Priority(3).SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").Priority(4).SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").Priority(5).SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("c1").Priority(1).SimpleReserveQuota("c", "default", now).Obj(),
+				*unitWl.Clone().Name("c2").Priority(2).SimpleReserveQuota("c", "default", now).Obj(),
+				*unitWl.Clone().Name("c3").Priority(3).SimpleReserveQuota("c", "default", now).Obj(),
+				*unitWl.Clone().Name("c4").Priority(4).SimpleReserveQuota("c", "default", now).Obj(),
+				*unitWl.Clone().Name("c5").Priority(5).SimpleReserveQuota("c", "default", now).Obj(),
+				*unitWl.Clone().Name("d1").Priority(1).SimpleReserveQuota("d", "default", now).Obj(),
+				*unitWl.Clone().Name("d2").Priority(2).SimpleReserveQuota("d", "default", now).Obj(),
+				*unitWl.Clone().Name("d3").Priority(3).SimpleReserveQuota("d", "default", now).Obj(),
+				*unitWl.Clone().Name("d4").Priority(4).SimpleReserveQuota("d", "default", now).Obj(),
+				*unitWl.Clone().Name("d5").Priority(5).SimpleReserveQuota("d", "default", now).Obj(),
+				*unitWl.Clone().Name("e1").Priority(1).SimpleReserveQuota("e", "default", now).Obj(),
+				*unitWl.Clone().Name("e2").Priority(2).SimpleReserveQuota("e", "default", now).Obj(),
+				*unitWl.Clone().Name("e3").Priority(3).SimpleReserveQuota("e", "default", now).Obj(),
+				*unitWl.Clone().Name("e4").Priority(4).SimpleReserveQuota("e", "default", now).Obj(),
+				*unitWl.Clone().Name("e5").Priority(5).SimpleReserveQuota("e", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "5").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b2", kueue.InCohortFairSharingReason),
+				targetKeyReason("/c1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/c2", kueue.InCohortFairSharingReason),
+				targetKeyReason("/e1", kueue.InCohortFairSharingReason)),
+		},
+		// though ClusterQueue b is borrowing, its Cohort is not,
+		// and therefore it cannot be preempted.
+		//             ROOT
+		//           /      \
+		//       a(3,5,5)   RIGHT(1,1,1)
+		//                        \
+		//                         b(1,0,0)
+		//
+		// incoming workload to a, of size 5, must
+		// preempt its own workloads, despite its fair weight
+		// being high, and RIGHT/b having a low weight.
+		"borrowing cq in non-borrowing cohort is protected": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("ROOT").
+					FairWeight(resource.MustParse("10")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "5").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("RIGHT").
+					FairWeight(resource.MustParse("0.1")).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("ROOT").Obj(),
+				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
+					FairWeight(resource.MustParse("0.1")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").Priority(-1).SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "5").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+				targetKeyReason("/a2", kueue.InClusterQueueReason),
+				targetKeyReason("/a3", kueue.InClusterQueueReason),
+			),
+		},
+		// Preempting the small workload would bring
+		// RIGHT to a DRS of 0, and we can't even consider the
+		// higher priority workload. incoming workload to a,
+		// of size 4, must preempt its own workloads
+		//             ROOT
+		//           /      \
+		//       a(3,5,5)   RIGHT(4,3,3)
+		//                        \
+		//                         b(4,0,0)
+		//
+		"forced to preempt within clusterqueue because borrowing workload too important": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("ROOT").
+					FairWeight(resource.MustParse("10")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "5").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("RIGHT").
+					FairWeight(resource.MustParse("0.1")).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("ROOT").Obj(),
+				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
+					FairWeight(resource.MustParse("0.1")).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b1", "").Priority(100).Request(corev1.ResourceCPU, "4").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+				targetKeyReason("/a2", kueue.InClusterQueueReason),
+				targetKeyReason("/a3", kueue.InClusterQueueReason),
+			),
+		},
+		//                      ROOT
+		//                    /   |   \
+		//                   A    B    C
+		//                   |    |    |
+		//                   AA   BB   CC
+		//                   |    |    |
+		//                  AAA  BBB  CCC
+		//                   |    |    |
+		//                   a    b   CCCC
+		// cq-a wants capacity, cq-b uses capacity, and
+		// Cohort-CCCC provides capacity
+		//
+		// Organization A is more important than organization
+		// B, indicated by relative FairSharing value, so the
+		// preemption is possible.
+		"deep preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("AAA").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("BBB").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("ROOT").Obj(),
+				utiltesting.MakeCohort("A").Parent("ROOT").
+					// we are comparing
+					// almostLCAs=(A,B). In order
+					// for the preemption to
+					// occur, we indicate that A
+					// is more important than B.
+					FairWeight(resource.MustParse("1.01")).
+					Obj(),
+				utiltesting.MakeCohort("AA").Parent("A").
+					Obj(),
+				utiltesting.MakeCohort("AAA").Parent("AA").
+					Obj(),
+				utiltesting.MakeCohort("B").Parent("ROOT").
+					FairWeight(resource.MustParse("0.99")).
+					Obj(),
+				utiltesting.MakeCohort("BB").Parent("B").
+					Obj(),
+				utiltesting.MakeCohort("BBB").Parent("BB").
+					Obj(),
+				utiltesting.MakeCohort("C").Parent("ROOT").
+					Obj(),
+				utiltesting.MakeCohort("CC").Parent("C").
+					Obj(),
+				utiltesting.MakeCohort("CCC").Parent("CC").
+					Obj(),
+				utiltesting.MakeCohort("CCCC").Parent("CCC").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Workload,
+			},
+			incoming: unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+			),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2052,6 +2659,11 @@ func TestFairPreemptions(t *testing.T) {
 					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 				}
 			}
+			for _, cohort := range tc.cohorts {
+				if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
+					t.Fatalf("Couldn't add Cohort to cache: %v", err)
+				}
+			}
 
 			broadcaster := record.NewBroadcaster()
 			scheme := runtime.NewScheme()
@@ -2061,7 +2673,11 @@ func TestFairPreemptions(t *testing.T) {
 				PreemptionStrategies: tc.strategies,
 			}, clocktesting.NewFakeClock(now))
 
-			snapshot, err := cqCache.Snapshot(ctx)
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
@@ -2073,12 +2689,18 @@ func TestFairPreemptions(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshot)
+			), snapshotWorkingCopy)
 			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+			}
+
+			beforeResourceNodes := resourceNodes(beforeSnapshot)
+			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
+			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
@@ -2092,21 +2714,22 @@ func TestCandidatesOrdering(t *testing.T) {
 	now := time.Now()
 	candidates := []*workload.Info{
 		workload.NewInfo(utiltesting.MakeWorkload("high", "").
-			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
 			Priority(10).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("low", "").
-			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
 			Priority(-10).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("other", "").
-			ReserveQuota(utiltesting.MakeAdmission("other").Obj()).
+			ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
 			Priority(10).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
 			SetOrReplaceCondition(metav1.Condition{
-				Type:   kueue.WorkloadEvicted,
-				Status: metav1.ConditionTrue,
+				Type:               kueue.WorkloadEvicted,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now),
 			}).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old-a", "").
@@ -2118,12 +2741,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
-			SetOrReplaceCondition(metav1.Condition{
-				Type:               kueue.WorkloadQuotaReserved,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
-			}).
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
 			Obj()),
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, "self", now))
@@ -2144,5 +2762,37 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 			Flavors: assignments,
 			Count:   1,
 		}},
+	}
+}
+
+func TestPreemptionMessage(t *testing.T) {
+	cases := []struct {
+		preemptor *kueue.Workload
+		reason    string
+		want      string
+	}{
+		{
+			preemptor: &kueue.Workload{},
+			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			reason:    kueue.InClusterQueueReason,
+			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
+		},
+	}
+	for _, tc := range cases {
+		got := preemptionMessage(tc.preemptor, tc.reason)
+		if got != tc.want {
+			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
+		}
 	}
 }

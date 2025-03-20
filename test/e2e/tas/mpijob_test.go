@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,12 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-mpijob-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-mpijob-")
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -83,6 +77,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a MPIJob", func() {
@@ -98,8 +93,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 				Queue(localQueue.Name).
 				MPIJobReplicaSpecs(
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount:  launcherReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
@@ -108,8 +101,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						},
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
@@ -118,10 +109,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						},
 					},
 				).
-				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
-				Limit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
-				Request(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
-				Limit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
+				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
+				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, mpijob)).Should(gomega.Succeed())
 

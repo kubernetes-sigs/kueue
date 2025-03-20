@@ -19,16 +19,18 @@ package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	corev1 "k8s.io/client-go/applyconfigurations/core/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // LocalQueueFlavorStatusApplyConfiguration represents a declarative configuration of the LocalQueueFlavorStatus type for use
 // with apply.
 type LocalQueueFlavorStatusApplyConfiguration struct {
-	Name       *v1beta1.ResourceFlavorReference `json:"name,omitempty"`
-	Resources  []v1.ResourceName                `json:"resources,omitempty"`
-	NodeLabels map[string]string                `json:"nodeLabels,omitempty"`
-	NodeTaints []v1.Taint                       `json:"nodeTaints,omitempty"`
+	Name       *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
+	Resources  []v1.ResourceName                     `json:"resources,omitempty"`
+	NodeLabels map[string]string                     `json:"nodeLabels,omitempty"`
+	NodeTaints []corev1.TaintApplyConfiguration      `json:"nodeTaints,omitempty"`
+	Topology   *TopologyApplyConfiguration           `json:"topology,omitempty"`
 }
 
 // LocalQueueFlavorStatusApplyConfiguration constructs a declarative configuration of the LocalQueueFlavorStatus type for use with
@@ -40,7 +42,7 @@ func LocalQueueFlavorStatus() *LocalQueueFlavorStatusApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *LocalQueueFlavorStatusApplyConfiguration) WithName(value v1beta1.ResourceFlavorReference) *LocalQueueFlavorStatusApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithName(value kueuev1beta1.ResourceFlavorReference) *LocalQueueFlavorStatusApplyConfiguration {
 	b.Name = &value
 	return b
 }
@@ -72,9 +74,20 @@ func (b *LocalQueueFlavorStatusApplyConfiguration) WithNodeLabels(entries map[st
 // WithNodeTaints adds the given value to the NodeTaints field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the NodeTaints field.
-func (b *LocalQueueFlavorStatusApplyConfiguration) WithNodeTaints(values ...v1.Taint) *LocalQueueFlavorStatusApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithNodeTaints(values ...*corev1.TaintApplyConfiguration) *LocalQueueFlavorStatusApplyConfiguration {
 	for i := range values {
-		b.NodeTaints = append(b.NodeTaints, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithNodeTaints")
+		}
+		b.NodeTaints = append(b.NodeTaints, *values[i])
 	}
+	return b
+}
+
+// WithTopology sets the Topology field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Topology field is set to the value of the last call.
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithTopology(value *TopologyApplyConfiguration) *LocalQueueFlavorStatusApplyConfiguration {
+	b.Topology = value
 	return b
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ func (blder *WebhookBuilder) For(apiType runtime.Object) *WebhookBuilder {
 	return blder
 }
 
-// WithDefaulter takes an admission.CustomDefaulter interface, a MutatingWebhook will be wired for this type.
+// WithMutationHandler takes an admission.CustomDefaulter interface, a MutatingWebhook will be wired for this type.
 func (blder *WebhookBuilder) WithMutationHandler(h admission.Handler) *WebhookBuilder {
 	blder.mutationHandler = h
 	return blder

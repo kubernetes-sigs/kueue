@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,12 +44,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-pytorchjob-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
@@ -82,6 +76,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a PyTorchJob", func() {
@@ -97,8 +92,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 				Queue(localQueue.Name).
 				PyTorchReplicaSpecs(
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 						ReplicaCount:  masterReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
@@ -107,8 +100,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						},
 					},
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						Image:         util.E2eTestSleepImage,
-						Args:          []string{"60s"},
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
@@ -117,10 +108,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						},
 					},
 				).
-				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
-				Limit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
-				Request(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
-				Limit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, pytorchjob)).Should(gomega.Succeed())
 

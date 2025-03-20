@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -186,6 +186,11 @@ func (j *JobWrapper) Limit(r corev1.ResourceName, v string) *JobWrapper {
 	return j
 }
 
+// RequestAndLimit adds a resource request and limit to the default container.
+func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrapper {
+	return j.Request(r, v).Limit(r, v)
+}
+
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Image = image
 	j.Spec.Template.Spec.Containers[0].Args = args
@@ -226,6 +231,18 @@ func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
 // Active sets the .status.active
 func (j *JobWrapper) Active(c int32) *JobWrapper {
 	j.Status.Active = c
+	return j
+}
+
+// Failed sets the .status.failed
+func (j *JobWrapper) Failed(c int32) *JobWrapper {
+	j.Status.Failed = c
+	return j
+}
+
+// Ready sets the .status.ready
+func (j *JobWrapper) Ready(c int32) *JobWrapper {
+	j.Status.Ready = &c
 	return j
 }
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -39,6 +41,7 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -153,6 +156,26 @@ func main() {
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
+
+	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
+		metricsCertPath := "/etc/kueue/metrics/certs"
+		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath)
+
+		var err error
+		metricsCertWatcher, err := certwatcher.New(
+			filepath.Join(metricsCertPath, "tls.crt"),
+			filepath.Join(metricsCertPath, "tls.key"),
+		)
+		if err != nil {
+			setupLog.Error(err, "Unable to initialize metrics certificate watcher")
+			os.Exit(1)
+		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
+	}
 	options.Metrics = metricsServerOptions
 
 	metrics.Register()
@@ -237,8 +260,8 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 
 	// setup provision admission check controller indexes
 	if features.Enabled(features.ProvisioningACC) {
-		if !provisioning.ServerSupportsProvisioningRequest(mgr) {
-			setupLog.Error(nil, "Provisioning Requests are not supported, skipped admission check controller setup")
+		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+			setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 			setupLog.Error(err, "Could not setup provisioning indexer")
 			os.Exit(1)
@@ -276,17 +299,20 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	// setup provision admission check controller
-	if features.Enabled(features.ProvisioningACC) && provisioning.ServerSupportsProvisioningRequest(mgr) {
-		// A info message is added in setupIndexes if autoscaling is not supported by the cluster
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
-		if err != nil {
-			setupLog.Error(err, "Could not create the provisioning controller")
-			os.Exit(1)
-		}
+	if features.Enabled(features.ProvisioningACC) {
+		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+			setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+		} else {
+			ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+			if err != nil {
+				setupLog.Error(err, "Could not create the provisioning controller")
+				os.Exit(1)
+			}
 
-		if err := ctrl.SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "Could not setup provisioning controller")
-			os.Exit(1)
+			if err := ctrl.SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "Could not setup provisioning controller")
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -323,13 +349,15 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
-		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
+	}
+	if cfg.Integrations.PodOptions != nil {
+		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
 	}
 	if features.Enabled(features.ManagedJobsNamespaceSelector) {
 		nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)

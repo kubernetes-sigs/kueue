@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,7 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -127,17 +128,17 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {
-		snapshot.addUsage(domainID, usage)
+		snapshot.addTASUsage(domainID, usage)
 	}
 	for _, pod := range pods {
 		// skip unscheduled or terminal pods as they don't use any capacity
-		if len(pod.Spec.NodeName) == 0 || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		if len(pod.Spec.NodeName) == 0 || utilpod.IsTerminated(&pod) {
 			continue
 		}
 		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
-			requests := limitrange.TotalRequests(&pod.Spec)
+			requests := resourcehelpers.PodRequests(&pod, resourcehelpers.PodResourcesOptions{})
 			usage := resources.NewRequests(requests)
-			snapshot.addUsage(domainID, usage)
+			snapshot.addNonTASUsage(domainID, usage)
 		}
 	}
 	return snapshot
@@ -161,9 +162,11 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 			c.usage[domainID] = resources.Requests{}
 		}
 		if op == subtract {
-			c.usage[domainID].Sub(tr.Requests)
+			c.usage[domainID].Sub(tr.TotalRequests())
+			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
-			c.usage[domainID].Add(tr.Requests)
+			c.usage[domainID].Add(tr.TotalRequests())
+			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }

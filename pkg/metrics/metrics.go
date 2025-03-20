@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -242,7 +242,7 @@ The label 'reason' can have the following values:
 The label 'reason' can have the following values:
 - "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.
 - "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
-- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort due to fair sharing.
+- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.`,
 		}, []string{"preempting_cluster_queue", "reason"},
 	)
@@ -369,6 +369,19 @@ If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 the maximum possible share value.`,
 		}, []string{"cluster_queue"},
 	)
+
+	CohortWeightedShare = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_weighted_share",
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal 
+quota to the lendable resources in the Cohort, among all the resources provided by 
+the Cohort, and divided by the weight.
+If zero, it means that the usage of the Cohort is below the nominal quota.
+If the Cohort has a weight of zero, this will return 9223372036854775807,
+the maximum possible share value.`,
+		}, []string{"cohort"},
+	)
 )
 
 func generateExponentialBuckets(count int) []float64 {
@@ -408,9 +421,9 @@ func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, waitTime time.Dur
 	localQueueAdmissionChecksWaitTime.WithLabelValues(lq.Name, lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func ReportPendingWorkloads(cqName string, active, inadmissible int) {
-	PendingWorkloads.WithLabelValues(cqName, PendingStatusActive).Set(float64(active))
-	PendingWorkloads.WithLabelValues(cqName, PendingStatusInadmissible).Set(float64(inadmissible))
+func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int) {
+	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusActive).Set(float64(active))
+	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
 func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int) {
@@ -418,16 +431,16 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName, reason string) {
-	EvictedWorkloadsTotal.WithLabelValues(cqName, reason).Inc()
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, reason string) {
+	EvictedWorkloadsTotal.WithLabelValues(string(cqName), reason).Inc()
 }
 
 func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {
 	LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason).Inc()
 }
 
-func ReportPreemption(preemptingCqName, preemptingReason, targetCqName string) {
-	PreemptedWorkloadsTotal.WithLabelValues(preemptingCqName, preemptingReason).Inc()
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
+	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
 }
 
@@ -470,13 +483,13 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": lq.Name, "namespace": lq.Namespace})
 }
 
-func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
+func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus) {
 	for _, status := range CQStatuses {
 		var v float64
 		if status == cqStatus {
 			v = 1
 		}
-		ClusterQueueByStatus.WithLabelValues(cqName, string(status)).Set(v)
+		ClusterQueueByStatus.WithLabelValues(string(cqName), string(status)).Set(v)
 	}
 }
 
@@ -510,24 +523,24 @@ func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	}
 }
 
-func ReportClusterQueueQuotas(cohort, queue, flavor, resource string, nominal, borrowing, lending float64) {
-	ClusterQueueResourceNominalQuota.WithLabelValues(cohort, queue, flavor, resource).Set(nominal)
-	ClusterQueueResourceBorrowingLimit.WithLabelValues(cohort, queue, flavor, resource).Set(borrowing)
+func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resource string, nominal, borrowing, lending float64) {
+	ClusterQueueResourceNominalQuota.WithLabelValues(string(cohort), queue, flavor, resource).Set(nominal)
+	ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cohort), queue, flavor, resource).Set(borrowing)
 	if features.Enabled(features.LendingLimit) {
-		ClusterQueueResourceLendingLimit.WithLabelValues(cohort, queue, flavor, resource).Set(lending)
+		ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource).Set(lending)
 	}
 }
 
-func ReportClusterQueueResourceReservations(cohort, queue, flavor, resource string, usage float64) {
-	ClusterQueueResourceReservations.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
+func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
+	ClusterQueueResourceReservations.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
 }
 
 func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64) {
 	LocalQueueResourceReservations.WithLabelValues(lq.Name, lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueResourceUsage(cohort, queue, flavor, resource string, usage float64) {
-	ClusterQueueResourceUsage.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
+func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
+	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
 }
 
 func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64) {
@@ -536,6 +549,10 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 
 func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
 	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
+}
+
+func ReportCohortWeightedShare(cohort string, weightedShare int64) {
+	CohortWeightedShare.WithLabelValues(cohort).Set(float64(weightedShare))
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {
@@ -625,6 +642,7 @@ func Register() {
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
+		CohortWeightedShare,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()

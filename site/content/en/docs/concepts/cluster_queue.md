@@ -3,7 +3,7 @@ title: "Cluster Queue"
 date: 2023-03-14
 weight: 3
 description: >
-  A cluster-scoped resource that governs a pool of resources, defining usage limits and fair sharing rules.
+  A cluster-scoped resource that governs a pool of resources, defining usage limits and Fair Sharing rules.
 ---
 
 A ClusterQueue is a cluster-scoped object that governs a pool of resources
@@ -11,7 +11,7 @@ such as pods, CPU, memory, and hardware accelerators. A ClusterQueue defines:
 
 - The quotas for the [resource _flavors_](/docs/concepts/resource_flavor) that the ClusterQueue manages,
   with usage limits and order of consumption.
-- Fair sharing rules across the multiple ClusterQueues in the cluster.
+- Fair Sharing rules across the multiple ClusterQueues in the cluster.
 
 Only [batch administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
 
@@ -449,8 +449,9 @@ The fields above do the following:
     priority.
 
 - `borrowWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues if the workload requires borrowing. This
-  field requires to specify `policy` sub-field with possible values:
+  Workloads from other ClusterQueues if the workload requires borrowing.
+  May only be configured with Classical Preemption, and __not__ with Fair Sharing.
+  This field requires to specify `policy` sub-field with possible values:
   - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
   - `LowerPriority`: if the pending Workload requires borrowing, only preempt
     Workloads in the cohort that have lower priority than the pending Workload.

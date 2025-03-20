@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -47,11 +46,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
 
 	ctx := context.Background()
-	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: TestNamespace,
-		},
-	})
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
 	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder))
 	return builder, ctx
 }

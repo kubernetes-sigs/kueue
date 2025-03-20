@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -200,7 +200,7 @@ func (j *TFJobWrapper) UID(uid string) *TFJobWrapper {
 	return j
 }
 
-// Condition adds a condition
+// StatusConditions adds a condition.
 func (j *TFJobWrapper) StatusConditions(c kftraining.JobCondition) *TFJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
@@ -209,5 +209,11 @@ func (j *TFJobWrapper) StatusConditions(c kftraining.JobCondition) *TFJobWrapper
 func (j *TFJobWrapper) Image(replicaType kftraining.ReplicaType, image string, args []string) *TFJobWrapper {
 	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
 	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *TFJobWrapper) ManagedBy(c string) *TFJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
 	return j
 }

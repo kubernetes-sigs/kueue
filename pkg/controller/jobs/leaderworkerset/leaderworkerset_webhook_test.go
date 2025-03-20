@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,19 +22,18 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -59,10 +58,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				LeaderTemplateSpecAnnotation(podcontroller.GroupServingAnnotation, "true").
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.GroupServingAnnotation, "true").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
@@ -75,10 +74,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				LeaderTemplateSpecAnnotation(podcontroller.GroupServingAnnotation, "true").
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.GroupServingAnnotation, "true").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
@@ -156,33 +155,57 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"leader ready startup policy": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				LeaderTemplate(corev1.PodTemplateSpec{}).
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
-				Obj(),
-		},
-		"leader ready startup policy with queue-name": {
+		"valid topology request": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj(),
+		},
+		"invalid topology request": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeInvalid, Field: "spec.startupPolicy"},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
+				},
 			}.ToAggregate(),
-		},
-		"leader ready startup policy with owner reference": {
-			integrations: []string{appwrapper.FrameworkName},
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       "AppWrapper",
-					Controller: ptr.To(true),
-				}).
-				LeaderTemplate(corev1.PodTemplateSpec{}).
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
-				Obj(),
 		},
 	}
 
@@ -218,14 +241,14 @@ func TestValidateUpdate(t *testing.T) {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
 		"change queue name": {
@@ -244,45 +267,23 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change startup policy without queue-name": {
+		"change priority class": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
-				Obj(),
-		},
-		"change startup policy with queue-name": {
-			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
+				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
-				Obj(),
-			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
-				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: startupPolicyPath.String(),
+					Field: priorityClassNamePath.String(),
 				},
 			}.ToAggregate(),
-		},
-		"change startup policy with owner reference": {
-			integrations: []string{appwrapper.FrameworkName},
-			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy).
-				Queue("test-queue").
-				Obj(),
-			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       "AppWrapper",
-					Controller: ptr.To(true),
-				}).
-				Queue("test-queue").
-				StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy).
-				Obj(),
 		},
 		"change image": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -323,8 +324,8 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -364,8 +365,8 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
 		"change resources in container": {
@@ -407,8 +408,8 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -456,17 +457,17 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: leaderTemplatePath.Child("spec").String(),
+					Field: leaderTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
 				},
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: workerTemplatePath.Child("spec").String(),
+					Field: workerTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
 		},
@@ -509,8 +510,8 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -558,17 +559,77 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				}).
 				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podcontroller.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: leaderTemplatePath.Child("spec").String(),
+					Field: leaderTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
 				},
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: workerTemplatePath.Child("spec").String(),
+					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
+				},
+			}.ToAggregate(),
+		},
+		"set valid topology request": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"set invalid topology request": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkerTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
 		},

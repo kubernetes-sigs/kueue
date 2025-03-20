@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,17 +24,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 )
@@ -86,31 +82,9 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 
-	if canDefaultManagedBy(mpiJob.Spec.RunPolicy.ManagedBy) {
-		localQueueName, found := mpiJob.Labels[constants.QueueLabel]
-		if !found {
-			return nil
-		}
-		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(mpiJob.ObjectMeta.Namespace, localQueueName))
-		if !ok {
-			log.V(5).Info("Cluster queue for local queue not found", "localQueue", localQueueName)
-			return nil
-		}
-		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == kueue.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", mpiJob.Spec.RunPolicy.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
-				mpiJob.Spec.RunPolicy.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
-				return nil
-			}
-		}
-	}
+	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
 
 	return nil
-}
-
-func canDefaultManagedBy(mpiJobSpecManagedBy *string) bool {
-	return features.Enabled(features.MultiKueue) &&
-		(mpiJobSpecManagedBy == nil || *mpiJobSpecManagedBy == v2beta1.KubeflowJobController)
 }
 
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1

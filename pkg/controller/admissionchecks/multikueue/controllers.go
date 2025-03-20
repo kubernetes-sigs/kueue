@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	}
 }
 
-// WithAdapter - sets or updates the adapter of the MultiKueue adapters.
+// WithAdapters sets or updates the adapters of the MultiKueue adapters.
 func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
 	return func(o *SetupOptions) {
 		o.adapters = adapters

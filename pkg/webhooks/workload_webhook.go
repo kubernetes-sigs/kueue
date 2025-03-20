@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -164,7 +164,7 @@ func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.Er
 func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	knowPodSets := sets.New(slices.Map(obj.Spec.PodSets, func(ps *kueue.PodSet) string {
+	knowPodSets := sets.New(slices.Map(obj.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference {
 		return ps.Name
 	})...)
 
@@ -202,7 +202,7 @@ func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *fi
 // we do not import it as dependency, see the comment:
 // https://github.com/kubernetes/kubernetes/issues/79384#issuecomment-505627280
 func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) field.ErrorList {
-	allErrors := field.ErrorList{}
+	var allErrors field.ErrorList
 	for i, toleration := range tolerations {
 		idxPath := fldPath.Index(i)
 		// validate the toleration key
@@ -217,7 +217,7 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
 	var allErrs field.ErrorList
 
-	names := sets.New[string]()
+	names := sets.New[kueue.PodSetReference]()
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
@@ -243,8 +243,8 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	if len(obj.Status.ReclaimablePods) == 0 {
 		return nil
 	}
-	knowPodSets := make(map[string]*kueue.PodSet, len(obj.Spec.PodSets))
-	knowPodSetNames := make([]string, len(obj.Spec.PodSets))
+	knowPodSets := make(map[kueue.PodSetReference]*kueue.PodSet, len(obj.Spec.PodSets))
+	knowPodSetNames := make([]kueue.PodSetReference, len(obj.Spec.PodSets))
 	for i := range obj.Spec.PodSets {
 		name := obj.Spec.PodSets[i].Name
 		knowPodSets[name] = &obj.Spec.PodSets[i]
@@ -255,7 +255,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	for i := range obj.Status.ReclaimablePods {
 		rps := &obj.Status.ReclaimablePods[i]
 		ps, found := knowPodSets[rps.Name]
-		rpsPath := basePath.Key(rps.Name)
+		rpsPath := basePath.Key(string(rps.Name))
 		if !found {
 			ret = append(ret, field.NotSupported(rpsPath.Child("name"), rps.Name, knowPodSetNames))
 		} else if rps.Count > ps.Count {
@@ -303,14 +303,14 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		return nil
 	}
 
-	knowPodSets := make(map[string]*kueue.ReclaimablePod, len(oldObj.Status.ReclaimablePods))
+	knowPodSets := make(map[kueue.PodSetReference]*kueue.ReclaimablePod, len(oldObj.Status.ReclaimablePods))
 	for i := range oldObj.Status.ReclaimablePods {
 		name := oldObj.Status.ReclaimablePods[i].Name
 		knowPodSets[name] = &oldObj.Status.ReclaimablePods[i]
 	}
 
 	var ret field.ErrorList
-	newNames := sets.New[string]()
+	newNames := sets.New[kueue.PodSetReference]()
 	for i := range newObj.Status.ReclaimablePods {
 		newCount := &newObj.Status.ReclaimablePods[i]
 		newNames.Insert(newCount.Name)
@@ -319,13 +319,13 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 		oldCount, found := knowPodSets[newCount.Name]
 		if found && newCount.Count < oldCount.Count {
-			ret = append(ret, field.Invalid(basePath.Key(newCount.Name).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
+			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
 		}
 	}
 
 	for name := range knowPodSets {
 		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) {
-			ret = append(ret, field.Required(basePath.Key(name), "cannot be removed"))
+			ret = append(ret, field.Required(basePath.Key(string(name)), "cannot be removed"))
 		}
 	}
 	return ret

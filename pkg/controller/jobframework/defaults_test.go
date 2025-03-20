@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,23 +31,13 @@ import (
 
 func TestWorkloadShouldBeSuspended(t *testing.T) {
 	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
-	managedNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "managed-ns",
-			Labels: map[string]string{"kubernetes.io/metadata.name": "managed-ns"},
-		},
-	}
-	unmanagedNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "unmanaged-ns",
-			Labels: map[string]string{"kubernetes.io/metadata.name": "unmanaged-ns"},
-		},
-	}
+	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).Queue("default").Obj()
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "kubernetes.io/metadata.name",
+				Key:      corev1.LabelMetadataName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{unmanagedNamespace.Name},
 			},

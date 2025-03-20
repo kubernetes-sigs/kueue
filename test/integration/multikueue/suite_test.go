@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@ package multikueue
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -49,11 +49,15 @@ import (
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 const (
@@ -90,11 +94,13 @@ func TestMultiKueue(t *testing.T) {
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
-			filepath.Join("..", "..", "..", "dep-crds", "training-operator-crds"),
-			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
+		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{
+			util.JobsetCrds,
+			util.TrainingOperatorCrds,
+			util.MpiOperatorCrds,
+			util.RayOperatorCrds,
+			util.AppWrapperCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -206,6 +212,66 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadpod.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	podReconciller := workloadpod.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = podReconciller.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	nsSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"kube-system", "kueue-system"},
+			},
+		},
+	}
+	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadpod.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithManagedJobsNamespaceSelector(mjnsSelector))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	rayJobReconciler := workloadrayjob.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = rayJobReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadrayjob.SetupRayJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadraycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	rayClusterReconciler := workloadraycluster.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = rayClusterReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	appwrapperReconciler := workloadaw.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = appwrapperReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadaw.SetupAppWrapperWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
@@ -260,11 +326,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	managersConfigNamespace = &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "kueue-system",
-		},
-	}
+	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managersConfigNamespace)).To(gomega.Succeed())
 })
 

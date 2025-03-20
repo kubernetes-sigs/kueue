@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -43,12 +43,6 @@ type Option func(*Options)
 
 var defaultOptions = Options{
 	Interval: fetchServerVersionInterval,
-}
-
-func WithInterval(interval time.Duration) Option {
-	return func(o *Options) {
-		o.Interval = interval
-	}
 }
 
 func NewServerVersionFetcher(dc discovery.DiscoveryInterface, opts ...Option) *ServerVersionFetcher {

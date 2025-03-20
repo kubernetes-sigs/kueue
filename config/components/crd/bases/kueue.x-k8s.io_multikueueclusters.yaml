@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: multikueueclusters.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -14,7 +14,16 @@ spec:
     singular: multikueuecluster
   scope: Cluster
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - description: MultiKueueCluster is connected
+      jsonPath: .status.conditions[?(@.type=='Active')].status
+      name: Connected
+      type: string
+    - description: Time this workload was created
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: MultiKueueCluster is the Schema for the multikueue API

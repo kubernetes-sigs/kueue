@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,36 +17,43 @@ limitations under the License.
 package cache
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
 type cohort struct {
-	Name string
+	Name kueue.CohortReference
 	hierarchy.Cohort[*clusterQueue, *cohort]
 
 	resourceNode ResourceNode
+
+	FairWeight resource.Quantity
 }
 
-func newCohort(name string) *cohort {
+func newCohort(name kueue.CohortReference) *cohort {
 	return &cohort{
-		name,
-		hierarchy.NewCohort[*clusterQueue, *cohort](),
-		NewResourceNode(),
+		Name:         name,
+		Cohort:       hierarchy.NewCohort[*clusterQueue, *cohort](),
+		resourceNode: NewResourceNode(),
 	}
 }
 
-func (c *cohort) updateCohort(cycleChecker hierarchy.CycleChecker, apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
+func (c *cohort) updateCohort(apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
+	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
+
 	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
 	if oldParent != nil && oldParent != c.Parent() {
 		// ignore error when old Cohort has cycle.
-		_ = updateCohortTreeResources(oldParent, cycleChecker)
+		_ = updateCohortTreeResources(oldParent)
 	}
-	return updateCohortTreeResources(c, cycleChecker)
+	return updateCohortTreeResources(c)
 }
 
-func (c *cohort) GetName() string {
+func (c *cohort) GetName() kueue.CohortReference {
 	return c.Name
 }
 
@@ -71,4 +78,10 @@ func (c *cohort) parentHRN() hierarchicalResourceNode {
 
 func (c *cohort) CCParent() hierarchy.CycleCheckable {
 	return c.Parent()
+}
+
+// Implements dominantResourceShareNode interface.
+
+func (c *cohort) fairWeight() *resource.Quantity {
+	return &c.FairWeight
 }

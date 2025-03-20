@@ -1,0 +1,13 @@
+# This overlay builds the kueue-viz dashboard to be used in combination
+# with other overlays.
+
+namespace: kueue-system
+namePrefix: kueue-
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: dashboard
+
+resources:
+  - ../components/kueue-viz/

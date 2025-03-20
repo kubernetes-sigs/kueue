@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -152,7 +152,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				gotLocalQueue = nil
 			}
 
-			cmpOpts := []cmp.Option{
+			cmpOpts := cmp.Options{
 				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,

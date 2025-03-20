@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -56,7 +57,7 @@ func init() {
 		JobType:                &rayv1.RayJob{},
 		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
@@ -79,6 +80,7 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 type RayJob rayv1.RayJob
 
 var _ jobframework.GenericJob = (*RayJob)(nil)
+var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -112,7 +114,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets() []kueue.PodSet {
+func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -134,7 +136,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 			count *= wgs.NumOfHosts
 		}
 		podSets = append(podSets, kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
+			Name:            kueue.NewPodSetReference(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
 			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
@@ -144,15 +146,18 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	// submitter Job
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterJobPodSet := kueue.PodSet{
-			Name:  submitterJobPodSetName,
-			Count: 1,
+			Name:     submitterJobPodSetName,
+			Count:    1,
+			Template: *getSubmitterTemplate(j),
 		}
 
-		submitterJobPodSet.Template = *getSubmitterTemplate(j)
+		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
 		podSets = append(podSets, submitterJobPodSet)
 	}
 
-	return podSets
+	return podSets, nil
 }
 
 func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
@@ -279,4 +284,18 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 			RestartPolicy: corev1.RestartPolicyNever,
 		},
 	}
+}
+
+func (j *RayJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayJob) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayJob) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }

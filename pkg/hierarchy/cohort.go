@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,10 +16,14 @@ limitations under the License.
 
 package hierarchy
 
-import "k8s.io/apimachinery/pkg/util/sets"
+import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
 
 //lint:ignore U1000 due to https://github.com/dominikh/go-tools/issues/1602.
-type Cohort[CQ, C nodeBase] struct {
+type Cohort[CQ clusterQueueNode[C], C nodeBase[kueue.CohortReference]] struct {
 	parent       C
 	childCohorts sets.Set[C]
 	childCqs     sets.Set[CQ]
@@ -45,7 +49,12 @@ func (c *Cohort[CQ, C]) ChildCohorts() []C {
 	return c.childCohorts.UnsortedList()
 }
 
-func NewCohort[CQ, C nodeBase]() Cohort[CQ, C] {
+// ChildCount returns number of Cohorts + ClusterQueues.
+func (c *Cohort[CQ, C]) ChildCount() int {
+	return c.childCohorts.Len() + c.childCqs.Len()
+}
+
+func NewCohort[CQ clusterQueueNode[C], C nodeBase[kueue.CohortReference]]() Cohort[CQ, C] {
 	return Cohort[CQ, C]{
 		childCohorts: sets.New[C](),
 		childCqs:     sets.New[CQ](),

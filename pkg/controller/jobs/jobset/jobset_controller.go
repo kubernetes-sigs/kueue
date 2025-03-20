@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -52,7 +53,7 @@ func init() {
 		JobType:                &jobsetapi.JobSet{},
 		AddToScheme:            jobsetapi.AddToScheme,
 		IsManagingObjectsOwner: isJobSet,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      &multiKueueAdapter{},
 	}))
 }
 
@@ -81,6 +82,7 @@ type JobSet jobsetapi.JobSet
 
 var _ jobframework.GenericJob = (*JobSet)(nil)
 var _ jobframework.JobWithReclaimablePods = (*JobSet)(nil)
+var _ jobframework.JobWithManagedBy = (*JobSet)(nil)
 
 func fromObject(obj runtime.Object) *JobSet {
 	return (*JobSet)(obj.(*jobsetapi.JobSet))
@@ -115,11 +117,11 @@ func (j *JobSet) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
-func (j *JobSet) PodSets() []kueue.PodSet {
+func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
-			Name:     replicatedJob.Name,
+			Name:     kueue.NewPodSetReference(replicatedJob.Name),
 			Template: *replicatedJob.Template.Spec.Template.DeepCopy(),
 			Count:    podsCount(&replicatedJob),
 			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template.ObjectMeta,
@@ -127,7 +129,7 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 				ptr.To(replicatedJob.Replicas)),
 		}
 	}
-	return podSets
+	return podSets, nil
 }
 
 func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
@@ -142,7 +144,7 @@ func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetsInfo[index]
 		if err := podset.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
-			return nil
+			return err
 		}
 	}
 	return nil
@@ -196,13 +198,27 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
 			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
-					Name:  spec.Name,
+					Name:  kueue.NewPodSetReference(spec.Name),
 					Count: status.Succeeded * podsCountPerReplica(spec),
 				})
 			}
 		}
 	}
 	return ret, nil
+}
+
+func (j *JobSet) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == jobsetapi.JobSetControllerName)
+}
+
+func (j *JobSet) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *JobSet) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,9 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
@@ -53,12 +54,10 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Setting up Pod reconciler for LeaderWorkerSet")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
-		Named("leaderworkerset-pod").
+		Named("leaderworkerset_pod").
 		WithEventFilter(r).
 		Complete(r)
 }
-
-// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	pod := &corev1.Pod{}
@@ -68,19 +67,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling LeaderWorkerSet Pod")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+	if utilpod.IsTerminated(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
-			removed := controllerutil.RemoveFinalizer(pod, podcontroller.PodFinalizer)
+			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info(
 					"Finalizing leaderworkerset pod in group",
 					"leaderworkerset", pod.Labels[leaderworkersetv1.SetNameLabelKey],
 					"pod", klog.KObj(pod),
-					"group", pod.Labels[podcontroller.GroupNameLabel],
+					"group", pod.Labels[podconstants.GroupNameLabel],
 				)
 			}
 			return removed, nil
@@ -92,7 +90,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 				return false, err
 			}
 			if updated {
-				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", pod.Labels[podcontroller.GroupNameLabel])
+				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", pod.Labels[podconstants.GroupNameLabel])
 			}
 			return updated, nil
 		}))
@@ -124,15 +122,25 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, nil
 	}
 
-	pod.Labels[constants.QueueLabel] = queueName
-	pod.Labels[podcontroller.GroupNameLabel] = GetWorkloadName(lws, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
-	pod.Annotations[podcontroller.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
+	wlName := GetWorkloadName(lws.UID, lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
-	hash, err := utilpod.GenerateShape(pod.Spec)
-	if err != nil {
-		return false, err
+	pod.Labels[constants.QueueLabel] = queueName
+	pod.Labels[podconstants.GroupNameLabel] = wlName
+	pod.Labels[constants.PrebuiltWorkloadLabel] = wlName
+	if priorityClass := jobframework.WorkloadPriorityClassName(lws); priorityClass != "" {
+		pod.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
 	}
-	pod.Annotations[podcontroller.RoleHashAnnotation] = hash
+
+	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
+	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
+
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		if _, ok := pod.Annotations[leaderworkersetv1.LeaderPodNameAnnotationKey]; !ok {
+			pod.Annotations[podconstants.RoleHashAnnotation] = leaderPodSetName
+		} else {
+			pod.Annotations[podconstants.RoleHashAnnotation] = workerPodSetName
+		}
+	}
 
 	return true, nil
 }
@@ -161,5 +169,5 @@ func (r *PodReconciler) handle(obj client.Object) bool {
 		return false
 	}
 	// Handle only leaderworkerset pods.
-	return pod.Annotations[podcontroller.SuspendedByParentAnnotation] == FrameworkName
+	return pod.Annotations[podconstants.SuspendedByParentAnnotation] == FrameworkName
 }

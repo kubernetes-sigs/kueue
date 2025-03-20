@@ -72,7 +72,7 @@ Changes since `v0.6.0`:
 - Add configuration to register Kinds as being managed by an external Kueue-compatible controller (#2059, @dgrove-oss)
 - Add fair sharing when borrowing unused resources from other ClusterQueues in a cohort.
   
-  Fair sharing is based on DRF for usage above nominal quotas.
+  Fair Sharing is based on DRF for usage above nominal quotas.
   When fair sharing is enabled, Kueue prefers to admit workloads from ClusterQueues with the lowest share first.
   Administrators can enable and configure fair sharing preemption using a combination of two policies: `LessThanOrEqualtoFinalShare`, `LessThanInitialShare`.
   

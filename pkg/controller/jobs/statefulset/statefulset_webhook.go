@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -78,18 +78,21 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if ss.Spec.Template.Annotations == nil {
 			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
-		ss.Spec.Template.Annotations[pod.SuspendedByParentAnnotation] = FrameworkName
-		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 2)
-		}
+		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
+			if ss.Spec.Template.Labels == nil {
+				ss.Spec.Template.Labels = make(map[string]string, 2)
+			}
 			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
-			ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
-			ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-			ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
-			ss.Spec.Template.Annotations[pod.GroupServingAnnotation] = "true"
+			ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
+			ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
+			ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
+			ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
+		}
+		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
+			ss.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
 		}
 	}
 
@@ -112,12 +115,13 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	labelsPath                = field.NewPath("metadata", "labels")
-	queueNameLabelPath        = labelsPath.Key(constants.QueueLabel)
-	replicasPath              = field.NewPath("spec", "replicas")
-	groupNameLabelPath        = labelsPath.Key(pod.GroupNameLabel)
-	podSpecLabelPath          = field.NewPath("spec", "template", "metadata", "labels")
-	podSpecQueueNameLabelPath = podSpecLabelPath.Key(constants.QueueLabel)
+	labelsPath                 = field.NewPath("metadata", "labels")
+	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
+	priorityClassNameLabelPath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	specPath                   = field.NewPath("spec")
+	replicasPath               = specPath.Child("replicas")
+	specTemplatePath           = specPath.Child("template")
+	podSpecPath                = specTemplatePath.Child("spec")
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -130,19 +134,25 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	oldQueueName := jobframework.QueueNameForObject(oldStatefulSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newStatefulSet.Object())
 
-	allErrs := apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
-		oldStatefulSet.Spec.Template.GetLabels()[constants.QueueLabel],
-		podSpecQueueNameLabelPath,
-	)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		newStatefulSet.GetLabels()[pod.GroupNameLabel],
-		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
-		groupNameLabelPath,
+	allErrs := jobframework.ValidateQueueName(newStatefulSet.Object())
+
+	// Prevents updating the queue-name if at least one Pod is not suspended
+	// or if the queue-name has been deleted.
+	if oldStatefulSet.Status.ReadyReplicas > 0 || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
+	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
 	)...)
 
 	if jobframework.IsManagedByKueue(newStatefulSet.Object()) {
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(
+			&newStatefulSet.Spec.Template.Spec,
+			&oldStatefulSet.Spec.Template.Spec,
+			podSpecPath,
+		)...)
+
 		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
 		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
 

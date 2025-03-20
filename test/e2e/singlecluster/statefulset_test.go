@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,16 +17,18 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -48,12 +50,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "sts-e2e-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
@@ -79,13 +76,15 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("StatefulSet created", func() {
 		ginkgo.It("should admit group that fits", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
-				Request(corev1.ResourceCPU, "100m").
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -103,8 +102,9 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
-					Image(util.E2eTestSleepImage, []string{"10m"}).
-					Request(corev1.ResourceCPU, "100m").
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					RequestAndLimit(corev1.ResourceCPU, "200m").
+					TerminationGracePeriod(1).
 					Replicas(1).
 					Queue(lq.Name).
 					Obj()
@@ -128,12 +128,21 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+
+			ginkgo.By("Check all pods are deleted", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImageOld, []string{"10m"}).
-				Request(corev1.ResourceCPU, "100m").
+				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -154,7 +163,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
-					createdStatefulSet.Spec.Template.Spec.Containers[0].Image = util.E2eTestSleepImage
+					createdStatefulSet.Spec.Template.Spec.Containers[0].Image = util.E2eTestAgnHostImage
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -166,7 +175,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(pods.Items).To(gomega.HaveLen(3))
 					for _, p := range pods.Items {
 						g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
-						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestSleepImage))
+						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestAgnHostImage))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -182,8 +191,9 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should delete all pods on scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
-				Request(corev1.ResourceCPU, "100m").
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -230,8 +240,8 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should create pods after scale up from zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
-				Request(corev1.ResourceCPU, "100m").
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(0).
 				Queue(lq.Name).
 				Obj()
@@ -266,8 +276,9 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should allow to scale up after scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestSleepImage, []string{"10m"}).
-				Request(corev1.ResourceCPU, "100m").
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
@@ -322,6 +333,96 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow to change queue name if ReadyReplicas=0", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Replicas(3).
+				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
+				Obj()
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that replicas is not ready", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Update queue name", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Labels[constants.QueueLabel] = localQueueName
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is created", func() {
+				createdWorkload := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should delete all Pods if StatefulSet was deleted after being partially ready", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(localQueueName).
+				Obj()
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
+
+			ginkgo.By("Create StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check workload is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("Waiting for replicas is partially ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.BeNumerically(">", 0))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete StatefulSet", func() {
+				gomega.Expect(k8sClient.Delete(ctx, statefulSet)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Check all pods are deleted", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

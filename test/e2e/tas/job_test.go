@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -47,15 +46,11 @@ const (
 var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-tas-job-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a Job", func() {
@@ -93,6 +88,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("Should not admit a Job if Rack required", func() {
@@ -100,12 +96,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -124,12 +119,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -177,12 +171,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(3).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"100ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -231,12 +224,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Queue(localQueue.Name).
 				Parallelism(2).
 				Completions(3).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"10ms"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -260,12 +252,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Indexed(true).
-				Request(extraResource, "1").
-				Limit(extraResource, "1").
+				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestSleepImage, []string{"60s"}).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 

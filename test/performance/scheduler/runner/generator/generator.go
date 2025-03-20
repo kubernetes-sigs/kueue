@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -131,7 +131,7 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 	return nil
 }
 
-func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortName string, queueSetIdx int, queueIndex int) error {
+func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortName kueue.CohortReference, queueSetIdx int, queueIndex int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate queue").WithValues("idx", queueIndex, "prefix", qSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
@@ -170,7 +170,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	})
 }
 
-func generateQueueSet(ctx context.Context, c client.Client, qSet QueuesSet, cohortName string, queueSetIdx int) error {
+func generateQueueSet(ctx context.Context, c client.Client, qSet QueuesSet, cohortName kueue.CohortReference, queueSetIdx int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate queue set").WithValues("count", qSet.Count, "prefix", qSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
@@ -185,7 +185,7 @@ func generateCohort(ctx context.Context, c client.Client, cSet CohortSet, cohort
 	defer log.Info("End generation")
 	cohortName := fmt.Sprintf("%s-%d", cSet.ClassName, cohortIdx)
 	return concurrent(cSet, func(cs CohortSet) int { return len(cs.QueuesSets) }, func(idx int) error {
-		return generateQueueSet(ctx, c, cSet.QueuesSets[idx], cohortName, idx)
+		return generateQueueSet(ctx, c, cSet.QueuesSets[idx], kueue.CohortReference(cohortName), idx)
 	})
 }
 

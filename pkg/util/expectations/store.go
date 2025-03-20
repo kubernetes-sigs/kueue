@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ func NewStore(name string) *Store {
 
 func (e *Store) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []types.UID) {
 	log.V(3).Info("Expecting UIDs", "store", e.name, "key", key, "uids", uids)
-	expectedUIDs := sets.New[types.UID](uids...)
+	expectedUIDs := sets.New(uids...)
 	e.Lock()
 	defer e.Unlock()
 

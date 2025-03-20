@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package xgboostjob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -250,16 +249,12 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:    1,
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:    1,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
+						Obj(),
 				}
 			},
 		},
@@ -284,27 +279,28 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeMaster)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
-					{
-						Name:     strings.ToLower(string(kftraining.XGBoostJobReplicaTypeWorker)),
-						Template: job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template,
-						Count:    1,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel)},
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						RequiredTopologyRequest("cloud.com/rack").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						Obj(),
 				}
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets := fromObject(tc.job).PodSets()
+			gotPodSets, err := fromObject(tc.job).PodSets()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if diff := cmp.Diff(tc.wantPodSets(tc.job), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
@@ -378,15 +374,15 @@ func TestValidate(t *testing.T) {
 						Key("Master").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 				field.Invalid(
 					field.NewPath("spec", "xgbReplicaSpecs").
 						Key("Worker").
 						Child("template", "metadata", "annotations"),
 					field.OmitValueType{},
-					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
-				),
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
 		},
 	}
@@ -418,14 +414,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	testNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "ns",
-			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "ns",
-			},
-		},
-	}
+	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *kftraining.XGBoostJob

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,32 +39,21 @@ import (
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-)
-
-const (
-	ManagedLabelKey              = constants.ManagedByKueueLabel
-	ManagedLabelValue            = "true"
-	PodFinalizer                 = ManagedLabelKey
-	GroupNameLabel               = "kueue.x-k8s.io/pod-group-name"
-	GroupTotalCountAnnotation    = "kueue.x-k8s.io/pod-group-total-count"
-	GroupFastAdmissionAnnotation = "kueue.x-k8s.io/pod-group-fast-admission"
-	GroupServingAnnotation       = "kueue.x-k8s.io/pod-group-serving"
-	SuspendedByParentAnnotation  = "kueue.x-k8s.io/pod-suspending-parent"
-	RoleHashAnnotation           = "kueue.x-k8s.io/role-hash"
-	RetriableInGroupAnnotation   = "kueue.x-k8s.io/retriable-in-group"
 )
 
 var (
 	metaPath                       = field.NewPath("metadata")
 	labelsPath                     = metaPath.Child("labels")
 	annotationsPath                = metaPath.Child("annotations")
-	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
-	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
-	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
-	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
+	managedLabelPath               = labelsPath.Key(constants.ManagedByKueueLabelKey)
+	groupNameLabelPath             = labelsPath.Key(podconstants.GroupNameLabel)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
+	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
+	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
 
 	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
 )
@@ -91,8 +79,10 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		namespaceSelector:            podOpts.NamespaceSelector,
-		podSelector:                  podOpts.PodSelector,
+	}
+	if podOpts != nil {
+		wh.namespaceSelector = podOpts.NamespaceSelector
+		wh.podSelector = podOpts.PodSelector
 	}
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
@@ -105,7 +95,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
 	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
 	if !ok {
-		return &configapi.PodIntegrationOptions{}, nil
+		return nil, nil
 	}
 	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
 	if !ok {
@@ -130,7 +120,7 @@ func (p *Pod) addRoleHash() error {
 		return err
 	}
 
-	p.pod.Annotations[RoleHashAnnotation] = hash
+	p.pod.Annotations[podconstants.RoleHashAnnotation] = hash
 	return nil
 }
 
@@ -139,7 +129,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	_, suspend := pod.pod.GetAnnotations()[SuspendedByParentAnnotation]
+	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
@@ -152,21 +142,25 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Backwards compatibility: podOptions.podSelector
-		podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse pod selector: %w", err)
-		}
-		if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
-			return nil
+		if w.podSelector != nil {
+			podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
+			if err != nil {
+				return fmt.Errorf("failed to parse pod selector: %w", err)
+			}
+			if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
+				return nil
+			}
 		}
 
 		// Backwards compatibility: podOptions.namespaceSelector
-		nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse namespace selector: %w", err)
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
+		if w.namespaceSelector != nil {
+			nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
+			if err != nil {
+				return fmt.Errorf("failed to parse namespace selector: %w", err)
+			}
+			if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+				return nil
+			}
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
@@ -199,12 +193,12 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if suspend {
-		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
+		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
 
 		if pod.pod.Labels == nil {
 			pod.pod.Labels = make(map[string]string)
 		}
-		pod.pod.Labels[ManagedLabelKey] = ManagedLabelValue
+		pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 
 		gate(&pod.pod)
 
@@ -212,11 +206,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			if val, ok := pod.pod.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation]; ok {
 				pod.pod.Labels[kueuealpha.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
-
-			if jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil) != nil {
-				pod.pod.Labels[kueuealpha.TASLabel] = "true"
-				utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
-			}
+			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
 
 		if podGroupName(pod.pod) != "" {
@@ -268,7 +258,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 		allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
 	}
 
-	if _, suspendByParent := newPod.pod.Annotations[SuspendedByParentAnnotation]; !suspendByParent {
+	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
 		if warn := warningForPodManagedLabel(newPod); warn != "" {
 			warnings = append(warnings, warn)
 		}
@@ -285,14 +275,15 @@ func validateCommon(pod *Pod) field.ErrorList {
 	allErrs := validateManagedLabel(pod)
 	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
 	allErrs = append(allErrs, validateTopologyRequest(pod)...)
+	allErrs = append(allErrs, validatePrebuiltWorkloadName(pod)...)
 	return allErrs
 }
 
 func validateManagedLabel(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if managedLabel, ok := pod.pod.GetLabels()[ManagedLabelKey]; ok && managedLabel != ManagedLabelValue {
-		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", ManagedLabelValue)))
+	if managedLabel, ok := pod.pod.GetLabels()[constants.ManagedByKueueLabelKey]; ok && managedLabel != constants.ManagedByKueueLabelValue {
+		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", constants.ManagedByKueueLabelValue)))
 	}
 
 	return allErrs
@@ -300,9 +291,10 @@ func validateManagedLabel(pod *Pod) field.ErrorList {
 
 // warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
 func warningForPodManagedLabel(p *Pod) string {
-	if managedLabel := p.pod.GetLabels()[ManagedLabelKey]; managedLabel == ManagedLabelValue && IsPodOwnerManagedByKueue(p) {
+	managedLabel := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]
+	if managedLabel == constants.ManagedByKueueLabelValue && jobframework.IsOwnerManagedByKueueForObject(p.Object()) {
 		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
-			ManagedLabelKey, ManagedLabelValue)
+			constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 	}
 
 	return ""
@@ -311,22 +303,22 @@ func warningForPodManagedLabel(p *Pod) string {
 func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	gtc, gtcExists := p.pod.GetAnnotations()[GroupTotalCountAnnotation]
+	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
 	if podGroupName(p.pod) == "" {
 		if gtcExists {
 			return append(allErrs, field.Required(
 				groupNameLabelPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
 			))
 		}
 	} else {
-		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), GroupNameLabel)...)
+		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), podconstants.GroupNameLabel)...)
 
 		if !gtcExists {
 			return append(allErrs, field.Required(
 				groupTotalCountAnnotationPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
 			))
 		}
 	}
@@ -353,5 +345,15 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 		}
 	}
 
-	return field.ErrorList{}
+	return nil
+}
+
+func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
+	var allErrs field.ErrorList
+	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
+	groupName := podGroupName(pod.pod)
+	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
+		allErrs = append(allErrs, field.Invalid(prebuiltWorkloadLabelPath, prebuiltWorkloadLabelPath, "prebuilt workload and pod group should be equal"))
+	}
+	return allErrs
 }

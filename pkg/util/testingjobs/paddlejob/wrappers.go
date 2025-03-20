@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -213,5 +213,11 @@ func (j *PaddleJobWrapper) Active(rType kftraining.ReplicaType, c int32) *Paddle
 // StatusConditions updates status conditions of the PaddleJob.
 func (j *PaddleJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *PaddleJobWrapper {
 	j.Status.Conditions = conditions
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *PaddleJobWrapper) ManagedBy(c string) *PaddleJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
 	return j
 }

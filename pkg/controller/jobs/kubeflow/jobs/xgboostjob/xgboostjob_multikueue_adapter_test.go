@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@ package xgboostjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -42,13 +43,14 @@ const (
 	TestNamespace = "ns"
 )
 
-func TestMultikueueAdapter(t *testing.T) {
-	objCheckOpts := []cmp.Option{
+func TestMultiKueueAdapter(t *testing.T) {
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}
 
 	xgboostJobBuilder := kfutiltesting.MakeXGBoostJob("xgboostjob1", TestNamespace).Queue("queue").Suspend(false)
+	xgboostJobManagedByKueueBuilder := xgboostJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersXGBoostJobs []kftraining.XGBoostJob
@@ -106,6 +108,38 @@ func TestMultikueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended XgBoostJob": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
 		"remote XgBoostJob is deleted": {
 			workerXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().
@@ -115,6 +149,42 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}
@@ -131,7 +201,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk)
+			adapter := kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject)
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

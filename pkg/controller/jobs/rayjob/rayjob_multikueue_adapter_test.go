@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -39,8 +40,8 @@ const (
 	TestNamespace = "ns"
 )
 
-func TestMultikueueAdapter(t *testing.T) {
-	objCheckOpts := []cmp.Option{
+func TestMultiKueueAdapter(t *testing.T) {
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}
@@ -51,7 +52,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		managersRayJobs []rayv1.RayJob
 		workerRayJobs   []rayv1.RayJob
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
 		wantManagersRayJobs []rayv1.RayJob
@@ -61,7 +62,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -86,7 +87,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -103,6 +104,37 @@ func TestMultikueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip to sync status from remote suspended rayjob": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+		},
 		"remote rayjob is deleted": {
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
@@ -110,8 +142,53 @@ func TestMultikueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+		},
+
+		"job managedBy multikueue": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
 			},
 		},
 	}
@@ -128,7 +205,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := &multiKueueAdapter{}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

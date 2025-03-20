@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // ResourceFlavorLister helps list ResourceFlavors.
@@ -29,19 +29,19 @@ import (
 type ResourceFlavorLister interface {
 	// List lists all ResourceFlavors in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ResourceFlavor, err error)
+	List(selector labels.Selector) (ret []*kueuev1beta1.ResourceFlavor, err error)
 	// Get retrieves the ResourceFlavor from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ResourceFlavor, error)
+	Get(name string) (*kueuev1beta1.ResourceFlavor, error)
 	ResourceFlavorListerExpansion
 }
 
 // resourceFlavorLister implements the ResourceFlavorLister interface.
 type resourceFlavorLister struct {
-	listers.ResourceIndexer[*v1beta1.ResourceFlavor]
+	listers.ResourceIndexer[*kueuev1beta1.ResourceFlavor]
 }
 
 // NewResourceFlavorLister returns a new ResourceFlavorLister.
 func NewResourceFlavorLister(indexer cache.Indexer) ResourceFlavorLister {
-	return &resourceFlavorLister{listers.New[*v1beta1.ResourceFlavor](indexer, v1beta1.Resource("resourceflavor"))}
+	return &resourceFlavorLister{listers.New[*kueuev1beta1.ResourceFlavor](indexer, kueuev1beta1.Resource("resourceflavor"))}
 }

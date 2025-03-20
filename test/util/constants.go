@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,19 +17,24 @@ limitations under the License.
 package util
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	TinyTimeout  = 10 * time.Millisecond
 	ShortTimeout = time.Second
-	Timeout      = 5 * time.Second
+	Timeout      = 10 * time.Second
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
+	// VeryLongTimeout is meant for E2E tests involving Ray which starts ray-project images (over 2GB)
+	// and also synchronizes the cluster before it can be used
+	VeryLongTimeout = 5 * time.Minute
 	// StartUpTimeout is meant to be used for waiting for Kueue to startup, given
 	// that cert updates can take up to 3 minutes to propagate to the filesystem.
 	// Taken into account that after the certificates are ready, all Kueue's components
@@ -45,4 +50,29 @@ var (
 	IgnoreConditionTimestampsAndObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 	IgnoreObjectMetaResourceVersion                = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
+	IgnoreDeploymentConditionTimestampsAndMessage  = cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message")
+)
+
+var (
+	AutoscalerCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
+	JobsetCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
+	TrainingOperatorCrds = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
+	MpiOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
+	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
+	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
+	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+)
+
+var (
+	// For full documentation on agnhost subcommands see the following documentation:
+	// https://pkg.go.dev/k8s.io/kubernetes/test/images/agnhost#section-readme
+
+	// Starts a simple HTTP(S) with a few endpoints, one of which is the /exit endpoint which exits with `exit 0`
+	BehaviorWaitForDeletion = []string{"netexec"}
+
+	// Starts a container which will remain paused and therefore must be deleted resulting in `exit 1`
+	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+
+	// The agnhost container will print args passed and `exit 0`
+	BehaviorExitFast = []string{"entrypoint-tester"}
 )

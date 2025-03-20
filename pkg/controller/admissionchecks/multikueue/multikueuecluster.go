@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,7 +52,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 const (
@@ -388,18 +389,18 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	cluster := &kueue.MultiKueueCluster{}
-	log := ctrl.LoggerFrom(ctx)
 
 	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile MultiKueueCluster")
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
 	// get the kubeconfig
@@ -502,7 +503,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return maps.Values(c.remoteClients)
+	return slices.Collect(maps.Values(c.remoteClients))
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update

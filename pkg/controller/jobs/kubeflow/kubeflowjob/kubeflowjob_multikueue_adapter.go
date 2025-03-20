@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -44,6 +46,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	copyStatus func(dst, src PtrT)
 	emptyList  func() client.ObjectList
 	gvk        schema.GroupVersionKind
+	fromObject func(runtime.Object) *KubeflowJob
 }
 
 type fullInterface interface {
@@ -56,12 +59,14 @@ func NewMKAdapter[PtrT objAsPtr[T], T any](
 	copyStatus func(dst, src PtrT),
 	emptyList func() client.ObjectList,
 	gvk schema.GroupVersionKind,
+	fromObject func(runtime.Object) *KubeflowJob,
 ) fullInterface {
 	return &adapter[PtrT, T]{
 		copySpec:   copySpec,
 		copyStatus: copyStatus,
 		emptyList:  emptyList,
 		gvk:        gvk,
+		fromObject: fromObject,
 	}
 }
 
@@ -73,7 +78,19 @@ func (a adapter[PtrT, T]) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (a adapter[PtrT, T]) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
+func (a adapter[PtrT, T]) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	kJobObj := PtrT(new(T))
+	err := c.Get(ctx, key, kJobObj)
+	if err != nil {
+		return false, "", err
+	}
+
+	kJob := a.fromObject(kJobObj)
+	jobControllerName := ptr.Deref(kJob.KFJobControl.RunPolicy().ManagedBy, "")
+	if jobControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	}
+
 	return true, "", nil
 }
 
@@ -83,6 +100,8 @@ func (a adapter[PtrT, T]) SyncJob(
 	remoteClient client.Client,
 	key types.NamespacedName,
 	workloadName, origin string) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	localJob := PtrT(new(T))
 	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
@@ -96,6 +115,12 @@ func (a adapter[PtrT, T]) SyncJob(
 	}
 
 	if err == nil {
+		if a.fromObject(localJob).IsSuspended() {
+			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+			log.V(2).Info("Skipping the sync since the local job is still suspended")
+			return nil
+		}
+
 		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			// if the remote exists, just copy the status
 			a.copyStatus(localJob, remoteJob)
@@ -114,6 +139,9 @@ func (a adapter[PtrT, T]) SyncJob(
 	labels[constants.PrebuiltWorkloadLabel] = workloadName
 	labels[kueue.MultiKueueOriginLabel] = origin
 	remoteJob.SetLabels(labels)
+
+	// clearing the managedBy enables the controller to take over
+	a.fromObject(remoteJob).SetManagedBy(nil)
 
 	return remoteClient.Create(ctx, remoteJob)
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -35,46 +36,68 @@ import (
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	InactiveClusterQueueSets sets.Set[string]
+	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
-	cq := s.ClusterQueues[wl.ClusterQueue]
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.removeUsage(wl.FlavorResourceUsage())
+	cq.RemoveUsage(wl.Usage())
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
-	cq := s.ClusterQueues[wl.ClusterQueue]
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.FlavorResourceUsage())
+	cq.AddUsage(wl.Usage())
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	for name, cq := range s.ClusterQueues {
+	for name, cq := range s.ClusterQueues() {
 		cohortName := "<none>"
 		if cq.HasParent() {
-			cohortName = cq.Parent().Name
+			cohortName = string(cq.Parent().Name)
 		}
 
 		log.Info("Found ClusterQueue",
-			"clusterQueue", klog.KRef("", name),
+			"clusterQueue", klog.KRef("", string(name)),
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
-			"workloads", utilmaps.Keys(cq.Workloads),
+			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
 		)
 	}
-	for name, cohort := range s.Cohorts {
+	for name, cohort := range s.Cohorts() {
 		log.Info("Found cohort",
 			"cohort", name,
 			"resources", cohort.ResourceNode.SubtreeQuota,
 			"usage", cohort.ResourceNode.Usage,
 		)
+	}
+
+	// Dump TAS snapshots if the feature is enabled
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for cqName, cq := range s.ClusterQueues() {
+			for tasFlavor, tasSnapshot := range cq.TASFlavors {
+				freeCapacityPerDomain, err := tasSnapshot.SerializeFreeCapacityPerDomain()
+				if err != nil {
+					log.Error(err, "Failed to serialize TAS snapshot free capacity",
+						"clusterQueue", cqName,
+						"resourceFlavor", tasFlavor,
+					)
+					continue
+				}
+
+				log.Info("TAS Snapshot Free Capacity",
+					"clusterQueue", cqName,
+					"resourceFlavor", tasFlavor,
+					"freeCapacityPerDomain", freeCapacityPerDomain,
+				)
+			}
+		}
 	}
 }
 
@@ -85,14 +108,15 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 	snap := Snapshot{
 		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
-		InactiveClusterQueueSets: sets.New[string](),
+		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
-	for _, cohort := range c.hm.Cohorts {
-		if c.hm.CycleChecker.HasCycle(cohort) {
+	for _, cohort := range c.hm.Cohorts() {
+		if hierarchy.HasCycle(cohort) {
 			continue
 		}
 		snap.AddCohort(cohort.Name)
-		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohort(cohort.Name).ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohort(cohort.Name).FairWeight = cohort.FairWeight
 		if cohort.HasParent() {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
@@ -108,8 +132,8 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 			}
 		}
 	}
-	for _, cq := range c.hm.ClusterQueues {
-		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
+	for _, cq := range c.hm.ClusterQueues() {
+		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
@@ -149,6 +173,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 		ResourceNode:                  c.resourceNode.Clone(),
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
+		tasOnly:                       c.isTASOnly(),
 	}
 	for i, rg := range c.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
@@ -156,7 +181,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 	return cc
 }
 
-func newCohortSnapshot(name string) *CohortSnapshot {
+func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	return &CohortSnapshot{
 		Name:   name,
 		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),

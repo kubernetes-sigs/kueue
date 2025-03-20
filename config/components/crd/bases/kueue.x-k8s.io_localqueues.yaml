@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: localqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -260,6 +260,30 @@ spec:
                       maxItems: 16
                       type: array
                       x-kubernetes-list-type: set
+                    topology:
+                      description: |-
+                        topology is the topology that associated with this ResourceFlavor.
+
+                        This is an alpha field and requires enabling the TopologyAwareScheduling
+                        feature gate.
+                      properties:
+                        levels:
+                          description: levels define the levels of topology.
+                          items:
+                            type: string
+                          maxItems: 8
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        name:
+                          description: name is the name of the topology.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                      required:
+                      - levels
+                      - name
+                      type: object
                   required:
                   - name
                   type: object

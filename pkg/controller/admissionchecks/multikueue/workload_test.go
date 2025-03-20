@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -55,7 +55,7 @@ func TestWlReconcile(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 
-	objCheckOpts := []cmp.Option{
+	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
@@ -1021,7 +1021,7 @@ func TestWlReconcile(t *testing.T) {
 			)
 
 			managerClient := managerBuilder.Build()
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New[string]("batch/job"))
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			worker1Builder, _ := getClientBuilder()

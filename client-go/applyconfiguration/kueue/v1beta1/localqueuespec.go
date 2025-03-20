@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // LocalQueueSpecApplyConfiguration represents a declarative configuration of the LocalQueueSpec type for use
 // with apply.
 type LocalQueueSpecApplyConfiguration struct {
-	ClusterQueue *v1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
-	StopPolicy   *v1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
+	ClusterQueue *kueuev1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
+	StopPolicy   *kueuev1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
 }
 
 // LocalQueueSpecApplyConfiguration constructs a declarative configuration of the LocalQueueSpec type for use with
@@ -37,7 +37,7 @@ func LocalQueueSpec() *LocalQueueSpecApplyConfiguration {
 // WithClusterQueue sets the ClusterQueue field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ClusterQueue field is set to the value of the last call.
-func (b *LocalQueueSpecApplyConfiguration) WithClusterQueue(value v1beta1.ClusterQueueReference) *LocalQueueSpecApplyConfiguration {
+func (b *LocalQueueSpecApplyConfiguration) WithClusterQueue(value kueuev1beta1.ClusterQueueReference) *LocalQueueSpecApplyConfiguration {
 	b.ClusterQueue = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *LocalQueueSpecApplyConfiguration) WithClusterQueue(value v1beta1.Cluste
 // WithStopPolicy sets the StopPolicy field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the StopPolicy field is set to the value of the last call.
-func (b *LocalQueueSpecApplyConfiguration) WithStopPolicy(value v1beta1.StopPolicy) *LocalQueueSpecApplyConfiguration {
+func (b *LocalQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.StopPolicy) *LocalQueueSpecApplyConfiguration {
 	b.StopPolicy = &value
 	return b
 }

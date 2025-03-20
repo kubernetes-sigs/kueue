@@ -168,7 +168,6 @@ rules:
       - kubeflow.org
     resources:
       - mpijobs
-      - mxjobs
       - paddlejobs
       - pytorchjobs
       - tfjobs
@@ -183,8 +182,6 @@ rules:
       - kubeflow.org
     resources:
       - mpijobs/finalizers
-      - mxjobs/finalizers
-      - mxjobs/status
       - paddlejobs/finalizers
       - pytorchjobs/finalizers
       - tfjobs/finalizers
@@ -304,7 +301,6 @@ rules:
       - ray.io
     resources:
       - rayclusters/finalizers
-      - rayclusters/status
       - rayjobs/finalizers
     verbs:
       - get
@@ -312,6 +308,7 @@ rules:
   - apiGroups:
       - ray.io
     resources:
+      - rayclusters/status
       - rayjobs/status
     verbs:
       - get

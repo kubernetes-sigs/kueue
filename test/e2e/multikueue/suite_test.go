@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -39,7 +40,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -58,6 +58,14 @@ var (
 	k8sWorker1Client client.Client
 	k8sWorker2Client client.Client
 	ctx              context.Context
+
+	managerCfg *rest.Config
+	worker1Cfg *rest.Config
+	worker2Cfg *rest.Config
+
+	managerRestClient *rest.RESTClient
+	worker1RestClient *rest.RESTClient
+	worker2RestClient *rest.RESTClient
 )
 
 func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -97,10 +105,16 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+			policyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
+			policyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
+			policyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
+			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
+			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
@@ -234,7 +248,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	util.SetupLogger()
 
 	managerClusterName = os.Getenv("MANAGER_KIND_CLUSTER_NAME")
 	gomega.Expect(managerClusterName).NotTo(gomega.BeEmpty(), "MANAGER_KIND_CLUSTER_NAME should not be empty")
@@ -245,10 +259,13 @@ var _ = ginkgo.BeforeSuite(func() {
 	worker2ClusterName = os.Getenv("WORKER2_KIND_CLUSTER_NAME")
 	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
 
-	var managerCfg, worker1Cfg, worker2Cfg *rest.Config
 	k8sManagerClient, managerCfg = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	k8sWorker1Client, worker1Cfg = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
 	k8sWorker2Client, worker2Cfg = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+
+	managerRestClient = util.CreateRestClient(managerCfg)
+	worker1RestClient = util.CreateRestClient(worker1Cfg)
+	worker2RestClient = util.CreateRestClient(worker2Cfg)
 
 	ctx = context.Background()
 
@@ -269,18 +286,22 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
 	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
 
-	// there should not be a kubeflow operator in manager cluster
+	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
 
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
 
+	util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
+	util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
+	util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
+
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 
 	ginkgo.GinkgoLogr.Info("Kueue and all integration operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
-
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)

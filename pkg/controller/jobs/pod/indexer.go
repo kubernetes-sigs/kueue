@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@ package pod
 import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 const (
@@ -31,7 +33,7 @@ func IndexPodGroupName(o client.Object) []string {
 		return nil
 	}
 
-	if labelValue, exists := pod.GetLabels()[GroupNameLabel]; exists {
+	if labelValue, exists := pod.GetLabels()[podconstants.GroupNameLabel]; exists {
 		return []string{labelValue}
 	}
 	return nil

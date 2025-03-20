@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -46,15 +47,54 @@ type Assignment struct {
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage resources.FlavorResourceQuantities
+	Usage workload.Usage
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
 }
 
+// UpdateForTASResult updates the Assignment with the TAS result
+func (assignment *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
+	for psName, psResult := range result {
+		psAssignment := assignment.podSetAssignmentByName(psName)
+		psAssignment.TopologyAssignment = psResult.TopologyAssignment
+	}
+	assignment.Usage.TAS = assignment.computeTASUsage()
+}
+
+// TASUsage computes the TAS usage for the assignment
+func (assignment *Assignment) computeTASUsage() workload.TASUsage {
+	result := make(workload.TASUsage)
+	for _, psa := range assignment.PodSets {
+		if psa.TopologyAssignment != nil {
+			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			for _, flv := range psa.Flavors {
+				if _, ok := result[flv.Name]; !ok {
+					result[flv.Name] = make(workload.TASFlavorUsage, 0)
+				}
+				for _, domain := range psa.TopologyAssignment.Domains {
+					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
+						Values:            domain.Values,
+						SinglePodRequests: singlePodRequests.Clone(),
+						Count:             domain.Count,
+					})
+				}
+			}
+		}
+	}
+	return result
+}
+
 // Borrows return whether assignment requires borrowing.
 func (a *Assignment) Borrows() bool {
 	return a.Borrowing
+}
+
+func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSetAssignment {
+	if idx := slices.IndexFunc(a.PodSets, func(ps PodSetAssignment) bool { return ps.Name == psName }); idx != -1 {
+		return &a.PodSets[idx]
+	}
+	return nil
 }
 
 // RepresentativeMode calculates the representative mode for the assignment as
@@ -91,7 +131,7 @@ func (a *Assignment) Message() string {
 			builder.WriteString("; ")
 		}
 		builder.WriteString("couldn't assign flavors to pod set ")
-		builder.WriteString(ps.Name)
+		builder.WriteString(string(ps.Name))
 		builder.WriteString(": ")
 		builder.WriteString(ps.Status.Message())
 	}
@@ -133,8 +173,8 @@ func (s *Status) IsError() bool {
 	return s != nil && s.err != nil
 }
 
-func (s *Status) append(r ...string) *Status {
-	s.reasons = append(s.reasons, r...)
+func (s *Status) appendf(format string, args ...any) *Status {
+	s.reasons = append(s.reasons, fmt.Sprintf(format, args...))
 	return s
 }
 
@@ -169,7 +209,7 @@ func (s *Status) Equal(o *Status) bool {
 // .Flavors and .Status can't be empty at the same time, once PodSetAssignment
 // is fully calculated.
 type PodSetAssignment struct {
-	Name     string
+	Name     kueue.PodSetReference
 	Flavors  ResourceAssignment
 	Status   *Status
 	Requests corev1.ResourceList
@@ -194,6 +234,26 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		}
 	}
 	return mode
+}
+
+func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
+	for _, flvAssignment := range psa.Flavors {
+		flvAssignment.Mode = newMode
+	}
+}
+
+func (psa *PodSetAssignment) reason(reason string) {
+	if psa.Status == nil {
+		psa.Status = &Status{}
+	}
+	psa.Status.reasons = append(psa.Status.reasons, reason)
+}
+
+func (psa *PodSetAssignment) error(err error) {
+	if psa.Status == nil {
+		psa.Status = &Status{}
+	}
+	psa.Status.err = err
 }
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
@@ -330,7 +390,9 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	}
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
-		Usage:   make(resources.FlavorResourceQuantities),
+		Usage: workload.Usage{
+			Quota: make(resources.FlavorResourceQuantities),
+		},
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
@@ -355,7 +417,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				// No need to compute again.
 				continue
 			}
-			flavors, status := a.findFlavorForPodSetResource(log, i, podSet.Requests, resName, assignment.Usage)
+			flavors, status := a.findFlavorForPodSetResource(log, i, podSet.Requests, resName, assignment.Usage.Quota)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status
@@ -363,15 +425,42 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 			psAssignment.append(flavors, status)
 		}
-		if features.Enabled(features.TopologyAwareScheduling) {
-			if a.wl.Obj.Spec.PodSets[i].TopologyRequest != nil {
-				assignTopology(log, &psAssignment, a.cq, a.wl.TotalRequests[i], &a.wl.Obj.Spec.PodSets[i])
-			}
-		}
 
 		assignment.append(podSet.Requests, &psAssignment)
 		if psAssignment.Status.IsError() || (len(podSet.Requests) > 0 && len(psAssignment.Flavors) == 0) {
 			return assignment
+		}
+	}
+	if assignment.RepresentativeMode() == NoFit {
+		return assignment
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, a.cq)
+		if assignment.RepresentativeMode() == Fit {
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, false)
+			if failure := result.Failure(); failure != nil {
+				// There is at least one PodSet which does not fit
+				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+				psAssignment.reason(failure.Reason)
+				// update the mode for all flavors and the representative mode
+				psAssignment.updateMode(Preempt)
+				assignment.representativeMode = ptr.To(Preempt)
+			} else {
+				// All PodSets fit, we just update the TopologyAssignments
+				assignment.UpdateForTASResult(result)
+			}
+		}
+		if assignment.RepresentativeMode() == Preempt {
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
+			if failure := result.Failure(); failure != nil {
+				// There is at least one PodSet which does not fit even if
+				// all workloads are preempted.
+				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+				// update the mode for all flavors and the representative mode
+				psAssignment.updateMode(NoFit)
+				assignment.representativeMode = ptr.To(NoFit)
+			}
 		}
 	}
 	return assignment
@@ -396,7 +485,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			a.Borrowing = true
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
-		a.Usage[fr] += requests[resource]
+		a.Usage.Quota[fr] += requests[resource]
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
@@ -439,13 +528,13 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		flavor, exist := a.resourceFlavors[fName]
 		if !exist {
 			log.Error(nil, "Flavor not found", "Flavor", fName)
-			status.append(fmt.Sprintf("flavor %s not found", fName))
+			status.appendf("flavor %s not found", fName)
 			continue
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
-				status.append(*message)
+				status.appendf("%s", *message)
 				continue
 			}
 		}
@@ -453,7 +542,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, fName))
+			status.appendf("untolerated taint %s in flavor %s", taint, fName)
 			continue
 		}
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
@@ -461,7 +550,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.err = err
 				return nil, status
 			}
-			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", fName))
+			status.appendf("flavor %s doesn't match node affinity", fName)
 			continue
 		}
 		needsBorrowing := false
@@ -609,8 +698,8 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// No Fit
 	if val > maxCapacity {
-		status.append(fmt.Sprintf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity)))
+		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
+			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
 		return noFit, false, &status
 	}
 
@@ -630,8 +719,8 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		mode = preempt
 	}
 
-	status.append(fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available)))
+	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
+		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
 	return mode, borrow, &status
 }

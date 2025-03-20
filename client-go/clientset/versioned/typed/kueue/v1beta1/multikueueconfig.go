@@ -18,14 +18,14 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	applyconfigurationkueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -37,32 +37,33 @@ type MultiKueueConfigsGetter interface {
 
 // MultiKueueConfigInterface has methods to work with MultiKueueConfig resources.
 type MultiKueueConfigInterface interface {
-	Create(ctx context.Context, multiKueueConfig *v1beta1.MultiKueueConfig, opts v1.CreateOptions) (*v1beta1.MultiKueueConfig, error)
-	Update(ctx context.Context, multiKueueConfig *v1beta1.MultiKueueConfig, opts v1.UpdateOptions) (*v1beta1.MultiKueueConfig, error)
+	Create(ctx context.Context, multiKueueConfig *kueuev1beta1.MultiKueueConfig, opts v1.CreateOptions) (*kueuev1beta1.MultiKueueConfig, error)
+	Update(ctx context.Context, multiKueueConfig *kueuev1beta1.MultiKueueConfig, opts v1.UpdateOptions) (*kueuev1beta1.MultiKueueConfig, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.MultiKueueConfig, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.MultiKueueConfigList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*kueuev1beta1.MultiKueueConfig, error)
+	List(ctx context.Context, opts v1.ListOptions) (*kueuev1beta1.MultiKueueConfigList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.MultiKueueConfig, err error)
-	Apply(ctx context.Context, multiKueueConfig *kueuev1beta1.MultiKueueConfigApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.MultiKueueConfig, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *kueuev1beta1.MultiKueueConfig, err error)
+	Apply(ctx context.Context, multiKueueConfig *applyconfigurationkueuev1beta1.MultiKueueConfigApplyConfiguration, opts v1.ApplyOptions) (result *kueuev1beta1.MultiKueueConfig, err error)
 	MultiKueueConfigExpansion
 }
 
 // multiKueueConfigs implements MultiKueueConfigInterface
 type multiKueueConfigs struct {
-	*gentype.ClientWithListAndApply[*v1beta1.MultiKueueConfig, *v1beta1.MultiKueueConfigList, *kueuev1beta1.MultiKueueConfigApplyConfiguration]
+	*gentype.ClientWithListAndApply[*kueuev1beta1.MultiKueueConfig, *kueuev1beta1.MultiKueueConfigList, *applyconfigurationkueuev1beta1.MultiKueueConfigApplyConfiguration]
 }
 
 // newMultiKueueConfigs returns a MultiKueueConfigs
 func newMultiKueueConfigs(c *KueueV1beta1Client) *multiKueueConfigs {
 	return &multiKueueConfigs{
-		gentype.NewClientWithListAndApply[*v1beta1.MultiKueueConfig, *v1beta1.MultiKueueConfigList, *kueuev1beta1.MultiKueueConfigApplyConfiguration](
+		gentype.NewClientWithListAndApply[*kueuev1beta1.MultiKueueConfig, *kueuev1beta1.MultiKueueConfigList, *applyconfigurationkueuev1beta1.MultiKueueConfigApplyConfiguration](
 			"multikueueconfigs",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *v1beta1.MultiKueueConfig { return &v1beta1.MultiKueueConfig{} },
-			func() *v1beta1.MultiKueueConfigList { return &v1beta1.MultiKueueConfigList{} }),
+			func() *kueuev1beta1.MultiKueueConfig { return &kueuev1beta1.MultiKueueConfig{} },
+			func() *kueuev1beta1.MultiKueueConfigList { return &kueuev1beta1.MultiKueueConfigList{} },
+		),
 	}
 }

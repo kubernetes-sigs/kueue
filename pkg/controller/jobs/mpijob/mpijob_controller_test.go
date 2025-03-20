@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package mpijob
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -203,16 +202,12 @@ func TestPodSets(t *testing.T) {
 		"no annotations": {
 			job: (*MPIJob)(jobTemplate.DeepCopy()),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name:     strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
-					Count:    1,
-					Template: *jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.DeepCopy(),
-				},
-				{
-					Name:     strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
-					Count:    3,
-					Template: *jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.DeepCopy(),
-				},
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
+					Obj(),
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
+					Obj(),
 			},
 		},
 		"with required topology annotation": {
@@ -230,46 +225,18 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
-					Count: 1,
-					Template: jobTemplate.
-						Clone().
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeLauncher,
-							kueuealpha.PodSetRequiredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeWorker,
-							kueuealpha.PodSetRequiredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required:      ptr.To("cloud.com/block"),
-						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
-				},
-				{
-					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
-					Count: 3,
-					Template: jobTemplate.
-						Clone().
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeLauncher,
-							kueuealpha.PodSetRequiredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeWorker,
-							kueuealpha.PodSetRequiredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required:      ptr.To("cloud.com/block"),
-						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
-				},
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					Obj(),
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					Obj(),
 			},
 		},
 		"with preferred topology annotation": {
@@ -287,52 +254,28 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				{
-					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
-					Count: 1,
-					Template: jobTemplate.
-						Clone().
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeLauncher,
-							kueuealpha.PodSetPreferredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeWorker,
-							kueuealpha.PodSetPreferredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Preferred:     ptr.To("cloud.com/block"),
-						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
-				},
-				{
-					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
-					Count: 3,
-					Template: jobTemplate.
-						Clone().
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeLauncher,
-							kueuealpha.PodSetPreferredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						PodAnnotation(
-							kfmpi.MPIReplicaTypeWorker,
-							kueuealpha.PodSetPreferredTopologyAnnotation,
-							"cloud.com/block",
-						).
-						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
-					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Preferred:     ptr.To("cloud.com/block"),
-						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
-				},
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)), 1).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					PreferredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					Obj(),
+				*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					PreferredTopologyRequest("cloud.com/block").
+					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					Obj(),
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantPodSets, tc.job.PodSets()); diff != "" {
+			gotPodSets, err := tc.job.PodSets()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -340,11 +283,11 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	jobCmpOpts = []cmp.Option{
+	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kfmpi.MPIJob{}, "TypeMeta", "ObjectMeta"),
 	}
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
@@ -358,14 +301,7 @@ func TestReconciler(t *testing.T) {
 		PriorityValue(100)
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
-	testNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "ns",
-			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "ns",
-			},
-		},
-	}
+	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *kfmpi.MPIJob

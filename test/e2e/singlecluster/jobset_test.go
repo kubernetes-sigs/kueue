@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,15 +38,11 @@ var _ = ginkgo.Describe("JobSet", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 	ginkgo.When("Creating a JobSet", func() {
 		var (
@@ -67,12 +63,13 @@ var _ = ginkgo.Describe("JobSet", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRf, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("Should run a jobSet if admitted", func() {
@@ -81,16 +78,15 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestSleepImage,
-						// Give it the time to be observed Active in the live status update step.
-						Args: []string{"1ms"},
 					},
 				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
+				RequestAndLimit("replicated-job-1", "cpu", "500m").
+				RequestAndLimit("replicated-job-1", "memory", "200M").
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
@@ -148,13 +144,14 @@ var _ = ginkgo.Describe("JobSet", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("Should allow to suspend a JobSet when injected nodeSelector", func() {
@@ -163,15 +160,15 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
-						Image:       util.E2eTestSleepImage,
-						Args:        []string{"60s"},
 					},
 				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
+				RequestAndLimit("replicated-job-1", "cpu", "500m").
+				RequestAndLimit("replicated-job-1", "memory", "200M").
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {

@@ -28,7 +28,7 @@ type FakeKueueV1alpha1 struct {
 }
 
 func (c *FakeKueueV1alpha1) Topologies() v1alpha1.TopologyInterface {
-	return &FakeTopologies{c}
+	return newFakeTopologies(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

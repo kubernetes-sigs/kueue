@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,11 +38,14 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -62,6 +65,7 @@ var (
 
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
+	recoveryTimeout             *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
 	requeuingBackoffMaxDuration time.Duration
@@ -108,6 +112,9 @@ type WorkloadReconciler struct {
 	clock            clock.Clock
 }
 
+var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
+
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -139,9 +146,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling Workload")
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Workload")
 
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
@@ -210,7 +217,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
-				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message)
+				workload.ReportEvictedWorkload(r.recorder, &wl, wl.Status.Admission.ClusterQueue, reason, message)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -233,7 +240,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if cqOk {
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
 		cq := kueue.ClusterQueue{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq); err != nil {
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq); err != nil {
 			return ctrl.Result{}, err
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
@@ -257,8 +264,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
-			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
-			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
+			metrics.AdmittedWorkload(cqName, queuedWaitTime)
+			metrics.AdmissionChecksWaitTime(cqName, quotaReservedWaitTime)
 			if features.Enabled(features.LocalQueueMetrics) {
 				metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(&wl), queuedWaitTime)
 				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
@@ -311,13 +318,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case !cqOk:
-		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
+		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
 		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()) {
 			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case !r.cache.ClusterQueueActive(cqName):
-		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
+		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
 		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()) {
 			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -430,7 +437,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 		if err == nil {
-			cqName := string(lq.Spec.ClusterQueue)
+			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
 				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
 				if features.Enabled(features.LocalQueueMetrics) {
@@ -456,9 +463,9 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 	return false, nil
 }
 
-func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Context, wl *kueue.Workload, cqName kueue.ClusterQueueReference) (bool, error) {
 	cq := kueue.ClusterQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq)
+	err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq)
 	if client.IgnoreNotFound(err) != nil {
 		return false, err
 	}
@@ -475,7 +482,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
-		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
+		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", string(cqName)))
 		message := "The ClusterQueue is stopped"
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, message)
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
@@ -487,13 +494,13 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	}
 
 	if !cqExists || !cq.DeletionTimestamp.IsZero() {
-		log.V(3).Info("Workload is inadmissible because the ClusterQueue is terminating or missing", "clusterQueue", klog.KRef("", cqName))
+		log.V(3).Info("Workload is inadmissible because the ClusterQueue is terminating or missing", "clusterQueue", klog.KRef("", string(cqName)))
 		_ = workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is terminating or missing", cqName), r.clock.Now())
 		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	}
 
 	if queueStopPolicy != kueue.None {
-		log.V(3).Info("Workload is inadmissible because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
+		log.V(3).Info("Workload is inadmissible because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", string(cqName)))
 		_ = workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is stopped", cqName), r.clock.Now())
 		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	}
@@ -587,15 +594,10 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	return false, nil
 }
 
-func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
-	wl, isWorkload := e.Object.(*kueue.Workload)
-	if !isWorkload {
-		// this event will be handled by the LimitRange/RuntimeClass handle
-		return true
-	}
-	defer r.notifyWatchers(nil, wl)
-	status := workload.Status(wl)
-	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
+	defer r.notifyWatchers(nil, e.Object)
+	status := workload.Status(e.Object)
+	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
@@ -603,10 +605,10 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	wlCopy := wl.DeepCopy()
+	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if !workload.HasQuotaReservation(wl) {
+	if !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -619,31 +621,26 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	return true
 }
 
-func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
-	wl, isWorkload := e.Object.(*kueue.Workload)
-	if !isWorkload {
-		// this event will be handled by the LimitRange/RuntimeClass handle
-		return true
-	}
-	defer r.notifyWatchers(wl, nil)
+func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
+	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
-		status = workload.Status(wl)
+		status = workload.Status(e.Object)
 	}
-	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed, and we need
 	// to clear it from the cache.
-	if workload.HasQuotaReservation(wl) || e.DeleteStateUnknown {
+	if workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(wl); err != nil {
+			if err := r.cache.DeleteWorkload(e.Object); err != nil {
 				if !e.DeleteStateUnknown {
 					log.Error(err, "Failed to delete workload from cache")
 				}
@@ -653,85 +650,79 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(wl)
+	r.queues.DeleteWorkload(e.Object)
 
 	return true
 }
 
-func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
-	oldWl, isWorkload := e.ObjectOld.(*kueue.Workload)
-	if !isWorkload {
-		// this event will be handled by the LimitRange/RuntimeClass handle
-		return true
-	}
-	wl := e.ObjectNew.(*kueue.Workload)
-	defer r.notifyWatchers(oldWl, wl)
+func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) bool {
+	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
-	status := workload.Status(wl)
-	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	status := workload.Status(e.ObjectNew)
+	log := r.log.WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	active := workload.IsActive(wl)
+	active := workload.IsActive(e.ObjectNew)
 
-	prevQueue := oldWl.Spec.QueueName
-	if prevQueue != wl.Spec.QueueName {
+	prevQueue := e.ObjectOld.Spec.QueueName
+	if prevQueue != e.ObjectNew.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
 	}
-	prevStatus := workload.Status(oldWl)
+	prevStatus := workload.Status(e.ObjectOld)
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
-	if workload.HasQuotaReservation(wl) {
-		log = log.WithValues("clusterQueue", wl.Status.Admission.ClusterQueue)
+	if workload.HasQuotaReservation(e.ObjectNew) {
+		log = log.WithValues("clusterQueue", e.ObjectNew.Status.Admission.ClusterQueue)
 	}
-	if workload.HasQuotaReservation(oldWl) && (!workload.HasQuotaReservation(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
-		log = log.WithValues("prevClusterQueue", oldWl.Status.Admission.ClusterQueue)
+	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
+		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
 
-	wlCopy := wl.DeepCopy()
+	wlCopy := e.ObjectNew.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
-			log.V(2).Info("Workload will not be queued because the workload is not active", "workload", klog.KObj(wl))
+			log.V(2).Info("Workload will not be queued because the workload is not active", "workload", klog.KObj(e.ObjectNew))
 		}
 		// The workload could have been in the queues if we missed an event.
-		r.queues.DeleteWorkload(wl)
+		r.queues.DeleteWorkload(e.ObjectNew)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == workload.StatusAdmitted {
+			if err := r.cache.DeleteWorkload(e.ObjectOld); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		err := r.queues.UpdateWorkload(oldWl, wlCopy)
+		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
 		if err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
-		r.queues.DeleteWorkload(oldWl)
+		r.queues.DeleteWorkload(e.ObjectOld)
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	case (prevStatus == workload.StatusQuotaReserved || prevStatus == workload.StatusAdmitted) && status == workload.StatusPending:
 		var backoff time.Duration
 		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
-			backoff = time.Until(wl.Status.RequeueState.RequeueAt.Time)
+			backoff = time.Until(e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 		}
 		immediate := backoff <= 0
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(wl); err != nil {
+			if err := r.cache.DeleteWorkload(e.ObjectNew); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping
@@ -744,10 +735,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		})
 
 		if !immediate {
-			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", wl.Status.RequeueState.RequeueAt.Time)
+			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 			time.AfterFunc(backoff, func() {
 				updatedWl := kueue.Workload{}
-				err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)
+				err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
 				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
 					if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
@@ -757,13 +748,13 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				}
 			})
 		}
-	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods):
+	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+			if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
@@ -771,7 +762,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+		if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
 	}
@@ -779,8 +770,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	return true
 }
 
-func (r *WorkloadReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
+func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
+	r.log.V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
 	return false
 }
 
@@ -794,14 +785,19 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.Workload{}).
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("workload_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Workload{},
+			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
+			r,
+		)).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh).
-		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
@@ -825,16 +821,17 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
 		return false, 0
 	}
-	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
-		elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
+
+	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
+		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
+		return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
+	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
+		// A pod has failed and the workload is waiting for recovery
+		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
+		return true, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 	}
-	waitFor := r.waitForPodsReady.timeout - elapsedTime
-	if waitFor < 0 {
-		waitFor = 0
-	}
-	return true, waitFor
+	return false, 0
 }
 
 type resourceUpdatesHandler struct {

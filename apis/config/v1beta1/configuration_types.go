@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,7 +48,21 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// ManagedJobsNamespaceSelector can be used to omit some namespaces from ManagedJobsWithoutQueueName
+	// ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
+	// from management by Kueue.
+	//
+	// It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
+	// For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
+	// eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
+	// never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
+	// This strong exemption ensures that Kueue will not interfere with the basic operation
+	// of system namespace.
+	//
+	// For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
+	// by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
+	// a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
+	// a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
+	// true and the job's namespace matches ManagedJobsNamespaceSelector.
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
 	// InternalCertManagement is configuration for internalCertManagement
@@ -78,7 +92,7 @@ type Configuration struct {
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 
-	// FairSharing controls the fair sharing semantics across the cluster.
+	// FairSharing controls the Fair Sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
 	// Resources provides additional configuration options for handling the resources.
@@ -219,6 +233,16 @@ type WaitForPodsReady struct {
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
+
+	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
+	// Such a transition may happen when a Pod failed and the replacement Pod
+	// is awaited to be scheduled.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+	// If not set, there is no timeout.
+	// +optional
+	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
 
 type MultiKueue struct {
@@ -294,9 +318,16 @@ const (
 )
 
 type InternalCertManagement struct {
-	// Enable controls whether to enable internal cert management or not.
-	// Defaults to true. If you want to use a third-party management, e.g. cert-manager,
-	// set it to false. See the user guide for more information.
+	// Enable controls the use of internal cert management for the webhook
+	// and metrics endpoints.
+	// When enabled Kueue is using libraries to generate and
+	// self-sign the certificates.
+	// When disabled, you need to provide the certificates for
+	// the webhooks and metrics through a third party certificate
+	// This secret is mounted to the kueue controller manager pod. The mount
+	// path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
+	// metrics endpoint the expected path is `/etc/kueue/metrics/certs`.
+	// The keys and certs are named tls.key and tls.crt.
 	Enable *bool `json:"enable,omitempty"`
 
 	// WebhookServiceName is the name of the Service used as part of the DNSName.
@@ -325,20 +356,23 @@ type Integrations struct {
 	//  - "ray.io/rayjob"
 	//  - "ray.io/raycluster"
 	//  - "jobset.x-k8s.io/jobset"
-	//  - "kubeflow.org/mxjob"
 	//  - "kubeflow.org/paddlejob"
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
 	//  - "kubeflow.org/xgboostjob"
+	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
 	//  - "deployment" (requires enabling pod integration)
 	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset" (requires enabling pod integration)
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
+	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
+	// instead.
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the
@@ -416,7 +450,7 @@ const (
 )
 
 type FairSharing struct {
-	// enable indicates whether to enable fair sharing for all cohorts.
+	// enable indicates whether to enable Fair Sharing for all cohorts.
 	// Defaults to false.
 	Enable bool `json:"enable"`
 

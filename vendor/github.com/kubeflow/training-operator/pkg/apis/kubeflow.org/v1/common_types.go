@@ -35,6 +35,12 @@ const (
 
 	// JobRoleLabel represents the label key for the job role, e.g. master.
 	JobRoleLabel = "training.kubeflow.org/job-role"
+
+	// KubeflowJobsController represents the value of the default jobs controller
+	KubeflowJobsController = "kubeflow.org/training-operator"
+
+	// MultiKueueController represents the MultiKueue controller
+	MultiKueueController = "kueue.x-k8s.io/multikueue"
 )
 
 // JobStatus represents the current observed state of the training Job.
@@ -221,6 +227,16 @@ type RunPolicy struct {
 	// +kubebuilder:default:=false
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
+
+	// ManagedBy is used to indicate the controller or entity that manages a job.
+	// The value must be either an empty, 'kubeflow.org/training-operator' or
+	// 'kueue.x-k8s.io/multikueue'.
+	// The training-operator reconciles a job which doesn't have this
+	// field at all or the field value is the reserved string
+	// 'kubeflow.org/training-operator', but delegates reconciling the job
+	// with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	ManagedBy *string `json:"managedBy,omitempty"`
 }
 
 // SchedulingPolicy encapsulates various scheduling policies of the distributed training

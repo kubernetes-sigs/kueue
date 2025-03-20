@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,11 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -40,19 +38,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
 	errQueueAlreadyExists = errors.New("queue already exists")
-	oneQuantity           = resource.MustParse("1")
 )
 
 // clusterQueue is the internal implementation of kueue.clusterQueue that
 // holds admitted workloads.
 type clusterQueue struct {
-	Name              string
+	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -92,14 +88,8 @@ type clusterQueue struct {
 	tasCache *TASCache
 }
 
-func (c *clusterQueue) GetName() string {
+func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
-}
-
-// implement dominantResourceShareNode interface
-
-func (c *clusterQueue) parentResources() ResourceNode {
-	return c.Parent().resourceNode
 }
 
 // implements hierarchicalResourceNode interface.
@@ -131,15 +121,15 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
-			_ = updateCohortTreeResources(oldParent, cycleChecker)
+			_ = updateCohortTreeResources(oldParent)
 		}
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
-			if err := updateCohortTreeResources(c.Parent(), cycleChecker); err != nil {
+			if err := updateCohortTreeResources(c.Parent()); err != nil {
 				return err
 			}
 		} else {
@@ -180,10 +170,7 @@ func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, i
 		c.FlavorFungibility = defaultFlavorFungibility
 	}
 
-	c.FairWeight = oneQuantity
-	if fs := in.Spec.FairSharing; fs != nil && fs.Weight != nil {
-		c.FairWeight = *fs.Weight
-	}
+	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
 
 	return nil
 }
@@ -276,7 +263,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
-			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
+			for _, controller := range slices.Sorted(maps.Keys(c.multipleSingleInstanceControllersChecks)) {
 				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}
@@ -287,14 +274,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
-			if c.HasParent() {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported for cohorts")
-			}
-			if c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported for preemption within cluster queue")
-			}
 			if len(c.multiKueueAdmissionChecks) > 0 {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with MultiKueue admission check")
@@ -329,10 +308,7 @@ func (c *clusterQueue) isTASViolated() bool {
 			return true
 		}
 	}
-	return c.HasParent() ||
-		c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever ||
-		len(c.multiKueueAdmissionChecks) > 0 ||
-		len(c.provisioningAdmissionChecks) > 0
+	return len(c.multiKueueAdmissionChecks) > 0 || len(c.provisioningAdmissionChecks) > 0
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
@@ -509,8 +485,8 @@ func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount))
-	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
+	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(c.admittedWorkloadsCount))
+	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(len(c.Workloads)))
 }
 
 func (q *queue) reportActiveWorkloads() {
@@ -646,84 +622,19 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
 }
 
-// The methods below implement several interfaces. See
-// dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
+// Implements dominantResourceShareNode interface.
 
 func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
 
-func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
-	return c.resourceNode.Usage[fr]
-}
-
-func (c *clusterQueue) QuotaFor(fr resources.FlavorResource) ResourceQuota {
-	return c.resourceNode.Quotas[fr]
-}
-
-func (c *clusterQueue) resourceGroups() []ResourceGroup {
-	return c.ResourceGroups
-}
-
-// DominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
-// of usage above nominal quota to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.
-// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-// The function also returns the resource name that yielded this value.
-// Also for a weight of zero, this will return 9223372036854775807.
-func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName) {
-	return dominantResourceShare(c, nil, 0)
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq, 1)
-}
-
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, wlReq, -1)
-}
-
-type dominantResourceShareNode interface {
-	HasParent() bool
-	parentResources() ResourceNode
-	fairWeight() *resource.Quantity
-
-	netQuotaNode
-}
-
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
-	if !node.HasParent() {
-		return 0, ""
-	}
-	if node.fairWeight().IsZero() {
-		return math.MaxInt, ""
-	}
-
-	borrowing := make(map[corev1.ResourceName]int64)
-	for fr, quota := range remainingQuota(node) {
-		b := m*wlReq[fr] - quota
-		if b > 0 {
-			borrowing[fr.Resource] += b
-		}
-	}
-	if len(borrowing) == 0 {
-		return 0, ""
-	}
-
-	var drs int64 = -1
-	var dRes corev1.ResourceName
-
-	lendable := node.parentResources().calculateLendable()
-	for rName, b := range borrowing {
-		if lr := lendable[rName]; lr > 0 {
-			ratio := b * 1000 / lr
-			// Use alphabetical order to get a deterministic resource name.
-			if ratio > drs || (ratio == drs && rName < dRes) {
-				drs = ratio
-				dRes = rName
+func (c *clusterQueue) isTASOnly() bool {
+	for _, rg := range c.ResourceGroups {
+		for _, fName := range rg.Flavors {
+			if _, found := c.tasFlavors[fName]; !found {
+				return false
 			}
 		}
 	}
-	dws := drs * 1000 / node.fairWeight().MilliValue()
-	return int(dws), dRes
+	return true
 }

@@ -1,0 +1,26 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-viz-frontend
+  namespace: system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueue-viz-frontend
+  template:
+    metadata:
+      labels:
+        app: kueue-viz-frontend
+    spec:
+
+      containers:
+        - name: frontend
+          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "wss://backend.kueue-viz.local"

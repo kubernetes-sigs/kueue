@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,30 +26,30 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func HaveCondition(condition string) types.GomegaMatcher {
+func HaveConditionStatus(conditionType string, status metav1.ConditionStatus) types.GomegaMatcher {
 	return &conditionMatcher{
-		condition: condition,
+		conditionType: conditionType,
+		status:        status,
 	}
 }
 
-func HaveConditionStatus(condition string, status metav1.ConditionStatus) types.GomegaMatcher {
+func HaveCondition(conditionType string) types.GomegaMatcher {
 	return &conditionMatcher{
-		condition: condition,
-		status:    status,
+		conditionType: conditionType,
 	}
 }
 
-func HaveConditionStatusTrue(condition string) types.GomegaMatcher {
-	return HaveConditionStatus(condition, metav1.ConditionTrue)
+func HaveConditionStatusTrue(conditionType string) types.GomegaMatcher {
+	return HaveConditionStatus(conditionType, metav1.ConditionTrue)
 }
 
-func HaveConditionStatusFalse(condition string) types.GomegaMatcher {
-	return HaveConditionStatus(condition, metav1.ConditionFalse)
+func HaveConditionStatusFalse(conditionType string) types.GomegaMatcher {
+	return HaveConditionStatus(conditionType, metav1.ConditionFalse)
 }
 
 type conditionMatcher struct {
-	condition string
-	status    metav1.ConditionStatus
+	conditionType string
+	status        metav1.ConditionStatus
 }
 
 func (matcher *conditionMatcher) Match(actual interface{}) (bool, error) {
@@ -58,7 +58,7 @@ func (matcher *conditionMatcher) Match(actual interface{}) (bool, error) {
 		return false, fmt.Errorf("Condition matcher expects a []metav1.Condition. Got:\n%s", format.Object(actual, 1))
 	}
 
-	found := apimeta.FindStatusCondition(conditions, matcher.condition)
+	found := apimeta.FindStatusCondition(conditions, matcher.conditionType)
 	if found == nil {
 		return false, nil
 	}
@@ -86,8 +86,8 @@ func (matcher *conditionMatcher) buildErrorMessage(actual interface{}, negated b
 	if negated {
 		b.WriteString("not ")
 	}
-	b.WriteString("to have condition ")
-	b.WriteString(matcher.condition)
+	b.WriteString("to have condition type ")
+	b.WriteString(matcher.conditionType)
 	if matcher.status != "" {
 		b.WriteString(" and status ")
 		b.WriteString(string(matcher.status))

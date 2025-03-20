@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -156,6 +156,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
+
 	wl := &kueue.Workload{}
 	isDeleted := false
 	err := w.client.Get(ctx, req.NamespacedName, wl)
@@ -182,20 +183,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	if mkAc == nil || mkAc.State == kueue.CheckStateRejected {
 		log.V(2).Info("Skip Workload", "isDeleted", isDeleted)
 		if isDeleted {
-			// Delete the workload from the cache considering the following cases:
-			// 1. the workload is not admitted by MultiKueue and so there are
+			// Delete the workload from the cache considering the following case:
+			//    The workload is not admitted by MultiKueue and so there are
 			//    no workloads on worker clusters created, we can safely drop it
 			//    from the cache.
 			//    TODO(#3840): Ideally, we would not add it to the cache in the
 			//    first place.
-			// 2. the AdmissionCheck was rejected then, ideally, we trigger
-			//    deletion of the workloads on the worker clusters, rather than
-			//    deleting from cache. However,
-			//    - this is not a regression as the case was not handled anyway.
-			//    - we have the MultiKueue GarbageCollector which will take care
-			//      of the orphaned workloads with a delay.
-			//    TODO(#3841): Ideally, we would delete workloads on the worker
-			//    clusters synchronously.
 			w.deletedWlCache.Delete(req.String())
 		}
 		return reconcile.Result{}, nil
@@ -331,7 +324,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1. delete all remote workloads when finished or the local wl has no reservation
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
-		errs := []error{}
+		var errs []error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
@@ -500,7 +493,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue-workload").
+		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		WithEventFilter(w).

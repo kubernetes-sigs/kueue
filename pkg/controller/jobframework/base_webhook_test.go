@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -51,6 +50,7 @@ type testGenericJob struct {
 
 var _ jobframework.GenericJob = (*testGenericJob)(nil)
 var _ jobframework.JobWithCustomValidation = (*testGenericJob)(nil)
+var _ jobframework.JobWithManagedBy = (*testGenericJob)(nil)
 
 func (t *testGenericJob) Object() client.Object {
 	return t.Job
@@ -76,7 +76,7 @@ func (t *testGenericJob) Finished() (string, bool, bool) {
 	panic("not implemented")
 }
 
-func (t *testGenericJob) PodSets() []kueue.PodSet {
+func (t *testGenericJob) PodSets() ([]kueue.PodSet, error) {
 	panic("not implemented")
 }
 
@@ -86,6 +86,20 @@ func (t *testGenericJob) IsActive() bool {
 
 func (t *testGenericJob) PodsReady() bool {
 	panic("not implemented")
+}
+
+func (j *testGenericJob) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
+}
+
+func (j *testGenericJob) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *testGenericJob) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func (t *testGenericJob) GVK() schema.GroupVersionKind {
@@ -133,6 +147,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
+		enableMultiKueue           bool
 		job                        *batchv1.Job
 		want                       *batchv1.Job
 	}{
@@ -198,14 +213,45 @@ func TestBaseWebhookDefault(t *testing.T) {
 			want: utiljob.MakeJob("job", "default").
 				Obj(),
 		},
+		"ManagedByDefaulting, targeting multikueue local queue": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("multikueue").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("multikueue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			enableMultiKueue: true,
+		},
+		"ManagedByDefaulting, targeting multikueue local queue but already managaed by someone else": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("multikueue").
+				ManagedBy("someone-else").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("multikueue").
+				ManagedBy("someone-else").
+				Obj(),
+			enableMultiKueue: true,
+		},
+		"ManagedByDefaulting, targeting non-multikueue local queue": {
+			job: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			want: utiljob.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			enableMultiKueue: true,
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					utiltesting.MakeNamespace("default"),
 				)
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
@@ -216,13 +262,35 @@ func TestBaseWebhookDefault(t *testing.T) {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
+			if tc.enableMultiKueue {
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+				cq := *utiltesting.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj()
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				ac := utiltesting.MakeAdmissionCheck("admission-check").
+					ControllerName(kueue.MultiKueueControllerName).
+					Active(metav1.ConditionTrue).
+					Obj()
+				cqCache.AddOrUpdateAdmissionCheck(ac)
+				if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+			}
+
 			w := &jobframework.BaseWebhook{
 				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				FromObject:                 makeTestGenericJob().fromObject,
 				Queues:                     queueManager,
+				Cache:                      cqCache,
 			}
 			if err := w.Default(context.Background(), tc.job); err != nil {
-				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")
+				t.Errorf("set defaults by base webhook")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)

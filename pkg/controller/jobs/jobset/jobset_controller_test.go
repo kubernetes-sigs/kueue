@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -135,15 +135,15 @@ func TestReclaimablePods(t *testing.T) {
 		want   []kueue.ReclaimablePod
 	}{
 		"no status": {
-			jobSet: baseWrapper.DeepCopy().Obj(),
+			jobSet: baseWrapper.Clone().Obj(),
 			want:   nil,
 		},
 		"empty jobs status": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus().Obj(),
+			jobSet: baseWrapper.Clone().JobsStatus().Obj(),
 			want:   nil,
 		},
 		"single job done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+			jobSet: baseWrapper.Clone().JobsStatus(jobset.ReplicatedJobStatus{
 				Name:      "replicated-job-1",
 				Succeeded: 1,
 			}).Obj(),
@@ -153,7 +153,7 @@ func TestReclaimablePods(t *testing.T) {
 			}},
 		},
 		"single job partial done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+			jobSet: baseWrapper.Clone().JobsStatus(jobset.ReplicatedJobStatus{
 				Name:      "replicated-job-2",
 				Succeeded: 1,
 			}).Obj(),
@@ -163,7 +163,7 @@ func TestReclaimablePods(t *testing.T) {
 			}},
 		},
 		"all done": {
-			jobSet: baseWrapper.DeepCopy().JobsStatus(
+			jobSet: baseWrapper.Clone().JobsStatus(
 				jobset.ReplicatedJobStatus{
 					Name:      "replicated-job-1",
 					Succeeded: 1,
@@ -208,7 +208,7 @@ func TestPodSets(t *testing.T) {
 		wantPodSets func(jobSet *JobSet) []kueue.PodSet
 	}{
 		"no annotations": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1},
 					testingjobset.ReplicatedJobRequirements{Name: "job2", Replicas: 3, Parallelism: 2, Completions: 3},
@@ -216,21 +216,17 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
 		"with required topology annotation": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "job1",
@@ -246,26 +242,22 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block"),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](2),
-						},
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](2)).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
 				}
 			},
 		},
 		"with preferred topology annotation": {
-			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+			jobSet: (*JobSet)(jobSetTemplate.Clone().
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1},
 					testingjobset.ReplicatedJobRequirements{
@@ -281,28 +273,27 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
-						Count:    2,
-					},
-					{
-						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
-						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
-						Count:    6,
-						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block"),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobset.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](3),
-						},
-					},
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+						SubGroupCount(ptr.To[int32](3)).
+						Obj(),
 				}
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets := tc.jobSet.PodSets()
+			gotPodSets, err := tc.jobSet.PodSets()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
 			if diff := cmp.Diff(tc.wantPodSets(tc.jobSet), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
@@ -311,11 +302,11 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	jobCmpOpts = []cmp.Option{
+	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(jobset.JobSet{}, "TypeMeta", "ObjectMeta"),
 	}
-	workloadCmpOpts = []cmp.Option{
+	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"),
@@ -331,14 +322,7 @@ func TestReconciler(t *testing.T) {
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
 
-	testNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "ns",
-			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "ns",
-			},
-		},
-	}
+	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option

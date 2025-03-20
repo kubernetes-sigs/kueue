@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ const (
 
 	DefaultPendingWorkloadsLimit = 1000
 
-	// ManagedByKueueLabel label that signalize that an object is managed by Kueue
-	ManagedByKueueLabel = "kueue.x-k8s.io/managed"
+	// ManagedByKueueLabelKey label that signalize that an object is managed by Kueue
+	ManagedByKueueLabelKey   = "kueue.x-k8s.io/managed"
+	ManagedByKueueLabelValue = "true"
 )

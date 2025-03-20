@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -51,7 +50,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	util.SetupLogger()
 
 	k8sClient, _ = util.CreateClientUsingCluster("")
 	ctx = context.Background()
@@ -61,6 +60,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
+	util.WaitForAppWrapperAvailability(ctx, k8sClient)
+	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue, JobSet, KubeFlow Training and KubeFlow MPI operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

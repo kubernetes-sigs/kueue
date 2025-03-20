@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,8 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/importer/util"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -43,10 +42,10 @@ func TestImportNamespace(t *testing.T) {
 
 	baseWlWrapper := utiltesting.MakeWorkload("pod-pod-b17ab", testingNamespace).
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "pod").
-		Label(constants.JobUIDLabel, "pod").
+		Label(controllerconstants.JobUIDLabel, "pod").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Queue("lq1").
-		PodSets(*utiltesting.MakePodSet("main", 1).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
 			Obj()).
@@ -71,12 +70,12 @@ func TestImportNamespace(t *testing.T) {
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1", "0").Obj())
 
-	podCmpOpts := []cmp.Option{
+	podCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 	}
 
-	wlCmpOpts := []cmp.Option{
+	wlCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration", "LastTransitionTime"),
@@ -118,8 +117,8 @@ func TestImportNamespace(t *testing.T) {
 
 			wantPods: []corev1.Pod{
 				*basePodWrapper.Clone().
-					Label(constants.QueueLabel, "lq1").
-					Label(pod.ManagedLabelKey, pod.ManagedLabelValue).
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
 					Obj(),
 			},
 
@@ -154,8 +153,8 @@ func TestImportNamespace(t *testing.T) {
 
 			wantPods: []corev1.Pod{
 				*basePodWrapper.Clone().
-					Label(constants.QueueLabel, "lq1").
-					Label(pod.ManagedLabelKey, pod.ManagedLabelValue).
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
 					Label("new.lbl", "val").
 					Obj(),
 			},

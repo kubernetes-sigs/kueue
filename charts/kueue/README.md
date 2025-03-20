@@ -3,12 +3,14 @@
 ## Table of Contents
 
 <!-- toc -->
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Installing the chart](#installing-the-chart)
-    - [Install chart using Helm v3.0+](#install-chart-using-helm-v30)
-    - [Verify that controller pods are running properly.](#verify-that-controller-pods-are-running-properly)
-  - [Configuration](#configuration)
+- [Kueue's helm chart](#kueues-helm-chart)
+  - [Table of Contents](#table-of-contents)
+    - [Installation](#installation)
+      - [Prerequisites](#prerequisites)
+      - [Installing the chart](#installing-the-chart)
+        - [Install chart using Helm v3.0+](#install-chart-using-helm-v30)
+        - [Verify that controller pods are running properly.](#verify-that-controller-pods-are-running-properly)
+    - [Configuration](#configuration)
 <!-- /toc -->
 
 ### Installation
@@ -46,6 +48,21 @@ NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
 kueue-controller-manager       1/1     1            1           7s
 ```
 
+##### Cert Manager
+
+Kueue has support for third-party certificates.
+One can enable this by setting `enableCertManager` to true.
+This will use certManager to generate a secret, inject the CABundles and set up the tls.
+
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/cert_manager/)
+for more information on installing cert manager with our Helm chart.
+
+##### Prometheus
+
+Kueue supports prometheus metrics.
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/prometheus/)
+for more information on installing kueue with metrics using our Helm chart.
+
 ### Configuration
 
 The following table lists the configurable parameters of the kueue chart and their default values.
@@ -57,6 +74,9 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
 | `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
+| `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
+| `kueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main-latest` |
+| `kueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest` |
 | `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
@@ -76,3 +96,5 @@ The following table lists the configurable parameters of the kueue chart and the
 | `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
 | `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
 | `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
+| `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
+| `metrics.serviceMonitor.tlsConfig`                     | service monitor for prometheus                         | abbr.                                       |

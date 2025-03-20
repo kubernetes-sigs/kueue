@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,27 +16,29 @@ limitations under the License.
 
 package hierarchy
 
-// cycleChecker checks for cycles in Cohorts, while memoizing the
-// result.
-type CycleChecker struct {
-	cycles map[string]bool
-}
+import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
 
 type CycleCheckable interface {
-	GetName() string
+	GetName() kueue.CohortReference
 	HasParent() bool
 	CCParent() CycleCheckable
 }
 
-func (c *CycleChecker) HasCycle(cohort CycleCheckable) bool {
-	if cycle, seen := c.cycles[cohort.GetName()]; seen {
-		return cycle
-	}
+func HasCycle(cohort CycleCheckable) bool {
+	return hasCycle(cohort, sets.New[kueue.CohortReference]())
+}
+
+func hasCycle(cohort CycleCheckable, seen sets.Set[kueue.CohortReference]) bool {
 	if !cohort.HasParent() {
-		c.cycles[cohort.GetName()] = false
-		return c.cycles[cohort.GetName()]
+		return false
 	}
-	c.cycles[cohort.GetName()] = true
-	c.cycles[cohort.GetName()] = c.HasCycle(cohort.CCParent())
-	return c.cycles[cohort.GetName()]
+	if seen.Has(cohort.GetName()) {
+		return true
+	}
+	seen.Insert(cohort.GetName())
+	return hasCycle(cohort.CCParent(), seen)
 }

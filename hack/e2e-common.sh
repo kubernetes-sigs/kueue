@@ -22,7 +22,7 @@ export YQ="$ROOT_DIR"/bin/yq
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
 if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
-    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/standalone
+    export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
     APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
@@ -33,9 +33,8 @@ if [[ -n ${JOBSET_VERSION:-} ]]; then
 fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
-    export KUBEFLOW_MANIFEST_MANAGER=${ROOT_DIR}/test/e2e/config/multikueue/manager
-    export KUBEFLOW_MANIFEST_WORKER=${ROOT_DIR}/test/e2e/config/multikueue/worker
-    KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST_WORKER" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
+    export KUBEFLOW_MANIFEST=${ROOT_DIR}/test/e2e/config/multikueue
+    KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
     export KUBEFLOW_IMAGE_VERSION
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
@@ -47,10 +46,9 @@ fi
 
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
-    export KUBERAY_IMAGE=bitnami/kuberay-operator:${KUBERAY_VERSION/#v}
+    export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
     export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
     export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
-    export KUBERAY_CRDS=${ROOT_DIR}/dep-crds/ray-operator/crd/bases
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
@@ -58,13 +56,15 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
-# sleep image to use for testing.
-export E2E_TEST_SLEEP_IMAGE_OLD=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b
-E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE_OLD%%@*}
-export E2E_TEST_SLEEP_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea
-E2E_TEST_SLEEP_IMAGE_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE%%@*}
-export E2E_TEST_CURL_IMAGE=curlimages/curl:8.11.0@sha256:6324a8b41a7f9d80db93c7cf65f025411f55956c6b248037738df3bfca32410c
-E2E_TEST_CURL_IMAGE_WITHOUT_SHA=${E2E_TEST_CURL_IMAGE%%@*}
+if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
+    export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
+fi
+
+# agnhost image to use for testing.
+export E2E_TEST_AGNHOST_IMAGE_OLD=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE_OLD%%@*}
+export E2E_TEST_AGNHOST_IMAGE=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
+E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE%%@*}
 
 
 # $1 - cluster name
@@ -87,16 +87,14 @@ function cluster_create {
 }
 
 function prepare_docker_images {
-    docker pull "$E2E_TEST_SLEEP_IMAGE_OLD"
-    docker pull "$E2E_TEST_SLEEP_IMAGE"
-    docker pull "$E2E_TEST_CURL_IMAGE"
+    docker pull "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker pull "$E2E_TEST_AGNHOST_IMAGE"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
-    docker tag $E2E_TEST_SLEEP_IMAGE_OLD "$E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA"
-    docker tag $E2E_TEST_SLEEP_IMAGE "$E2E_TEST_SLEEP_IMAGE_WITHOUT_SHA"
-    docker tag $E2E_TEST_CURL_IMAGE "$E2E_TEST_CURL_IMAGE_WITHOUT_SHA"
+    docker tag $E2E_TEST_AGNHOST_IMAGE_OLD "$E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA"
+    docker tag $E2E_TEST_AGNHOST_IMAGE "$E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA"
 
     if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
@@ -128,9 +126,8 @@ function prepare_docker_images {
 
 # $1 cluster
 function cluster_kind_load {
-    cluster_kind_load_image "$1" "${E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA}"
-    cluster_kind_load_image "$1" "${E2E_TEST_SLEEP_IMAGE_WITHOUT_SHA}"
-    cluster_kind_load_image "$1" "${E2E_TEST_CURL_IMAGE_WITHOUT_SHA}"
+    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA}"
+    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
 }
 
@@ -140,13 +137,28 @@ function cluster_kind_load_image {
     $KIND load docker-image "$2" --name "$1"
 }
 
+# Wait until all cert-manager deployments are available.
+function wait_for_cert_manager_ready() {
+    echo "Waiting for cert-manager components to be ready..."
+    local deployments=(cert-manager cert-manager-cainjector cert-manager-webhook)
+    for dep in "${deployments[@]}"; do
+        echo "Waiting for deployment '$dep'..."
+        if ! kubectl wait --for=condition=Available deployment/"$dep" -n cert-manager --timeout=300s; then
+            echo "Timeout waiting for deployment '$dep' to become available."
+            exit 1
+        fi
+    done
+    echo "All cert-manager components are ready."
+}
+
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    if [ "${KIND_VERSION%.*}" = "1.28" ]; then
-        kubectl apply --server-side -k test/e2e/config/1_28
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+       wait_for_cert_manager_ready
+       kubectl apply --server-side -k test/e2e/config/certmanager
     else
-        kubectl apply --server-side -k test/e2e/config/default
+       kubectl apply --server-side -k test/e2e/config/default  
     fi
 }
 
@@ -168,7 +180,7 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST_WORKER}"
+    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST}"
 }
 
 #$1 - cluster name
@@ -198,6 +210,11 @@ function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
+}
+
+function install_cert_manager {
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${CERTMANAGER_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)

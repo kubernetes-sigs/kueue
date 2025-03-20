@@ -1,5 +1,5 @@
 /*
-CCopyright The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 
@@ -79,10 +78,6 @@ func IgnoreLabelNotFoundError(err error) error {
 	return err
 }
 
-func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
-	return ReadUIntFromLabelBelowBound(obj, labelKey, math.MaxInt)
-}
-
 func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {
 	value, found := obj.GetLabels()[labelKey]
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
@@ -107,20 +102,9 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	return ptr.To(int(uintValue)), nil
 }
 
-func GenerateShape(podSpec corev1.PodSpec) (string, error) {
+func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
 	shape := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"initContainers":            containersShape(podSpec.InitContainers),
-			"containers":                containersShape(podSpec.Containers),
-			"nodeSelector":              podSpec.NodeSelector,
-			"affinity":                  podSpec.Affinity,
-			"tolerations":               podSpec.Tolerations,
-			"runtimeClassName":          podSpec.RuntimeClassName,
-			"priority":                  podSpec.Priority,
-			"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
-			"overhead":                  podSpec.Overhead,
-			"resourceClaims":            podSpec.ResourceClaims,
-		},
+		"spec": SpecShape(podSpec),
 	}
 
 	shapeJSON, err := json.Marshal(shape)
@@ -132,7 +116,22 @@ func GenerateShape(podSpec corev1.PodSpec) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
 }
 
-func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
+func SpecShape(podSpec *corev1.PodSpec) (result map[string]interface{}) {
+	return map[string]interface{}{
+		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"containers":                ContainersShape(podSpec.Containers),
+		"nodeSelector":              podSpec.NodeSelector,
+		"affinity":                  podSpec.Affinity,
+		"tolerations":               podSpec.Tolerations,
+		"runtimeClassName":          podSpec.RuntimeClassName,
+		"priority":                  podSpec.Priority,
+		"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+		"overhead":                  podSpec.Overhead,
+		"resourceClaims":            podSpec.ResourceClaims,
+	}
+}
+
+func ContainersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
 		result = append(result, map[string]interface{}{
 			"resources": map[string]interface{}{
@@ -142,4 +141,8 @@ func containersShape(containers []corev1.Container) (result []map[string]interfa
 		})
 	}
 	return result
+}
+
+func IsTerminated(p *corev1.Pod) bool {
+	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
