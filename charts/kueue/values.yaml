@@ -67,7 +67,6 @@ managerConfig:
     # enableClusterQueueResources: true
     webhook:
       port: 9443
-      reinvocationPolicy: Never
     leaderElection:
       leaderElect: true
       resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -151,6 +150,8 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
+webhook:
+  reinvocationPolicy: Never
 
 # kueue-viz dashboard
 enableKueueViz: false

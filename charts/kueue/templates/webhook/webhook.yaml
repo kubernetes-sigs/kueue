@@ -1,6 +1,6 @@
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
 {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
-{{- $reinvocationPolicy := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).webhook.reinvocationPolicy }}
+{{- $reinvocationPolicy := .Values.webhook.reinvocationPolicy }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
