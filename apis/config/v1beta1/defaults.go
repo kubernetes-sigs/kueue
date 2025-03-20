@@ -214,6 +214,15 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		fs.Modes = []FairSharingMode{PreemptionBasedMode}
 	}
 
+	if fs := cfg.FairSharing; fs != nil && fs.Enable && fs.AdmissionFairSharing != nil {
+		if fs.AdmissionFairSharing.UsageHalfDecayTime.Duration == 0 {
+			fs.AdmissionFairSharing.UsageHalfDecayTime = metav1.Duration{Duration: 24 * time.Hour}
+		}
+		if fs.AdmissionFairSharing.UsageSamplingFrequency.Duration == 0 {
+			fs.AdmissionFairSharing.UsageSamplingFrequency = metav1.Duration{Duration: 5 * time.Minute}
+		}
+	}
+
 	if cfg.Resources != nil {
 		for idx := range cfg.Resources.Transformations {
 			if ptr.Deref(cfg.Resources.Transformations[idx].Strategy, "") == "" {

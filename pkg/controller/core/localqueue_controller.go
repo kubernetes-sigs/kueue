@@ -175,7 +175,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
 		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, kueue.ClusterQueueActive, "Can submit new workloads to localQueue")
 		if r.fsConfig != nil {
-			recheckAfter := r.clock.Now().Sub(queueObj.Status.FairSharingStatus.LastUpdate.Time)
+			recheckAfter := r.clock.Now().Sub(queueObj.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time)
 			if recheckAfter < r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Duration {
 				return ctrl.Result{RequeueAfter: recheckAfter}, client.IgnoreNotFound(err)
 			}
@@ -268,7 +268,7 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	halfDecayTimeSeconds := float64(r.fsConfig.AdmissionFairSharing.UsageHalfDecayTime.Seconds())
 	samplingFrequencySeconds := float64(r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Seconds())
 	alpha := 1.0 - math.Pow(0.5, halfDecayTimeSeconds/samplingFrequencySeconds)
-	oldUsage := lq.Status.FairSharingStatus.ConsumedResources
+	oldUsage := lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
 	err, cachedLq := r.cache.GetCacheLocalQueue(cqName, lq)
 	if err != nil {
 		return err
@@ -276,7 +276,7 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 
 	if len(oldUsage) == 0 {
 		// first loop
-		lq.Status.FairSharingStatus.ConsumedResources = oldUsage
+		lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = oldUsage
 		return r.cache.UpdatedLQUsage(cqName, cachedLq)
 	}
 	newUsage := utilmaps.MapValues(cachedLq.GetAdmittedUsage().FlattenFlavors(),
@@ -285,8 +285,8 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	scaledOld := utilresource.MulResources(oldUsage, alpha)
 	scaledNew := utilresource.MulResources(newUsage, 1.0-alpha)
 	added := utilresource.AddResources(scaledOld, scaledNew)
-	lq.Status.FairSharingStatus.ConsumedResources = added
-	lq.Status.FairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
+	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = added
+	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
 	return r.cache.UpdatedLQUsage(cqName, cachedLq)
 }
 

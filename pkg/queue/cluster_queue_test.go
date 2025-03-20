@@ -932,8 +932,10 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("2"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("2"),
+								},
 							},
 						},
 					).
@@ -944,8 +946,10 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("1"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("1"),
+								},
 							},
 						},
 					).Obj(),
@@ -971,9 +975,11 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("1"),
-								resourceGPU:        resource.MustParse("10"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("1"),
+									resourceGPU:        resource.MustParse("10"),
+								},
 							},
 						},
 					).
@@ -984,9 +990,11 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("1000"),
-								resourceGPU:        resource.MustParse("1"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("1000"),
+									resourceGPU:        resource.MustParse("1"),
+								},
 							},
 						},
 					).Obj(),
@@ -1018,8 +1026,10 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("10"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("10"),
+								},
 							},
 						},
 					).
@@ -1030,8 +1040,10 @@ func TestFSAdmissionTime(t *testing.T) {
 					}).
 					FairSharingStatus(
 						&kueue.FairSharingStatus{
-							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6"),
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("6"),
+								},
 							},
 						},
 					).Obj(),

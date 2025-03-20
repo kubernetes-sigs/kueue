@@ -559,6 +559,39 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
+## `AdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta1-AdmissionFairSharingStatus}
+    
+
+**Appears in:**
+
+- [FairSharingStatus](#kueue-x-k8s-io-v1beta1-FairSharingStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>map[ResourceName]k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>ConsumedResources represents the aggregated usage of resources over time,
+with decaying function applied.
+The value is populated if usage consumption functionality is enabled in Kueue config.</p>
+</td>
+</tr>
+<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>LastUpdate is the time when share and consumed resources were updated.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `AdmissionMode`     {#kueue-x-k8s-io-v1beta1-AdmissionMode}
     
 (Alias of `string`)
@@ -1134,20 +1167,11 @@ weight of zero, this will return 9223372036854775807, the
 maximum possible share value.</p>
 </td>
 </tr>
-<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
-<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>map[ResourceName]k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+<tr><td><code>admissionFairSharingStatus</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionFairSharingStatus"><code>AdmissionFairSharingStatus</code></a>
 </td>
 <td>
-   <p>ConsumedResources represents the aggregated usage of resources over time,
-with decaying function applied.
-The value is populated if usage consumption functionality is enabled in Kueue config.</p>
-</td>
-</tr>
-<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
-</td>
-<td>
-   <p>LastUpdate is the time when share and consumed resources were updated.</p>
+   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
