@@ -176,7 +176,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, kueue.ClusterQueueActive, "Can submit new workloads to localQueue")
 		if r.fsConfig != nil {
 			recheckAfter := r.clock.Now().Sub(queueObj.Status.FairSharingStatus.LastUpdate.Time)
-			if recheckAfter < r.fsConfig.UsageSamplingFrequency.Duration {
+			if recheckAfter < r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Duration {
 				return ctrl.Result{RequeueAfter: recheckAfter}, client.IgnoreNotFound(err)
 			}
 
@@ -187,7 +187,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				r.log.Error(err, err.Error())
 			}
 			r.queues.HeapifyClusterQueue(&cq, queueObj.Name)
-			return ctrl.Result{RequeueAfter: r.fsConfig.UsageSamplingFrequency.Duration}, client.IgnoreNotFound(err)
+			return ctrl.Result{RequeueAfter: r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Duration}, client.IgnoreNotFound(err)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -265,8 +265,8 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqName string) error {
-	halfDecayTimeSeconds := float64(r.fsConfig.UsageHalfDecayTime.Seconds())
-	samplingFrequencySeconds := float64(r.fsConfig.UsageSamplingFrequency.Seconds())
+	halfDecayTimeSeconds := float64(r.fsConfig.AdmissionFairSharing.UsageHalfDecayTime.Seconds())
+	samplingFrequencySeconds := float64(r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Seconds())
 	alpha := 1.0 - math.Pow(0.5, halfDecayTimeSeconds/samplingFrequencySeconds)
 	oldUsage := lq.Status.FairSharingStatus.ConsumedResources
 	err, cachedLq := r.cache.GetCacheLocalQueue(cqName, lq)

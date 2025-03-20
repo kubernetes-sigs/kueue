@@ -289,7 +289,7 @@ func (i *Info) LqUsage(ctx context.Context, c client.Client, fsConfig *config.Fa
 	}
 	usage := float64(0)
 	for resName, resVal := range lq.Status.FairSharingStatus.ConsumedResources {
-		weight, found := fsConfig.ResourceWeights[resName]
+		weight, found := fsConfig.AdmissionFairSharing.ResourceWeights[resName]
 		if !found {
 			weight = 1
 		}

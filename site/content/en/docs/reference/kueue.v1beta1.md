@@ -952,11 +952,12 @@ participating in FairSharing.  The values are only relevant
 if FairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
-<tr><td><code>admissionScope</code> <B>[Required]</B><br/>
+<tr><td><code>admissionScope</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionScope"><code>AdmissionScope</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
+</td>
 </tr>
 </tbody>
 </table>
