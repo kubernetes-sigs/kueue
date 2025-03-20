@@ -284,7 +284,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(CHART_VERSION)/g' -i site/hugo.toml
 	$(SED) -r 's/--version="v?[0-9]+\.[0-9]+\.[0-9]+/--version="$(CHART_VERSION)/g' -i charts/kueue/README.md
-	$(YQ) e '.appVersion = "$(CHART_VERSION)"' -i charts/kueue/Chart.yaml
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
 .PHONY: update-security-insights
