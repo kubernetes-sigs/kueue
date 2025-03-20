@@ -64,7 +64,11 @@ type CohortSpec struct {
 	FairSharing *kueuebeta.FairSharing `json:"fairSharing,omitempty"`
 }
 
+// CohortStatus defines the observed state of Cohort.
 type CohortStatus struct {
+	// fairSharing contains the current state for this Cohort
+	// when participating in Fair Sharing.
+	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
 }
