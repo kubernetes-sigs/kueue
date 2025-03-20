@@ -554,10 +554,12 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	// We need to count the workloads, because they could have been added before
 	// receiving the queue add event.
 	qImpl := &LocalQueue{
-		key:                   qKey,
-		reservingWorkloads:    0,
-		totalReserved:         make(resources.FlavorResourceQuantities),
-		consumedDecayingUsage: q.Status.FairSharingStatus.ConsumedResources,
+		key:                qKey,
+		reservingWorkloads: 0,
+		totalReserved:      make(resources.FlavorResourceQuantities),
+	}
+	if q.Status.FairSharingStatus.AdmissionFairSharingStatus != nil {
+		qImpl.consumedDecayingUsage = q.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {

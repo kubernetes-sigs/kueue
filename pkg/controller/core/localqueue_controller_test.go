@@ -133,9 +133,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("8")},
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8")},
+						},
 					}).
 				Obj(),
 			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
@@ -146,8 +148,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("4")},
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("4"),
+							},
+						},
 					}).
 				Obj(),
 			fsConfig: &config.FairSharing{
@@ -171,10 +176,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							//
-							corev1.ResourceCPU: resource.MustParse("8000"),
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8000")},
 						},
 					}).
 				Obj(),
@@ -188,8 +193,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("6000"),
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("6000"),
+							},
 						},
 					}).
 				Obj(),
@@ -222,9 +229,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("8000"),
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8000")},
 						},
 					}).
 				Obj(),
@@ -238,8 +246,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				AdmittedWorkloads(1).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("7000"),
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("7000"),
+							},
 						},
 					}).
 				Obj(),
@@ -272,9 +282,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("8")},
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8")},
+						},
 					}).
 				Obj(),
 			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
@@ -285,9 +297,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				FairSharingStatus(
 					&kueue.FairSharingStatus{
-						LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
-						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("8")},
+						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(now.Add(-4 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8")},
+						},
 					}).
 				Obj(),
 			wantError: nil,
@@ -356,7 +370,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
-				cmpopts.IgnoreFields(kueue.FairSharingStatus{}, "LastUpdate"),
+				cmpopts.IgnoreFields(kueue.AdmissionFairSharingStatus{}, "LastUpdate"),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)

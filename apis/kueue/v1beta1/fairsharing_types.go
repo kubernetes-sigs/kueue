@@ -54,6 +54,11 @@ type FairSharingStatus struct {
 	// maximum possible share value.
 	WeightedShare int64 `json:"weightedShare"`
 
+	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
+	AdmissionFairSharingStatus *AdmissionFairSharingStatus `json:"admissionFairSharingStatus,omitempty"`
+}
+
+type AdmissionFairSharingStatus struct {
 	// ConsumedResources represents the aggregated usage of resources over time,
 	// with decaying function applied.
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
