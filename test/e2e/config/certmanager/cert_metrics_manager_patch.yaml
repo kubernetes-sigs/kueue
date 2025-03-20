@@ -1,14 +1,35 @@
-- op: add
-  path: /spec/template/spec/containers/0/volumeMounts/-
+- op: replace
+  path: /spec/template/spec/containers/0/volumeMounts
   value:
-    name: metrics-certs
-    mountPath: /etc/kueue/metrics/certs
-    readOnly: true
+    - name: cert
+      mountPath: /tmp/k8s-webhook-server/serving-certs
+      readOnly: true
+    - name: metrics-certs
+      mountPath: /etc/kueue/metrics/certs
+      readOnly: true
+    - name: config-volume
+      mountPath: /controller_manager_config.yaml
+      subPath: controller_manager_config.yaml
+      readOnly: true
 
-- op: add
-  path: /spec/template/spec/volumes/-
+- op: replace
+  path: /spec/template/spec/volumes
   value:
-    name: metrics-certs
-    secret:
-      secretName: metrics-server-cert
-      optional: false
+    - name: cert
+      secret:
+        secretName: webhook-server-cert
+        optional: false
+    - name: metrics-certs
+      secret:
+        secretName: metrics-server-cert
+        optional: false
+    - name: config-volume
+      configMap:
+        name: kueue-manager-config
+        items:
+          - key: controller_manager_config.yaml
+            path: controller_manager_config.yaml
+
+- op: replace
+  path: /spec/template/spec/containers/0/imagePullPolicy
+  value: IfNotPresent
