@@ -127,10 +127,6 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	pod.Labels[constants.QueueLabel] = queueName
 	pod.Labels[podconstants.GroupNameLabel] = wlName
 	pod.Labels[constants.PrebuiltWorkloadLabel] = wlName
-	if priorityClass := jobframework.WorkloadPriorityClassName(lws); priorityClass != "" {
-		pod.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
-	}
-
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 
