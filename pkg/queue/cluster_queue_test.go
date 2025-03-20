@@ -994,7 +994,7 @@ func TestFSAdmissionTime(t *testing.T) {
 			fsConfig: &config.FairSharing{
 				Enable: true,
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
-				AdmissionFairSharing: config.AdmissionFairSharing{
+				AdmissionFairSharing: &config.AdmissionFairSharing{
 					ResourceWeights: map[corev1.ResourceName]float64{
 						corev1.ResourceCPU: 0,
 						resourceGPU:        1,
