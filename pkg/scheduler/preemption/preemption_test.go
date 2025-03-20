@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"testing"
@@ -1887,6 +1888,10 @@ func TestPreemption(t *testing.T) {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
 
+			if equal, diff := compareSnapshots(beforeSnapshot, snapshotWorkingCopy); !equal {
+				t.Errorf("Snapshot was modified: %s", diff)
+			}
+
 			beforeResourceNodes := resourceNodes(beforeSnapshot)
 			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
 			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
@@ -2705,6 +2710,11 @@ func TestFairPreemptions(t *testing.T) {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 
+			// TODO FIX  resources.FlavorResource{Flavor:"default", Resource:"cpu"}:  as before its Usage: resources.FlavorResourceQuantities{nil}
+			if equal, diff := compareSnapshots(beforeSnapshot, snapshotWorkingCopy); !equal {
+				t.Errorf("Snapshot was modified: %s", diff)
+			}
+
 			beforeResourceNodes := resourceNodes(beforeSnapshot)
 			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
 			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
@@ -2803,4 +2813,134 @@ func TestPreemptionMessage(t *testing.T) {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}
 	}
+}
+
+func compareSnapshots(before, after *cache.Snapshot) (bool, string) {
+	if before == nil && after == nil {
+		return true, ""
+	}
+	if before == nil || after == nil {
+		return false, fmt.Sprintf("one snapshot is nil: before=%v, after=%v", before, after)
+	}
+
+	if !reflect.DeepEqual(before.ResourceFlavors, after.ResourceFlavors) {
+		return false, fmt.Sprintf("ResourceFlavors differ: before=%#v, after=%#v", before.ResourceFlavors, after.ResourceFlavors)
+	}
+	if !reflect.DeepEqual(before.InactiveClusterQueueSets, after.InactiveClusterQueueSets) {
+		return false, fmt.Sprintf("InactiveClusterQueueSets differ: before=%#v, after=%#v", before.InactiveClusterQueueSets, after.InactiveClusterQueueSets)
+	}
+
+	beforeCQs := before.Manager.ClusterQueues()
+	afterCQs := after.Manager.ClusterQueues()
+	if len(beforeCQs) != len(afterCQs) {
+		return false, fmt.Sprintf("ClusterQueues length mismatch: before=%d, after=%d", len(beforeCQs), len(afterCQs))
+	}
+	for name, beforeCQ := range beforeCQs {
+		afterCQ, ok := afterCQs[name]
+		if !ok {
+			return false, fmt.Sprintf("ClusterQueue %q missing in after snapshot", name)
+		}
+		if equal, diff := compareClusterQueueSnapshots(beforeCQ, afterCQ); !equal {
+			return false, fmt.Sprintf("ClusterQueue %q differs: %s", name, diff)
+		}
+	}
+
+	beforeCohorts := before.Manager.Cohorts()
+	afterCohorts := after.Manager.Cohorts()
+	if len(beforeCohorts) != len(afterCohorts) {
+		return false, fmt.Sprintf("Cohorts length mismatch: before=%d, after=%d", len(beforeCohorts), len(afterCohorts))
+	}
+	for name, beforeCohort := range beforeCohorts {
+		afterCohort, ok := afterCohorts[name]
+		if !ok {
+			return false, fmt.Sprintf("Cohort %q missing in after snapshot", name)
+		}
+		if equal, diff := compareCohortSnapshots(beforeCohort, afterCohort); !equal {
+			return false, fmt.Sprintf("Cohort %q differs: %s", name, diff)
+		}
+	}
+
+	return true, ""
+}
+
+func compareClusterQueueSnapshots(before, after *cache.ClusterQueueSnapshot) (bool, string) {
+	if before == nil && after == nil {
+		return true, ""
+	}
+	if before == nil || after == nil {
+		return false, fmt.Sprintf("one ClusterQueueSnapshot is nil: before=%v, after=%v", before, after)
+	}
+
+	if before.Name != after.Name {
+		return false, fmt.Sprintf("Name differs: before=%q, after=%q", before.Name, after.Name)
+	}
+	if !reflect.DeepEqual(before.ResourceGroups, after.ResourceGroups) {
+		return false, fmt.Sprintf("ResourceGroups differ: before=%#v, after=%#v", before.ResourceGroups, after.ResourceGroups)
+	}
+	if !reflect.DeepEqual(before.Workloads, after.Workloads) {
+		return false, fmt.Sprintf("Workloads differ: before=%#v, after=%#v", before.Workloads, after.Workloads)
+	}
+	if !reflect.DeepEqual(before.WorkloadsNotReady, after.WorkloadsNotReady) {
+		return false, fmt.Sprintf("WorkloadsNotReady differ: before=%#v, after=%#v", before.WorkloadsNotReady, after.WorkloadsNotReady)
+	}
+	if !reflect.DeepEqual(before.NamespaceSelector, after.NamespaceSelector) {
+		return false, fmt.Sprintf("NamespaceSelector differs: before=%#v, after=%#v", before.NamespaceSelector, after.NamespaceSelector)
+	}
+	if !reflect.DeepEqual(before.Preemption, after.Preemption) {
+		return false, fmt.Sprintf("Preemption differs: before=%#v, after=%#v", before.Preemption, after.Preemption)
+	}
+	if !before.FairWeight.Equal(after.FairWeight) {
+		return false, fmt.Sprintf("FairWeight differs: before=%#v, after=%#v", before.FairWeight, after.FairWeight)
+	}
+	if !reflect.DeepEqual(before.FlavorFungibility, after.FlavorFungibility) {
+		return false, fmt.Sprintf("FlavorFungibility differs: before=%#v, after=%#v", before.FlavorFungibility, after.FlavorFungibility)
+	}
+	if !reflect.DeepEqual(before.AdmissionChecks, after.AdmissionChecks) {
+		return false, fmt.Sprintf("AdmissionChecks differ: before=%#v, after=%#v", before.AdmissionChecks, after.AdmissionChecks)
+	}
+	if before.Status != after.Status {
+		return false, fmt.Sprintf("Status differs: before=%#v, after=%#v", before.Status, after.Status)
+	}
+	if before.AllocatableResourceGeneration != after.AllocatableResourceGeneration {
+		return false, fmt.Sprintf("AllocatableResourceGeneration differs: before=%d, after=%d", before.AllocatableResourceGeneration, after.AllocatableResourceGeneration)
+	}
+	if !reflect.DeepEqual(before.ResourceNode, after.ResourceNode) {
+		return false, fmt.Sprintf("ResourceNode differs: before=%#v, after=%#v", before.ResourceNode, after.ResourceNode)
+	}
+	if !reflect.DeepEqual(before.TASFlavors, after.TASFlavors) {
+		return false, fmt.Sprintf("TASFlavors differ: before=%#v, after=%#v", before.TASFlavors, after.TASFlavors)
+	}
+	if before.IsTASOnly() != after.IsTASOnly() {
+		return false, fmt.Sprintf("tasOnly differs: before=%t, after=%t", before.IsTASOnly(), after.IsTASOnly())
+	}
+
+	// for cohorts, we only compare the name, ResourceNode, and FairWeight cant do hierarchy comparison
+	beforeCohort := before.Parent()
+	afterCohort := after.Parent()
+	if equal, diff := compareCohortSnapshots(beforeCohort, afterCohort); !equal {
+		return false, fmt.Sprintf("ClusterQueue.Parent differs: %s", diff)
+	}
+
+	return true, ""
+}
+
+func compareCohortSnapshots(before, after *cache.CohortSnapshot) (bool, string) {
+	if before == nil && after == nil {
+		return true, ""
+	}
+	if before == nil || after == nil {
+		return false, fmt.Sprintf("one CohortSnapshot is nil: before=%v, after=%v", before, after)
+	}
+
+	if before.Name != after.Name {
+		return false, fmt.Sprintf("Name differs: before=%q, after=%q", before.Name, after.Name)
+	}
+	if !reflect.DeepEqual(before.ResourceNode, after.ResourceNode) {
+		return false, fmt.Sprintf("ResourceNode differs: before=%#v, after=%#v", before.ResourceNode, after.ResourceNode)
+	}
+	if !before.FairWeight.Equal(after.FairWeight) {
+		return false, fmt.Sprintf("FairWeight differs: before=%#v, after=%#v", before.FairWeight, after.FairWeight)
+	}
+
+	return true, ""
 }
