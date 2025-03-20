@@ -1034,17 +1034,9 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
+// prepareWorkload adds the priority information for the constructed workload
 func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
-	if err := PrepareWorkloadPriority(ctx, r.client, job, wl); err != nil {
-		return err
-	}
-	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
-	return nil
-}
-
-// PrepareWorkloadPriority adds the priority information for the constructed workload
-func PrepareWorkloadPriority(ctx context.Context, c client.Client, job GenericWorkload, wl *kueue.Workload) error {
-	priorityClassName, source, p, err := extractPriority(ctx, c, wl.Spec.PodSets, job)
+	priorityClassName, source, p, err := r.extractPriority(ctx, wl.Spec.PodSets, job)
 	if err != nil {
 		return err
 	}
@@ -1053,15 +1045,25 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, job GenericWo
 	wl.Spec.Priority = &p
 	wl.Spec.PriorityClassSource = source
 
+	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
+
 	return nil
 }
 
-func extractPriority(ctx context.Context, c client.Client, podSets []kueue.PodSet, job GenericWorkload) (string, string, int32, error) {
-	if workloadPriorityClass := WorkloadPriorityClassName(job.Object()); len(workloadPriorityClass) > 0 {
+func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, string, int32, error) {
+	var customPriorityFunc func() string
+	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
+		customPriorityFunc = jobWithPriorityClass.PriorityClass
+	}
+	return ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
+}
+
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityFunc func() string) (string, string, int32, error) {
+	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}
-	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, jobWithPriorityClass.PriorityClass())
+	if customPriorityFunc != nil {
+		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityFunc())
 	}
 	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
 }
