@@ -8,11 +8,16 @@ ROOT_DIR="$SOURCE_DIR/.."
 source "${SOURCE_DIR}/e2e-common.sh"
 echo ROOT_DIR="${ROOT_DIR}" SOURCE_DIR="${SOURCE_DIR}" KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 
+# if CI is true and PROW_JOB_ID is set, set NO_COLOR to 1
+if [ -n "${CI}" ] && [ -n "${PROW_JOB_ID}" ]; then
+  export NO_COLOR=1
+  echo "Running in prow: Disabling color to have readable logs: NO_COLOR=${NO_COLOR}"
+fi
 
 # Function to clean up background processes
 cleanup() {
   echo "Cleaning up kueue-viz processes"
-  kill "${BACKEND_PID}" "${FRONTEND_PID}"
+  kill "${BACKEND_PID}" 
   cluster_cleanup "${KIND_CLUSTER_NAME}"
 }
 
@@ -34,13 +39,31 @@ go build -o bin/kueue-viz
 ./bin/kueue-viz & BACKEND_PID=$!
 cd -
 
-# Start kueue-viz frontend and cypress in a container
+set -x  # Enable debug mode
+
+# Debugging: Print the container ID
 CONTAINER_ID=$(docker ps --format json | jq -r 'select(.Image | contains("kubekins-e2e")) | .ID')
-WORKSPACE_VOLUME=$(docker inspect "${CONTAINER_ID}" | jq -r '.[] | .Mounts[] | select(.Destination=="/workspace") | .Source')
-docker run -ti --entrypoint /workspace/hack/e2e-viz-dind-frontend.sh \
+echo "Container ID: $CONTAINER_ID"
+
+# Check if the container is running
+if [ -n "$CONTAINER_ID" ]; then
+  echo "Running container found for image: $CONTAINER_ID"
+  # Extract the workspace volume
+  WORKSPACE_VOLUME=$(docker inspect "$CONTAINER_ID" | jq -r '.[] | .Mounts[] | select(.Destination=="/workspace") | .Source')
+fi
+
+# Check if the workspace volume is empty
+if [ -z "$WORKSPACE_VOLUME" ]; then
+  WORKSPACE_VOLUME=$(dirname "${SOURCE_DIR}")
+fi
+echo "Workspace Volume: $WORKSPACE_VOLUME"
+
+# Start kueue-viz frontend and cypress in a container
+echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
+docker run -i --entrypoint /workspace/hack/e2e-viz-dind-frontend.sh \
            -w /workspace --network host \
-           -v "${WORKSPACE_VOLUME}:/workspace:rw" \
+           -v "${WORKSPACE_VOLUME}":/workspace:rw \
            -v /var/run/docker.sock:/var/run/docker.sock cypress/base
 
-
+set +x  # Disable debug mode
 # The trap will handle cleanup 
