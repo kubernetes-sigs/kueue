@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
@@ -75,11 +76,19 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var defaultEnabledIntegrations sets.Set[string] = sets.New(
-	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
-	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
-	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob",
-	"pod", "workload.codeflare.dev/appwrapper")
+var defaultEnabledIntegrations sets.Set[configapi.IntegrationReference] = sets.New(
+	configapi.BatchJob,
+	configapi.MPIJob,
+	configapi.RayCluster,
+	configapi.RayJob,
+	configapi.JobSet,
+	configapi.PaddleJob,
+	configapi.PyTorchJob,
+	configapi.TFJob,
+	configapi.XGBoostJob,
+	configapi.Pod,
+	configapi.AppWrapper,
+)
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -1963,7 +1972,7 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, sets.New("batch/job"))
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, sets.New(configapi.BatchJob))
 		})
 	})
 

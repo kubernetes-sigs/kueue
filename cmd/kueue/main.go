@@ -94,7 +94,7 @@ func init() {
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
-		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+		jobframework.ForEachIntegration(func(_ configapi.IntegrationReference, cb jobframework.IntegrationCallbacks) error {
 			if cb.AddToScheme != nil {
 				return cb.AddToScheme(scheme)
 			}

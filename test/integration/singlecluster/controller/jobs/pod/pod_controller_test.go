@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
-				jobframework.WithEnabledFrameworks([]string{"pod"}),
+				jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{configapi.Pod}),
 			))
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
@@ -1706,7 +1706,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			&configuration,
 			jobframework.WithManageJobsWithoutQueueName(false),
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
-			jobframework.WithEnabledFrameworks([]string{"pod"}),
+			jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{configapi.Pod}),
 		))
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
@@ -1958,7 +1958,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
-			jobframework.WithEnabledFrameworks([]string{"pod"}),
+			jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{}),
 		))
 	})
 	ginkgo.AfterAll(func() {
@@ -2151,7 +2151,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
-			jobframework.WithEnabledFrameworks([]string{"pod"}),
+			jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{configapi.Pod}),
 		))
 	})
 

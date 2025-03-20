@@ -280,7 +280,7 @@ func (in *Integrations) DeepCopyInto(out *Integrations) {
 	*out = *in
 	if in.Frameworks != nil {
 		in, out := &in.Frameworks, &out.Frameworks
-		*out = make([]string, len(*in))
+		*out = make([]IntegrationReference, len(*in))
 		copy(*out, *in)
 	}
 	if in.ExternalFrameworks != nil {

@@ -84,7 +84,7 @@ func (wh *Webhook) podTemplateSpecDefault(podTemplateSpec *corev1.PodTemplateSpe
 	if podTemplateSpec.Annotations == nil {
 		podTemplateSpec.Annotations = make(map[string]string, 1)
 	}
-	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = string(FrameworkName)
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 }
 
