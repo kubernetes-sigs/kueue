@@ -29,7 +29,7 @@ kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v1
 Once the setup is complete you can test it by running a RayJob [`ray-job-sample.yaml`](/docs/tasks/run/rayjobs/#example-rayjob).
 
 {{% alert title="Note" color="primary" %}}
-Note: Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for Kuberay Jobs (RayJob, RayCluster, RayService). 
+Note: Kueue defaults the `spec.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for Kuberay Jobs (RayJob, RayCluster, RayService). 
 
 This allows the Kuberay Operator to ignore the Jobs managed by MultiKueue on the management cluster, and in particular skip Pod creation. 
 
