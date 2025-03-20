@@ -22,13 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	//  Import the crypto sha256 algorithm for the docker image parser to work
-	_ "crypto/sha256"
-	//  Import the crypto/sha512 algorithm for the docker image parser to work with 384 and 512 sha hashes
-	_ "crypto/sha512"
-
 	dockerref "github.com/distribution/reference"
-
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -39,6 +33,11 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+
+	//  Import the crypto sha256 algorithm for the docker image parser to work
+	_ "crypto/sha256"
+	//  Import the crypto/sha512 algorithm for the docker image parser to work with 384 and 512 sha hashes
+	_ "crypto/sha512"
 )
 
 const templateString = "template"
