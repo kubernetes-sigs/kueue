@@ -153,7 +153,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			fsConfig: &config.FairSharing{
 				Enable: true,
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
-				AdmissionFairSharing: config.AdmissionFairSharing{
+				AdmissionFairSharing: &config.AdmissionFairSharing{
 					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
 					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
 				},
@@ -204,7 +204,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			fsConfig: &config.FairSharing{
 				Enable: true,
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
-				AdmissionFairSharing: config.AdmissionFairSharing{
+				AdmissionFairSharing: &config.AdmissionFairSharing{
 					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
 					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
 				},
@@ -254,7 +254,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			fsConfig: &config.FairSharing{
 				Enable: true,
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
-				AdmissionFairSharing: config.AdmissionFairSharing{
+				AdmissionFairSharing: &config.AdmissionFairSharing{
 					UsageHalfDecayTime:     metav1.Duration{Duration: 10 * time.Minute},
 					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
 				},
@@ -294,7 +294,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			fsConfig: &config.FairSharing{
 				Enable: true,
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
-				AdmissionFairSharing: config.AdmissionFairSharing{
+				AdmissionFairSharing: &config.AdmissionFairSharing{
 					UsageHalfDecayTime:     metav1.Duration{Duration: 5 * time.Minute},
 					UsageSamplingFrequency: metav1.Duration{Duration: 5 * time.Minute},
 				},
