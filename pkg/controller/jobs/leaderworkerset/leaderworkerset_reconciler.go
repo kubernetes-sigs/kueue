@@ -112,10 +112,16 @@ func (r *Reconciler) createPrebuiltWorkloadIfNotExist(ctx context.Context, lws *
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
 	createdWorkload := r.constructWorkload(lws, index)
-	err := jobframework.PrepareWorkloadPriority(ctx, r.client, fromObject(lws), createdWorkload)
+
+	priorityClassName, source, p, err := jobframework.ExtractPriority(ctx, r.client, lws, createdWorkload.Spec.PodSets, nil)
 	if err != nil {
 		return err
 	}
+
+	createdWorkload.Spec.PriorityClassName = priorityClassName
+	createdWorkload.Spec.Priority = &p
+	createdWorkload.Spec.PriorityClassSource = source
+
 	err = r.client.Create(ctx, createdWorkload)
 	if err != nil {
 		return err

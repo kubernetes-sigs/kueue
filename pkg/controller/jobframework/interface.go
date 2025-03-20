@@ -36,21 +36,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
-// GenericWorkload is the interface which needs to be implemented by all jobs
-// and serving workloads managed by the kueue's jobframework.
-type GenericWorkload interface {
-	// Object returns the job instance.
-	Object() client.Object
-
-	// GVK returns GVK (Group Version Kind) for the job.
-	GVK() schema.GroupVersionKind
-}
-
 // GenericJob if the interface which needs to be implemented by all jobs
 // managed by the kueue's jobframework.
 type GenericJob interface {
-	GenericWorkload
-
+	// Object returns the job instance.
+	Object() client.Object
 	// IsSuspended returns whether the job is suspended or not.
 	IsSuspended() bool
 	// Suspend will suspend the job.
@@ -70,6 +60,8 @@ type GenericJob interface {
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
+	// GVK returns GVK (Group Version Kind) for the job.
+	GVK() schema.GroupVersionKind
 }
 
 // Optional interfaces, are meant to implemented by jobs to enable additional
