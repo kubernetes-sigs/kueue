@@ -164,7 +164,7 @@ type PodSetResources struct {
 	// Name is the name of the PodSet.
 	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
-	Requests resources.Requests
+	Requests resources.Resources
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -175,7 +175,7 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
-func (p *PodSetResources) SinglePodRequests() resources.Requests {
+func (p *PodSetResources) SinglePodRequests() resources.Resources {
 	return p.Requests.ScaledDown(int64(p.Count))
 }
 
@@ -186,12 +186,12 @@ type TopologyRequest struct {
 
 type TopologyDomainRequests struct {
 	Values            []string
-	SinglePodRequests resources.Requests
+	SinglePodRequests resources.Resources
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
 }
 
-func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
+func (t *TopologyDomainRequests) TotalRequests() resources.Resources {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -413,7 +413,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		if features.Enabled(features.ConfigurableResourceTransformations) {
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		}
-		setRes.Requests = resources.NewRequests(effectiveRequests)
+		setRes.Requests = resources.NewResources(effectiveRequests)
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
@@ -432,7 +432,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
-			Requests: resources.NewRequests(psa.ResourceUsage),
+			Requests: resources.NewResources(psa.ResourceUsage),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
 			setRes.TopologyRequest = &TopologyRequest{
