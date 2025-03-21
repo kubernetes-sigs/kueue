@@ -60,7 +60,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, webhooks.WebhookConfiguration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		cCache := cache.New(mgr.GetClient())
