@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -66,13 +67,18 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		return cq
 	}
 
-	var createWorkload = func(queue string, cpuRequests string) *kueue.Workload {
+	var createWorkloadWithPriority = func(queue string, cpuRequests string, priority int32) *kueue.Workload {
 		wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+			Priority(priority).
 			Queue(queue).
 			Request(corev1.ResourceCPU, cpuRequests).Obj()
 		wls = append(wls, wl)
 		gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 		return wl
+	}
+
+	var createWorkload = func(queue string, cpuRequests string) *kueue.Workload {
+		return createWorkloadWithPriority(queue, cpuRequests, 0)
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -327,6 +333,70 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectCohortWeightedShare(cohortSecondLeft.Name, 214)
 			expectCohortWeightedShare(cohortSecondRight.Name, 214)
 			expectCohortWeightedShare(cohortBank.Name, 0)
+		})
+		ginkgo.It("preempts workloads to enforce fair share", func() {
+			// below are Cohorts and their fair
+			// weights. 12 CPUs are provided by the root
+			// Cohort
+			//            root
+			//          /      \
+			//        /          \
+			// best-effort(0.5)  research
+			//                   /   |    \
+			//                  /    |     \
+			//          chemistry  physics   llm(2.0)
+			createCohort(testing.MakeCohort("root").ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "12").Obj()).Obj())
+			createCohort(testing.MakeCohort("research").Parent("root").Obj())
+			createCohort(testing.MakeCohort("chemistry").Parent("research").Obj())
+			createCohort(testing.MakeCohort("physics").Parent("research").Obj())
+			createCohort(testing.MakeCohort("llm").FairWeight(resource.MustParse("2.0")).Parent("research").Obj())
+			createCohort(testing.MakeCohort("best-effort").FairWeight(resource.MustParse("0.5")).Parent("root").Obj())
+
+			preemptionPolicy := kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+			}
+			zeroQuota := *testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()
+
+			chemistryQueue := createQueue(testing.MakeClusterQueue("chemistry-queue").Cohort("chemistry").ResourceGroup(zeroQuota).Preemption(preemptionPolicy).Obj())
+			physicsQueue := createQueue(testing.MakeClusterQueue("physics-queue").Cohort("physics").ResourceGroup(zeroQuota).Preemption(preemptionPolicy).Obj())
+			llmQueue := createQueue(testing.MakeClusterQueue("llm-queue").Cohort("llm").ResourceGroup(zeroQuota).Preemption(preemptionPolicy).Obj())
+			bestEffortQueue := createQueue(testing.MakeClusterQueue("best-effort-queue").Cohort("best-effort").ResourceGroup(zeroQuota).Obj())
+
+			ginkgo.By("all capacity used")
+			for range 6 {
+				createWorkloadWithPriority(bestEffortQueue.GetName(), "1", -1)
+				createWorkloadWithPriority(physicsQueue.GetName(), "1", -1)
+			}
+			expectCohortWeightedShare("best-effort", 1000)
+			expectCohortWeightedShare("physics", 500)
+			util.ExpectReservingActiveWorkloadsMetric(bestEffortQueue, 6)
+			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 6)
+
+			ginkgo.By("create high priority workloads")
+			for range 6 {
+				for _, cq := range cqs {
+					createWorkloadWithPriority(cq.GetName(), "1", 100)
+				}
+			}
+
+			ginkgo.By("preempt workloads")
+			finishEvictionOfWorkloadsInCQ(bestEffortQueue, 2)
+			finishEvictionOfWorkloadsInCQ(physicsQueue, 4)
+
+			ginkgo.By("share is fair with respect to each parent")
+			// parent root
+			expectCohortWeightedShare("best-effort", 666)
+			expectCohortWeightedShare("research", 666)
+			// parent research
+			expectCohortWeightedShare("chemistry", 166)
+			expectCohortWeightedShare("physics", 166)
+			expectCohortWeightedShare("llm", 166)
+
+			ginkgo.By("number workloads admitted proportional to share at each level")
+			util.ExpectReservingActiveWorkloadsMetric(bestEffortQueue, 4)
+			util.ExpectReservingActiveWorkloadsMetric(chemistryQueue, 2)
+			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
+			util.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
 		})
 	})
 })
