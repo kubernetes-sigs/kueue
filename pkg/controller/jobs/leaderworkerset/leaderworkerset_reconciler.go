@@ -19,8 +19,11 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/go-logr/logr"
+	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
@@ -28,15 +31,19 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -92,7 +99,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet")
 
-	err = r.createPrebuiltWorkloadsIfNotExist(ctx, lws)
+	wlList := &kueue.WorkloadList{}
+	if err := r.client.List(ctx, wlList, client.InNamespace(lws.GetNamespace()),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(lws.GetUID())},
+	); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	toCreate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+
+	eg, ctx := errgroup.WithContext(ctx)
+
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toCreate), func(i int) error {
+			return r.createPrebuiltWorkload(ctx, lws, toCreate[i])
+		})
+	})
+
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toFinalize), func(i int) error {
+			return r.removeOwnerReference(ctx, lws, toFinalize[i])
+		})
+	})
+
+	err = eg.Wait()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -100,28 +130,38 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) createPrebuiltWorkloadsIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
-	replicas := ptr.Deref(lws.Spec.Replicas, 1)
+// filterWorkloads compares the desired state in a LeaderWorkerSet with existing workloads,
+// identifying workloads to create and those to finalize.
+//
+// It takes a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
+// 1. A slice of workload names that need to be created
+// 2. A slice of Workload pointers that need to be finalized
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload) {
+	var (
+		toCreate   []string
+		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
+			return e.Name
+		})
+		replicas = ptr.Deref(lws.Spec.Replicas, 1)
+	)
+
 	for i := int32(0); i < replicas; i++ {
-		if err := r.createPrebuiltWorkloadIfNotExist(ctx, lws, i); err != nil {
-			return err
+		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
+		if _, ok := toFinalize[workloadName]; ok {
+			delete(toFinalize, workloadName)
+		} else {
+			toCreate = append(toCreate, workloadName)
 		}
 	}
-	return nil
+
+	return toCreate, slices.Collect(maps.Values(toFinalize))
 }
 
-func (r *Reconciler) createPrebuiltWorkloadIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
-	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, client.ObjectKey{Name: GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), Namespace: lws.Namespace}, wl)
-	// Ignore if the Workload already exists or an error occurs.
-	if err == nil || client.IgnoreNotFound(err) != nil {
+func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
+	createdWorkload, err := r.constructWorkload(lws, workloadName)
+	if err != nil {
 		return err
 	}
-	return r.createPrebuiltWorkload(ctx, lws, index)
-}
-
-func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
-	createdWorkload := r.constructWorkload(lws, index)
 
 	priorityClassName, source, p, err := jobframework.ExtractPriority(ctx, r.client, lws, createdWorkload.Spec.PodSets, nil)
 	if err != nil {
@@ -143,8 +183,12 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 	return nil
 }
 
-func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, index int32) *kueue.Workload {
-	return podcontroller.NewGroupWorkload(GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), lws, r.podSets(lws), r.labelKeysToCopy)
+func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) (*kueue.Workload, error) {
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, r.podSets(lws), r.labelKeysToCopy)
+	if err := controllerutil.SetOwnerReference(lws, createdWorkload, r.client.Scheme()); err != nil {
+		return nil, err
+	}
+	return createdWorkload, nil
 }
 
 func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.PodSet {
@@ -196,6 +240,14 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	podSets = append(podSets, podSet)
 
 	return podSets
+}
+
+func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+	err := controllerutil.RemoveOwnerReference(lws, wl, r.client.Scheme())
+	if err != nil {
+		return err
+	}
+	return r.client.Update(ctx, wl)
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
