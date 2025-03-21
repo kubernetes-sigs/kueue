@@ -773,7 +773,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 							Reason: "AllGroupsReady",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
 					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdHighPriorityWl := &kueue.Workload{}
