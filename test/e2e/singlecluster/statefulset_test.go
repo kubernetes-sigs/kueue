@@ -28,7 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -362,7 +363,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Labels[constants.QueueLabel] = localQueueName
+					createdStatefulSet.Labels[controllerconstants.QueueLabel] = localQueueName
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -424,6 +425,110 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("StatefulSet created with WorkloadPriorityClass", func() {
+		var (
+			highPriorityWPC *kueue.WorkloadPriorityClass
+			lowPriorityWPC  *kueue.WorkloadPriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			highPriorityWPC = testing.MakeWorkloadPriorityClass("high-priority").
+				PriorityValue(5000).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, highPriorityWPC)).To(gomega.Succeed())
+
+			lowPriorityWPC = testing.MakeWorkloadPriorityClass("low-priority").
+				PriorityValue(1000).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, lowPriorityWPC)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPriorityWPC, true)
+		})
+
+		ginkgo.It("should preempt low-priority StatefulSet", func() {
+			lowPrioritySTS := statefulsettesting.MakeStatefulSet("low-priority", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(lq.Name).
+				WorkloadPriorityClass(lowPriorityWPC.Name).
+				Obj()
+
+			ginkgo.By("Create a low-priority StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, lowPrioritySTS)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready in low-priority StatefulSet", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLowPrioritySTS := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPrioritySTS), createdLowPrioritySTS)).To(gomega.Succeed())
+					g.Expect(createdLowPrioritySTS.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdLowPriorityWl := &kueue.Workload{}
+			lowPriorityWlKey := types.NamespacedName{
+				Name:      statefulset.GetWorkloadName(lowPrioritySTS.Name),
+				Namespace: ns.Name,
+			}
+			ginkgo.By("Check the low-priority Workload is created and admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowPriorityWlKey, createdLowPriorityWl)).To(gomega.Succeed())
+					g.Expect(createdLowPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
+					g.Expect(createdLowPriorityWl.Spec.PriorityClassName).To(gomega.Equal(lowPriorityWPC.Name))
+					g.Expect(createdLowPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			highPrioritySTS := statefulsettesting.MakeStatefulSet("high-priority", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(lq.Name).
+				WorkloadPriorityClass(highPriorityWPC.Name).
+				Obj()
+
+			ginkgo.By("Create a high-priority StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, highPrioritySTS)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready in high-priority StatefulSet", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdHighPrioritySTS := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPrioritySTS), createdHighPrioritySTS)).To(gomega.Succeed())
+					g.Expect(createdHighPrioritySTS.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Await for the low-priory StatefulSet to be preempted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLowPrioritySTS := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPrioritySTS), createdLowPrioritySTS)).To(gomega.Succeed())
+					g.Expect(createdLowPrioritySTS.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdHighPriorityWl := &kueue.Workload{}
+			highPriorityWlKey := types.NamespacedName{
+				Name:      statefulset.GetWorkloadName(highPrioritySTS.Name),
+				Namespace: ns.Name,
+			}
+			ginkgo.By("Await for the high-priority Workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, highPriorityWlKey, createdHighPriorityWl)).To(gomega.Succeed())
+					g.Expect(createdHighPriorityWl.Spec.PriorityClassSource).To(gomega.Equal(constants.WorkloadPriorityClassSource))
+					g.Expect(createdHighPriorityWl.Spec.PriorityClassName).To(gomega.Equal(highPriorityWPC.Name))
+					g.Expect(createdHighPriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
