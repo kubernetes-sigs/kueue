@@ -19,53 +19,192 @@ package jobframework
 import (
 	"context"
 	"net/http"
-	"strings"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
-func TestSetupControllers(t *testing.T) {
+func TestSetupStaticControllers(t *testing.T) {
 	availableIntegrations := map[string]IntegrationCallbacks{
-		"batch/job": {
-			NewReconciler:         testNewReconciler,
-			SetupWebhook:          testSetupWebhook,
-			JobType:               &batchv1.Job{},
-			SetupIndexes:          testSetupIndexes,
-			AddToScheme:           testAddToScheme,
-			CanSupportIntegration: testCanSupportIntegration,
+		"statefulset": {
+			NewReconciler: testNewReconciler,
+			SetupWebhook:  testSetupWebhook,
+			JobType:       &appsv1.StatefulSet{},
 		},
+		"deployment": {
+			NewReconciler: testNewReconciler,
+			SetupWebhook:  testSetupWebhook,
+			JobType:       &appsv1.Deployment{},
+		},
+		"pod": {
+			NewReconciler: testNewReconciler,
+			SetupWebhook:  testSetupWebhook,
+			JobType:       &corev1.Pod{},
+		},
+		"kubeflow.org/mpijob": { // Dynamic integration should be skipped
+			NewReconciler: testNewReconciler,
+			SetupWebhook:  testSetupWebhook,
+			JobType:       &kfmpi.MPIJob{},
+		},
+	}
+
+	tests := map[string]struct {
+		opts                    []Option
+		mapperGVKs              []schema.GroupVersionKind
+		wantEnabledIntegrations []string
+		wantError               error
+	}{
+		"successful setup": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"statefulset", "deployment", "pod"}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+				{Group: "apps", Version: "v1", Kind: "Deployment"},
+				{Group: "", Version: "v1", Kind: "Pod"},
+			},
+			wantEnabledIntegrations: []string{"deployment", "pod", "statefulset"},
+			wantError:               nil,
+		},
+		"mapper missing deployment": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"statefulset", "deployment", "pod"}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+				{Group: "", Version: "v1", Kind: "Pod"},
+			},
+			wantEnabledIntegrations: []string{"pod", "statefulset"},
+			wantError:               nil,
+		},
+		"no enabled integrations": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+				{Group: "apps", Version: "v1", Kind: "Deployment"},
+				{Group: "", Version: "v1", Kind: "Pod"},
+			},
+			wantEnabledIntegrations: []string{},
+			wantError:               nil,
+		},
+		"dynamic integration skipped": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"statefulset", "pod", "kubeflow.org/mpijob"}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+				{Group: "", Version: "v1", Kind: "Pod"},
+				{Group: "kubeflow.org", Version: "v1alpha1", Kind: "MPIJob"},
+			},
+			wantEnabledIntegrations: []string{"pod", "statefulset"}, // Only static integrations enabled
+			wantError:               nil,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			manager := integrationManager{}
+			for name, cbs := range availableIntegrations {
+				if err := manager.register(name, cbs); err != nil {
+					t.Fatalf("Failed to register integration %q: %v", name, err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			logger := logr.FromContextOrDiscard(ctx)
+
+			scheme := runtime.NewScheme()
+			if err := appsv1.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add appsv1 to scheme: %v", err)
+			}
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add corev1 to scheme: %v", err)
+			}
+			if err := kfmpi.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add kfmpi to scheme: %v", err)
+			}
+			scheme.AddKnownTypes(appsv1.SchemeGroupVersion, &appsv1.StatefulSetList{}, &appsv1.DeploymentList{})
+			scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.PodList{})
+			scheme.AddKnownTypes(kfmpi.SchemeGroupVersion, &kfmpi.MPIJobList{})
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(&appsv1.StatefulSetList{}, &appsv1.DeploymentList{}, &corev1.PodList{}, &kfmpi.MPIJobList{}).
+				Build()
+
+			mgrOpts := ctrl.Options{
+				Scheme: scheme,
+				NewClient: func(_ *rest.Config, _ client.Options) (client.Client, error) {
+					return k8sClient, nil
+				},
+				MapperProvider: func(_ *rest.Config, _ *http.Client) (apimeta.RESTMapper, error) {
+					mapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{})
+					for _, gvk := range tc.mapperGVKs {
+						mapper.Add(gvk, apimeta.RESTScopeNamespace)
+					}
+					return mapper, nil
+				},
+			}
+			mgr, err := ctrl.NewManager(&rest.Config{}, mgrOpts)
+			if err != nil {
+				t.Fatalf("Failed to create manager: %v", err)
+			}
+
+			gotErr := manager.setupStaticControllers(mgr, logger, tc.opts...)
+
+			deadline := time.Now().Add(1 * time.Second)
+			for {
+				enabled := manager.getEnabledIntegrations().SortedList()
+				if reflect.DeepEqual(enabled, tc.wantEnabledIntegrations) || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
+			}
+
+			enabledIntegrations := manager.getEnabledIntegrations().SortedList()
+			if diff := cmp.Diff(tc.wantEnabledIntegrations, enabledIntegrations); diff != "" {
+				t.Errorf("Unexpected enabled integrations (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetupControllersFromDiscoveredCRDs(t *testing.T) {
+	availableIntegrations := map[string]IntegrationCallbacks{
 		"kubeflow.org/mpijob": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
 			JobType:               &kfmpi.MPIJob{},
-			SetupIndexes:          testSetupIndexes,
-			AddToScheme:           testAddToScheme,
-			CanSupportIntegration: testCanSupportIntegration,
-		},
-		"pod": {
-			NewReconciler:         testNewReconciler,
-			SetupWebhook:          testSetupWebhook,
-			JobType:               &corev1.Pod{},
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
@@ -80,104 +219,130 @@ func TestSetupControllers(t *testing.T) {
 		},
 	}
 
-	cases := map[string]struct {
+	tests := map[string]struct {
 		opts                    []Option
+		discoveredGVKs          []schema.GroupVersionKind
 		mapperGVKs              []schema.GroupVersionKind
-		delayedGVKs             []*schema.GroupVersionKind
-		wantError               error
 		wantEnabledIntegrations []string
+		wantError               error
 	}{
-		"setup controllers succeed": {
+		"successful setup": {
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
-				WithEnabledExternalFrameworks([]string{
-					"Foo.v1.example.com",
-					"Bar.v2.example.com",
-				}),
+				WithEnabledFrameworks([]string{"kubeflow.org/mpijob", "ray.io/raycluster"}),
+			},
+			discoveredGVKs: []schema.GroupVersionKind{
+				kfmpi.SchemeGroupVersionKind,
+				rayv1.SchemeGroupVersion.WithKind("RayCluster"),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
-				batchv1.SchemeGroupVersion.WithKind("Job"),
+				kfmpi.SchemeGroupVersionKind,
+				rayv1.SchemeGroupVersion.WithKind("RayCluster"),
+			},
+			wantEnabledIntegrations: []string{"kubeflow.org/mpijob", "ray.io/raycluster"},
+			wantError:               nil,
+		},
+		"mapper missing ray.io/raycluster": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"kubeflow.org/mpijob", "ray.io/raycluster"}),
+			},
+			discoveredGVKs: []schema.GroupVersionKind{
+				kfmpi.SchemeGroupVersionKind,
+				rayv1.SchemeGroupVersion.WithKind("RayCluster"),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
 				kfmpi.SchemeGroupVersionKind,
 			},
-			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
+			wantEnabledIntegrations: []string{"kubeflow.org/mpijob"},
+			wantError:               nil,
 		},
-		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
+		"no matching integration": {
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledFrameworks([]string{"kubeflow.org/mpijob"}),
+			},
+			discoveredGVKs: []schema.GroupVersionKind{
+				{Group: "unknown.group", Version: "v1", Kind: "UnknownJob"},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
-				batchv1.SchemeGroupVersion.WithKind("Job"),
+				{Group: "unknown.group", Version: "v1", Kind: "UnknownJob"},
 			},
-			wantEnabledIntegrations: []string{"batch/job"},
-		},
-		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
-			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
-			},
-			mapperGVKs: []schema.GroupVersionKind{
-				batchv1.SchemeGroupVersion.WithKind("Job"),
-				kfmpi.SchemeGroupVersionKind,
-				// Not including RayCluster
-			},
-			delayedGVKs: []*schema.GroupVersionKind{
-				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
-			},
-			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			wantEnabledIntegrations: []string{},
+			wantError:               nil,
 		},
 	}
-	for name, tc := range cases {
+
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			manager := integrationManager{}
 			for name, cbs := range availableIntegrations {
-				err := manager.register(name, cbs)
-				if err != nil {
-					t.Fatalf("Unexpected error while registering %q: %s", name, err)
+				if err := manager.register(name, cbs); err != nil {
+					t.Fatalf("Failed to register integration %q: %v", name, err)
 				}
 			}
 
-			ctx, logger := utiltesting.ContextWithLog(t)
-			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			logger := logr.FromContextOrDiscard(ctx)
 
-			mgrOpts := ctrlmgr.Options{
-				Scheme: k8sClient.Scheme(),
-				NewClient: func(*rest.Config, client.Options) (client.Client, error) {
+			scheme := runtime.NewScheme()
+			if err := kfmpi.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add kfmpi to scheme: %v", err)
+			}
+			if err := rayv1.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add rayv1 to scheme: %v", err)
+			}
+			scheme.AddKnownTypes(kfmpi.SchemeGroupVersion, &kfmpi.MPIJobList{})
+			scheme.AddKnownTypes(rayv1.SchemeGroupVersion, &rayv1.RayClusterList{})
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(&kfmpi.MPIJobList{}, &rayv1.RayClusterList{}).
+				Build()
+
+			mgrOpts := ctrl.Options{
+				Scheme: scheme,
+				NewClient: func(_ *rest.Config, _ client.Options) (client.Client, error) {
 					return k8sClient, nil
 				},
-				MapperProvider: func(*rest.Config, *http.Client) (apimeta.RESTMapper, error) {
+				MapperProvider: func(_ *rest.Config, _ *http.Client) (apimeta.RESTMapper, error) {
 					gvs := slices.Map(tc.mapperGVKs, func(gvk *schema.GroupVersionKind) schema.GroupVersion {
 						return gvk.GroupVersion()
 					})
 					mapper := apimeta.NewDefaultRESTMapper(gvs)
-					testMapper := &TestRESTMapper{
-						DefaultRESTMapper: mapper,
-						lock:              sync.RWMutex{},
-					}
 					for _, gvk := range tc.mapperGVKs {
-						testMapper.Add(gvk, apimeta.RESTScopeNamespace)
+						mapper.Add(gvk, apimeta.RESTScopeNamespace)
 					}
-					return testMapper, nil
+					return mapper, nil
 				},
 			}
-			mgr, err := ctrlmgr.New(&rest.Config{}, mgrOpts)
+			mgr, err := ctrl.NewManager(&rest.Config{}, mgrOpts)
 			if err != nil {
-				t.Fatalf("Failed to setup manager: %v", err)
+				t.Fatalf("Failed to create manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
-			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
-				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
+			discoveredCRDs := make(chan schema.GroupVersionKind, len(tc.discoveredGVKs))
+			for _, gvk := range tc.discoveredGVKs {
+				discoveredCRDs <- gvk
 			}
+			close(discoveredCRDs)
 
-			if len(tc.delayedGVKs) > 0 {
-				simulateDelayedIntegration(mgr, tc.delayedGVKs)
-				for _, gvk := range tc.delayedGVKs {
-					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
+			gotErr := manager.setupControllersFromDiscoveredCRDs(ctx, mgr, logger, discoveredCRDs, tc.opts...)
+
+			deadline := time.Now().Add(1 * time.Second)
+			for {
+				enabled := manager.getEnabledIntegrations().SortedList()
+				if reflect.DeepEqual(enabled, tc.wantEnabledIntegrations) || time.Now().After(deadline) {
+					break
 				}
+				time.Sleep(10 * time.Millisecond)
 			}
 
-			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
-			if len(diff) != 0 {
-				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
+			}
+
+			enabledIntegrations := manager.getEnabledIntegrations().SortedList()
+			if diff := cmp.Diff(tc.wantEnabledIntegrations, enabledIntegrations); diff != "" {
+				t.Errorf("Unexpected enabled integrations (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -192,27 +357,6 @@ func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	return m.DefaultRESTMapper.RESTMapping(gk, versions...)
-}
-
-// Simulates the delayed availability of GVKs
-func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
-	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
-	mapper.lock.Lock()
-	defer mapper.lock.Unlock()
-
-	for _, gvk := range delayedGVKs {
-		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
-	}
-}
-
-func testDelayedIntegration(manager *integrationManager, crdName string) {
-	for {
-		_, ok := manager.getEnabledIntegrations()[crdName]
-		if ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 func TestSetupIndexes(t *testing.T) {

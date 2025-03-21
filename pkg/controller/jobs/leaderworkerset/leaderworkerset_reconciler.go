@@ -19,8 +19,10 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -75,10 +77,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	lws := &leaderworkersetv1.LeaderWorkerSet{}
 	err := r.client.Get(ctx, req.NamespacedName, lws)
 	if err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet")
 
@@ -87,7 +87,55 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
+	replicas := ptr.Deref(lws.Spec.Replicas, 1)
+	err = r.cleanupExcessWorkloads(ctx, lws, replicas)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if lws.DeletionTimestamp != nil {
+		var workloads kueue.WorkloadList
+		if err := r.client.List(ctx, &workloads, client.InNamespace(lws.Namespace), client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name}); err != nil {
+			return ctrl.Result{}, err
+		}
+		for _, wl := range workloads.Items {
+			if wl.DeletionTimestamp != nil {
+				continue
+			}
+			if err := r.client.Delete(ctx, &wl); err != nil && client.IgnoreNotFound(err) != nil {
+				return ctrl.Result{}, err
+			}
+			r.record.Eventf(lws, corev1.EventTypeNormal, "DeletedWorkload", "Deleted Workload: %v", workload.Key(&wl))
+		}
+		return ctrl.Result{}, nil
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// cleanupExcessWorkloads deletes excess Workloads (replicas > replicas) to scale down.
+func (r *Reconciler) cleanupExcessWorkloads(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, replicas int32) error {
+	var workloads kueue.WorkloadList
+	if err := r.client.List(ctx, &workloads, client.InNamespace(lws.Namespace), client.MatchingLabels{"leaderworkerset/leader-name": lws.Name}); err != nil {
+		return err
+	}
+
+	for _, wl := range workloads.Items {
+		indexStr, ok := wl.Labels["leaderworkerset/group-index"]
+		if !ok {
+			continue
+		}
+		index, err := strconv.Atoi(indexStr)
+		if err != nil {
+			continue
+		}
+		if int32(index) >= replicas {
+			if err := r.client.Delete(ctx, &wl); err != nil && client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) createPrebuiltWorkloadsIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
@@ -134,7 +182,26 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 }
 
 func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, index int32) *kueue.Workload {
-	return podcontroller.NewGroupWorkload(GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), lws, r.podSets(lws), r.labelKeysToCopy)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), lws, r.podSets(lws), r.labelKeysToCopy)
+
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string)
+	}
+
+	wl.Labels["leaderworkerset/leader-name"] = lws.Name
+	wl.Labels["leaderworkerset/group-index"] = fmt.Sprint(index)
+
+	// Set owner reference for garbage collection else it wont be deleted when the LeaderWorkerSet is deleted. causing e2e tests to fail.
+	wl.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       lws.Name,
+			UID:        lws.UID,
+			Controller: ptr.To(true),
+		},
+	}
+	return wl
 }
 
 func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.PodSet {
@@ -197,8 +264,8 @@ func (r *Reconciler) Update(e event.UpdateEvent) bool {
 	return r.handle(e.ObjectNew)
 }
 
-func (r *Reconciler) Delete(event.DeleteEvent) bool {
-	return false
+func (r *Reconciler) Delete(e event.DeleteEvent) bool {
+	return r.handle(e.Object)
 }
 
 func (r *Reconciler) handle(obj client.Object) bool {
