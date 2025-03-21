@@ -312,16 +312,16 @@ func GetKuberayTestImage() string {
 
 func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName string) *corev1.Namespace {
 	ginkgo.GinkgoHelper()
-	ns := utiltesting.MakeNamespace(nsName)
-	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
-	return ns
+	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespace(nsName))
 }
 
 func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Client, nsPrefix string) *corev1.Namespace {
 	ginkgo.GinkgoHelper()
-	ns := utiltesting.MakeNamespaceWithGenerateName(nsPrefix)
-	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespaceWithGenerateName(nsPrefix))
+}
+
+func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
+	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
 	return ns
 }

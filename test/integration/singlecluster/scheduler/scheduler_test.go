@@ -1671,14 +1671,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Cohort(chName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
-			matchingNS = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "foo-",
-					Labels:       map[string]string{"dep": "eng"},
-				},
-			}
-			ginkgo.By(fmt.Sprintf("Creating namespace: %s", matchingNS.Name))
-			gomega.Expect(k8sClient.Create(ctx, matchingNS)).To(gomega.Succeed())
+			matchingNS = util.CreateNamespaceFromObjectWithLog(ctx, k8sClient, testing.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj())
 		})
 
 		ginkgo.AfterEach(func() {
