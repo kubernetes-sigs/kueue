@@ -110,7 +110,7 @@ CREATE_KIND_CLUSTER ?= true
 
 
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%) test-e2e-kueueviz
+test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
