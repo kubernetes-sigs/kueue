@@ -91,7 +91,7 @@ func (m *integrationManager) setupControllersFromDiscoveredCRDs(ctx context.Cont
 	go func() {
 		for gvk := range discoveredCRDs {
 			setupWg.Add(1)
-			go func(currentGVK schema.GroupVersionKind) {
+			func(currentGVK schema.GroupVersionKind) {
 				defer setupWg.Done()
 
 				var matchedName string
