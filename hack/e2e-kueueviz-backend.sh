@@ -58,12 +58,17 @@ if [ -z "$WORKSPACE_VOLUME" ]; then
 fi
 echo "Workspace Volume: $WORKSPACE_VOLUME"
 
+# if CYPRESS_IMAGE_NAME is not set, set it to cypress/base:22.14.0
+if [ -z "$CYPRESS_IMAGE_NAME" ]; then
+  CYPRESS_IMAGE_NAME="cypress/base:22.14.0"
+fi
+
 # Start kueue-viz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
-docker run -i --entrypoint /workspace/hack/e2e-viz-dind-frontend.sh \
+docker run -i --entrypoint /workspace/hack/e2e-kueueviz-frontend.sh \
            -w /workspace --network host \
            -v "${WORKSPACE_VOLUME}":/workspace:rw \
-           -v /var/run/docker.sock:/var/run/docker.sock cypress/base
+           -v /var/run/docker.sock:/var/run/docker.sock "${CYPRESS_IMAGE_NAME}"
 
 set +x  # Disable debug mode
 # The trap will handle cleanup 

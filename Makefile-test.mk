@@ -69,7 +69,7 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
-CYPRESS_IMAGE_NAME ?= cypress/base
+CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
 
 # Versions for external controllers
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
@@ -110,7 +110,7 @@ CREATE_KIND_CLUSTER ?= true
 
 
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%) test-e2e-viz-dind
+test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%) test-e2e-kueueviz
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -263,14 +263,14 @@ ginkgo-top:
 setup-e2e-env: kustomize yq gomod-download dep-crds kueuectl kind ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
-.PHONY: test-e2e-viz
-test-e2e-viz: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
+.PHONY: test-e2e-kueueviz-local
+test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-viz.sh
+	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
 
-.PHONY: test-e2e-viz-dind
-test-e2e-viz-dind: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
+.PHONY: test-e2e-kueueviz
+test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
 	@echo Starting kueue-viz end to end test in containers
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" \
-	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-viz-dind-backend.sh
+	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh
