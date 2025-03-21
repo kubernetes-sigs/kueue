@@ -451,6 +451,22 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				MakeGroup(2)
 			highGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "high-priority-group"}
 
+			ginkgo.By("Wait for default-priority-group pods to become ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for origPod := range defaultGroupPods {
+						var p corev1.Pod
+						g.Expect(k8sClient.Get(ctx, origPod, &p)).To(gomega.Succeed())
+						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						g.Expect(p.Status.Conditions).Should(gomega.ContainElement(
+							gomega.BeComparableTo(corev1.PodCondition{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastProbeTime", "LastTransitionTime", "Message")),
+						))
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Create the high-priority group", func() {
 				for _, p := range highPriorityGroup {
 					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
