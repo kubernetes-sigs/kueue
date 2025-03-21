@@ -69,7 +69,7 @@ type TASFlavorCache struct {
 	Tolerations []corev1.Toleration
 
 	// usage maintains the usage per topology domain
-	usage map[utiltas.TopologyDomainID]resources.Requests
+	usage map[utiltas.TopologyDomainID]resources.Resources
 }
 
 func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, levels []string, nodeLabels map[string]string,
@@ -80,7 +80,7 @@ func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, level
 		Levels:       slices.Clone(levels),
 		NodeLabels:   maps.Clone(nodeLabels),
 		Tolerations:  slices.Clone(tolerations),
-		usage:        make(map[utiltas.TopologyDomainID]resources.Requests),
+		usage:        make(map[utiltas.TopologyDomainID]resources.Resources),
 	}
 }
 
@@ -137,7 +137,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 		}
 		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
 			requests := resourcehelpers.PodRequests(&pod, resourcehelpers.PodResourcesOptions{})
-			usage := resources.NewRequests(requests)
+			usage := resources.NewResources(requests)
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	}
@@ -159,14 +159,14 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.Requests{}
+			c.usage[domainID] = resources.Resources{}
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(resources.Resources{corev1.ResourcePods: int64(tr.Count)})
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(resources.Resources{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }

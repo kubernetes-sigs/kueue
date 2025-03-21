@@ -24,58 +24,58 @@ import (
 
 func TestCountIn(t *testing.T) {
 	cases := map[string]struct {
-		requests   Requests
-		capacity   Requests
+		requests   Resources
+		capacity   Resources
 		wantResult int32
 	}{
 		"requests equal capacity": {
-			requests: Requests{
+			requests: Resources{
 				corev1.ResourceCPU:    1,
 				corev1.ResourceMemory: 1,
 			},
-			capacity: Requests{
+			capacity: Resources{
 				corev1.ResourceCPU:    1,
 				corev1.ResourceMemory: 1,
 			},
 			wantResult: 1,
 		},
 		"requests with extra resource": {
-			requests: Requests{
+			requests: Resources{
 				corev1.ResourceCPU:    1,
 				corev1.ResourceMemory: 1,
 			},
-			capacity: Requests{
+			capacity: Resources{
 				corev1.ResourceCPU: 1,
 			},
 			wantResult: 0,
 		},
 		"first resource is bottleneck": {
-			requests: Requests{
+			requests: Resources{
 				corev1.ResourceCPU:    5,
 				corev1.ResourceMemory: 1,
 			},
-			capacity: Requests{
+			capacity: Resources{
 				corev1.ResourceCPU:    12,
 				corev1.ResourceMemory: 8,
 			},
 			wantResult: 2,
 		},
 		"second resource is bottleneck": {
-			requests: Requests{
+			requests: Resources{
 				corev1.ResourceCPU:    1,
 				corev1.ResourceMemory: 5,
 			},
-			capacity: Requests{
+			capacity: Resources{
 				corev1.ResourceCPU:    8,
 				corev1.ResourceMemory: 12,
 			},
 			wantResult: 2,
 		},
 		"capacity non divisible cleanly by requests": {
-			requests: Requests{
+			requests: Resources{
 				corev1.ResourceCPU: 2,
 			},
-			capacity: Requests{
+			capacity: Resources{
 				corev1.ResourceCPU: 5,
 			},
 			wantResult: 2,

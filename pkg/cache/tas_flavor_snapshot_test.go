@@ -30,22 +30,22 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 	snapshot := &TASFlavorSnapshot{
 		leaves: leafDomainByID{
 			"domain2": &leafDomain{
-				freeCapacity: resources.Requests{
+				freeCapacity: resources.Resources{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
 				},
-				tasUsage: resources.Requests{
+				tasUsage: resources.Resources{
 					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
 					corev1.ResourceCPU:    500,
 				},
 			},
 			"domain1": &leafDomain{
-				freeCapacity: resources.Requests{
+				freeCapacity: resources.Resources{
 					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
 					corev1.ResourceCPU:    2000,
 					"nvidia.com/gpu":      1,
 				},
-				tasUsage: resources.Requests{
+				tasUsage: resources.Resources{
 					corev1.ResourceCPU:    500,
 					"nvidia.com/gpu":      1,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB

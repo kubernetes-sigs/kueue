@@ -469,7 +469,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 5000},
+									Requests: resources.Resources{corev1.ResourceCPU: 5000},
 									Count:    1,
 									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
 								},
@@ -898,7 +898,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.Resources{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -911,7 +911,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.Resources{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
