@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -42,4 +43,16 @@ func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 		temp[flavourResource.String()] = num
 	}
 	return json.Marshal(temp)
+}
+
+func (frq FlavorResourceQuantities) FlattenFlavors() map[corev1.ResourceName]int64 {
+	resources := sets.New[corev1.ResourceName]()
+	for key := range frq {
+		resources.Insert(key.Resource)
+	}
+	result := make(map[corev1.ResourceName]int64, resources.Len())
+	for key, val := range frq {
+		result[key.Resource] += val
+	}
+	return result
 }

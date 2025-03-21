@@ -17,8 +17,12 @@ limitations under the License.
 package resource
 
 import (
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type resolveConflict func(a, b resource.Quantity) resource.Quantity
@@ -102,4 +106,33 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 		return float64(i64)
 	}
 	return float64(q.MilliValue()) / 1000
+}
+
+func MulResources(res map[corev1.ResourceName]resource.Quantity, multiplier float64) map[corev1.ResourceName]resource.Quantity {
+	result := make(map[corev1.ResourceName]resource.Quantity, len(res))
+	for k, v := range res {
+		sum := float64(resources.ResourceValue(k, v))
+		sum *= multiplier
+		result[k] = resources.ResourceQuantity(k, int64(sum))
+	}
+	return result
+}
+
+func AddResources(a, b map[corev1.ResourceName]resource.Quantity) map[corev1.ResourceName]resource.Quantity {
+	result := make(map[corev1.ResourceName]resource.Quantity, 0)
+	for k, aVal := range a {
+		sum := aVal.Value()
+		if bVal, found := b[k]; found {
+			sum += bVal.Value()
+		}
+		result[k] = resource.MustParse(strconv.FormatInt(sum, 10))
+	}
+	for k, bVal := range b {
+		sum := bVal.Value()
+		if aVal, found := a[k]; found {
+			sum += aVal.Value()
+		}
+		result[k] = resource.MustParse(strconv.FormatInt(sum, 10))
+	}
+	return result
 }

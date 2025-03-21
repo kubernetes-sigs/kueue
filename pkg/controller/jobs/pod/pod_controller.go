@@ -59,7 +59,6 @@ import (
 )
 
 const (
-	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
 	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
 )
@@ -88,7 +87,7 @@ var (
 )
 
 func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+	utilruntime.Must(jobframework.RegisterIntegration(podconstants.FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:      SetupIndexes,
 		NewJob:            NewJob,
 		NewReconciler:     NewReconciler,
