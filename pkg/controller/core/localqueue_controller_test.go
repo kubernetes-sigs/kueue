@@ -164,7 +164,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				},
 			},
 		},
-		"local queue decaying usage sums the previous state and running workloads with 50/50 ratio": {
+		"local queue decaying usage sums the previous state and running workloads with A=1/2": {
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -217,7 +217,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				},
 			},
 		},
-		"local queue decaying usage sums the previous state and running workloads with 75/25 ratio": {
+		"local queue decaying usage sums the previous state and running workloads with A=2929": {
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -248,7 +248,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.FairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("7000"),
+								corev1.ResourceCPU: resource.MustParse("6829"),
 							},
 						},
 					}).

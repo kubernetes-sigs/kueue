@@ -267,7 +267,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqName string) error {
 	halfDecayTimeSeconds := float64(r.fsConfig.AdmissionFairSharing.UsageHalfDecayTime.Seconds())
 	samplingFrequencySeconds := float64(r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Seconds())
-	alpha := 1.0 - math.Pow(0.5, halfDecayTimeSeconds/samplingFrequencySeconds)
+	alpha := 1.0 - math.Pow(0.5, samplingFrequencySeconds/halfDecayTimeSeconds)
 	oldUsage := lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
 	err, cachedLq := r.cache.GetCacheLocalQueue(cqName, lq)
 	if err != nil {
@@ -277,17 +277,19 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	if len(oldUsage) == 0 {
 		// first loop
 		lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = oldUsage
-		return r.cache.UpdatedLQUsage(cqName, cachedLq)
+		r.cache.UpdateLQUsage(cqName, cachedLq)
+		return nil
 	}
 	newUsage := utilmaps.MapValues(cachedLq.GetAdmittedUsage().FlattenFlavors(),
 		func(val int64) resource.Quantity { return resource.MustParse(strconv.FormatInt(val, 10)) },
 	)
-	scaledOld := utilresource.MulResources(oldUsage, alpha)
-	scaledNew := utilresource.MulResources(newUsage, 1.0-alpha)
+	scaledOld := utilresource.MulResources(oldUsage, 1-alpha)
+	scaledNew := utilresource.MulResources(newUsage, alpha)
 	added := utilresource.AddResources(scaledOld, scaledNew)
 	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = added
 	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
-	return r.cache.UpdatedLQUsage(cqName, cachedLq)
+	r.cache.UpdateLQUsage(cqName, cachedLq)
+	return nil
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {

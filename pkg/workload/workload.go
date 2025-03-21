@@ -295,7 +295,7 @@ func (i *Info) LqUsage(ctx context.Context, c client.Client, fsConfig *config.Fa
 		}
 		usage += weight * resVal.AsApproximateFloat64()
 	}
-	usage *= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
 	return nil, usage
 }
 

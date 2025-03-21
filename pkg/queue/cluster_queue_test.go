@@ -954,8 +954,9 @@ func TestFSAdmissionTime(t *testing.T) {
 					).Obj(),
 			},
 			fsConfig: &config.FairSharing{
-				Enable: true,
-				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				Enable:               true,
+				Modes:                []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: &config.AdmissionFairSharing{},
 			},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
@@ -1048,8 +1049,9 @@ func TestFSAdmissionTime(t *testing.T) {
 					).Obj(),
 			},
 			fsConfig: &config.FairSharing{
-				Enable: true,
-				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				Enable:               true,
+				Modes:                []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: &config.AdmissionFairSharing{},
 			},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
@@ -1065,15 +1067,25 @@ func TestFSAdmissionTime(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
 						Weight: ptr.To(resource.MustParse("1")),
-					}).Obj(),
+					}).
+					FairSharingStatus(
+						&kueue.FairSharingStatus{
+							AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+								ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU: resource.MustParse("10"),
+								},
+							},
+						},
+					).Obj(),
 			},
 			fsConfig: &config.FairSharing{
-				Enable: true,
-				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
+				Enable:               true,
+				Modes:                []config.FairSharingMode{config.AdmissionTimeMode},
+				AdmissionFairSharing: &config.AdmissionFairSharing{},
 			},
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 			},
 			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
@@ -1089,8 +1101,8 @@ func TestFSAdmissionTime(t *testing.T) {
 				Modes:  []config.FairSharingMode{config.AdmissionTimeMode},
 			},
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 			},
 			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
@@ -1102,16 +1114,13 @@ func TestFSAdmissionTime(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lqA", "default").Obj(),
 			},
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(2).Obj(),
-				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
+				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 			},
 			wantWl: *utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 		},
 	}
 	for name, tc := range cases {
-		if name != "workloads with PreemptionBased FS config are ordered by priority" {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
 			builder := utiltesting.NewClientBuilder()
 			for _, lq := range tc.lqs {
