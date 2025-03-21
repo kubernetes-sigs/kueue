@@ -57,6 +57,6 @@ ${HELM} package --version "${chart_version}" --app-version "${chart_version}" ch
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"main\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 
 # Revert the kueueViz image changes
-${YQ} e ".kueueViz.backend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main-latest\" | .kueueViz.frontend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest\"" -i charts/kueue/values.yaml
+${YQ} e ".kueueViz.backend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main\" | .kueueViz.frontend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main\"" -i charts/kueue/values.yaml
 
 ${HELM} push "bin/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"

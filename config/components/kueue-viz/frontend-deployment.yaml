@@ -17,7 +17,7 @@ spec:
 
       containers:
         - name: frontend
-          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest
+          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
