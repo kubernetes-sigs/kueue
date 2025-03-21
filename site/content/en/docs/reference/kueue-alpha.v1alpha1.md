@@ -145,6 +145,8 @@ if FairSharing is enabled in the Kueue configuration.</p>
 - [Cohort](#kueue-x-k8s-io-v1alpha1-Cohort)
 
 
+<p>CohortStatus defines the observed state of Cohort.</p>
+
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
@@ -155,7 +157,10 @@ if FairSharing is enabled in the Kueue configuration.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>fairSharing contains the current state for this Cohort
+when participating in Fair Sharing.
+The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
 </tr>
 </tbody>
 </table>

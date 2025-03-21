@@ -582,12 +582,14 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               fairSharing:
-                description: fairSharing contains the information about the current
-                  status of Fair Sharing.
+                description: |-
+                  fairSharing contains the current state for this ClusterQueue
+                  when participating in Fair Sharing.
+                  This is recorded only when Fair Sharing is enabled in the Kueue configuration.
                 properties:
                   weightedShare:
                     description: |-
-                      WeightedShare represent the maximum of the ratios of usage
+                      WeightedShare represents the maximum of the ratios of usage
                       above nominal quota to the lendable resources in the
                       Cohort, among all the resources provided by the Node, and
                       divided by the weight.  If zero, it means that the usage of
