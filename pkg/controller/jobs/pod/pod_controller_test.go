@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -130,8 +131,9 @@ func TestRun(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		pod         *Pod
-		wantPodSets func(pod *Pod) []kueue.PodSet
+		pod                           *Pod
+		wantPodSets                   func(pod *Pod) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
@@ -144,6 +146,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -161,6 +164,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -178,10 +182,44 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required topology annotation if TAS is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     kueue.DefaultPodSetName,
+						Count:    1,
+						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+				}
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     kueue.DefaultPodSetName,
+						Count:    1,
+						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			if diff := cmp.Diff(tc.wantPodSets(tc.pod), tc.pod.PodSets()); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}

@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -104,10 +105,16 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 
 	// head
 	podSets[0] = kueue.PodSet{
-		Name:            headGroupPodSetName,
-		Template:        *j.Spec.HeadGroupSpec.Template.DeepCopy(),
-		Count:           1,
-		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.HeadGroupSpec.Template.ObjectMeta, nil, nil, nil),
+		Name:     headGroupPodSetName,
+		Template: *j.Spec.HeadGroupSpec.Template.DeepCopy(),
+		Count:    1,
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSets[0].TopologyRequest = jobframework.PodSetTopologyRequest(
+			&j.Spec.HeadGroupSpec.Template.ObjectMeta,
+			nil, nil, nil,
+		)
 	}
 
 	// workers
@@ -121,10 +128,15 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
-			Template:        *wgs.Template.DeepCopy(),
-			Count:           count,
-			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
+			Name:     strings.ToLower(wgs.GroupName),
+			Template: *wgs.Template.DeepCopy(),
+			Count:    count,
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[index+1].TopologyRequest = jobframework.PodSetTopologyRequest(
+				&wgs.Template.ObjectMeta,
+				nil, nil, nil,
+			)
 		}
 	}
 	return podSets

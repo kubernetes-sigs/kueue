@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -357,16 +358,23 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 
 // PodSets will build workload podSets corresponding to the job.
 func (p *Pod) PodSets() []kueue.PodSet {
-	return []kueue.PodSet{
-		{
-			Name:  kueue.DefaultPodSetName,
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: *p.pod.Spec.DeepCopy(),
-			},
-			TopologyRequest: jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil),
+	podSet := kueue.PodSet{
+		Name:  kueue.DefaultPodSetName,
+		Count: 1,
+		Template: corev1.PodTemplateSpec{
+			Spec: *p.pod.Spec.DeepCopy(),
 		},
 	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
+			&p.pod.ObjectMeta,
+			ptr.To(kueuealpha.PodGroupPodIndexLabel),
+			nil, nil,
+		)
+	}
+
+	return []kueue.PodSet{podSet}
 }
 
 // IsActive returns true if there are any running pods.

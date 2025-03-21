@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -247,15 +248,21 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 }
 
 func (j *Job) PodSets() []kueue.PodSet {
+	podSet := kueue.PodSet{
+		Name:     kueue.DefaultPodSetName,
+		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Count:    j.podsCount(),
+		MinCount: j.minPodsCount(),
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
+			&j.Spec.Template.ObjectMeta,
+			ptr.To(batchv1.JobCompletionIndexAnnotation),
+			nil, nil,
+		)
+	}
 	return []kueue.PodSet{
-		{
-			Name:     kueue.DefaultPodSetName,
-			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
-			Count:    j.podsCount(),
-			MinCount: j.minPodsCount(),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta,
-				ptr.To(batchv1.JobCompletionIndexAnnotation), nil, nil),
-		},
+		podSet,
 	}
 }
 

@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -109,12 +110,18 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
-	podSets = append(podSets, kueue.PodSet{
-		Name:            headGroupPodSetName,
-		Template:        *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-		Count:           1,
-		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, nil, nil, nil),
-	})
+	headPodSet := kueue.PodSet{
+		Name:     headGroupPodSetName,
+		Template: *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+		Count:    1,
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		headPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(
+			&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta,
+			nil, nil, nil,
+		)
+	}
+	podSets = append(podSets, headPodSet)
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
@@ -126,12 +133,15 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		if wgs.NumOfHosts > 1 {
 			count *= wgs.NumOfHosts
 		}
-		podSets = append(podSets, kueue.PodSet{
-			Name:            strings.ToLower(wgs.GroupName),
-			Template:        *wgs.Template.DeepCopy(),
-			Count:           count,
-			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil),
-		})
+		workerPodSet := kueue.PodSet{
+			Name:     strings.ToLower(wgs.GroupName),
+			Template: *wgs.Template.DeepCopy(),
+			Count:    count,
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			workerPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta, nil, nil, nil)
+		}
+		podSets = append(podSets, workerPodSet)
 	}
 
 	// submitter Job
@@ -144,7 +154,9 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 
 		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
 		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
-		submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
+		if features.Enabled(features.TopologyAwareScheduling) {
+			submitterJobPodSet.TopologyRequest = jobframework.PodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta, nil, nil, nil)
+		}
 		podSets = append(podSets, submitterJobPodSet)
 	}
 

@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -119,10 +120,16 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:            strings.ToLower(string(mpiReplicaType)),
-			Template:        *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
-			Count:           podsCount(&j.Spec, mpiReplicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta, ptr.To(kfmpi.ReplicaIndexLabel), nil, nil),
+			Name:     strings.ToLower(string(mpiReplicaType)),
+			Template: *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:    podsCount(&j.Spec, mpiReplicaType),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[index].TopologyRequest = jobframework.PodSetTopologyRequest(
+				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta,
+				ptr.To(kfmpi.ReplicaIndexLabel),
+				nil, nil,
+			)
 		}
 	}
 	return podSets
