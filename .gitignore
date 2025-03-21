@@ -31,3 +31,4 @@ testbin/*
 dep-crds
 
 kueue.yaml
+node_modules
