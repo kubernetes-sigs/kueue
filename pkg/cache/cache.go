@@ -511,12 +511,11 @@ func (c *Cache) GetCacheLocalQueue(cqName string, lq *kueue.LocalQueue) (error, 
 	return errQNotFound, nil
 }
 
-func (c *Cache) UpdatedLQUsage(cqName string, lq *LocalQueue) error {
+func (c *Cache) UpdateLQUsage(cqName string, lq *LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
 	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqName))
 	cq.localQueues[lq.key] = lq
-	return nil
 }
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
