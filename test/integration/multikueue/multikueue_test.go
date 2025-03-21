@@ -510,6 +510,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+					Reason:  "MultiKueue",
+					Type:    corev1.EventTypeNormal,
+					Message: `The workload got reservation on "worker1"`,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -597,6 +604,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+					Reason:  "MultiKueue",
+					Type:    corev1.EventTypeNormal,
+					Message: `The workload got reservation on "worker1"`,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1290,6 +1304,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+					Reason:  "MultiKueue",
+					Type:    corev1.EventTypeNormal,
+					Message: `The workload got reservation on "worker1"`,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2075,6 +2096,13 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+					Reason:  "MultiKueue",
+					Type:    corev1.EventTypeNormal,
+					Message: `The workload got reservation on "worker1"`,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -2207,6 +2235,13 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			g.Expect(acs).NotTo(gomega.BeNil())
 			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker2"`))
+			ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+				Reason:  "MultiKueue",
+				Type:    corev1.EventTypeNormal,
+				Message: `The workload got reservation on "worker2"`,
+			})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ok).To(gomega.BeTrue())
 
 			g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
 				Type:    kueue.WorkloadAdmitted,

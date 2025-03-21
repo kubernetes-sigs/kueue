@@ -86,6 +86,7 @@ func TestWlReconcile(t *testing.T) {
 		worker2Jobs          []batchv1.Job
 
 		wantError             error
+		wantEvents            []utiltesting.EventRecord
 		wantManagersWorkloads []kueue.Workload
 		wantManagersJobs      []batchv1.Job
 		wantWorker1Workloads  []kueue.Workload
@@ -477,6 +478,15 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
+			},
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
 			reconcileFor:        "wl1",
@@ -531,6 +541,15 @@ func TestWlReconcile(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
+			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
 			},
 		},
 		"remote job is changing status the local Job is updated ": {
@@ -593,6 +612,15 @@ func TestWlReconcile(t *testing.T) {
 					Active(1).
 					Obj(),
 			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
+			},
 		},
 		"remote job is changing status, the local job is not updated (withoutJobManagedBy)": {
 			reconcileFor:        "wl1",
@@ -652,6 +680,15 @@ func TestWlReconcile(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Active(1).
 					Obj(),
+			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
 			},
 		},
 		"remote wl is finished, the local workload and Job are marked completed ": {
@@ -997,6 +1034,15 @@ func TestWlReconcile(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.Clone().Obj()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
+			},
 		},
 	}
 
@@ -1068,7 +1114,8 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout, time.Second, adapters, WithClock(t, fakeClock))
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, WithClock(t, fakeClock))
 
 			for _, val := range tc.managersDeletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{
@@ -1079,6 +1126,10 @@ func TestWlReconcile(t *testing.T) {
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 
 			gotManagersWorkloads := &kueue.WorkloadList{}
