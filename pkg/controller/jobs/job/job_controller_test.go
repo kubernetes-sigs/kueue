@@ -390,6 +390,7 @@ func TestPodSets(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			gotPodSets, err := tc.job.PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
