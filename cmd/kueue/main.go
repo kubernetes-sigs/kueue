@@ -282,8 +282,12 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
+	frameworkTransformed := []string{}
+	for _, val := range cfg.Integrations.Frameworks {
+		frameworkTransformed = append(frameworkTransformed, string(val))
+	}
 	opts := []jobframework.Option{
-		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
+		jobframework.WithEnabledFrameworks(frameworkTransformed),
 	}
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
@@ -298,6 +302,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		os.Exit(1)
 	}
 
+	frameworkTransformed := []string{}
+	for _, val := range cfg.Integrations.Frameworks {
+		frameworkTransformed = append(frameworkTransformed, string(val))
+	}
 	// setup provision admission check controller
 	if features.Enabled(features.ProvisioningACC) {
 		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
@@ -317,7 +325,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
+		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(frameworkTransformed...))
 		if err != nil {
 			setupLog.Error(err, "Could not get the enabled multikueue adapters")
 			os.Exit(1)
@@ -349,7 +357,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
-		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
+		jobframework.WithEnabledFrameworks(frameworkTransformed),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),

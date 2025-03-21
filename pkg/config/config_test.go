@@ -41,7 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
@@ -373,7 +372,7 @@ webhook:
 	}
 
 	defaultIntegrations := &configapi.Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []configapi.IntegrationReference{configapi.BatchJob},
 	}
 
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
@@ -459,7 +458,7 @@ webhook:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
+					Frameworks: []configapi.IntegrationReference{configapi.BatchJob},
 				},
 				QueueVisibility: defaultQueueVisibility,
 				MultiKueue:      defaultMultiKueue,
@@ -727,7 +726,7 @@ webhook:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks:         []string{job.FrameworkName},
+					Frameworks:         []configapi.IntegrationReference{configapi.BatchJob},
 					ExternalFrameworks: []string{"Foo.v1.example.com"},
 				},
 				QueueVisibility:              defaultQueueVisibility,
@@ -808,8 +807,8 @@ webhook:
 				ClientConnection:           defaultClientConnection,
 				QueueVisibility:            defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{
-						"pod",
+					Frameworks: []configapi.IntegrationReference{
+						configapi.Pod,
 					},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
