@@ -17,7 +17,6 @@ limitations under the License.
 package queue
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -443,7 +442,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 			if test.queueInadmissibleWorkloads {
 				if diff := cmp.Diff(test.wantInadmissibleWorkloadsRequeued,
-					cq.QueueInadmissibleWorkloads(context.Background(), cl)); diff != "" {
+					cq.QueueInadmissibleWorkloads(t.Context(), cl)); diff != "" {
 					t.Errorf("Unexpected requeuing of inadmissible workloads (-want,+got):\n%s", diff)
 				}
 			}
@@ -464,7 +463,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(wl, utiltesting.MakeNamespace(defaultNamespace))
-	ctx := context.Background()
+	ctx := t.Context()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 
 	wantActiveWorkloads := []string{workload.Key(wl)}

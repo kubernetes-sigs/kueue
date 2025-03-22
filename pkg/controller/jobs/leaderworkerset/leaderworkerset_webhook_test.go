@@ -17,7 +17,6 @@ limitations under the License.
 package leaderworkerset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -660,7 +659,7 @@ func TestValidateUpdate(t *testing.T) {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			wh := &Webhook{}
 

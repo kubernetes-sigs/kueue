@@ -38,7 +38,7 @@ const (
 	TestNamespace = "ns"
 )
 
-func getClientBuilder() (*fake.ClientBuilder, context.Context) {
+func getClientBuilder(ctx context.Context) (*fake.ClientBuilder, context.Context) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
@@ -51,7 +51,6 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 		return nil
 	}))
 
-	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
 	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace)
 	return builder, ctx
@@ -91,7 +90,7 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 			k8sclient := builder.Build()
 			for _, req := range tc.clusters {
 				if err := k8sclient.Create(ctx, req); err != nil {
@@ -148,7 +147,7 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 			k8sclient := builder.Build()
 			for _, config := range tc.configs {
 				if err := k8sclient.Create(ctx, config); err != nil {

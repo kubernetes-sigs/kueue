@@ -52,7 +52,7 @@ func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, e
 	if string(kubeconfig) == "invalid" {
 		return nil, errInvalidConfig
 	}
-	b, _ := getClientBuilder()
+	b, _ := getClientBuilder(context.Background())
 	b = b.WithInterceptorFuncs(interceptor.Funcs{
 		Watch: func(ctx context.Context, client client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
 			if string(kubeconfig) == "nowatch" {
@@ -65,7 +65,7 @@ func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, e
 }
 
 func newTestClient(config string, watchCancel func()) *remoteClient {
-	b, _ := getClientBuilder()
+	b, _ := getClientBuilder(context.Background())
 	localClient := b.Build()
 	ret := &remoteClient{
 		kubeconfig:  []byte(config),
@@ -371,7 +371,7 @@ func TestUpdateConfig(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
@@ -530,11 +530,11 @@ func TestRemoteClientGC(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manageBuilder, ctx := getClientBuilder()
+			manageBuilder, ctx := getClientBuilder(t.Context())
 			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
 			managerClient := manageBuilder.Build()
 
-			worker1Builder, _ := getClientBuilder()
+			worker1Builder, _ := getClientBuilder(t.Context())
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := worker1Builder.Build()
 

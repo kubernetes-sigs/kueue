@@ -143,7 +143,7 @@ func TestFSWatch(t *testing.T) {
 					t.Fatalf("unexpected prepare error: %s", err)
 				}
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			watcher := newKubeConfigFSWatcher()
 
 			// start the recorder
@@ -193,7 +193,7 @@ func TestFSWatch(t *testing.T) {
 }
 
 func TestFSWatchAddRm(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	basePath := t.TempDir()
 	f1Path := filepath.Join(basePath, "file.one")
