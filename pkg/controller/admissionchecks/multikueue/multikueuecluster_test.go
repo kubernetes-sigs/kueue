@@ -52,7 +52,7 @@ func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, e
 	if string(kubeconfig) == "invalid" {
 		return nil, errInvalidConfig
 	}
-	b, _ := getClientBuilder(nil)
+	b, _ := getClientBuilder(context.Background())
 	b = b.WithInterceptorFuncs(interceptor.Funcs{
 		Watch: func(ctx context.Context, client client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
 			if string(kubeconfig) == "nowatch" {
@@ -65,7 +65,7 @@ func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, e
 }
 
 func newTestClient(config string, watchCancel func()) *remoteClient {
-	b, _ := getClientBuilder(nil)
+	b, _ := getClientBuilder(context.Background())
 	localClient := b.Build()
 	ret := &remoteClient{
 		kubeconfig:  []byte(config),
