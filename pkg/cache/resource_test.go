@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -362,7 +361,7 @@ func TestAvailable(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("red").Obj())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("blue").Obj())

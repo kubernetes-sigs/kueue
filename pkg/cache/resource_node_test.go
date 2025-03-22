@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -46,10 +45,10 @@ func TestCohortLendable(t *testing.T) {
 		).Cohort("test-cohort").
 		ClusterQueue
 
-	if err := cache.AddClusterQueue(context.Background(), &cq1); err != nil {
+	if err := cache.AddClusterQueue(t.Context(), &cq1); err != nil {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
-	if err := cache.AddClusterQueue(context.Background(), &cq2); err != nil {
+	if err := cache.AddClusterQueue(t.Context(), &cq2); err != nil {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
 

@@ -17,7 +17,6 @@ limitations under the License.
 package jobset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -105,7 +104,7 @@ func TestValidateCreate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			jsw := &JobSetWebhook{}
-			_, gotErr := jsw.ValidateCreate(context.Background(), tc.job)
+			_, gotErr := jsw.ValidateCreate(t.Context(), tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)

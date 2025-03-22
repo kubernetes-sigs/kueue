@@ -280,7 +280,7 @@ func TestReconcile(t *testing.T) {
 			if tc.acValidationRulesEnabled {
 				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
 			}
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},

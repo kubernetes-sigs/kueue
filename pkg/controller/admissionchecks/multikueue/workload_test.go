@@ -1003,7 +1003,7 @@ func TestWlReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)
-			managerBuilder, ctx := getClientBuilder()
+			managerBuilder, ctx := getClientBuilder(t.Context())
 			managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			workerClusters := []string{"worker1"}
@@ -1024,7 +1024,7 @@ func TestWlReconcile(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
-			worker1Builder, _ := getClientBuilder()
+			worker1Builder, _ := getClientBuilder(t.Context())
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
@@ -1035,7 +1035,7 @@ func TestWlReconcile(t *testing.T) {
 
 			var worker2Client client.WithWatch
 			if tc.useSecondWorker {
-				worker2Builder, _ := getClientBuilder()
+				worker2Builder, _ := getClientBuilder(t.Context())
 				worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
 				worker2Builder = worker2Builder.WithInterceptorFuncs(interceptor.Funcs{
 					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
