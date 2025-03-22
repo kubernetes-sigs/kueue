@@ -32,7 +32,7 @@ cleanup() {
 }
 
 # Start kueueviz frontend
-cd cmd/experimental/kueueviz/frontend
+cd cmd/kueueviz/frontend
 npm install
 npm start & FRONTEND_PID=$!
 

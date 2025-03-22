@@ -40,16 +40,16 @@ cluster_kueue_deploy "${KIND_CLUSTER_NAME}"
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 
 # Deploy kueueviz resources
-kubectl create -f "${ROOT_DIR}/cmd/experimental/kueueviz/examples/"
+kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
 # Start kueueviz backend
-cd "${ROOT_DIR}/cmd/experimental/kueueviz/backend"
+cd "${ROOT_DIR}/cmd/kueueviz/backend"
 go build -o bin/kueueviz
 ./bin/kueueviz & BACKEND_PID=$!
 cd -
 
 # Start kueueviz frontend
-cd cmd/experimental/kueueviz/frontend
+cd cmd/kueueviz/frontend
 npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
