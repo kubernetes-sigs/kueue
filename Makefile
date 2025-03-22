@@ -347,24 +347,28 @@ kueueviz-image-build:
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueueviz/backend/Dockerfile ./cmd/experimental/kueueviz/backend; \
+		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend; \
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(GIT_TAG) \
 		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueueviz/frontend/Dockerfile ./cmd/experimental/kueueviz/frontend; \
+		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend; \
 
 .PHONY: kueueviz-image-push
 kueueviz-image-push: PUSH=--push
 kueueviz-image-push: kueueviz-image-build
+
+
+# TODO: remove after the renaming and updating prow job
+.PHONY: kueue-viz-image
+kueue-viz-image: kueueviz-image
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
 .PHONY: kueueviz-image
 kueueviz-image: VIZ_PLATFORMS=linux/amd64
 kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
-
 
 .PHONY: kueuectl
 kueuectl:
