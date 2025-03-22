@@ -439,7 +439,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manager := queue.NewManager(utiltesting.NewFakeClient(), nil)
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			go manager.CleanUpOnContext(ctx)
 			pendingWorkloadsInLqRest := NewPendingWorkloadsInLqREST(manager)

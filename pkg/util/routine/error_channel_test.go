@@ -35,7 +35,7 @@ func TestErrorChannel(t *testing.T) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	errCh.SendErrorWithCancel(err, cancel)
 	if actualErr := errCh.ReceiveError(); !errors.Is(actualErr, err) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)

@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -988,7 +987,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			Obj(),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
 	cqCache := New(cl)
@@ -1282,7 +1281,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			Obj(),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
 	cqCache := New(cl)

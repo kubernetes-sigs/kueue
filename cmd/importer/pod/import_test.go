@@ -17,7 +17,6 @@ limitations under the License.
 package pod
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -178,7 +177,7 @@ func TestImportNamespace(t *testing.T) {
 				WithLists(&podsList, &cqList, &lqList)
 
 			client := builder.Build()
-			ctx := context.Background()
+			ctx := t.Context()
 
 			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)

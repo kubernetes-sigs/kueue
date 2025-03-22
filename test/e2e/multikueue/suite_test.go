@@ -267,7 +267,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	worker1RestClient = util.CreateRestClient(worker1Cfg)
 	worker2RestClient = util.CreateRestClient(worker2Cfg)
 
-	ctx = context.Background()
+	ctx = ginkgo.GinkgoTB().Context()
 
 	worker1Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, "kueue-system", "mksa", worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

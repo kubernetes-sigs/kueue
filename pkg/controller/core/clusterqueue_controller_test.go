@@ -568,7 +568,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 				QueueingStrategy(kueue.StrictFIFO).Obj()
 			lq := utiltesting.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
-			ctx := context.Background()
+			ctx := t.Context()
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()

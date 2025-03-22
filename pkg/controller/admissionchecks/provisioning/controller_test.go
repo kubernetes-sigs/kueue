@@ -1256,7 +1256,7 @@ func TestReconcile(t *testing.T) {
 				interceptorFuncs.Create = tc.interceptorFuncsCreate
 			}
 
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 			builder = builder.WithInterceptorFuncs(interceptorFuncs)
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
@@ -1441,7 +1441,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				baseCheck.Name: baseConfig.DeepCopy(),
 			}
 
-			builder, ctx := getClientBuilder()
+			builder, ctx := getClientBuilder(t.Context())
 
 			builder = builder.WithObjects(workload)
 			builder = builder.WithStatusSubresource(workload)

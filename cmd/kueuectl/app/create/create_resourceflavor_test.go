@@ -17,7 +17,6 @@ limitations under the License.
 package create
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -358,7 +357,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 
-			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(context.Background(), tc.rfName, metav1.GetOptions{})
+			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(t.Context(), tc.rfName, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				t.Error(err)
 				return

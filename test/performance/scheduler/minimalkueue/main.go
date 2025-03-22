@@ -25,6 +25,7 @@ import (
 	"runtime/pprof"
 	"syscall"
 
+	"github.com/onsi/ginkgo/v2"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -137,7 +138,7 @@ func mainWithExitCode() int {
 		return 1
 	}
 
-	ctx, cancel := context.WithCancel(ctrl.LoggerInto(context.Background(), log))
+	ctx, cancel := context.WithCancel(ctrl.LoggerInto(ginkgo.GinkgoTB().Context(), log))
 	defer cancel()
 	go func() {
 		done := make(chan os.Signal, 2)
