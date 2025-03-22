@@ -17,7 +17,7 @@ Clone the kueue repository and build the projects:
 
 ```
 git clone https://github.com/kubernetes-sigs/kueue
-cd kueue/cmd/experimental/kueue-viz
+cd kueue/cmd/kueueviz
 KUEUE_VIZ_HOME=$PWD
 kubectl create ns kueue-viz
 cd backend && make && cd ..

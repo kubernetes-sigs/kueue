@@ -23,7 +23,7 @@ const Navbar = () => {
   return (
     <AppBar position="static">
       <Toolbar>
-        <Link to="/" className="navbar-link"><img src="/kueue-viz.png" className="navbar-logo"/></Link>
+        <Link to="/" className="navbar-link"><img src="/kueueviz.png" className="navbar-logo"/></Link>
         <Button color="inherit" component={Link} to="/">Dashboard</Button>
         <Button color="inherit" component={Link} to="/workloads">Workloads</Button>
         <Button color="inherit" component={Link} to="/local-queues">Local Queues</Button>

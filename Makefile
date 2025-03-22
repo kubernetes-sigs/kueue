@@ -336,34 +336,34 @@ importer-image: PUSH=--load
 importer-image: importer-image-build
 
 
-# Build the kueue-viz dashboard images (frontend and backend)
-.PHONY: kueue-viz-image-build
-kueue-viz-image-build:
+# Build the kueueviz dashboard images (frontend and backend)
+.PHONY: kueueviz-image-build
+kueueviz-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-backend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-backend:$(RELEASE_BRANCH) \
+		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueue-viz/backend/Dockerfile ./cmd/experimental/kueue-viz/backend; \
+		-f ./cmd/experimental/kueueviz/backend/Dockerfile ./cmd/experimental/kueueviz/backend; \
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-frontend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-frontend:$(RELEASE_BRANCH) \
+		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueue-viz/frontend/Dockerfile ./cmd/experimental/kueue-viz/frontend; \
+		-f ./cmd/experimental/kueueviz/frontend/Dockerfile ./cmd/experimental/kueueviz/frontend; \
 
-.PHONY: kueue-viz-image-push
-kueue-viz-image-push: PUSH=--push
-kueue-viz-image-push: kueue-viz-image-build
+.PHONY: kueueviz-image-push
+kueueviz-image-push: PUSH=--push
+kueueviz-image-push: kueueviz-image-build
 
-# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz image
-.PHONY: kueue-viz-image
-kueue-viz-image: VIZ_PLATFORMS=linux/amd64
-kueue-viz-image: PUSH=--load
-kueue-viz-image: kueue-viz-image-build
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
+.PHONY: kueueviz-image
+kueueviz-image: VIZ_PLATFORMS=linux/amd64
+kueueviz-image: PUSH=--load
+kueueviz-image: kueueviz-image-build
 
 
 .PHONY: kueuectl

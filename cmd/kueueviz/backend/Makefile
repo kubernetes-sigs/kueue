@@ -1,7 +1,7 @@
-# Makefile for kueue-viz-go
+# Makefile for kueueviz
 
-APP_NAME := kueue-viz
-MODULE_NAME := kueue-viz
+APP_NAME := kueueviz
+MODULE_NAME := kueueviz
 
 .PHONY: all build run test tidy clean help
 

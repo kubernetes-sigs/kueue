@@ -151,13 +151,13 @@ webhookService:
       targetPort: 9443
   type: ClusterIP
 
-# kueue-viz dashboard
+# kueueviz dashboard
 enableKueueViz: false
 kueueViz:
   backend:
-    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main"
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main"
   frontend:
-    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main"
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
 
 metrics:
   prometheusNamespace: monitoring
