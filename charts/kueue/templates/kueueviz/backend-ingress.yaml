@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: '{{ include "kueue.fullname" . }}-kueue-viz-frontend-ingress'
+  name: '{{ include "kueue.fullname" . }}-kueueviz-backend-ingress'
   namespace: '{{ .Release.Namespace }}'
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
@@ -10,17 +10,17 @@ metadata:
 spec:
   tls:
     - hosts:
-        - frontend.kueue-viz.local
-      secretName: '{{ include "kueue.fullname" . }}-kueue-viz-tls-secret'
+        - backend.kueueviz.local
+      secretName: '{{ include "kueue.fullname" . }}-kueueviz-tls-secret'
   rules:
-    - host: frontend.kueue-viz.local
+    - host: backend.kueueviz.local
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: '{{ include "kueue.fullname" . }}-kueue-viz-frontend'
+                name: '{{ include "kueue.fullname" . }}-kueueviz-backend'
                 port:
                   number: 8080
 {{- end }}

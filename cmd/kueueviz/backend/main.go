@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"log"
 
-	"kueue-viz/handlers"
+	"kueueviz/handlers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -49,8 +49,8 @@ func main() {
 
 	handlers.InitializeWebSocketRoutes(r, dynamicClient, k8sClient)
 
-	viper.SetDefault("KUEUE_VIZ_PORT", "8080")
-	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUE_VIZ_PORT"))); err != nil {
+	viper.SetDefault("KUEUEVIZ_PORT", "8080")
+	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUEVIZ_PORT"))); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 

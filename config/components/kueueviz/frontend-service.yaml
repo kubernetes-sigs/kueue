@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: kueue-viz-frontend
+  name: kueueviz-frontend
   namespace: system
 spec:
   type: ClusterIP
@@ -10,4 +10,4 @@ spec:
     - port: 8080
       targetPort: 8080
   selector:
-    app: kueue-viz-frontend
+    app: kueueviz-frontend

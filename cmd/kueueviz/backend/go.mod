@@ -1,4 +1,4 @@
-module kueue-viz
+module kueueviz
 
 go 1.24.0
 

@@ -26,7 +26,7 @@ CYPRESS_IMAGE_NAME="${CYPRESS_IMAGE_NAME:-cypress/base}"
 
 # Function to clean up background processes
 cleanup() {
-  echo "Cleaning up kueue-viz processes"
+  echo "Cleaning up kueueviz processes"
   kill $BACKEND_PID $FRONTEND_PID
   cluster_cleanup "$KIND_CLUSTER_NAME"
 }
@@ -39,20 +39,20 @@ echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
 cluster_kueue_deploy "${KIND_CLUSTER_NAME}"
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 
-# Deploy kueue-viz resources
-kubectl create -f "${ROOT_DIR}/cmd/experimental/kueue-viz/examples/"
+# Deploy kueueviz resources
+kubectl create -f "${ROOT_DIR}/cmd/experimental/kueueviz/examples/"
 
-# Start kueue-viz backend
-cd "${ROOT_DIR}/cmd/experimental/kueue-viz/backend"
-go build -o bin/kueue-viz
-./bin/kueue-viz & BACKEND_PID=$!
+# Start kueueviz backend
+cd "${ROOT_DIR}/cmd/experimental/kueueviz/backend"
+go build -o bin/kueueviz
+./bin/kueueviz & BACKEND_PID=$!
 cd -
 
-# Start kueue-viz frontend
-cd cmd/experimental/kueue-viz/frontend
+# Start kueueviz frontend
+cd cmd/experimental/kueueviz/frontend
 npm start & FRONTEND_PID=$!
 
-# Run Cypress tests for kueue-viz frontend
+# Run Cypress tests for kueueviz frontend
 npm run cypress:run --headless
 
 # The trap will handle cleanup 

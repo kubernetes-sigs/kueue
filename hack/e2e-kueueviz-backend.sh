@@ -30,7 +30,7 @@ fi
 
 # Function to clean up background processes
 cleanup() {
-  echo "Cleaning up kueue-viz processes"
+  echo "Cleaning up kueueviz processes"
   kill "${BACKEND_PID}" 
   cluster_cleanup "${KIND_CLUSTER_NAME}"
 }
@@ -44,13 +44,13 @@ echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
 cluster_kueue_deploy "${KIND_CLUSTER_NAME}"
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 
-# Deploy kueue-viz resources
-kubectl create -f "${ROOT_DIR}/cmd/experimental/kueue-viz/examples/"
+# Deploy KueueViz resources
+kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
-# Start kueue-viz backend
-cd "${ROOT_DIR}/cmd/experimental/kueue-viz/backend"
-go build -o bin/kueue-viz
-./bin/kueue-viz & BACKEND_PID=$!
+# Start KueueViz backend
+cd "${ROOT_DIR}/cmd/kueueviz/backend"
+go build -o bin/kueueviz
+./bin/kueueviz & BACKEND_PID=$!
 cd -
 
 set -x  # Enable debug mode
@@ -77,7 +77,7 @@ if [ -z "$CYPRESS_IMAGE_NAME" ]; then
   CYPRESS_IMAGE_NAME="cypress/base:22.14.0"
 fi
 
-# Start kueue-viz frontend and cypress in a container
+# Start KueueViz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
 docker run -i --entrypoint /workspace/hack/e2e-kueueviz-frontend.sh \
            -w /workspace --network host \

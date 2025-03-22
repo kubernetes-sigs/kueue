@@ -1,5 +1,5 @@
 {
-  "name": "kueue-viz-frontend",
+  "name": "kueueviz-frontend",
   "version": "1.0.0",
   "private": true,
   "description": "Frontend dashboard for visualizing Kueue status",

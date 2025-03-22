@@ -264,13 +264,17 @@ setup-e2e-env: kustomize yq gomod-download dep-crds kueuectl kind ## Setup envir
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
-test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
+test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
 
+# To be removed after the renaming and updatign prow job 
+.PHONY: test-e2e-kueue-viz
+test-e2e-kueue-viz: test-e2e-kueueviz
+
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueue-viz without running kueue tests.
-	@echo Starting kueue-viz end to end test in containers
+test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+	@echo Starting kueueviz end to end test in containers
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" \
 	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh

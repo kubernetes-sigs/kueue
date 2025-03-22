@@ -27,16 +27,16 @@ apt-get update && apt-get install -y curl make xdg-utils
 
 # Function to clean up background processes
 cleanup() {
-  echo "Cleaning up kueue-viz processes"
+  echo "Cleaning up kueueviz processes"
   kill "${FRONTEND_PID}"
 }
 
-# Start kueue-viz frontend
-cd cmd/experimental/kueue-viz/frontend
+# Start kueueviz frontend
+cd cmd/experimental/kueueviz/frontend
 npm install
 npm start & FRONTEND_PID=$!
 
-# Run Cypress tests for kueue-viz frontend
+# Run Cypress tests for kueueviz frontend
 npx cypress install
 npm run cypress:run --headless
 

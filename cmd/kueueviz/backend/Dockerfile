@@ -11,14 +11,14 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 go build -o /kueue-viz
+RUN CGO_ENABLED=0 go build -o /kueueviz
 
 # Runtime stage
 FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
 USER 65532:65532
 
 # Copy the built application from the builder stage
-COPY --from=builder /kueue-viz /
+COPY --from=builder /kueueviz /
 
 # Set environment variables
 ENV PORT=8080
@@ -26,6 +26,6 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Command to run the application
-ENTRYPOINT ["/kueue-viz"]
+ENTRYPOINT ["/kueueviz"]
 
 
