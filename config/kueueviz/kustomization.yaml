@@ -10,4 +10,4 @@ labels:
       app.kubernetes.io/component: dashboard
 
 resources:
-  - ../components/kueue-viz/
+  - ../components/kueueviz/
