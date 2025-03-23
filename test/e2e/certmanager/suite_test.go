@@ -53,7 +53,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
 	k8sClient, _ = util.CreateClientUsingCluster("")
-	ctx = ginkgo.GinkgoTB().Context()
+	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)

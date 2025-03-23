@@ -45,8 +45,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
 
-	"github.com/onsi/ginkgo/v2"
-
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -105,7 +103,7 @@ func main() {
 	log.Info("Start runner", "outputDir", outputDir, "crdsPath", crdsPath)
 	errCh := make(chan error, 3)
 	wg := &sync.WaitGroup{}
-	ctx, ctxCancel := context.WithCancel(ctrl.LoggerInto(ginkgo.GinkgoTB().Context(), log))
+	ctx, ctxCancel := context.WithCancel(ctrl.LoggerInto(context.Background(), log))
 	var cfg *rest.Config
 
 	if *minimalKueuePath != "" {
@@ -241,7 +239,7 @@ func main() {
 		if err != nil {
 			log.Error(err, "Create cleanup client")
 		} else {
-			generator.Cleanup(ginkgo.GinkgoTB().Context(), c)
+			generator.Cleanup(context.Background(), c)
 		}
 	}
 }
