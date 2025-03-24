@@ -53,21 +53,14 @@ make test-integration
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
-### Increase logging verbosity
-You can change log level in the framework (for example, change -3 to -5 to increase verbosity):
-https://github.com/kubernetes-sigs/kueue/blob/f8015cb273f9115c34f9be32b35f7e1308c16459/test/integration/framework/framework.go#L72:
-```go
-var setupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
-})
-```
-
 ## Running e2e tests using custom build
 ```shell
 make kind-image-build
 make test-e2e
 make test-tas-e2e
 make test-e2e-customconfigs
+make test-e2e-certmanager
+make test-e2e-kueueviz
 make test-multikueue-e2e
 ```
 
@@ -77,6 +70,10 @@ E2E_KIND_VERSION=kindest/node:v1.32.0 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+
+## Increase logging verbosity
+You can change log level (for example, set -5 to increase verbosity) using `TEST_LOG_LEVEL` variables.
+By default, `TEST_LOG_LEVEL=-3`.
 
 ## Debug tests in VSCode
 It is possible to debug unit and integration tests in VSCode.
