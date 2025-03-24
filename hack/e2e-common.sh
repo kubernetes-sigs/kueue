@@ -131,12 +131,6 @@ function cluster_kind_load {
     cluster_kind_load_image "$1" "$IMAGE_TAG"
 }
 
-# $1 cluster
-# $2 image
-function cluster_kind_load_image {
-    $KIND load docker-image "$2" --name "$1"
-}
-
 # Wait until all cert-manager deployments are available.
 function wait_for_cert_manager_ready() {
     echo "Waiting for cert-manager components to be ready..."

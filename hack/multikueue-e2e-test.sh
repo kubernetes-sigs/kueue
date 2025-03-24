@@ -113,6 +113,12 @@ function kueue_deploy {
     cluster_kueue_deploy "$WORKER2_KIND_CLUSTER_NAME"
 }
 
+# $1 cluster
+# $2 image
+function cluster_kind_load_image {
+    $KIND load docker-image "$2" --name "$1"
+}
+
 trap cleanup EXIT
 startup
 kind_load
