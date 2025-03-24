@@ -1,0 +1,26 @@
+{{- if .Values.enableKueueViz }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: '{{ include "kueue.fullname" . }}-kueueviz-frontend'
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueueviz-frontend
+  template:
+    metadata:
+      labels:
+        app: kueueviz-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: '{{ .Values.kueueViz.frontend.image | default "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main" }}'
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "wss://backend.kueueviz.local"
+{{- end }}
