@@ -360,11 +360,6 @@ kueueviz-image-build:
 kueueviz-image-push: PUSH=--push
 kueueviz-image-push: kueueviz-image-build
 
-
-# TODO: remove after the renaming and updating prow job
-.PHONY: kueue-viz-image
-kueue-viz-image: kueueviz-image
-
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
 .PHONY: kueueviz-image
 kueueviz-image: VIZ_PLATFORMS=linux/amd64

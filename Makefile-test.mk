@@ -268,10 +268,6 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
 
-# TODO: remove after the renaming and updating prow job 
-.PHONY: test-e2e-kueue-viz
-test-e2e-kueue-viz: test-e2e-kueueviz
-
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
