@@ -302,6 +302,9 @@ type ClusterQueueStatus struct {
 	// +optional
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatus `json:"pendingWorkloadsStatus"`
 
+	// fairSharing contains the current state for this ClusterQueue
+	// when participating in Fair Sharing.
+	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }

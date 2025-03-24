@@ -999,7 +999,10 @@ instead.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>fairSharing contains the current state for this ClusterQueue
+when participating in Fair Sharing.
+This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -1067,7 +1070,7 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 
-<p>fairSharing contains the information about the current status of Fair Sharing.</p>
+<p>FairSharingStatus contains the information about the current status of Fair Sharing.</p>
 
 
 <table class="table">
@@ -1079,7 +1082,7 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 <code>int64</code>
 </td>
 <td>
-   <p>WeightedShare represent the maximum of the ratios of usage
+   <p>WeightedShare represents the maximum of the ratios of usage
 above nominal quota to the lendable resources in the
 Cohort, among all the resources provided by the Node, and
 divided by the weight.  If zero, it means that the usage of

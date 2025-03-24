@@ -244,14 +244,17 @@ spec:
                 x-kubernetes-list-type: atomic
             type: object
           status:
+            description: CohortStatus defines the observed state of Cohort.
             properties:
               fairSharing:
-                description: fairSharing contains the information about the current
-                  status of Fair Sharing.
+                description: |-
+                  fairSharing contains the current state for this Cohort
+                  when participating in Fair Sharing.
+                  The is recorded only when Fair Sharing is enabled in the Kueue configuration.
                 properties:
                   weightedShare:
                     description: |-
-                      WeightedShare represent the maximum of the ratios of usage
+                      WeightedShare represents the maximum of the ratios of usage
                       above nominal quota to the lendable resources in the
                       Cohort, among all the resources provided by the Node, and
                       divided by the weight.  If zero, it means that the usage of
