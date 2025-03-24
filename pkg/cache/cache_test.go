@@ -88,7 +88,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				NodeLabel("cpuType", "default").
 				Obj())
 		for _, c := range initialClusterQueues {
-			if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+			if err := cache.AddClusterQueue(t.Context(), &c); err != nil {
 				return fmt.Errorf("failed adding ClusterQueue: %w", err)
 			}
 		}
@@ -178,7 +178,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				}).Obj()
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					return fmt.Errorf("failed to add ClusterQueue: %w", err)
 				}
 				return nil
@@ -202,7 +202,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "add ClusterQueue with fair sharing weight",
 			operation: func(cache *Cache) error {
 				cq := utiltesting.MakeClusterQueue("foo").FairWeight(resource.MustParse("2")).Obj()
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					return fmt.Errorf("failed to add ClusterQueue: %w", err)
 				}
 				return nil
@@ -223,7 +223,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "add flavors after queue capacities",
 			operation: func(cache *Cache) error {
 				for _, c := range initialClusterQueues {
-					if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+					if err := cache.AddClusterQueue(t.Context(), &c); err != nil {
 						return fmt.Errorf("failed adding ClusterQueue: %w", err)
 					}
 				}
@@ -414,7 +414,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector(nil).
 					Obj()
 
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					return fmt.Errorf("failed adding ClusterQueue: %w", err)
 				}
 
@@ -680,7 +680,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "Add ClusterQueue with multiple resource groups",
 			operation: func(cache *Cache) error {
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("foo").
 						ResourceGroup(
 							*utiltesting.MakeFlavorQuotas("foo").
@@ -717,7 +717,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "add cluster queue with missing check",
 			operation: func(cache *Cache) error {
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
@@ -746,7 +746,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "add check after queue creation",
 			operation: func(cache *Cache) error {
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
@@ -780,7 +780,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
@@ -813,7 +813,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
@@ -858,7 +858,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			operation: func(cache *Cache) error {
 				cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
-				err := cache.AddClusterQueue(context.Background(),
+				err := cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("cq1").
 						ResourceGroup(kueue.FlavorQuotas{
 							Name: "f1",
@@ -973,7 +973,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						},
 					).
 					Obj()
-				return cache.AddClusterQueue(context.Background(), cq)
+				return cache.AddClusterQueue(t.Context(), cq)
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
@@ -1037,7 +1037,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						},
 					).
 					Obj()
-				return cache.AddClusterQueue(context.Background(), cq)
+				return cache.AddClusterQueue(t.Context(), cq)
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"foo": {
@@ -1077,7 +1077,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
 
-				_ = cache.AddClusterQueue(context.Background(),
+				_ = cache.AddClusterQueue(t.Context(),
 					utiltesting.MakeClusterQueue("cq").Cohort("cohort").Obj())
 				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
 				return nil
@@ -1673,7 +1673,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			cache := New(cl)
 
 			for _, c := range clusterQueues {
-				if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), &c); err != nil {
 					t.Fatalf("Failed adding clusterQueue: %v", err)
 				}
 			}
@@ -2030,7 +2030,7 @@ func TestClusterQueueUsage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			ctx := context.Background()
+			ctx := t.Context()
 			err := cache.AddClusterQueue(ctx, tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
@@ -2261,7 +2261,7 @@ func TestLocalQueueUsage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			ctx := context.Background()
+			ctx := t.Context()
 			if tc.cq != nil {
 				if err := cache.AddClusterQueue(ctx, tc.cq); err != nil {
 					t.Fatalf("Adding ClusterQueue: %v", err)
@@ -2720,7 +2720,7 @@ func TestCacheQueueOperations(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			cache := New(cl)
-			ctx := context.Background()
+			ctx := t.Context()
 			for i, op := range tc.ops {
 				if err := op(ctx, cl, cache); err != nil {
 					t.Fatalf("Running op %d: %v", i, err)
@@ -2795,7 +2795,7 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 			cache.AddOrUpdateResourceFlavor(aarch64Rf)
 
 			for _, cq := range tc.clusterQueues {
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					t.Errorf("failed to add clusterQueue %s", cq.Name)
 				}
 			}
@@ -2831,7 +2831,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 
 	cache := New(utiltesting.NewFakeClient())
 	for _, cq := range clusterQueues {
-		if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+		if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 			t.Errorf("failed to add clusterQueue %s", cq.Name)
 		}
 	}
@@ -2845,7 +2845,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 // TestWaitForPodsReadyCancelled ensures that the WaitForPodsReady call does not block when the context is closed.
 func TestWaitForPodsReadyCancelled(t *testing.T) {
 	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	log := ctrl.LoggerFrom(ctx)
 
@@ -3103,7 +3103,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := New(cl, WithPodsReadyTracking(true))
-			ctx := context.Background()
+			ctx := t.Context()
 			log := ctrl.LoggerFrom(ctx)
 
 			for _, c := range clusterQueues {
@@ -3316,7 +3316,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 			}
 
 			for _, cq := range tc.clusterQueues {
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					t.Errorf("failed to add clusterQueue %s", cq.Name)
 				}
 			}
@@ -3431,7 +3431,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 				cache.AddOrUpdateAdmissionCheck(ac)
 			}
 			for _, cq := range tc.clusterQueues {
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(t.Context(), cq); err != nil {
 					t.Errorf("failed to add clusterQueue %q: %v", cq.Name, err)
 				}
 			}
@@ -3488,7 +3488,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		ctx := context.Background()
+		ctx := t.Context()
 		cohortA := utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 			t.Fatal("Expected success as no cycle yet")
@@ -3526,7 +3526,7 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("clusterqueue leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		ctx := context.Background()
+		ctx := t.Context()
 		cycleCohort := utiltesting.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
 			t.Fatal("Expected failure")
@@ -3570,7 +3570,7 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("clusterqueue joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		ctx := context.Background()
+		ctx := t.Context()
 		cycleCohort := utiltesting.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
 			t.Fatal("Expected failure")

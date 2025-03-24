@@ -82,7 +82,7 @@ func TestLossLessDefaulter(t *testing.T) {
 			},
 		},
 	}
-	resp := handler.Handle(context.Background(), req)
+	resp := handler.Handle(t.Context(), req)
 	if !resp.Allowed {
 		t.Errorf("Response not allowed")
 	}

@@ -17,7 +17,6 @@ limitations under the License.
 package delete
 
 import (
-	"context"
 	"slices"
 	"testing"
 
@@ -353,7 +352,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				t.Errorf("Unexpected error output (-want/+got)\n%s", diff)
 			}
 
-			gotWorkloadList, err := clientset.KueueV1beta1().Workloads(tc.ns).List(context.Background(), metav1.ListOptions{})
+			gotWorkloadList, err := clientset.KueueV1beta1().Workloads(tc.ns).List(t.Context(), metav1.ListOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -366,7 +365,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 
 			unstructured, err := dynamicClient.Resource(mapping.Resource).Namespace(metav1.NamespaceDefault).
-				List(context.Background(), metav1.ListOptions{})
+				List(t.Context(), metav1.ListOptions{})
 			if err != nil {
 				t.Error(err)
 				return
