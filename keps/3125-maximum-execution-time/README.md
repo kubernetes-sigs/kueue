@@ -105,7 +105,7 @@ type WorkloadStatus struct {
 	// AccumulatedPastExecutionTimeSeconds holds the total duration the workload spent in Admitted state
 	// in the previous `Admit` - `Evict` cycles.
     // +optional
-	AccumulatedPastExexcutionTimeSecond *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	AccumulatedPastExexcutionTimeSecond *int32 `json:"accumulatedPastExecutionTimeSeconds,omitempty"`
 }
 
 ```

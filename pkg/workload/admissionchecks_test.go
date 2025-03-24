@@ -276,12 +276,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			}
 
 			if tc.wantAdmittedTime > 0 {
-				if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
-					t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+				if wl.Status.AccumulatedPastExecutionTimeSeconds == nil {
+					t.Fatalf("Expecting AccumulatedPastExecutionTimeSeconds not to be nil")
 				}
 
-				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
-					t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
+					t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (- want/+ got):\n%s", diff)
 				}
 			}
 		})
