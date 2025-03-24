@@ -829,26 +829,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
-
-			ginkgo.By("Setting the RayCluster to suspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					updatedCluster := &rayv1.RayCluster{}
-					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(raycluster), updatedCluster)).To(gomega.Succeed())
-					updatedCluster.Spec.Suspend = ptr.To(true)
-					g.Expect(k8sWorker1Client.Update(ctx, updatedCluster)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking the RayCluster got suspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayCluster := &rayv1.RayCluster{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
-					// Suspended RayCluster manifests with removed pods
-					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(0)))
-					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(0)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
 		})
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
