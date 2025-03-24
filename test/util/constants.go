@@ -70,8 +70,9 @@ var (
 	// Starts a simple HTTP(S) with a few endpoints, one of which is the /exit endpoint which exits with `exit 0`
 	BehaviorWaitForDeletion = []string{"netexec"}
 
-	// Starts a container which will remain paused and therefore must be deleted resulting in `exit 1`
-	BehaviorWaitForDeletionFailOnExit = []string{"pause"}
+	// Starts a container which always ends in failure on deletion.
+	// To achieve this runs simple webserver, but does not register any signal handler.
+	BehaviorWaitForDeletionFailOnExit = []string{"test-webserver"}
 
 	// The agnhost container will print args passed and `exit 0`
 	BehaviorExitFast = []string{"entrypoint-tester"}
