@@ -63,7 +63,7 @@ func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	obj := &rayv1.RayJob{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
+		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }

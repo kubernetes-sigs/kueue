@@ -53,7 +53,7 @@ func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJ
 		}
 		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
-			WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), job.Object(), wh)).
+			WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), job.Object(), wh)).
 			WithValidator(wh).
 			Complete()
 	}
