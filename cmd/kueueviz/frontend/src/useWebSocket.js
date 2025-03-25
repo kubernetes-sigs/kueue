@@ -38,13 +38,28 @@ const useWebSocket = (url) => {
 
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
-      const errorMessage = `
-      Failed to fetch data from WebSocket: ${err.message}.
-      Backend URL: ${fullUrl}
-      REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}
-      VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}
-    `;
-      setError(errorMessage);
+      // Function to get all properties, including inherited ones
+      const getAllProperties = (obj) => {
+        let props = {};
+        for (let prop in obj) {
+          props[prop] = obj[prop];
+        }
+        // Manually add non-enumerable properties
+        if (obj.currentTarget) {
+          props.currentTarget = {
+            url: obj.currentTarget.url, // Extract the url property from the WebSocket object
+          };
+        }
+        return props;
+      };
+
+      const errorDetails = JSON.stringify(getAllProperties(err), null, 2);
+      const errorMessage = `Backend URL: ${fullUrl}\n` +
+        `REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}\n` +
+        `VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}\n\n` + 
+        `Failed to fetch data from WebSocket: ${errorDetails}\n`;
+
+        setError(errorMessage);
       ws.close();
     };
 
