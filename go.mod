@@ -34,15 +34,12 @@ require (
 	k8s.io/kubectl v0.32.3
 	k8s.io/metrics v0.32.3
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
-	sigs.k8s.io/controller-runtime v0.20.3
+	sigs.k8s.io/controller-runtime v0.20.4
 	sigs.k8s.io/jobset v0.8.0
 	sigs.k8s.io/lws v0.5.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0
 	sigs.k8s.io/yaml v1.4.0
 )
-
-// TODO: Once https://github.com/kubernetes-sigs/kueue/issues/4470 is resolved, we should upgrade this.
-replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.4
 
 require (
 	cel.dev/expr v0.19.1 // indirect
