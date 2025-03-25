@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import 'react-toastify/dist/ReactToastify.css';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const Workloads = () => {
   const { data: data, error } = useWebSocket('/ws/workloads');
@@ -28,7 +29,7 @@ const Workloads = () => {
     setWorkloads(data?.workloads?.items || []);
   }, [data]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   // Group workloads by namespace
   const workloadsByNamespace = workloads.reduce((acc, workload) => {

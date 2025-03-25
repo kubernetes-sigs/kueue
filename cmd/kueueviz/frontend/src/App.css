@@ -78,3 +78,11 @@ tbody.tr.td {
 .pod-reason-column {
   width: 40%;
 }
+
+.error-message {
+  padding: 20px; /* Add padding inside the div */
+  margin: 20px;  /* Add margin around the div to keep it away from the screen edge */
+  border: 1px solid red;
+  border-radius: 5px;
+  background-color: #ffe6e6;
+}

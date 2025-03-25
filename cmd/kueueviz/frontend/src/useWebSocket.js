@@ -38,7 +38,13 @@ const useWebSocket = (url) => {
 
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
-      setError("WebSocket connection error");
+      const errorMessage = `
+      Failed to fetch data from WebSocket: ${err.message}.
+      Backend URL: ${fullUrl}
+      REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}
+      VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}
+    `;
+      setError(errorMessage);
       ws.close();
     };
 
