@@ -156,6 +156,16 @@ toc-update: mdtoc
 toc-verify: mdtoc
 	./hack/verify-toc.sh
 
+.PHONY: helm-lint
+helm-lint: helm ## Run Helm chart lint test.
+	${HELM} lint charts/kueue
+
+.PHONY: helm-verify
+helm-verify: helm helm-lint ## run helm template and detect any rendering failures
+# test default values
+	$(HELM) template charts/kueue > /dev/null
+# test nondefault options (kueueviz, prometheus, certmanager)
+	$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
@@ -174,7 +184,7 @@ shell-lint: ## Run shell linting.
 
 PATHS_TO_VERIFY := config/components apis charts/kueue/templates client-go site/
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm prepare-release-branch
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify prepare-release-branch
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
