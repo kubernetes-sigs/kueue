@@ -17,8 +17,11 @@ limitations under the License.
 import { Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip } from '@mui/material';
 import React from 'react';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
-const WorkloadsList = ({ workloads }) => {
+const WorkloadsList = ({ workloads, error }) => {
+  if (error) return <ErrorMessage error={error} />;
+
   return (
     <TableContainer component={Paper}>
       <Table>

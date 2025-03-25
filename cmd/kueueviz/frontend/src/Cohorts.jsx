@@ -19,6 +19,7 @@ import { Link } from 'react-router-dom';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const Cohorts = () => {
   const { data: cohorts, error } = useWebSocket('/ws/cohorts');
@@ -30,7 +31,7 @@ const Cohorts = () => {
     }
   }, [cohorts]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   return (
     <Paper style={{ padding: '16px', marginTop: '20px' }}>

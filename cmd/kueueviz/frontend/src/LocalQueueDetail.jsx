@@ -21,6 +21,7 @@ import useWebSocket from './useWebSocket';
 import FlavorTable from './FlavorTable';
 import './App.css';
 import { Link } from 'react-router-dom';
+import ErrorMessage from './ErrorMessage';
 
 const LocalQueueDetail = () => {
   const { namespace, queueName } = useParams();
@@ -42,8 +43,8 @@ const LocalQueueDetail = () => {
   }, [workloadsData]);
 
   if (!queue) return <CircularProgress />;
-  if (queueError) return <Typography color="error">{queueError}</Typography>;
-  if (workloadsError) return <Typography color="error">{workloadsError}</Typography>;
+  if (queueError) return <ErrorMessage error={queueError} />;
+  if (workloadsError) return <ErrorMessage error={workloadsError} />;
 
   return (
     <Paper style={{ padding: '16px', marginTop: '20px' }}>

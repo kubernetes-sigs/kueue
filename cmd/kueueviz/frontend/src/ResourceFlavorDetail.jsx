@@ -19,6 +19,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const ResourceFlavorDetail = () => {
   const { flavorName } = useParams();
@@ -34,7 +35,7 @@ const ResourceFlavorDetail = () => {
     }
   }, [flavorData]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   if (!flavor) {
     return (

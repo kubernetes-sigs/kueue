@@ -19,6 +19,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const LocalQueues = () => {
   const { data: localQueues, error } = useWebSocket('/ws/local-queues');
@@ -30,7 +31,7 @@ const LocalQueues = () => {
     }
   }, [localQueues]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   // Group queues by namespace
   const queuesByNamespace = queues.reduce((acc, queue) => {

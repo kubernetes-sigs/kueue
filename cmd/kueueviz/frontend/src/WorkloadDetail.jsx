@@ -19,6 +19,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Typography,  Paper, CircularProgress, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const WorkloadDetail = () => {
   const { namespace, workloadName } = useParams();
@@ -38,7 +39,7 @@ const WorkloadDetail = () => {
   }, [eventData]);
 
   if (!workload) return <CircularProgress />;
-  if (workloadError) return <Typography color="error">{workloadError}</Typography>;
+  if (workloadError) return <ErrorMessage error={workloadError} />;
 
   return (
     <Paper style={{ padding: '16px', marginTop: '20px' , alignContent: 'left', alignItems: 'left' }}>
