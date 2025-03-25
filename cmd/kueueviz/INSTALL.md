@@ -1,3 +1,23 @@
+# Simple installation
+
+KueueViz can be installed using `kubectl` using the following command:
+
+```
+git clone https://github.com/kubernetes-sigs/kueue
+cd kueue
+kubectl -f artifacts/kueueviz.yaml
+```
+If you are using `kind` and that you don't have an `egress` controller, you can use `port-forward` to 
+configure and run `KueueViz`:
+
+```
+kubectl port-forward svc/kueue-kueueviz-backend 8080:8080 &
+kubectl set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
+kubectl port-forward svc/kueue-kueueviz-frontend 3000:8080
+```
+
+`KueueViz` will the be reachable on your browser at: http://localhost:3000
+
 # Installation with helm
 
 KueueViz can be installed using helm using the following command and 
@@ -36,9 +56,9 @@ Clone the kueue repository and build the projects:
 
 ```
 git clone https://github.com/kubernetes-sigs/kueue
-cd kueue/cmd/experimental/kueue-viz
+cd kueue/cmd/kueueviz
 KUEUE_VIZ_HOME=$PWD
-kubectl create ns kueue-viz
+kubectl create ns kueueviz
 cd backend && make && cd ..
 cd frontend && make && cd ..
 ```
@@ -54,7 +74,7 @@ kubectl create clusterrole kueue-backend-read-access --verb=get,list,watch \
          --resource=workloads,clusterqueues,localqueues,resourceflavors,pods,workloadpriorityclass,events,nodes
 ```
 
-and bind it to the service account `default` in the `kueue-viz` namespace:
+and bind it to the service account `default` in the `kueueviz` namespace:
 
 ```
 kubectl create -f - << EOF
@@ -69,7 +89,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: kueue-viz
+  namespace: kueueviz
 EOF
 ```
 ## Run
