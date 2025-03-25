@@ -38,6 +38,11 @@ const useWebSocket = (url) => {
 
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
+      // Log environment variables to the console
+      console.log(`Backend URL: ${fullUrl}`);
+      console.log(`REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}`);
+      console.log(`VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}`);
+
       // Function to get all properties, including inherited ones
       const getAllProperties = (obj) => {
         let props = {};
@@ -52,14 +57,26 @@ const useWebSocket = (url) => {
         }
         return props;
       };
-
-      const errorDetails = JSON.stringify(getAllProperties(err), null, 2);
-      const errorMessage = `Backend URL: ${fullUrl}\n` +
-        `REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}\n` +
-        `VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}\n\n` + 
-        `Failed to fetch data from WebSocket: ${errorDetails}\n`;
-
-        setError(errorMessage);
+      let errorCause = "";    
+      switch (ws.readyState) {
+        case WebSocket.CONNECTING:
+          errorCause = "Failed to establish connection.";
+          break;
+        case WebSocket.CLOSED:
+          errorCause = "Connection was closed unexpectedly.";
+          break;
+        case WebSocket.CLOSING:
+          errorCause = "Connection is in the process of closing.";
+          break;
+        case WebSocket.OPEN:
+          errorCause = "Error occurred on an open connection.";
+          break;
+        default:
+          errorCause = "Unknown connection state.";
+      }
+      const errorDetails = errorCause + "\n" + JSON.stringify(getAllProperties(err), null, 2);
+      const errorMessage = `Failed to fetch data from WebSocket: ${errorDetails}\n`;
+      setError(errorMessage);
       ws.close();
     };
 

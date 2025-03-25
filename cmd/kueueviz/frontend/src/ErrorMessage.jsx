@@ -14,23 +14,62 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import React from 'react';
-import { Typography } from '@mui/material';
+import React, { useState } from 'react';
+import { Typography, Button, Collapse, Box, Paper } from '@mui/material';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import './App.css';
 
 const ErrorMessage = ({ error }) => {
+  const [expanded, setExpanded] = useState(false);
+  
   if (!error) return null;
 
-  // Replace \n with <br />
-  const formattedError = error.replace(/\n/g, '<br />');
+  // Extract the first line as the summary
+  const lines = error.split('\n');
+  const errorSummary = lines[0];
+  
+  // The rest is considered details
+  const errorDetails = lines.slice(1).join('\n');
+  
+  // Format for HTML display
+  const formattedDetails = errorDetails.replace(/\n/g, '<br />');
 
   return (
-    <div className="error-message">
+    <Paper className="error-message" elevation={2}>
       <Typography variant="h6" color="error" gutterBottom>
         Error
       </Typography>
-      <Typography variant="body1" color="textSecondary" dangerouslySetInnerHTML={{ __html: formattedError }} />
-    </div>
+      <Typography variant="body1" color="error.dark">
+        {errorSummary}
+      </Typography>
+      
+      {errorDetails && (
+        <Box className="error-details-container">
+          <Button 
+            variant="text" 
+            color="primary"
+            onClick={() => setExpanded(!expanded)}
+            endIcon={expanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+            size="small"
+          >
+            {expanded ? "Hide Details" : "Show Details"}
+          </Button>
+          
+          <Collapse in={expanded}>
+            <Box className="error-details-content">
+              <Typography 
+                variant="body2" 
+                color="textSecondary" 
+                component="div"
+                className="error-details-text"
+                dangerouslySetInnerHTML={{ __html: formattedDetails }} 
+              />
+            </Box>
+          </Collapse>
+        </Box>
+      )}
+    </Paper>
   );
 };
 
