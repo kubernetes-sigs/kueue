@@ -3284,6 +3284,7 @@ func TestReconciler(t *testing.T) {
 					Delete().
 					Obj(),
 			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "p1", Namespace: "ns"},
@@ -4164,7 +4165,8 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("1").
 				Obj(),
 			},
-			wantErr: utilpod.ErrValidation,
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantErr:         utilpod.ErrValidation,
 		},
 		"reconciler returns error in case pod group pod index is less than 0": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -4177,7 +4179,8 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("1").
 				Obj(),
 			},
-			wantErr: utilpod.ErrInvalidUInt,
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantErr:         utilpod.ErrInvalidUInt,
 		},
 		"reconciler returns error in case of label mismatch in pod group": {
 			pods: []corev1.Pod{
@@ -4208,8 +4211,9 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
 			},
-			wantWorkloads: nil,
-			wantErr:       errPodGroupLabelsMismatch,
+			wantWorkloads:   nil,
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantErr:         errPodGroupLabelsMismatch,
 		},
 		"admission check message is recorded as event for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
