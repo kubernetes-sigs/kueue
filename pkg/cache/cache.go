@@ -732,12 +732,12 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	}
 
 	var ancestors []kueue.CohortReference
-	for cohort != nil && cohort.HasParent() {
-		ancestors = append(ancestors, cohort.Name)
-		cohort = cohort.Parent()
+
+	for ancestor := range cohort.PathSelfToRoot() {
+		ancestors = append(ancestors, ancestor.Name)
 	}
 
-	return ancestors, nil
+	return ancestors[:len(ancestors)-1], nil
 }
 
 func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
