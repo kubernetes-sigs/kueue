@@ -100,3 +100,11 @@ CQ - Active: True Reason: Ready Message: Can admit new workloads
 AC - Active: True Reason: Active Message: The admission check is active
 MC - Active: True Reason: Active Message: Connected
 ```
+
+## (Optional) Setup MultiKueue with Open Cluster Management
+
+[Open Cluster Management (OCM)](https://open-cluster-management.io/) is a community-driven project focused on multicluster and multicloud scenarios for Kubernetes apps.
+It provides a robust, modular, and extensible framework that helps other open source projects orchestrate, schedule, and manage workloads across multiple clusters.
+
+The integration with OCM is an optional solution that enables Kueue users to streamline the MultiKueue setup process, automate the generation of MultiKueue specific Kubeconfig, and enhance multicluster scheduling capabilities.
+For more details about this solution, please refer to this [link](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/kueue-admission-check).
