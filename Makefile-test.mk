@@ -57,7 +57,7 @@ endif
 E2E_TARGET ?= ./test/e2e/...
 E2E_KIND_VERSION ?= kindest/node:v1.32.0
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.29.13 1.30.9 1.31.5 1.32.1
+E2E_K8S_VERSIONS ?= 1.30.9 1.31.5 1.32.1
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
