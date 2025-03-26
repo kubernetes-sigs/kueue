@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"iter"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -220,4 +222,15 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 
 func (c *ClusterQueueSnapshot) IsTASOnly() bool {
 	return c.tasOnly
+}
+
+func (c *ClusterQueueSnapshot) PathToRoot() iter.Seq[*CohortSnapshot] {
+	// Returns all ancestors starting with parent and ending with root
+	return func(yield func(*CohortSnapshot) bool) {
+		for ancestor := range c.Parent().PathToRoot() {
+			if !yield(ancestor) {
+				return
+			}
+		}
+	}
 }

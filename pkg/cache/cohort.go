@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"iter"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -84,4 +86,14 @@ func (c *cohort) CCParent() hierarchy.CycleCheckable {
 
 func (c *cohort) fairWeight() *resource.Quantity {
 	return &c.FairWeight
+}
+
+func (c *cohort) PathToRoot() iter.Seq[*cohort] {
+	// Returns all ancestors starting with self and ending with root
+	return func(yield func(*cohort) bool) {
+		cohort := c
+		for cohort.HasParent() && yield(cohort) {
+			cohort = cohort.Parent()
+		}
+	}
 }
