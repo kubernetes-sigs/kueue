@@ -43,6 +43,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -130,8 +131,9 @@ func TestRun(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		pod         *Pod
-		wantPodSets func(pod *Pod) []kueue.PodSet
+		pod                           *Pod
+		wantPodSets                   func(pod *Pod) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
@@ -142,6 +144,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -157,6 +160,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -172,10 +176,40 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required topology annotation if TAS is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := tc.pod.PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
