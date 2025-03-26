@@ -1,13 +1,12 @@
 # Simple installation
 
-KueueViz can be installed using `kubectl` using the following command:
+KueueViz can be installed using `kubectl` with the following command:
 
 ```
-git clone https://github.com/kubernetes-sigs/kueue
-cd kueue
-kubectl -f artifacts/kueueviz.yaml
+KUEUE_VERSION=0.11.1
+kubectl create -f https://github.com/kubernetes-sigs/kueue/releases/download/v$KUEUE_VERSION/kueueviz.yaml
 ```
-If you are using `kind` and that you don't have an `egress` controller, you can use `port-forward` to 
+If you are using `kind` and that you don't have an `ingress` controller, you can use `port-forward` to 
 configure and run `KueueViz`:
 
 ```
