@@ -300,12 +300,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that either
 	// have a queue-name label or have a kueue-managed ancestor that has a queue-name label.
+	log.Info("r.manageJobsWithoutQueueName", "manageJobsWithoutQueueName", r.manageJobsWithoutQueueName)
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isTopLevelJob {
 			log.V(3).Info("queue-name label is not set, ignoring the job", "queueName", QueueName(job))
 			return ctrl.Result{}, nil
 		}
-		isAncestorJobManaged, err := r.IsAncestorJobManaged(ctx, job.Object(), req.Namespace)
+		isAncestorJobManaged, err := IsAncestorJobManaged(ctx, r.client, r.record, job.Object(), req.Namespace)
 		if err != nil {
 			log.Error(err, "couldn't check whether an ancestor job is managed by kueue")
 			return ctrl.Result{}, err
@@ -573,8 +574,8 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 }
 
 // IsAncestorJobManaged checks whether an ancestor job is managed by kueue.
-func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
-	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj, namespace)
+func IsAncestorJobManaged(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, namespace string) (bool, error) {
+	ancestor, err := getAncestorJobManagedByKueue(ctx, c, record, jobObj, namespace)
 	if err != nil {
 		return false, err
 	}
@@ -583,7 +584,7 @@ func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.
 
 // getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
 func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.Object, namespace string) (*kueue.Workload, error) {
-	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj, namespace)
+	ancestor, err := getAncestorJobManagedByKueue(ctx, r.client, r.record, jobObj, namespace)
 	if err != nil || ancestor == nil {
 		return nil, err
 	}
@@ -599,7 +600,7 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.O
 }
 
 // getAncestorJobManagedByKueue traverses controllerRefs to find an ancestor job that is manged by Kueue (ie, it has a queue-name label).
-func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj client.Object, namespace string) (client.Object, error) {
+func getAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, namespace string) (client.Object, error) {
 	seen := sets.New[types.UID]()
 	currentJob := jobObj
 	for {
@@ -616,7 +617,7 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 		if parentJob == nil {
 			return nil, fmt.Errorf("workload owner %v: %w", owner, ErrUnknownWorkloadOwner)
 		}
-		if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
+		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
 		if QueueNameForObject(parentJob) != "" {
@@ -624,10 +625,12 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 		}
 		currentJob = parentJob
 		if len(seen) > managedOwnersChainLimit {
-			r.record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
+			if record != nil {
+				record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
+					"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
+			}
 			ctrl.LoggerFrom(ctx).V(2).Info(
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainlimit",
+				"Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainLimit",
 				"limit ", managedOwnersChainLimit,
 				"lastParentReached", parentJob,
 			)

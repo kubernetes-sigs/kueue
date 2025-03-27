@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,13 +32,17 @@ import (
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 
@@ -50,13 +55,15 @@ func TestIsAncestorJobManaged(t *testing.T) {
 	childJobName := "test-job-child"
 	jobNamespace := "default"
 	cases := map[string]struct {
-		ancestors   []client.Object
-		job         client.Object
-		wantManaged bool
-		wantErr     error
-		wantEvents  []utiltesting.EventRecord
+		enableIntegrations []string
+		ancestors          []client.Object
+		job                client.Object
+		wantManaged        bool
+		wantErr            error
+		wantEvents         []utiltesting.EventRecord
 	}{
 		"child job has ownerReference with unmanaged workload owner": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingjob.MakeJob(parentJobName, jobNamespace).UID(parentJobName).Obj(),
 			},
@@ -66,12 +73,14 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: false,
 		},
 		"child job has ownerReference with known non-existing workload owner": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job has queue-name label": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -84,6 +93,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: true,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job doesn't has queue-name label": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -94,6 +104,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				Obj(),
 		},
 		"child job has managed parent and grandparent and grandparent has a queue-name label": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -110,6 +121,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: true,
 		},
 		"child job has managed parent and grandparent and grandparent doesn't have a queue-name label": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -125,6 +137,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: false,
 		},
 		"cyclic ownership links are properly handled": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -141,6 +154,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: false,
 		},
 		"cuts off ancestor traversal at the limit and generates an appropriate event": {
+			enableIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
 				testingjob.MakeJob("ancestor-0", jobNamespace).UID("ancestor-0").Queue("test-q").Obj(),
 				testingjob.MakeJob("ancestor-1", jobNamespace).UID("ancestor-1").OwnerReference("ancestor-0", batchv1.SchemeGroupVersion.WithKind("Job")).Obj(),
@@ -168,20 +182,80 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				},
 			},
 		},
+		"pod (enabled) -> statefulset (enabled) -> pod (enabled) -> statefulset (enabled) -> leaderworkerset (enabled) has a queue-name label": {
+			enableIntegrations: []string{"pod", "statefulset", "leaderworkerset.x-k8s.io/leaderworkerset"},
+			ancestors: []client.Object{
+				leaderworkerset.MakeLeaderWorkerSet("lws", jobNamespace).UID("lws").
+					Queue("test-q").
+					Obj(),
+				statefulset.MakeStatefulSet("leader-sts", jobNamespace).UID("leader-sts").
+					OwnerReference("lws", leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet")).
+					Obj(),
+				pod.MakePod("pod-leader-sts", jobNamespace).UID("pod-leader-sts").
+					OwnerReference("leader-sts", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+					Obj(),
+				statefulset.MakeStatefulSet("worker-sts-0", jobNamespace).UID("worker-sts-0").
+					OwnerReference("pod-leader-sts", corev1.SchemeGroupVersion.WithKind("Pod")).
+					Obj(),
+			},
+			job: pod.MakePod("pod-worker-sts-0-1", jobNamespace).UID("pod-worker-sts-0-1").
+				OwnerReference("worker-sts-0", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+				Obj(),
+			wantManaged: true,
+		},
+		"pod (enabled) -> statefulset (enabled) -> pod (enabled) -> statefulset (enabled) -> leaderworkerset (enabled) doesn't have a queue-name label": {
+			enableIntegrations: []string{"pod", "statefulset", "leaderworkerset.x-k8s.io/leaderworkerset"},
+			ancestors: []client.Object{
+				leaderworkerset.MakeLeaderWorkerSet("lws", jobNamespace).UID("lws").
+					Obj(),
+				statefulset.MakeStatefulSet("leader-sts", jobNamespace).UID("leader-sts").
+					OwnerReference("lws", leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet")).
+					Obj(),
+				pod.MakePod("pod-leader-sts", jobNamespace).UID("pod-leader-sts").
+					OwnerReference("leader-sts", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+					Obj(),
+				statefulset.MakeStatefulSet("worker-sts-0", jobNamespace).UID("worker-sts-0").
+					OwnerReference("pod-leader-sts", corev1.SchemeGroupVersion.WithKind("Pod")).
+					Obj(),
+			},
+			job: pod.MakePod("pod-worker-sts-0-1", jobNamespace).UID("pod-worker-sts-0-1").
+				OwnerReference("worker-sts-0", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+				Obj(),
+			wantManaged: false,
+		},
+		"pod (enabled) -> statefulset (disabled) -> pod (enabled) -> statefulset (disabled) -> leaderworkerset (enabled) doesn't have a queue-name label": {
+			enableIntegrations: []string{"pod", "statefulset", "leaderworkerset.x-k8s.io/leaderworkerset"},
+			ancestors: []client.Object{
+				leaderworkerset.MakeLeaderWorkerSet("lws", jobNamespace).UID("lws").
+					Obj(),
+				statefulset.MakeStatefulSet("leader-sts", jobNamespace).UID("leader-sts").
+					OwnerReference("lws", leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet")).
+					Obj(),
+				pod.MakePod("pod-leader-sts", jobNamespace).UID("pod-leader-sts").
+					OwnerReference("leader-sts", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+					Obj(),
+				statefulset.MakeStatefulSet("worker-sts-0", jobNamespace).UID("worker-sts-0").
+					OwnerReference("pod-leader-sts", corev1.SchemeGroupVersion.WithKind("Pod")).
+					Obj(),
+			},
+			job: pod.MakePod("pod-worker-sts-0-1", jobNamespace).UID("pod-worker-sts-0-1").
+				OwnerReference("worker-sts-0", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+				Obj(),
+			wantManaged: false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"))
+			t.Cleanup(EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
-			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
+			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme, leaderworkersetv1.AddToScheme)
 			builder = builder.WithObjects(tc.ancestors...)
 			if tc.job != nil {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
-			r := NewReconciler(cl, recorder)
-			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job, jobNamespace)
+			got, gotErr := IsAncestorJobManaged(ctx, cl, recorder, tc.job, jobNamespace)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from IsAncestorJobManaged want: %v,got: %v", tc.wantManaged, got)
 			}

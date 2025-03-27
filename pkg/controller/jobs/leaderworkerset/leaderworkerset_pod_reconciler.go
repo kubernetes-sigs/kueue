@@ -33,7 +33,8 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -101,7 +102,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, error) {
 	// If queue label already exist nothing to update.
-	if _, ok := pod.Labels[constants.QueueLabel]; ok {
+	if _, ok := pod.Labels[controllerconstants.QueueLabel]; ok {
 		return false, nil
 	}
 
@@ -124,9 +125,10 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 
 	wlName := GetWorkloadName(lws.UID, lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
-	pod.Labels[constants.QueueLabel] = queueName
+	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+	pod.Labels[controllerconstants.QueueLabel] = queueName
 	pod.Labels[podconstants.GroupNameLabel] = wlName
-	pod.Labels[constants.PrebuiltWorkloadLabel] = wlName
+	pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 

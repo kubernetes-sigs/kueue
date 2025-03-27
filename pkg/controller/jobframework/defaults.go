@@ -50,9 +50,10 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
 func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
-	// Do not default suspend a job whose owner is already managed by Kueue
-	if IsOwnerManagedByKueueForObject(jobObj) {
-		return false, nil
+	// Do not default suspend a job whose ancestor is already managed by Kueue
+	isAncestorJobManaged, err := IsAncestorJobManaged(ctx, k8sClient, nil, jobObj, jobObj.GetNamespace())
+	if err != nil || isAncestorJobManaged {
+		return false, err
 	}
 
 	// Jobs with queue names whose parents are not managed by Kueue are default suspended

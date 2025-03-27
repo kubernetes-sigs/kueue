@@ -204,13 +204,3 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 
 	return allErrs
 }
-
-func IsManagedByKueue(obj client.Object) bool {
-	if IsOwnerManagedByKueueForObject(obj) {
-		return false
-	}
-	if QueueNameForObject(obj) != "" {
-		return true
-	}
-	return false
-}
