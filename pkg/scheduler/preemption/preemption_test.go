@@ -2803,20 +2803,20 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		utiltesting.MakeResourceFlavor("default").Obj(),
 	}
 	/*
-	   topology:
-	                                 r
-	                             /      \
-	   						   c11        c12
-	   						/   |   \      |  \
-	   					 c21   c22   c23   q2  q1
-	   				   /  |     |  \   | \
-	                c31   c32   q6  q5 q4 q3
-	   			  /  |    |  \
-	   		   q10  q9   q8  q7
-	   quotas:
-	   4: c11, c12, c21, c22, c32, c32
-	   2: q10, q9
-	   0: c31, q1, q2, q3, q4, q5, q6, q7, q8
+		topology:
+									   r
+								  /      \
+								c11        c12
+							/   |   \      |  \
+						   c21   c22   c23   q2  q1
+						/  |     |  \   | \
+					c31   c32   q6  q5 q4 q3
+				   /  |    |  \
+				q10  q9   q8  q7
+		quotas:
+		4: c11, c12, c21, c22, c32, c32
+		2: q10, q9
+		0: c31, q1, q2, q3, q4, q5, q6, q7, q8
 	*/
 
 	baseCohorts := []*kueuealpha.Cohort{
