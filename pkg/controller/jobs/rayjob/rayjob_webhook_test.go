@@ -17,7 +17,6 @@ limitations under the License.
 package rayjob
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -124,7 +123,7 @@ func TestValidateDefault(t *testing.T) {
 				cache:                      cqCache,
 			}
 			result := tc.oldJob.DeepCopy()
-			if err := wh.Default(context.Background(), result); err != nil {
+			if err := wh.Default(t.Context(), result); err != nil {
 				t.Errorf("unexpected Default() error: %s", err)
 			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
@@ -284,7 +283,7 @@ func TestValidateCreate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, result := wh.ValidateCreate(context.Background(), tc.job)
+			_, result := wh.ValidateCreate(t.Context(), tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
 			}
@@ -381,7 +380,7 @@ func TestValidateUpdate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, result := wh.ValidateUpdate(context.Background(), tc.oldJob, tc.newJob)
+			_, result := wh.ValidateUpdate(t.Context(), tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}

@@ -77,7 +77,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.11.0
+RELEASE_VERSION=v0.11.1
 RELEASE_BRANCH=main
 # Version used form Helm which is not using the leading "v"
 CHART_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -269,6 +269,7 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	$(KUSTOMIZE) build config/visibility-apf -o artifacts/visibility-apf.yaml
+	$(KUSTOMIZE) build config/kueueviz -o artifacts/kueueviz.yaml
 	@$(call clean-manifests)
 	# Update the image tag and policy
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
@@ -284,6 +285,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(CHART_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="v?[0-9]+\.[0-9]+\.[0-9]+/--version="$(CHART_VERSION)/g' -i charts/kueue/README.md
+	$(SED) -r 's/KUEUE_VERSION="[0-9]+\.[0-9]+\.[0-9]+/KUEUE_VERSION="$(CHART_VERSION)/g' -i cmd/kueueviz/INSTALL.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
@@ -336,35 +338,34 @@ importer-image: PUSH=--load
 importer-image: importer-image-build
 
 
-# Build the kueue-viz dashboard images (frontend and backend)
-.PHONY: kueue-viz-image-build
-kueue-viz-image-build:
+# Build the kueueviz dashboard images (frontend and backend)
+.PHONY: kueueviz-image-build
+kueueviz-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-backend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-backend:$(RELEASE_BRANCH)-latest \
+		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueue-viz/backend/Dockerfile ./cmd/experimental/kueue-viz/backend; \
+		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend; \
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-frontend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueue-viz-frontend:$(RELEASE_BRANCH)-latest \
+		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		$(PUSH) \
-		-f ./cmd/experimental/kueue-viz/frontend/Dockerfile ./cmd/experimental/kueue-viz/frontend; \
+		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend; \
 
-.PHONY: kueue-viz-image-push
-kueue-viz-image-push: PUSH=--push
-kueue-viz-image-push: kueue-viz-image-build
+.PHONY: kueueviz-image-push
+kueueviz-image-push: PUSH=--push
+kueueviz-image-push: kueueviz-image-build
 
-# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz image
-.PHONY: kueue-viz-image
-kueue-viz-image: VIZ_PLATFORMS=linux/amd64
-kueue-viz-image: PUSH=--load
-kueue-viz-image: kueue-viz-image-build
-
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
+.PHONY: kueueviz-image
+kueueviz-image: VIZ_PLATFORMS=linux/amd64
+kueueviz-image: PUSH=--load
+kueueviz-image: kueueviz-image-build
 
 .PHONY: kueuectl
 kueuectl:

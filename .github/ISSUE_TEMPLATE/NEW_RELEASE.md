@@ -66,8 +66,9 @@ Please do not remove items from the checklist
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and the periodic jobs for the next patch release:
-        <!-- example presubmit: https://github.com/kubernetes/test-infra/pull/33107 -->
-        <!-- example periodic: https://github.com/kubernetes/test-infra/pull/33833 -->
+        <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
+  - [ ] Drop CI Jobs for testing the out-of-support branch:
+        <!-- example: https://github.com/kubernetes/test-infra/pull/34562 -->
 
 
 ## Changelog

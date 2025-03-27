@@ -57,7 +57,7 @@ endif
 E2E_TARGET ?= ./test/e2e/...
 E2E_KIND_VERSION ?= kindest/node:v1.32.0
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.29.13 1.30.9 1.31.5 1.32.1
+E2E_K8S_VERSIONS ?= 1.30.9 1.31.5 1.32.1
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -69,6 +69,7 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
+CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
 
 # Versions for external controllers
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
@@ -257,3 +258,19 @@ ginkgo-top:
 	cd $(PROJECT_DIR)/hack/internal/tools && \
 	go mod download && \
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/ginkgo-top ./ginkgo-top
+
+.PHONY: setup-e2e-env
+setup-e2e-env: kustomize yq gomod-download dep-crds kueuectl kind ## Setup environment for e2e tests without running tests.
+	@echo "Setting up environment for e2e tests"
+
+.PHONY: test-e2e-kueueviz-local
+test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
+
+.PHONY: test-e2e-kueueviz
+test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+	@echo Starting kueueviz end to end test in containers
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" \
+	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh

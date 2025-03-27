@@ -17,7 +17,6 @@ limitations under the License.
 package leaderworkerset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +48,25 @@ func TestDefault(t *testing.T) {
 		enableIntegrations         []string
 		want                       *leaderworkersetv1.LeaderWorkerSet
 	}{
+		"LeaderWorkerSet with WorkloadPriorityClass": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("default").
+				WorkloadPriorityClass("high-priority").
+				LeaderTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
@@ -641,7 +659,7 @@ func TestValidateUpdate(t *testing.T) {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			wh := &Webhook{}
 

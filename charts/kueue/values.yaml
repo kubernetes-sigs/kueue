@@ -153,9 +153,13 @@ webhookService:
 webhook:
   reinvocationPolicy: Never
 
-# kueue-viz dashboard
+# kueueviz dashboard
 enableKueueViz: false
-
+kueueViz:
+  backend:
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main"
+  frontend:
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
 metrics:
   prometheusNamespace: monitoring
   serviceMonitor:

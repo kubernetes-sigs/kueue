@@ -221,3 +221,8 @@ func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSet
 	ss.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
 	return ss
 }
+
+// WorkloadPriorityClass sets workloadpriorityclass.
+func (ss *StatefulSetWrapper) WorkloadPriorityClass(wpc string) *StatefulSetWrapper {
+	return ss.Label(constants.WorkloadPriorityClassLabel, wpc)
+}

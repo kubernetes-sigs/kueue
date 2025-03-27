@@ -1,0 +1,14 @@
+{{- if .Values.enableKueueViz }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: '{{ include "kueue.fullname" . }}-kueueviz-backend'
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: kueueviz-backend
+{{- end }}

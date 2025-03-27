@@ -280,7 +280,7 @@ func TestReconcile(t *testing.T) {
 			if tc.acValidationRulesEnabled {
 				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
 			}
-			builder, ctx := getClientBuilder()
+			builder := getClientBuilder(t.Context())
 
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},
@@ -297,13 +297,13 @@ func TestReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			_, gotErr := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
 			checks := &kueue.AdmissionCheckList{}
-			listErr := c.List(ctx, checks)
+			listErr := c.List(t.Context(), checks)
 
 			if listErr != nil {
 				t.Errorf("unexpected list checks error: %s", listErr)

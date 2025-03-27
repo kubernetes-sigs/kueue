@@ -17,7 +17,6 @@ limitations under the License.
 package parallelize
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -54,7 +53,7 @@ func TestUntil(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			result = make([]int, 5)
-			err := Until(context.Background(), len(result), tc.op)
+			err := Until(t.Context(), len(result), tc.op)
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("Got error %q, want %q", err, tc.wantErr)
 			}

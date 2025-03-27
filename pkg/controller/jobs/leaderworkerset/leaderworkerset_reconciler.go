@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -112,7 +113,17 @@ func (r *Reconciler) createPrebuiltWorkloadIfNotExist(ctx context.Context, lws *
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
 	createdWorkload := r.constructWorkload(lws, index)
-	err := r.client.Create(ctx, createdWorkload)
+
+	priorityClassName, source, p, err := jobframework.ExtractPriority(ctx, r.client, lws, createdWorkload.Spec.PodSets, nil)
+	if err != nil {
+		return err
+	}
+
+	createdWorkload.Spec.PriorityClassName = priorityClassName
+	createdWorkload.Spec.Priority = &p
+	createdWorkload.Spec.PriorityClassSource = source
+
+	err = r.client.Create(ctx, createdWorkload)
 	if err != nil {
 		return err
 	}
@@ -131,19 +142,20 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		podSets = append(podSets, kueue.PodSet{
+		podSet := kueue.PodSet{
 			Name:  leaderPodSetName,
 			Count: 1,
 			Template: corev1.PodTemplateSpec{
 				Spec: *lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.DeepCopy(),
 			},
-			TopologyRequest: jobframework.PodSetTopologyRequest(
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta,
-				nil,
-				nil,
-				nil,
-			),
-		})
+				nil, nil, nil,
+			)
+		}
+		podSets = append(podSets, podSet)
 	}
 
 	defaultPodSetName := kueue.DefaultPodSetName
@@ -156,19 +168,23 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 		defaultPodSetCount--
 	}
 
-	podSets = append(podSets, kueue.PodSet{
+	podSet := kueue.PodSet{
 		Name:  defaultPodSetName,
 		Count: defaultPodSetCount,
 		Template: corev1.PodTemplateSpec{
 			Spec: *lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.DeepCopy(),
 		},
-		TopologyRequest: jobframework.PodSetTopologyRequest(
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
 			ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
-			nil,
-			nil,
-		),
-	})
+			nil, nil,
+		)
+	}
+
+	podSets = append(podSets, podSet)
 
 	return podSets
 }

@@ -24,14 +24,14 @@ SRC_RBAC_DIR=config/components/rbac
 SRC_WEBHOOK_DIR=config/components/webhook
 SRC_VISIBILITY_DIR=config/components/visibility
 SRC_VISIBILITY_APF_DIR=config/components/visibility-apf
-SRC_KUEUE_VIZ_DIR=config/components/kueue-viz
+SRC_KUEUEVIZ_DIR=config/components/kueueviz
 
 DEST_CRD_DIR=charts/kueue/templates/crd
 DEST_RBAC_DIR=charts/kueue/templates/rbac
 DEST_WEBHOOK_DIR=charts/kueue/templates/webhook
 DEST_VISIBILITY_DIR=charts/kueue/templates/visibility
 DEST_VISIBILITY_APF_DIR=charts/kueue/templates/visibility-apf
-DEST_KUEUE_VIZ_DIR=charts/kueue/templates/kueue-viz
+DEST_KUEUEVIZ_DIR=charts/kueue/templates/kueueviz
 
 YQ=./bin/yq
 SED=${SED:-/usr/bin/sed}
@@ -55,7 +55,7 @@ find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_
 # shellcheck disable=SC2086
 find $SRC_VISIBILITY_APF_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_APF_DIR \;
 # shellcheck disable=SC2086
-find $SRC_KUEUE_VIZ_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_KUEUE_VIZ_DIR \;
+find $SRC_KUEUEVIZ_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_KUEUEVIZ_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
 rm ${DEST_WEBHOOK_DIR}/manifests.yaml
 files=("MutatingWebhookConfiguration.yml" "ValidatingWebhookConfiguration.yml")
@@ -426,18 +426,18 @@ for output_file in "${DEST_VISIBILITY_APF_DIR}"/*.yaml; do
   mv "${output_file}.tmp" "${output_file}"
 done
 
-# Add kueue-viz templating on kueue-viz directory
-for output_file in "${DEST_KUEUE_VIZ_DIR}"/*.yaml; do
+# Add kueueviz templating on kueueviz directory
+for output_file in "${DEST_KUEUEVIZ_DIR}"/*.yaml; do
   if [ "$(< "$output_file" $YQ '.kind | select(. == "Deployment")')" ]; then
     # Add Helm parameters for backend and frontend images with default values
     deployment_name="$($YQ '.metadata.name' "$output_file")"
-if [ "$deployment_name" = "kueue-viz-backend" ]; then
+if [ "$deployment_name" = "kueueviz-backend" ]; then
       original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
       $YQ -N -i \
         ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.backend.image | default \\\"$original_image\\\" }}\"" \
         "$output_file"
     fi
-    if [ "$deployment_name" = "kueue-viz-frontend" ]; then
+    if [ "$deployment_name" = "kueueviz-frontend" ]; then
       original_image="$($YQ '.spec.template.spec.containers[0].image' "$output_file")"
       $YQ -N -i \
         ".spec.template.spec.containers[0].image = \"{{ .Values.kueueViz.frontend.image | default \\\"$original_image\\\" }}\"" \

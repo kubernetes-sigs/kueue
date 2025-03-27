@@ -35,6 +35,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 )
@@ -233,8 +234,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job         *kftraining.PaddleJob
-		wantPodSets func(job *kftraining.PaddleJob) []kueue.PodSet
+		job                           *kftraining.PaddleJob
+		wantPodSets                   func(job *kftraining.PaddleJob) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
@@ -259,6 +261,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required and preferred topology annotation": {
 			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
@@ -295,10 +298,45 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
+				PaddleReplicaSpecs(
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Obj(),
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := fromObject(tc.job).PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)

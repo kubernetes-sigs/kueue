@@ -1,0 +1,23 @@
+{{- if .Values.enableKueueViz }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: '{{ include "kueue.fullname" . }}-kueueviz-backend'
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueueviz-backend
+  template:
+    metadata:
+      labels:
+        app: kueueviz-backend
+    spec:
+      containers:
+        - name: backend
+          image: '{{ .Values.kueueViz.backend.image | default "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main" }}'
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+{{- end }}

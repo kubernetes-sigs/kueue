@@ -17,7 +17,6 @@ limitations under the License.
 package statefulset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -611,7 +610,7 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.integrations...))
-			ctx := context.Background()
+			ctx := t.Context()
 
 			wh := &Webhook{}
 

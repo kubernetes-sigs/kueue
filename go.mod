@@ -10,17 +10,16 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/kubeflow/mpi-operator v0.6.0
 	github.com/kubeflow/training-operator v1.9.0
-	github.com/onsi/ginkgo/v2 v2.23.0
-	github.com/onsi/gomega v1.36.2
+	github.com/onsi/ginkgo/v2 v2.23.3
+	github.com/onsi/gomega v1.36.3
 	github.com/open-policy-agent/cert-controller v0.12.0
-	github.com/project-codeflare/appwrapper v1.1.0
+	github.com/project-codeflare/appwrapper v1.1.1
 	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/client_model v0.6.1
 	github.com/ray-project/kuberay/ray-operator v1.3.1
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
-	gomodules.xyz/jsonpatch/v2 v2.5.0
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
 	k8s.io/apiserver v0.32.3
@@ -34,15 +33,12 @@ require (
 	k8s.io/kubectl v0.32.3
 	k8s.io/metrics v0.32.3
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
-	sigs.k8s.io/controller-runtime v0.20.3
+	sigs.k8s.io/controller-runtime v0.20.4
 	sigs.k8s.io/jobset v0.8.0
 	sigs.k8s.io/lws v0.5.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0
 	sigs.k8s.io/yaml v1.4.0
 )
-
-// TODO: Once https://github.com/kubernetes-sigs/kueue/issues/4470 is resolved, we should upgrade this.
-replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.4
 
 require (
 	cel.dev/expr v0.19.1 // indirect
@@ -135,6 +131,7 @@ require (
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
+	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/genproto v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241219192143-6b3ec007d9bb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241219192143-6b3ec007d9bb // indirect
