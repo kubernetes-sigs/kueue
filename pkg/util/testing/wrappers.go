@@ -1546,6 +1546,10 @@ func MakeNamespaceWrapper(name string) *NamespaceWrapper {
 	}
 }
 
+func (w *NamespaceWrapper) Clone() *NamespaceWrapper {
+	return &NamespaceWrapper{Namespace: *w.DeepCopy()}
+}
+
 func (w *NamespaceWrapper) Obj() *corev1.Namespace {
 	return &w.Namespace
 }

@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -79,12 +80,13 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations = make(map[string]string, 1)
 		}
 		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+		if ss.Spec.Template.Labels == nil {
+			ss.Spec.Template.Labels = make(map[string]string, 1)
+		}
+		ss.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
-			if ss.Spec.Template.Labels == nil {
-				ss.Spec.Template.Labels = make(map[string]string, 2)
-			}
-			ss.Spec.Template.Labels[constants.QueueLabel] = queueName
+			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = queueName
 			ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
 			ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 			ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
@@ -92,7 +94,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
-			ss.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+			ss.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
 		}
 	}
 
@@ -116,8 +118,8 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 
 var (
 	labelsPath                 = field.NewPath("metadata", "labels")
-	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
-	priorityClassNameLabelPath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	queueNameLabelPath         = labelsPath.Key(controllerconstants.QueueLabel)
+	priorityClassNameLabelPath = labelsPath.Key(controllerconstants.WorkloadPriorityClassLabel)
 	specPath                   = field.NewPath("spec")
 	replicasPath               = specPath.Child("replicas")
 	specTemplatePath           = specPath.Child("template")
@@ -146,7 +148,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		newStatefulSet.Object(),
 	)...)
 
-	if jobframework.IsManagedByKueue(newStatefulSet.Object()) {
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return nil, err
+	}
+	if suspend {
 		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(
 			&newStatefulSet.Spec.Template.Spec,
 			&oldStatefulSet.Spec.Template.Spec,

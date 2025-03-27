@@ -20,8 +20,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,18 +46,24 @@ const (
 )
 
 type Reconciler struct {
-	client          client.Client
-	record          record.EventRecorder
-	labelKeysToCopy []string
+	client                       client.Client
+	log                          logr.Logger
+	record                       record.EventRecorder
+	labelKeysToCopy              []string
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
 }
 
 func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
-		client:          client,
-		record:          eventRecorder,
-		labelKeysToCopy: options.LabelKeysToCopy,
+		client:                       client,
+		log:                          ctrl.Log.WithName("leaderworkerset-reconciler"),
+		record:                       eventRecorder,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
 }
 
@@ -212,6 +221,16 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	if !isLws {
 		return false
 	}
+
+	ctx := context.Background()
+	log := r.log.WithValues("leaderworkerset", klog.KObj(lws))
+	ctrl.LoggerInto(ctx, log)
+
 	// Handle only leaderworkerset managed by kueue.
-	return jobframework.IsManagedByKueue(lws)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	if err != nil {
+		log.Error(err, "Failed to determine if the LeaderWorkerSet should be managed by Kueue")
+	}
+
+	return suspend
 }

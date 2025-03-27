@@ -25,11 +25,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -87,7 +90,7 @@ func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 
 // Queue updates the queue name of the StatefulSet
 func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
-	return ss.Label(constants.QueueLabel, q)
+	return ss.Label(controllerconstants.QueueLabel, q)
 }
 
 // Name updated the name of the StatefulSet
@@ -96,8 +99,15 @@ func (ss *StatefulSetWrapper) Name(n string) *StatefulSetWrapper {
 	return ss
 }
 
-func (ss *StatefulSetWrapper) WithOwnerReference(ownerReference metav1.OwnerReference) *StatefulSetWrapper {
-	ss.OwnerReferences = append(ss.OwnerReferences, ownerReference)
+// UID updates the uid of the StatefulSet
+func (ss *StatefulSetWrapper) UID(uid string) *StatefulSetWrapper {
+	ss.ObjectMeta.UID = types.UID(uid)
+	return ss
+}
+
+// OwnerReference adds a ownerReference to the StatefulSet.
+func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *StatefulSetWrapper {
+	testing.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return ss
 }
 
@@ -136,7 +146,11 @@ func (ss *StatefulSetWrapper) PodTemplateSpecAnnotation(k, v string) *StatefulSe
 
 // PodTemplateSpecQueue updates the queue name of the pod template spec of the StatefulSet
 func (ss *StatefulSetWrapper) PodTemplateSpecQueue(q string) *StatefulSetWrapper {
-	return ss.PodTemplateSpecLabel(constants.QueueLabel, q)
+	return ss.PodTemplateSpecLabel(controllerconstants.QueueLabel, q)
+}
+
+func (ss *StatefulSetWrapper) PodTemplateManagedByKueue() *StatefulSetWrapper {
+	return ss.PodTemplateSpecLabel(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 }
 
 func (ss *StatefulSetWrapper) Replicas(r int32) *StatefulSetWrapper {
@@ -224,5 +238,5 @@ func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSet
 
 // WorkloadPriorityClass sets workloadpriorityclass.
 func (ss *StatefulSetWrapper) WorkloadPriorityClass(wpc string) *StatefulSetWrapper {
-	return ss.Label(constants.WorkloadPriorityClassLabel, wpc)
+	return ss.Label(controllerconstants.WorkloadPriorityClassLabel, wpc)
 }

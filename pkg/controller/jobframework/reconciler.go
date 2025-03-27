@@ -652,9 +652,11 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, record 
 		}
 		currentObj = parentObj
 		if len(seen) > managedOwnersChainLimit {
-			record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit,
-			)
+			if record != nil {
+				record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
+					"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit,
+				)
+			}
 			log.V(2).Info(
 				"WARNING: Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainLimit",
 				"limit ", managedOwnersChainLimit,
