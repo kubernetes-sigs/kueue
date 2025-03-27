@@ -216,11 +216,12 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	var borrowingOptions []bool
 	fits := false
 	canBorrow, _ := canBorrowWithinCohort(preemptionCtx)
-	if !candidatesGenerator.anyCandidateFromOtherQueues || (!canBorrow && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)) {
+	switch {
+	case !candidatesGenerator.anyCandidateFromOtherQueues || (!canBorrow && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		borrowingOptions = []bool{true}
-	} else if !canBorrow {
+	case !canBorrow:
 		borrowingOptions = []bool{false, true}
-	} else {
+	default:
 		borrowingOptions = []bool{true, false}
 	}
 	for _, allowBorrowing := range borrowingOptions {
