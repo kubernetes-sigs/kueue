@@ -2945,6 +2945,265 @@ func TestSchedule(t *testing.T) {
 				"eng-gamma/Admitted-Workload-3": *utiltesting.MakeAdmission("CQ3").Assignment("gpu", "on-demand", "5").Obj(),
 			},
 		},
+
+		"handle multiple workloads with incompatible flavor  fail": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "on-demand"}).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "spot-untainted"}).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "spot-tainted"}).
+						Obj()).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("test-cq").
+					QueueingStrategy(kueue.BestEffortFIFO).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot-tainted").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot-untainted").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("main", "default").ClusterQueue("test-cq").Obj(),
+			},
+			objects: []client.Object{
+				utiltesting.MakeResourceFlavor("on-demand").
+					NodeLabel("instance-type", "on-demand").
+					Obj(),
+				utiltesting.MakeResourceFlavor("spot-tainted").
+					NodeLabel("instance-type", "spot-tainted").
+					Taint(corev1.Taint{
+						Key:    "instance-type",
+						Value:  "spot-tainted",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).Obj(),
+				utiltesting.MakeResourceFlavor("spot-untainted").
+					NodeLabel("instance-type", "spot-untainted").
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"default/wl1": {
+					ClusterQueue: "test-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"default/wl2": {
+					ClusterQueue: "test-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot-untainted",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"default/wl1", "default/wl2"},
+			wantLeft: map[kueue.ClusterQueueReference][]string{
+				"test-cq": {"default/wl3"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl1"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl1"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl2"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl2"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"workload fails then succeeds with toleration": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "on-demand"}).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "spot-untainted"}).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "default").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "2").
+						NodeSelector(map[string]string{"instance-type": "spot-tainted"}).
+						Toleration(corev1.Toleration{
+							Key:      "instance-type",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "spot-tainted",
+							Effect:   corev1.TaintEffectNoSchedule,
+						}).
+						Obj()).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("test-cq").
+					QueueingStrategy(kueue.BestEffortFIFO).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot-tainted").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot-untainted").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("main", "default").ClusterQueue("test-cq").Obj(),
+			},
+			objects: []client.Object{
+				utiltesting.MakeResourceFlavor("on-demand").
+					NodeLabel("instance-type", "on-demand").
+					Obj(),
+				utiltesting.MakeResourceFlavor("spot-tainted").
+					NodeLabel("instance-type", "spot-tainted").
+					Taint(corev1.Taint{
+						Key:    "instance-type",
+						Value:  "spot-tainted",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).Obj(),
+				utiltesting.MakeResourceFlavor("spot-untainted").
+					NodeLabel("instance-type", "spot-untainted").
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"default/wl1": {
+					ClusterQueue: "test-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"default/wl2": {
+					ClusterQueue: "test-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot-untainted",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"default/wl3": {
+					ClusterQueue: "test-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot-tainted",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"default/wl1", "default/wl2", "default/wl3"},
+			eventCmpOpts:  ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl1"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl1"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl2"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl2"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl3"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl3"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -2962,6 +3221,9 @@ func TestSchedule(t *testing.T) {
 			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
 
 			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, "spec.hasContainerType", func(obj client.Object) []string {
+					return []string{"true"}
+				}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(append(
 					[]client.Object{
