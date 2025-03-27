@@ -1049,7 +1049,7 @@ func TestEncode(t *testing.T) {
 			if err != nil {
 				t.Errorf("Unexpected error:%s", err)
 			}
-			gotMap := map[string]interface{}{}
+			gotMap := map[string]any{}
 			err = yaml.Unmarshal([]byte(got), &gotMap)
 			if err != nil {
 				t.Errorf("Unable to unmarshal result:%s", err)

@@ -107,11 +107,11 @@ func (tr *EventRecorder) Event(object runtime.Object, eventType, reason, message
 	tr.generateEvent(object, eventType, reason, message)
 }
 
-func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
+func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...any) {
 	tr.AnnotatedEventf(object, nil, eventType, reason, messageFmt, args...)
 }
 
-func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[string]string, eventType, reason, messageFmt string, args ...interface{}) {
+func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[string]string, eventType, reason, messageFmt string, args ...any) {
 	tr.generateEvent(targetObject, eventType, reason, fmt.Sprintf(messageFmt, args...))
 }
 
