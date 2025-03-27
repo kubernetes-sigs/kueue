@@ -3060,6 +3060,9 @@ func TestSchedule(t *testing.T) {
 			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
 
 			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, "spec.hasContainerType", func(obj client.Object) []string {
+					return []string{"true"}
+				}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(append(
 					[]client.Object{
