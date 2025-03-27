@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +42,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -349,15 +349,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.When("Pod owner is managed by Kueue", func() {
-				var pod *corev1.Pod
-				ginkgo.BeforeEach(func() {
-					pod = testingpod.MakePod(podName, ns.Name).
-						Queue("test-queue").
-						OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-						Obj()
-				})
-
 				ginkgo.It("Should skip the pod", func() {
+					job := testingjob.MakeJob("parent-job", ns.Name).Queue(lq.Name).Obj()
+					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+					pod := testingpod.MakePod(podName, ns.Name).Queue(lq.Name).Obj()
+					gomega.Expect(controllerutil.SetControllerReference(job, pod, k8sClient.Scheme())).To(gomega.Succeed())
 					gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
 					createdPod := &corev1.Pod{}
