@@ -1,0 +1,11 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "spot"
+spec:
+  nodeLabels:
+    instance-type: spot
+  tolerations:
+  - key: "spot-taint" ## The key of the node taint.
+    operator: "Exists"
+    effect: "NoSchedule" ## Supported effects are NoSchedule, NoExecute, and PreferNoSchedule.

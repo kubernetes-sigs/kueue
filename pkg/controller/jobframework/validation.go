@@ -172,7 +172,7 @@ func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *co
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
-func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interface{}, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	fields := sets.New[string]()
@@ -183,8 +183,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 		childFieldPath := fieldPath.Child(fieldName)
 
 		switch newValue := newShape[fieldName].(type) {
-		case []map[string]interface{}:
-			oldValue := oldShape[fieldName].([]map[string]interface{})
+		case []map[string]any:
+			oldValue := oldShape[fieldName].([]map[string]any)
 
 			if len(newValue) != len(oldValue) {
 				allErrs = append(allErrs, apivalidation.ValidateImmutableField(newValue, oldValue, childFieldPath)...)
@@ -194,8 +194,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 			for i := range newValue {
 				allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue[i], oldValue[i], childFieldPath.Index(i))...)
 			}
-		case map[string]interface{}:
-			oldValue := oldShape[fieldName].(map[string]interface{})
+		case map[string]any:
+			oldValue := oldShape[fieldName].(map[string]any)
 			allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue, oldValue, childFieldPath)...)
 		default:
 			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newShape[fieldName], oldShape[fieldName], childFieldPath)...)

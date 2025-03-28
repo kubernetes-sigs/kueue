@@ -23,6 +23,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
+import ErrorMessage from './ErrorMessage';
 
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
@@ -47,9 +48,14 @@ const Dashboard = () => {
         }
       });
     }
-    if (kueueError) setError("Failed to fetch data from WebSocket");
+    if (kueueError) setError(kueueError);
+
     setLoading(false);
   }, [kueueData, kueueError]);
+
+  if (error) {
+    return <ErrorMessage error={error} />;
+  }
 
   const toggleRow = (workloadName) => {
     setExpandedRows((prevExpandedRows) => ({
@@ -97,7 +103,6 @@ const Dashboard = () => {
   };
 
   if (loading) return <Typography variant="h6">Loading...</Typography>;
-  if (error) return <Typography variant="h6" color="error">{error}</Typography>;
 
   return (
     <>

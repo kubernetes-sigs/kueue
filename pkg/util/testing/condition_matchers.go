@@ -52,7 +52,7 @@ type conditionMatcher struct {
 	status        metav1.ConditionStatus
 }
 
-func (matcher *conditionMatcher) Match(actual interface{}) (bool, error) {
+func (matcher *conditionMatcher) Match(actual any) (bool, error) {
 	conditions, ok := actual.([]metav1.Condition)
 	if !ok {
 		return false, fmt.Errorf("Condition matcher expects a []metav1.Condition. Got:\n%s", format.Object(actual, 1))
@@ -70,15 +70,15 @@ func (matcher *conditionMatcher) Match(actual interface{}) (bool, error) {
 	return found.Status == matcher.status, nil
 }
 
-func (matcher *conditionMatcher) FailureMessage(actual interface{}) string {
+func (matcher *conditionMatcher) FailureMessage(actual any) string {
 	return matcher.buildErrorMessage(actual, false)
 }
 
-func (matcher *conditionMatcher) NegatedFailureMessage(actual interface{}) string {
+func (matcher *conditionMatcher) NegatedFailureMessage(actual any) string {
 	return matcher.buildErrorMessage(actual, true)
 }
 
-func (matcher *conditionMatcher) buildErrorMessage(actual interface{}, negated bool) string {
+func (matcher *conditionMatcher) buildErrorMessage(actual any, negated bool) string {
 	b := strings.Builder{}
 	b.WriteString("Expected\n")
 	b.WriteString(format.Object(actual, 1))

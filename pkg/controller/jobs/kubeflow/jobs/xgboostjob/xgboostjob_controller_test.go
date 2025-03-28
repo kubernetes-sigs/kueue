@@ -35,6 +35,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 )
@@ -231,8 +232,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job         *kftraining.XGBoostJob
-		wantPodSets func(job *kftraining.XGBoostJob) []kueue.PodSet
+		job                           *kftraining.XGBoostJob
+		wantPodSets                   func(job *kftraining.XGBoostJob) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -257,6 +259,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required and preferred topology annotation": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -293,10 +296,45 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
+				XGBReplicaSpecs(
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.XGBoostJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Obj(),
+					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Obj(),
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := fromObject(tc.job).PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)

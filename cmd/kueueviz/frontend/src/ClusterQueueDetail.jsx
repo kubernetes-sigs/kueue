@@ -20,6 +20,7 @@ import { useParams, Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import FlavorTable from './FlavorTable';
+import ErrorMessage from './ErrorMessage';
 
 const ClusterQueueDetail = () => {
   const { clusterQueueName } = useParams();
@@ -32,7 +33,7 @@ const ClusterQueueDetail = () => {
     if (clusterQueueData) setClusterQueue(clusterQueueData);
   }, [clusterQueueData]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   if (!clusterQueue) {
     return (

@@ -150,7 +150,6 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
-
 # kueueviz dashboard
 enableKueueViz: false
 kueueViz:
@@ -158,10 +157,8 @@ kueueViz:
     image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main"
   frontend:
     image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
-
 metrics:
   prometheusNamespace: monitoring
   serviceMonitor:
     tlsConfig:
       insecureSkipVerify: true
-

@@ -30,18 +30,18 @@ import (
 // WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
 func WorkloadsDashboardWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchDashboardData(dynamicClient)
 		})(c)
 	}
 }
 
-func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]interface{}, error) {
+func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]any, error) {
 	resourceFlavors, _ := fetchResourceFlavors(dynamicClient)
 	clusterQueues, _ := fetchClusterQueues(dynamicClient)
 	localQueues, _ := fetchLocalQueues(dynamicClient)
 	workloads := fetchWorkloadsDashboardData(dynamicClient)
-	result := map[string]interface{}{
+	result := map[string]any{
 		"flavors":       removeManagedFields(resourceFlavors),
 		"clusterQueues": removeManagedFields(clusterQueues),
 		"queues":        removeManagedFields(localQueues),
@@ -51,7 +51,7 @@ func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]interface{}
 
 }
 
-func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) interface{} {
+func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) any {
 	workloadList, err := dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		fmt.Printf("error fetching workloads: %v", err)
@@ -77,13 +77,13 @@ func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) interface{} {
 			return nil
 		}
 
-		var workloadPods []map[string]interface{}
+		var workloadPods []map[string]any
 		for _, pod := range podList.Items {
 			podLabels, _, _ := unstructured.NestedStringMap(pod.Object, "metadata", "labels")
 			controllerUID := podLabels["controller-uid"]
 			if controllerUID == jobUID {
-				podDetails := map[string]interface{}{
-					"name":   pod.Object["metadata"].(map[string]interface{})["name"],
+				podDetails := map[string]any{
+					"name":   pod.Object["metadata"].(map[string]any)["name"],
 					"status": pod.Object["status"],
 				}
 				workloadPods = append(workloadPods, podDetails)
@@ -102,13 +102,13 @@ func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) interface{} {
 			preemptionReason = reason
 		}
 
-		preemption := map[string]interface{}{"preempted": preempted, "reason": preemptionReason}
+		preemption := map[string]any{"preempted": preempted, "reason": preemptionReason}
 		unstructured.SetNestedField(workload.Object, preemption, "preemption")
 		addPodsToWorkload(&workload, workloadPods)
 		workloadsByUID[workloadUID] = workloadName
 		processedWorkloads = append(processedWorkloads, workload)
 	}
-	workloads := map[string]interface{}{
+	workloads := map[string]any{
 		"items":            processedWorkloads,
 		"workloads_by_uid": workloadsByUID,
 	}
@@ -116,9 +116,9 @@ func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) interface{} {
 	return workloads
 }
 
-func addPodsToWorkload(workload *unstructured.Unstructured, pods []map[string]interface{}) error {
-	// Convert []map[string]interface{} to []interface{}
-	var podsInterface []interface{}
+func addPodsToWorkload(workload *unstructured.Unstructured, pods []map[string]any) error {
+	// Convert []map[string]any to []any
+	var podsInterface []any
 	for _, pod := range pods {
 		podsInterface = append(podsInterface, pod)
 	}
@@ -142,14 +142,14 @@ func removeManagedFieldsFromUnstructuredList(list *unstructured.UnstructuredList
 
 // removeManagedFieldsFromUnstructured removes "managedFields" recursively from *unstructured.Unstructured
 func removeManagedFieldsFromUnstructured(obj *unstructured.Unstructured) *unstructured.Unstructured {
-	obj.Object = removeManagedFields(obj.Object).(map[string]interface{})
+	obj.Object = removeManagedFields(obj.Object).(map[string]any)
 	return obj
 }
 
 // removeManagedFields recursively removes "managedFields" from maps and slices.
-func removeManagedFields(obj interface{}) interface{} {
+func removeManagedFields(obj any) any {
 	switch val := obj.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Remove "managedFields" if present
 		delete(val, "managedFields")
 
@@ -159,7 +159,7 @@ func removeManagedFields(obj interface{}) interface{} {
 		}
 		return val
 
-	case []interface{}:
+	case []any:
 		// Recursively apply to each item in the list
 		for i, item := range val {
 			val[i] = removeManagedFields(item)

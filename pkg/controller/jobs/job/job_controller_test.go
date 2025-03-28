@@ -330,8 +330,9 @@ func TestPodSets(t *testing.T) {
 	jobTemplate := utiltestingjob.MakeJob("job", "ns")
 
 	cases := map[string]struct {
-		job         *Job
-		wantPodSets []kueue.PodSet
+		job                           *Job
+		wantPodSets                   []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no partial admission": {
 			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
@@ -340,6 +341,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"partial admission": {
 			job: (*Job)(
@@ -354,6 +356,7 @@ func TestPodSets(t *testing.T) {
 					SetMinimumCount(2).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			job: (*Job)(
@@ -370,6 +373,7 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
 			job: (*Job)(
@@ -386,10 +390,42 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"without required topology annotation if TAS is disabled": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := tc.job.PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)

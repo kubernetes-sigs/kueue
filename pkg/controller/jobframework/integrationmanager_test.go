@@ -226,7 +226,7 @@ func TestRegister(t *testing.T) {
 			}
 
 			if gotCallbacks, found := tc.manager.get(tc.integrationName); found {
-				if diff := cmp.Diff(tc.wantCallbacks, gotCallbacks, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
+				if diff := cmp.Diff(tc.wantCallbacks, gotCallbacks, cmp.FilterValues(func(_, _ any) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
 					t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
 				}
 			}
@@ -234,7 +234,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
-func compareCallbacks(x, y interface{}) bool {
+func compareCallbacks(x, y any) bool {
 	xcb := x.(IntegrationCallbacks)
 	ycb := y.(IntegrationCallbacks)
 

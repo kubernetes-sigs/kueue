@@ -25,7 +25,7 @@ import (
 
 // CohortsWebSocketHandler streams all cohorts
 func CohortsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (any, error) {
 		return fetchCohorts(dynamicClient)
 	})
 }
@@ -35,26 +35,26 @@ func CohortDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerF
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchCohortDetails(dynamicClient, cohortName)
 		})(c)
 	}
 }
 
 // Fetch all cohorts
-func fetchCohorts(dynamicClient dynamic.Interface) (interface{}, error) {
+func fetchCohorts(dynamicClient dynamic.Interface) (any, error) {
 	clusterQueues, err := fetchClusterQueuesList(dynamicClient)
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cohorts: %v", err)
 	}
-	cohorts := make(map[string]map[string]interface{})
+	cohorts := make(map[string]map[string]any)
 
 	// Iterate through cluster queue items
 	for _, item := range clusterQueues.Items {
 		// Extract spec and metadata
-		spec, specExists := item.Object["spec"].(map[string]interface{})
-		metadata, metadataExists := item.Object["metadata"].(map[string]interface{})
+		spec, specExists := item.Object["spec"].(map[string]any)
+		metadata, metadataExists := item.Object["metadata"].(map[string]any)
 		if !specExists || !metadataExists {
 			continue
 		}
@@ -73,22 +73,22 @@ func fetchCohorts(dynamicClient dynamic.Interface) (interface{}, error) {
 
 		// Initialize the cohort in the map if it doesn't exist
 		if _, exists := cohorts[cohortName]; !exists {
-			cohorts[cohortName] = map[string]interface{}{
+			cohorts[cohortName] = map[string]any{
 				"name":          cohortName,
-				"clusterQueues": []map[string]interface{}{},
+				"clusterQueues": []map[string]any{},
 			}
 		}
 
 		// Add the current cluster queue to the cohort
-		clusterQueuesList := cohorts[cohortName]["clusterQueues"].([]map[string]interface{})
-		clusterQueuesList = append(clusterQueuesList, map[string]interface{}{
+		clusterQueuesList := cohorts[cohortName]["clusterQueues"].([]map[string]any)
+		clusterQueuesList = append(clusterQueuesList, map[string]any{
 			"name": queueName,
 		})
 		cohorts[cohortName]["clusterQueues"] = clusterQueuesList
 	}
 
 	// Convert the cohorts map to a list
-	var result []map[string]interface{}
+	var result []map[string]any
 	for _, cohort := range cohorts {
 		result = append(result, cohort)
 	}
@@ -97,7 +97,7 @@ func fetchCohorts(dynamicClient dynamic.Interface) (interface{}, error) {
 }
 
 // Fetch details for a specific cohort
-func fetchCohortDetails(dynamicClient dynamic.Interface, cohortName string) (map[string]interface{}, error) {
+func fetchCohortDetails(dynamicClient dynamic.Interface, cohortName string) (map[string]any, error) {
 	// Retrieve all cluster queues
 	clusterQueues, err := fetchClusterQueuesList(dynamicClient)
 	if err != nil {
@@ -105,21 +105,21 @@ func fetchCohortDetails(dynamicClient dynamic.Interface, cohortName string) (map
 	}
 
 	// Prepare the result
-	cohortDetails := make(map[string]interface{})
+	cohortDetails := make(map[string]any)
 	cohortDetails["cohort"] = cohortName
-	cohortDetails["clusterQueues"] = []map[string]interface{}{}
+	cohortDetails["clusterQueues"] = []map[string]any{}
 
 	// Iterate through the cluster queues and filter by cohort name
 	for _, item := range clusterQueues.Items {
 		queue := item.Object
-		if queueSpec, ok := queue["spec"].(map[string]interface{}); ok {
+		if queueSpec, ok := queue["spec"].(map[string]any); ok {
 			if queueSpec["cohort"] == cohortName {
-				queueDetails := map[string]interface{}{
+				queueDetails := map[string]any{
 					"name":   item.GetName(),
 					"spec":   queueSpec,
 					"status": queue["status"],
 				}
-				cohortDetails["clusterQueues"] = append(cohortDetails["clusterQueues"].([]map[string]interface{}), queueDetails)
+				cohortDetails["clusterQueues"] = append(cohortDetails["clusterQueues"].([]map[string]any), queueDetails)
 			}
 		}
 	}

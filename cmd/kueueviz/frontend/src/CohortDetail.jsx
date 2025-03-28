@@ -19,6 +19,7 @@ import { useParams,Link } from 'react-router-dom';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const CohortDetail = () => {
   const { cohortName } = useParams();
@@ -33,7 +34,7 @@ const CohortDetail = () => {
     }
   }, [cohortData]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   if (!cohortDetails) {
     return (

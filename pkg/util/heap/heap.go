@@ -82,7 +82,7 @@ func (h *data[T]) Swap(i, j int) {
 }
 
 // Push is supposed to be called by heap.Push only.
-func (h *data[T]) Push(kv interface{}) {
+func (h *data[T]) Push(kv any) {
 	keyValue := kv.(itemKeyValue[T])
 	h.items[keyValue.key] = &heapItem[T]{
 		obj:   keyValue.obj,
@@ -92,7 +92,7 @@ func (h *data[T]) Push(kv interface{}) {
 }
 
 // Pop is supposed to be called by heap.Pop only.
-func (h *data[T]) Pop() interface{} {
+func (h *data[T]) Pop() any {
 	key := h.keys[len(h.keys)-1]
 	h.keys = h.keys[:len(h.keys)-1]
 	item, ok := h.items[key]

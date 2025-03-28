@@ -78,3 +78,39 @@ tbody.tr.td {
 .pod-reason-column {
   width: 40%;
 }
+
+.error-message {
+  padding: 20px;
+  margin: 20px;
+  background-color: #ffe6e6;
+  text-align: left;
+  border: 1px solid red;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(255, 0, 0, 0.1);
+}
+
+.error-details-container {
+  margin-top: 8px;
+  text-align: left;
+  background-color: #ffe6e6;
+  border-radius: 5px;
+  overflow: -moz-scrollbars-vertical; 
+  overflow-y: scroll;
+}
+
+.error-details-content {
+  margin-top: 8px;
+  padding: 16px;
+  background-color: #ffe6e6;
+  border-radius: 4px;
+  border: 1px solid #EEE;
+  max-height: 300px;
+  overflow: auto;
+  text-align: left;
+}
+
+.error-details-text {
+  font-family: monospace;
+  white-space: pre-wrap;
+  text-align: left;
+}

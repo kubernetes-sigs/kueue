@@ -103,7 +103,7 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 }
 
 func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
-	shape := map[string]interface{}{
+	shape := map[string]any{
 		"spec": SpecShape(podSpec),
 	}
 
@@ -116,8 +116,8 @@ func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
 }
 
-func SpecShape(podSpec *corev1.PodSpec) (result map[string]interface{}) {
-	return map[string]interface{}{
+func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
+	return map[string]any{
 		"initContainers":            ContainersShape(podSpec.InitContainers),
 		"containers":                ContainersShape(podSpec.Containers),
 		"nodeSelector":              podSpec.NodeSelector,
@@ -131,10 +131,10 @@ func SpecShape(podSpec *corev1.PodSpec) (result map[string]interface{}) {
 	}
 }
 
-func ContainersShape(containers []corev1.Container) (result []map[string]interface{}) {
+func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 	for _, c := range containers {
-		result = append(result, map[string]interface{}{
-			"resources": map[string]interface{}{
+		result = append(result, map[string]any{
+			"resources": map[string]any{
 				"requests": c.Resources.Requests,
 			},
 			"ports": c.Ports,

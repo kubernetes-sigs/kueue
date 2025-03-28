@@ -26,9 +26,9 @@ import (
 )
 
 func WorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (any, error) {
 		workloads, err := fetchWorkloads(dynamicClient)
-		result := map[string]interface{}{
+		result := map[string]any{
 			"workloads": workloads,
 		}
 		return result, err
@@ -39,13 +39,13 @@ func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchWorkloadDetails(dynamicClient, namespace, workloadName)
 		})(c)
 	}
 }
 
-func fetchWorkloads(dynamicClient dynamic.Interface) (interface{}, error) {
+func fetchWorkloads(dynamicClient dynamic.Interface) (any, error) {
 	result, err := dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching resource flavors: %v", err)
@@ -53,7 +53,7 @@ func fetchWorkloads(dynamicClient dynamic.Interface) (interface{}, error) {
 	return result, nil
 }
 
-func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadName string) (interface{}, error) {
+func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
 	// Fetch the workload details
 	workload, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).Get(context.TODO(), workloadName, metav1.GetOptions{})
 	if err != nil {
@@ -62,21 +62,21 @@ func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadNa
 
 	// Add preemption details if available
 	preempted := false
-	if status, ok := workload.Object["status"].(map[string]interface{}); ok {
+	if status, ok := workload.Object["status"].(map[string]any); ok {
 		preempted, _ = status["preempted"].(bool)
 	}
 	preemptionReason := "None"
-	if reason, ok := workload.Object["status"].(map[string]interface{})["preemptionReason"].(string); ok {
+	if reason, ok := workload.Object["status"].(map[string]any)["preemptionReason"].(string); ok {
 		preemptionReason = reason
 	}
-	workload.Object["preemption"] = map[string]interface{}{
+	workload.Object["preemption"] = map[string]any{
 		"preempted": preempted,
 		"reason":    preemptionReason,
 	}
 
 	// Get the local queue name from workload's spec
 	localQueueName := ""
-	if spec, ok := workload.Object["spec"].(map[string]interface{}); ok {
+	if spec, ok := workload.Object["spec"].(map[string]any); ok {
 		localQueueName, _ = spec["queueName"].(string)
 	}
 
@@ -87,7 +87,7 @@ func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadNa
 			return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
 		}
 		// Retrieve the targeted cluster queue name from the local queue's spec
-		if spec, ok := localQueue.Object["spec"].(map[string]interface{}); ok {
+		if spec, ok := localQueue.Object["spec"].(map[string]any); ok {
 			clusterQueueName, _ := spec["clusterQueue"].(string)
 			workload.Object["clusterQueueName"] = clusterQueueName
 		} else {
@@ -105,13 +105,13 @@ func WorkloadEventsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handler
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
 
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchWorkloadEvents(dynamicClient, namespace, workloadName)
 		})(c)
 	}
 }
 
-func fetchWorkloadEvents(dynamicClient dynamic.Interface, namespace, workloadName string) (interface{}, error) {
+func fetchWorkloadEvents(dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
 	result, err := dynamicClient.Resource(EventsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", workloadName),
 	})
@@ -119,7 +119,7 @@ func fetchWorkloadEvents(dynamicClient dynamic.Interface, namespace, workloadNam
 		return nil, fmt.Errorf("error fetching events for workload %s: %v", workloadName, err)
 	}
 
-	var events []map[string]interface{}
+	var events []map[string]any
 	for _, item := range result.Items {
 		events = append(events, item.Object)
 	}

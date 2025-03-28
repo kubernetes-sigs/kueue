@@ -19,6 +19,7 @@ import { Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
 import './App.css';
+import ErrorMessage from './ErrorMessage';
 
 const ClusterQueues = () => {
   const { data: clusterQueues, error } = useWebSocket('/ws/cluster-queues');
@@ -30,7 +31,7 @@ const ClusterQueues = () => {
     }
   }, [clusterQueues]);
 
-  if (error) return <Typography color="error">{error}</Typography>;
+  if (error) return <ErrorMessage error={error} />;
 
   return (
     <Paper style={{ padding: '16px', marginTop: '20px' }}>
