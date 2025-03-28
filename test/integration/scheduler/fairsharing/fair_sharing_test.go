@@ -18,20 +18,15 @@ package fairsharing
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -130,7 +125,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
-			finishRunningWorkloadsInCQ(cqA, 4)
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 4)
 
 			// Admits 1 from cqA and 3 from cqB.
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 5)
@@ -142,7 +137,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Terminating 2 more running workloads in cqA: cqB starts to take over shared quota")
-			finishRunningWorkloadsInCQ(cqA, 2)
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 2)
 
 			// Admits last 1 from cqA and 1 from cqB.
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 4)
@@ -263,7 +258,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cqB, 5, 0)
 
 			ginkgo.By("Finishing eviction of 4 running workloads in cqA: shared quota is fair-shared")
-			finishEvictionOfWorkloadsInCQ(cqA, 4)
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 4)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
 			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
@@ -278,7 +273,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
-			finishEvictionOfWorkloadsInCQ(cqA, 1)
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
 			util.ExpectClusterQueueWeightedShareMetric(cqA, 111)
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
@@ -295,39 +290,3 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 })
-
-func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
-	var wList kueue.WorkloadList
-	gomega.ExpectWithOffset(1, k8sClient.List(ctx, &wList)).To(gomega.Succeed())
-	finished := 0
-	for i := 0; i < len(wList.Items) && finished < n; i++ {
-		wl := wList.Items[i]
-		if wl.Status.Admission != nil && string(wl.Status.Admission.ClusterQueue) == cq.Name && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			util.FinishWorkloads(ctx, k8sClient, &wl)
-			finished++
-		}
-	}
-	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
-}
-
-func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
-	finished := sets.New[types.UID]()
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		var wList kueue.WorkloadList
-		g.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
-		for i := 0; i < len(wList.Items) && finished.Len() < n; i++ {
-			wl := wList.Items[i]
-			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
-				continue
-			}
-			evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
-			quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if evicted && quotaReserved {
-				workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true)).To(gomega.Succeed())
-				finished.Insert(wl.UID)
-			}
-		}
-		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}

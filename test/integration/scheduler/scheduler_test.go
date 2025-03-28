@@ -2466,4 +2466,153 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+	ginkgo.When("Reserving Resources in Cohort", func() {
+		var (
+			cqs []*kueue.ClusterQueue
+			lqs []*kueue.LocalQueue
+			wls []*kueue.Workload
+		)
+
+		var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			cqs = append(cqs, cq)
+
+			lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			lqs = append(lqs, lq)
+			return cq
+		}
+
+		var createWorkloadWithPriority = func(queue string, cpuRequests string, priority int32) *kueue.Workload {
+			wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+				Priority(priority).
+				Queue(queue).
+				Request(corev1.ResourceCPU, cpuRequests).Obj()
+			wls = append(wls, wl)
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			return wl
+		}
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			for _, wl := range wls {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}
+			for _, lq := range lqs {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			}
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			for _, cq := range cqs {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("foundation-queue allows best-effort queue to use capacity until it is ready to admit next workload", func() {
+			cq1 := createQueue(testing.MakeClusterQueue("foundation-queue").
+				Cohort("cohort").
+				QueueingStrategy(kueue.StrictFIFO).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Obj(),
+				).Obj())
+
+			cq2 := createQueue(testing.MakeClusterQueue("best-effort-queue").
+				Cohort("cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "0").
+					Obj(),
+				).Obj())
+
+			ginkgo.By("creating first foundation workload which admits immediately")
+			createWorkloadWithPriority("foundation-queue", "1", 1000)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+
+			ginkgo.By("creating second foundation workload which cannot admit")
+			createWorkloadWithPriority("foundation-queue", "2", 1000)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 0)
+
+			ginkgo.By("creating best-effort workloads - 1 can admit; 1 is pending")
+			createWorkloadWithPriority("best-effort-queue", "1", 0)
+			createWorkloadWithPriority("best-effort-queue", "1", 0)
+
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 1)
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
+
+			ginkgo.By("finish first foundation workload")
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 0)
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 0)
+
+			ginkgo.By("no new best-effort workloads admitted as foundation workload is trying to schedule")
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 1)
+			util.ExpectPendingWorkloadsMetric(cq2, 1, 0)
+
+			ginkgo.By("second foundation workload reclaims capacity from a best-effort workload")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 1)
+
+			ginkgo.By("second foundation workload admitted")
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+
+			ginkgo.By("preempted best-effort workload back to pending")
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 2)
+		})
+
+		ginkgo.It("foundation-queue blocks capacity when it is not sure that it can reclaim", func() {
+			cq1 := createQueue(testing.MakeClusterQueue("foundation-queue").
+				Cohort("cohort").
+				QueueingStrategy(kueue.StrictFIFO).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				}).
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Obj(),
+				).Obj())
+
+			cq2 := createQueue(testing.MakeClusterQueue("best-effort-queue").
+				Cohort("cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "0").
+					Obj(),
+				).Obj())
+
+			ginkgo.By("creating first foundation workload which admits immediately")
+			createWorkloadWithPriority("foundation-queue", "1", 1000)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+
+			ginkgo.By("creating second foundation workload which cannot admit")
+			createWorkloadWithPriority("foundation-queue", "2", 1000)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 0)
+
+			ginkgo.By("creating best-effort workloads - neither can admit")
+			createWorkloadWithPriority("best-effort-queue", "1", 0)
+			createWorkloadWithPriority("best-effort-queue", "1", 0)
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 2, 0)
+
+			ginkgo.By("finish first foundation workload")
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
+
+			ginkgo.By("best-effort workloads not admitted as foundation workload has priority")
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 2, 0)
+
+			ginkgo.By("second foundation workload admitted")
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+		})
+	})
 })
