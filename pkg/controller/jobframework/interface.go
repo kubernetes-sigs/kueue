@@ -164,6 +164,10 @@ type JobWithManagedBy interface {
 	SetManagedBy(*string)
 }
 
+type JobWithCustomManagedOwnersChain interface {
+	ManagedOwnersChain(ctx context.Context, c client.Client, record record.EventRecorder) ([]client.Object, error)
+}
+
 func QueueName(job GenericJob) string {
 	return QueueNameForObject(job.Object())
 }

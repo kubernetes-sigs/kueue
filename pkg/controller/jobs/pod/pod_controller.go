@@ -161,6 +161,7 @@ var (
 	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
+	_ jobframework.JobWithCustomManagedOwnersChain = (*Pod)(nil)
 )
 
 type options struct {
@@ -318,6 +319,13 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 		return nil
 	})
+}
+
+func (p *Pod) ManagedOwnersChain(ctx context.Context, c client.Client, record record.EventRecorder) ([]client.Object, error) {
+	if p.isServing() {
+		return nil, nil
+	}
+	return jobframework.ManagedOwnersChain(ctx, c, record, p.Object())
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
