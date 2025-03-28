@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -164,19 +163,13 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
-		if owner := metav1.GetControllerOf(pod.Object()); owner != nil {
-			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
-				// ReplicaSet is an implementation detail; skip over it to the user-facing framework
-				rs := &appsv1.ReplicaSet{}
-				err := w.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: pod.pod.GetNamespace()}, rs)
-				if err != nil {
-					return fmt.Errorf("failed to get replicaset: %w", err)
-				}
-				owner = metav1.GetControllerOf(rs)
-			}
-			if owner != nil && jobframework.IsOwnerIntegrationEnabled(owner) {
-				return nil
-			}
+		owner, err := jobframework.GetJobOwner(ctx, w.client, pod.Object())
+		if err != nil {
+			return err
+		}
+
+		if owner != nil && jobframework.IsOwnerIntegrationEnabled(owner) {
+			return nil
 		}
 
 		// Local queue defaulting

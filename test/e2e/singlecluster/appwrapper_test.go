@@ -24,8 +24,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
+	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -74,7 +76,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.It("Should admit workloads that fit", func() {
+	ginkgo.It("Should admit Workload for Job", func() {
 		numPods := 2
 		aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
 			Component(awtesting.Component{
@@ -111,6 +113,51 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 
 		ginkgo.By("Delete the appwrapper", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aw, true)
+		})
+	})
+
+	ginkgo.It("Should admit Workload for Deployment Pods", func() {
+		replicas := int32(3)
+		aw := awtesting.MakeAppWrapper("aw", ns.Name).
+			Queue(lq.Name).
+			Suspend(true).
+			Component(awtesting.Component{
+				Template: testingdeploy.MakeDeployment("deployment", ns.Name).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					RequestAndLimit(corev1.ResourceCPU, "200m").
+					TerminationGracePeriod(1).
+					Replicas(3).
+					SetTypeMeta().
+					Obj(),
+				DeclaredPodSets: []awv1beta2.AppWrapperPodSet{{
+					Replicas: &replicas,
+					Path:     "template.spec.template",
+				}},
+			}).
+			Obj()
+
+		ginkgo.By("Creating an AppWrapper", func() {
+			gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Wait for AppWrapper to be unsuspended", func() {
+			createdAppWrapper := &awv1beta2.AppWrapper{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Wait for Workload to be admitted", func() {
+			wlKey := client.ObjectKey{
+				Name:      appwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID),
+				Namespace: aw.Namespace,
+			}
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

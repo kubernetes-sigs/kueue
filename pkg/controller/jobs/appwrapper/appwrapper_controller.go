@@ -205,18 +205,18 @@ func (aw *AppWrapper) PodsReady() bool {
 	return meta.IsStatusConditionTrue(aw.Status.Conditions, string(awv1beta2.PodsReady))
 }
 
-func (j *AppWrapper) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
+func (aw *AppWrapper) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := aw.Spec.ManagedBy
 	return features.Enabled(features.MultiKueue) &&
 		(jobSpecManagedBy == nil || *jobSpecManagedBy == awv1beta2.AppWrapperControllerName)
 }
 
-func (j *AppWrapper) ManagedBy() *string {
-	return j.Spec.ManagedBy
+func (aw *AppWrapper) ManagedBy() *string {
+	return aw.Spec.ManagedBy
 }
 
-func (j *AppWrapper) SetManagedBy(managedBy *string) {
-	j.Spec.ManagedBy = managedBy
+func (aw *AppWrapper) SetManagedBy(managedBy *string) {
+	aw.Spec.ManagedBy = managedBy
 }
 
 func GetWorkloadNameForAppWrapper(jobName string, jobUID types.UID) string {

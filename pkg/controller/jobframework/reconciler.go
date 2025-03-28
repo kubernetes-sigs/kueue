@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -293,7 +294,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	isTopLevelJob := true
-	objectOwner := metav1.GetControllerOf(object)
+	objectOwner, err := GetJobOwner(ctx, r.client, object)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
 		isTopLevelJob = false
 	}
@@ -608,7 +612,10 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 		}
 		seen.Insert(currentJob.GetUID())
 
-		owner := metav1.GetControllerOf(currentJob)
+		owner, err := GetJobOwner(ctx, r.client, jobObj)
+		if err != nil {
+			return nil, err
+		}
 		if owner == nil || !IsOwnerManagedByKueue(owner) {
 			return nil, nil
 		}
@@ -634,6 +641,25 @@ func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj
 			return nil, nil
 		}
 	}
+}
+
+func GetJobOwner(ctx context.Context, c client.Client, jobObj client.Object) (*metav1.OwnerReference, error) {
+	owner := metav1.GetControllerOf(jobObj)
+	if owner == nil {
+		return nil, nil
+	}
+
+	if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
+		// ReplicaSet is an implementation detail; skip over it to the user-facing framework
+		rs := &appsv1.ReplicaSet{}
+		err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, rs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get replicaset: %w", err)
+		}
+		owner = metav1.GetControllerOf(rs)
+	}
+
+	return owner, nil
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.

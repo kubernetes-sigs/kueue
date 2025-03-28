@@ -160,3 +160,9 @@ func (d *DeploymentWrapper) TerminationGracePeriod(seconds int64) *DeploymentWra
 	d.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
 	return d
 }
+
+func (d *DeploymentWrapper) SetTypeMeta() *DeploymentWrapper {
+	d.APIVersion = appsv1.SchemeGroupVersion.String()
+	d.Kind = "Deployment"
+	return d
+}
