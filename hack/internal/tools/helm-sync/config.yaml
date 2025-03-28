@@ -1,0 +1,156 @@
+files:
+  - path: ../../../../config/components/crd/bases/*.yaml
+    output_dir: ../../../../charts/kueue/templates/crd/
+    excludes:
+      - kustomization.yaml
+    operations:
+      - type: "INSERT_TEXT"
+        key: ".metadata.annotations"
+        value: |
+          {{- if .Values.enableCertManager }}
+          cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
+          {{- end }}
+        indentation: 2
+      - type: "INSERT_OBJECT"
+        key: ".spec"
+        value: |
+          conversion:
+              strategy: Webhook
+              webhook:
+                clientConfig:
+                  service:
+                    name: '{{ include "kueue.fullname" . }}-webhook-service'
+                    namespace: '{{ .Release.Namespace }}'
+                    path: /convert
+                conversionReviewVersions:
+                  - v1
+      - type: "INSERT_TEXT"
+        key: ".metadata"
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+  - path: ../../../../config/components/rbac/*.yaml
+    output_dir: ../../../../charts/kueue/templates/rbac
+    excludes:
+      - kustomization.yaml
+    remove_separators: true
+    operations:
+      - type: "APPEND"
+        key: ".metadata.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "UPDATE"
+        key: ".metadata.namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "APPEND"
+        key: ".roleRef.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "APPEND"
+        key: ".subjects.[].name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "UPDATE"
+        key: ".subjects.[].namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "INSERT_TEXT"
+        key: ".metadata.labels"
+        value: |
+          {{- include "kueue.labels" . | nindent 4 }}
+      - type: "INSERT_TEXT"
+        key: ".metadata"
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+        on_condition: ".metadata.labels == null"
+  - path: ../../../../config/components/visibility/*.yaml
+    output_dir: ../../../../charts/kueue/templates/visibility
+    excludes:
+      - kustomization.yaml
+    operations:
+      - type: "APPEND"
+        key: ".metadata.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        on_condition: ".metadata.name != \"v1beta*\""
+      - type: "UPDATE"
+        key: ".metadata.namespace"
+        value: '"{{ .Release.Namespace }}"'
+        on_condition: ".metadata.namespace != \"kube-system\""
+      - type: "APPEND"
+        key: ".spec.service.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "UPDATE"
+        key: ".spec.service.namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "UPDATE"
+        key: ".subjects.[].namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "INSERT_TEXT"
+        key: ".metadata"
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: "INSERT_TEXT"
+        key: ".spec"
+        value: |
+          selector:
+          {{- include "kueue.selectorLabels" . | nindent 4 }}
+        indentation: 2
+        on_condition: ".kind == \"Service\""
+  - path: ../../../../config/components/visibility-apf/*.yaml
+    output_dir: ../../../../charts/kueue/templates/visibility-apf
+    excludes:
+      - kustomization.yaml
+    operations:
+      - type: "APPEND"
+        key: ".metadata.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "UPDATE"
+        key: ".metadata.namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "INSERT_TEXT"
+        key: ".metadata"
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: "INSERT_TEXT"
+        position: "START"
+        value: |
+          {{- if .Values.enableVisibilityAPF }}
+      - type: "INSERT_TEXT"
+        position: "END"
+        value: |
+          {{- end }}
+  - path: ../../../../config/components/webhook/service.yaml
+    output_dir: ../../../../charts/kueue/templates/webhook
+    operations:
+      - type: "APPEND"
+        key: ".metadata.name"
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: "UPDATE"
+        key: ".metadata.namespace"
+        value: '"{{ .Release.Namespace }}"'
+      - type: "INSERT_TEXT"
+        key: ".metadata"
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: "INSERT_OBJECT"
+        key: ".spec.type"
+        value: '"{{ .Values.webhookService.type }}"'
+        add_key_if_missing: true
+      - type: "DELETE"
+        key: ".spec.ports"
+      - type: "INSERT_TEXT"
+        key: ".spec.type"
+        value: |
+          {{- if .Values.webhookService.ipDualStack.enabled }}
+          ipFamilies: {{ toYaml .Values.webhookService.ipDualStack.ipFamilies | nindent 4 }}
+          ipFamilyPolicy: {{ .Values.webhookService.ipDualStack.ipFamilyPolicy }}
+          {{- end }}
+          selector:
+          {{- include "kueue.selectorLabels" . | nindent 4 }}
+          ports:
+          {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
