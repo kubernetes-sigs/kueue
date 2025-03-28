@@ -255,7 +255,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
-			got, gotErr := IsAncestorJobManaged(ctx, cl, recorder, tc.job, jobNamespace)
+			got, gotErr := IsAncestorJobManaged(ctx, cl, recorder, tc.job)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from IsAncestorJobManaged want: %v,got: %v", tc.wantManaged, got)
 			}
