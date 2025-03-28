@@ -31,12 +31,14 @@ import (
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -50,13 +52,15 @@ func TestIsAncestorJobManaged(t *testing.T) {
 	childJobName := "test-job-child"
 	jobNamespace := "default"
 	cases := map[string]struct {
-		ancestors   []client.Object
-		job         client.Object
-		wantManaged bool
-		wantErr     error
-		wantEvents  []utiltesting.EventRecord
+		integrations []string
+		ancestors    []client.Object
+		job          client.Object
+		wantManaged  bool
+		wantErr      error
+		wantEvents   []utiltesting.EventRecord
 	}{
 		"child job has ownerReference with unmanaged workload owner": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingjob.MakeJob(parentJobName, jobNamespace).UID(parentJobName).Obj(),
 			},
@@ -64,14 +68,17 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("CronJob")).
 				Obj(),
 			wantManaged: false,
+			wantErr:     ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known non-existing workload owner": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job has queue-name label": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -84,6 +91,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: true,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job doesn't has queue-name label": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -94,6 +102,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				Obj(),
 		},
 		"child job has managed parent and grandparent and grandparent has a queue-name label": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -110,6 +119,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: true,
 		},
 		"child job has managed parent and grandparent and grandparent doesn't have a queue-name label": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -125,6 +135,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: false,
 		},
 		"cyclic ownership links are properly handled": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
 					UID(grandparentJobName).
@@ -141,6 +152,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			wantManaged: false,
 		},
 		"cuts off ancestor traversal at the limit and generates an appropriate event": {
+			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
 			ancestors: []client.Object{
 				testingjob.MakeJob("ancestor-0", jobNamespace).UID("ancestor-0").Queue("test-q").Obj(),
 				testingjob.MakeJob("ancestor-1", jobNamespace).UID("ancestor-1").OwnerReference("ancestor-0", batchv1.SchemeGroupVersion.WithKind("Job")).Obj(),
@@ -168,20 +180,35 @@ func TestIsAncestorJobManaged(t *testing.T) {
 				},
 			},
 		},
+		"child Job has an unmanaged parent but a managed grandparent, and the grandparent has a queue-name label": {
+			integrations: []string{"batch/job", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").
+					Queue("test-q").
+					Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Obj(),
+			wantManaged: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"))
+			t.Cleanup(EnableIntegrationsForTest(t, tc.integrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
-			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme)
+			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme, v1alpha2.AddToScheme)
 			builder = builder.WithObjects(tc.ancestors...)
 			if tc.job != nil {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
 			r := NewReconciler(cl, recorder)
-			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job, jobNamespace)
+			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from IsAncestorJobManaged want: %v,got: %v", tc.wantManaged, got)
 			}
