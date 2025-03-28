@@ -582,7 +582,7 @@ func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -591,7 +591,7 @@ func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [
 }
 
 func expectMetricsNotToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
