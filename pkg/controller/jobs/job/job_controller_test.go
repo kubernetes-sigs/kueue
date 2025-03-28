@@ -2207,6 +2207,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
+					UID("parent").
 					Queue("queue").
 					Obj(),
 			},
