@@ -724,17 +724,17 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	}
 
 	cohort := c.hm.Cohort(cqObj.Spec.Cohort)
-	if cohort == nil {
+	if cohort == nil || !cohort.HasParent() {
 		return nil, nil
 	}
 	if hierarchy.HasCycle(cohort) {
 		return nil, ErrCohortHasCycle
 	}
-
-	var ancestors []kueue.CohortReference
+	ancestors := []kueue.CohortReference{cohort.Name} // PathToRoot does not include self
 	for ancestor := range cohort.PathToRoot() {
 		ancestors = append(ancestors, ancestor.Name)
 	}
+	ancestors = ancestors[:len(ancestors)-1] // remove root element
 
 	return ancestors, nil
 }

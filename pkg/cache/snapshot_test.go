@@ -40,7 +40,7 @@ import (
 var snapCmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }

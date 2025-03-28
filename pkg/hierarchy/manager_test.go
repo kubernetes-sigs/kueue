@@ -512,7 +512,7 @@ func (t *testCohort) CCParent() CycleCheckable {
 
 type testClusterQueue struct {
 	name kueue.ClusterQueueReference
-	ClusterQueue[*testCohort]
+	ClusterQueue[*testClusterQueue, *testCohort]
 }
 
 func newCq(name kueue.ClusterQueueReference) *testClusterQueue {
