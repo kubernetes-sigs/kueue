@@ -51,7 +51,7 @@ var (
 )
 
 type ClusterQueue struct {
-	hierarchy.ClusterQueue[*cohort]
+	hierarchy.ClusterQueue[*ClusterQueue, *cohort]
 	name              kueue.ClusterQueueReference
 	heap              heap.Heap[workload.Info]
 	namespaceSelector labels.Selector

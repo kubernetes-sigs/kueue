@@ -33,13 +33,12 @@ func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
 func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
-	cohort := t.targetCq.Parent()
-	for {
+	for cohort := range t.targetCq.PathToRoot() {
 		if t.ordering.onPathFromRootToPreemptorCQ(cohort) {
 			return cohort
 		}
-		cohort = cohort.Parent()
 	}
+	return nil
 }
 
 // getAlmostLCA traverses from a ClusterQueue towards the root,
@@ -49,11 +48,12 @@ func getAlmostLCA(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) alm
 	if cq.Parent() == lca {
 		return cq
 	}
-	cohort := cq.Parent()
-	for {
-		if cohort.Parent() == lca {
-			return cohort
+	var toReturn almostLCA
+	for ancestor := range cq.PathToRoot() {
+		if ancestor == lca {
+			return toReturn
 		}
-		cohort = cohort.Parent()
+		toReturn = ancestor
 	}
+	return nil
 }

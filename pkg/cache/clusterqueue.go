@@ -83,7 +83,7 @@ type clusterQueue struct {
 	workloadInfoOptions                             []workload.InfoOption
 
 	resourceNode ResourceNode
-	hierarchy.ClusterQueue[*cohort]
+	hierarchy.ClusterQueue[*clusterQueue, *cohort]
 
 	tasCache *TASCache
 }

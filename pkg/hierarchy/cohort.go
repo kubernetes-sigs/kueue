@@ -17,13 +17,13 @@ limitations under the License.
 package hierarchy
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
+	"iter"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 //lint:ignore U1000 due to https://github.com/dominikh/go-tools/issues/1602.
-type Cohort[CQ clusterQueueNode[C], C nodeBase[kueue.CohortReference]] struct {
+type Cohort[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
 	parent       C
 	childCohorts sets.Set[C]
 	childCqs     sets.Set[CQ]
@@ -54,7 +54,7 @@ func (c *Cohort[CQ, C]) ChildCount() int {
 	return c.childCohorts.Len() + c.childCqs.Len()
 }
 
-func NewCohort[CQ clusterQueueNode[C], C nodeBase[kueue.CohortReference]]() Cohort[CQ, C] {
+func NewCohort[CQ clusterQueueNode[C], C cohortNode[CQ, C]]() Cohort[CQ, C] {
 	return Cohort[CQ, C]{
 		childCohorts: sets.New[C](),
 		childCqs:     sets.New[CQ](),
@@ -93,4 +93,15 @@ func (c *Cohort[CQ, C]) isExplicit() bool {
 
 func (c *Cohort[CQ, C]) markExplicit() {
 	c.explicit = true
+}
+
+func (c *Cohort[CQ, C]) PathToRoot() iter.Seq[C] {
+	// Yields an iterator that traverses the nodes ancestors to the root node
+	// does not yield the passed node
+	return func(yield func(C) bool) {
+		ancestor := c.Parent()
+		for yield(ancestor) && ancestor.HasParent() {
+			ancestor = ancestor.Parent()
+		}
+	}
 }

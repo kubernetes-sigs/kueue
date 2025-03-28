@@ -16,23 +16,33 @@ limitations under the License.
 
 package hierarchy
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+import "iter"
 
-type ClusterQueue[C nodeBase[kueue.CohortReference]] struct {
+type ClusterQueue[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
 	cohort C
 }
 
-func (c *ClusterQueue[C]) Parent() C {
+func (c *ClusterQueue[CQ, C]) Parent() C {
 	return c.cohort
 }
 
-func (c *ClusterQueue[C]) HasParent() bool {
+func (c *ClusterQueue[CQ, C]) HasParent() bool {
 	var zero C
 	return c.Parent() != zero
 }
 
 // implements clusterQueueNode interface
 
-func (c *ClusterQueue[C]) setParent(cohort C) {
+func (c *ClusterQueue[CQ, C]) setParent(cohort C) {
 	c.cohort = cohort
+}
+
+func (c *ClusterQueue[CQ, C]) PathToRoot() iter.Seq[C] {
+	return func(yield func(C) bool) {
+		var zero C
+		cohort := c.Parent()
+		for yield(cohort) && cohort != zero && cohort.HasParent() {
+			cohort = cohort.Parent()
+		}
+	}
 }
