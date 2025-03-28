@@ -568,14 +568,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			jobName := "job-1"
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
 				Queue(managerLq.Name).
-				Component(testingjob.MakeJob(jobName, managerNs.Name).
-					SetTypeMeta().
-					Suspend(false).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
-					Parallelism(2).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					TerminationGracePeriod(1).
-					SetTypeMeta().Obj()).
+				Component(testingaw.Component{
+					Template: testingjob.MakeJob(jobName, managerNs.Name).
+						SetTypeMeta().
+						Suspend(false).
+						Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
+						Parallelism(2).
+						RequestAndLimit(corev1.ResourceCPU, "1").
+						TerminationGracePeriod(1).
+						SetTypeMeta().Obj(),
+				}).
 				Obj()
 
 			ginkgo.By("Creating the appwrapper", func() {

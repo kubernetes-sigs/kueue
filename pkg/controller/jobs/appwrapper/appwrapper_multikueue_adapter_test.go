@@ -49,7 +49,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 
 	baseAppWrapperBuilder := utiltestingaw.MakeAppWrapper("aw1", TestNamespace).
-		Component(utiltestingjob.MakeJob("job", "ns").SetTypeMeta().Parallelism(2).Obj())
+		Component(utiltestingaw.Component{
+			Template: utiltestingjob.MakeJob("job", "ns").SetTypeMeta().Parallelism(2).Obj(),
+		})
 	baseAppWrapperManagedByKueueBuilder := baseAppWrapperBuilder.DeepCopy().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {

@@ -96,39 +96,26 @@ func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
 }
 
 // OwnerReference adds a ownerReference to the default container.
-func (j *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
-	j.ObjectMeta.OwnerReferences = append(j.ObjectMeta.OwnerReferences, metav1.OwnerReference{
+func (aw *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
+	aw.ObjectMeta.OwnerReferences = append(aw.ObjectMeta.OwnerReferences, metav1.OwnerReference{
 		APIVersion: ownerGVK.GroupVersion().String(),
 		Kind:       ownerGVK.Kind,
 		Name:       ownerName,
 		UID:        types.UID(ownerName),
 		Controller: ptr.To(true),
 	})
-	return j
-}
-
-// Component adds a component to the AppWrapper
-func (aw *AppWrapperWrapper) Component(comp runtime.Object) *AppWrapperWrapper {
-	data, err := json.Marshal(comp)
-	if err == nil {
-		// See https://github.com/project-codeflare/codeflare-operator/pull/630
-		// The root cause is that the Kubernetes API defines creationTimestamp as a struct instead of a pointer
-		patchedData := strings.ReplaceAll(string(data), `"metadata":{"creationTimestamp":null},`, "")
-		patchedData = strings.ReplaceAll(patchedData, `"metadata":{"creationTimestamp":null,`, `"metadata":{`)
-		patchedData = strings.ReplaceAll(patchedData, `"creationTimestamp":null,`, "")
-		awc := awv1beta2.AppWrapperComponent{
-			Template: runtime.RawExtension{
-				Raw: []byte(patchedData),
-			},
-		}
-		aw.AppWrapper.Spec.Components = append(aw.AppWrapper.Spec.Components, awc)
-	}
 	return aw
 }
 
-// ComponentWithInfos adds a component to the AppWrapper
-func (aw *AppWrapperWrapper) ComponentWithInfos(comp runtime.Object, infos ...awv1beta2.AppWrapperPodSetInfo) *AppWrapperWrapper {
-	data, err := json.Marshal(comp)
+type Component struct {
+	DeclaredPodSets []awv1beta2.AppWrapperPodSet
+	Template        runtime.Object
+	PodSetInfos     []awv1beta2.AppWrapperPodSetInfo
+}
+
+// Component adds a component to the AppWrapper
+func (aw *AppWrapperWrapper) Component(component Component) *AppWrapperWrapper {
+	data, err := json.Marshal(component.Template)
 	if err == nil {
 		// See https://github.com/project-codeflare/codeflare-operator/pull/630
 		// The root cause is that the Kubernetes API defines creationTimestamp as a struct instead of a pointer
@@ -136,10 +123,11 @@ func (aw *AppWrapperWrapper) ComponentWithInfos(comp runtime.Object, infos ...aw
 		patchedData = strings.ReplaceAll(patchedData, `"metadata":{"creationTimestamp":null,`, `"metadata":{`)
 		patchedData = strings.ReplaceAll(patchedData, `"creationTimestamp":null,`, "")
 		awc := awv1beta2.AppWrapperComponent{
+			DeclaredPodSets: component.DeclaredPodSets,
+			PodSetInfos:     component.PodSetInfos,
 			Template: runtime.RawExtension{
 				Raw: []byte(patchedData),
 			},
-			PodSetInfos: infos,
 		}
 		aw.AppWrapper.Spec.Components = append(aw.AppWrapper.Spec.Components, awc)
 	}

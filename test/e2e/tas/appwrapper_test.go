@@ -83,15 +83,17 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 			numPods := 4
 
 			aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).
-					Parallelism(int32(numPods)).
-					Completions(int32(numPods)).
-					RequestAndLimit(corev1.ResourceCPU, "200m").
-					RequestAndLimit(extraResource, "1").
-					Suspend(false).
-					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
-					SetTypeMeta().Obj()).
+				Component(awtesting.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).
+						Parallelism(int32(numPods)).
+						Completions(int32(numPods)).
+						RequestAndLimit(corev1.ResourceCPU, "200m").
+						RequestAndLimit(extraResource, "1").
+						Suspend(false).
+						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+						SetTypeMeta().Obj(),
+				}).
 				Queue(localQueue.Name).
 				Obj()
 
@@ -136,7 +138,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				SetTypeMeta().
 				Obj()
 			aw := awtesting.MakeAppWrapper("aw-ranks-job", ns.Name).
-				Component(wrappedJob).
+				Component(awtesting.Component{Template: wrappedJob}).
 				Queue(localQueue.Name).
 				Obj()
 

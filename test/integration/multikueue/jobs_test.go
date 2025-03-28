@@ -823,7 +823,9 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run an appwrapper on worker if admitted", func() {
 		aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
-			Component(testingjob.MakeJob("job-1", managerNs.Name).SetTypeMeta().Parallelism(1).Obj()).
+			Component(testingaw.Component{
+				Template: testingjob.MakeJob("job-1", managerNs.Name).SetTypeMeta().Parallelism(1).Obj(),
+			}).
 			Queue(managerLq.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Obj()
