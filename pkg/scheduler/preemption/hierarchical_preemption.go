@@ -78,24 +78,19 @@ func cohortWithinNominalInResourcesNeedingPreemption(node *cache.ResourceNode, f
 	return true
 }
 
-func calculatePriorityThreshold(ctx *hierarchicalPreemptionCtx, borrowWithinCohortThreshold *int32, wl *kueue.Workload, inST bool) *int32 {
+func calculatePriorityThreshold(borrowWithinCohortThreshold *int32, wl *kueue.Workload, inST bool) *int32 {
 	wlPriorityMinusOne := priority.Priority(wl) - 1
-	switch {
-	case ctx.cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyAny:
-		if borrowWithinCohortThreshold == nil {
-			return nil
-		}
-		threshold := *borrowWithinCohortThreshold
+	if borrowWithinCohortThreshold == nil {
 		if inST {
-			threshold = min(threshold, wlPriorityMinusOne)
+			return &wlPriorityMinusOne
 		}
-		return &threshold
-	case borrowWithinCohortThreshold != nil:
-		threshold := min(wlPriorityMinusOne, *borrowWithinCohortThreshold)
-		return &threshold
-	default:
-		return &wlPriorityMinusOne
+		return nil
 	}
+	threshold := *borrowWithinCohortThreshold
+	if inST {
+		threshold = min(wlPriorityMinusOne, *borrowWithinCohortThreshold)
+	}
+	return &threshold
 }
 
 func collectCandidatesForHierarchicalReclaim(ctx *hierarchicalPreemptionCtx, borrowWithinCohortThreshold *int32) ([]*candidateElem, []*candidateElem) {
@@ -112,7 +107,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *hierarchicalPreemptionCtx, bor
 		} else {
 			candidateList = &candidates
 		}
-		priorityThreshold := calculatePriorityThreshold(ctx, borrowWithinCohortThreshold, ctx.wl, inST)
+		priorityThreshold := calculatePriorityThreshold(borrowWithinCohortThreshold, ctx.wl, inST)
 		collectCandidatesInSubtree(trackingNode, trackingNode, ctx, previousRoot, candidateList, priorityThreshold)
 		if !trackingNode.HasParent() {
 			break
