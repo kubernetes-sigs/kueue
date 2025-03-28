@@ -75,6 +75,14 @@ func MakeWorkload(name, ns string) *WorkloadWrapper {
 	}}
 }
 
+// MakeWorkloadWithGeneratedName creates a wrapper for a Workload with a single pod
+// with a single container.
+func MakeWorkloadWithGeneratedName(namePrefix, ns string) *WorkloadWrapper {
+	wl := MakeWorkload("", ns)
+	wl.GenerateName = namePrefix
+	return wl
+}
+
 func (w *WorkloadWrapper) Obj() *kueue.Workload {
 	return &w.Workload
 }
