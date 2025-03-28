@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuberay-operator
+  namespace: system
+  labels:
+    app.kubernetes.io/name: kuberay
+    app.kubernetes.io/component: kuberay-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kuberay
+      app.kubernetes.io/component: kuberay-operator
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kuberay
+        app.kubernetes.io/component: kuberay-operator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: kuberay-operator
+      containers:
+      - command:
+        - /manager
+        args:
+        - --feature-gates=RayClusterStatusConditions=true # this argument can be removed for version >= v1.3 where the feature gate is enabled by default.
+#        - --enable-leader-election
+        image: kuberay/operator
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        name: kuberay-operator
+        securityContext:
+          allowPrivilegeEscalation: false
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 5
+        resources:
+          limits:
+            cpu: 100m
+            # Anecdotally, managing 500 Ray pods requires roughly 500MB memory.
+            # Monitor memory usage and adjust as needed.
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        # env:
+          # If not set or set to true, kuberay auto injects an init container waiting for ray GCS.
+          # If false, you will need to inject your own init container to ensure ray GCS is up before the ray workers start.
+          # Warning: we highly recommend setting to true and let kuberay handle for you.
+          # - name: ENABLE_INIT_CONTAINER_INJECTION
+          #   value: "true"
+          # If not set or set to "", kuberay will pick up the default k8s cluster domain `cluster.local`
+          # Otherwise, kuberay will use your custom domain
+          # - name: CLUSTER_DOMAIN
+          #   value: ""
+          # Unconditionally requeue after the number of seconds specified in the
+          # environment variable RAYCLUSTER_DEFAULT_REQUEUE_SECONDS_ENV. If the
+          # environment variable is not set, requeue after the default value (300).
+          # - name: RAYCLUSTER_DEFAULT_REQUEUE_SECONDS_ENV
+          #   value: "300"
+      terminationGracePeriodSeconds: 10

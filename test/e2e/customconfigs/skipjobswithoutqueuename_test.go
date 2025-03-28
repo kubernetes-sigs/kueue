@@ -84,7 +84,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var testJob, createdJob *batchv1.Job
 			var jobLookupKey types.NamespacedName
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
-				testJob = testingjob.MakeJob("test-job", ns.Name).Suspend(false).Obj()
+				testJob = testingjob.MakeJob("test-job", ns.Name).
+					Suspend(false).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testJob)).Should(gomega.Succeed())
 			})
 
@@ -109,7 +112,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("verifying that the job has been admitted", func() {
 				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(testJob.Name, testJob.UID), Namespace: ns.Name}
@@ -117,7 +120,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -161,7 +164,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for the wrapped Job to successfully complete", func() {
@@ -220,7 +223,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for the wrapped JobSet to successfully complete", func() {
@@ -236,7 +239,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var testPod, createdPod *corev1.Pod
 			var podLookupKey types.NamespacedName
 			ginkgo.By("creating a pod without a queue name", func() {
-				testPod = testingpod.MakePod("test-pod", ns.Name).Obj()
+				testPod = testingpod.MakePod("test-pod", ns.Name).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
 			})
 

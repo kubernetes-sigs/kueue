@@ -1,18 +1,5 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 approvers:
-- mimowo
-- tenzen-y
-
-reviewers:
-- gabesaba
-- mbobrovskyi
-- mimowo
-- pbundyra
-- tenzen-y
-
-emeritus_approvers:
-- ahg-g
-- alculquicondor
-- denkensk
-- kerthcet
+- kannon92
+- mrunalp

@@ -1,0 +1,24 @@
+# permissions for end users to edit appwrappers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: editor-role
+rules:
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workload.codeflare.dev
+  resources:
+  - appwrappers/status
+  verbs:
+  - get

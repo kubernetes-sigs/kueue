@@ -1696,9 +1696,6 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-
-		// RayCluster is technically never finished, could only be stopped (suspended) - https://github.com/ray-project/kuberay/issues/1667
-		// TBD: Question remains if we should verify anything here
 	})
 })
 

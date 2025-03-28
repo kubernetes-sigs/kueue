@@ -1,0 +1,11 @@
+resources:
+- manager.yaml
+- service.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/component: kuberay-operator
+    app.kubernetes.io/name: kuberay

@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -88,8 +89,9 @@ func TestPodSets(t *testing.T) {
 		Obj()
 
 	testCases := map[string]struct {
-		job         *awv1beta2.AppWrapper
-		wantPodSets []kueue.PodSet
+		job                           *awv1beta2.AppWrapper
+		wantPodSets                   []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -107,6 +109,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(batchJob.Spec.Template.Spec).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required and preferred topology annotation": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -127,11 +130,32 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
 			},
+
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(pytorchJobTAS).
+				Obj(),
+
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Obj(),
+				*utiltesting.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+
+			enableTopologyAwareScheduling: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := fromObject(tc.job).PodSets()
 			if err != nil {
 				t.Fatalf("failed to get pod sets: %v", err)

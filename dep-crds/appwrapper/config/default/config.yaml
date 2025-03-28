@@ -1,0 +1,12 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: operator-config
+data:
+  config.yaml: |
+    controllerManager:
+      health:
+        bindAddress: ":8081"
+      metrics:
+        bindAddress: ":8443"
+      leaderElection: true

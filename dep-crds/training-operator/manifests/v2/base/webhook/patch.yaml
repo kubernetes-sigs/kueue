@@ -1,0 +1,12 @@
+- op: replace
+  path: /webhooks/0/clientConfig/service/name
+  value: training-operator-v2
+- op: replace
+  path: /webhooks/1/clientConfig/service/name
+  value: training-operator-v2
+- op: replace
+  path: /webhooks/2/clientConfig/service/name
+  value: training-operator-v2
+- op: replace
+  path: /metadata/name
+  value: validator.training-operator-v2.kubeflow.org

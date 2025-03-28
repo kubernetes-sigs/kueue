@@ -1,3 +1,14 @@
+## v0.11.1
+
+Changes since `0.11.1`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Add Necessary RBAC to Update Cohort Status (#4723, @gabesaba)
+- Fixed bug that doesn't allow to use WorkloadPriorityClass on LeaderWorkerSet. (#4725, @mbobrovskyi)
+
 ## v0.11.0
 
 Changes since `0.10.0`:

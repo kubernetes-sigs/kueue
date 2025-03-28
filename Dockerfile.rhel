@@ -1,0 +1,44 @@
+ARG BUILDER_IMAGE=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.23
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-micro@sha256:d086e9b85efa3818f9429c2959c9acd62a6a4115c7ad6d59ae428c61d3c704fa
+
+# Build the manager binary
+FROM ${BUILDER_IMAGE} AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETPLATFORM
+
+ENV GOEXPERIMENT=strictfipsruntime
+
+WORKDIR /workspace
+COPY . .
+
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -tags strictfipsruntime -mod=vendor -a -o manager cmd/kueue/main.go
+
+FROM --platform=${TARGETPLATFORM} ${BASE_IMAGE}
+WORKDIR /
+COPY --from=builder /workspace/manager .
+RUN mkdir /licenses
+COPY --from=builder /workspace/LICENSE /licenses/.
+USER 65532:65532
+
+LABEL com.redhat.component="Kueue"
+LABEL name="kueue"
+LABEL url="https://github.com/openshift/kubernetes-sigs-kueue"
+LABEL vendor="Red Hat, Inc."
+LABEL description="Kueue is a set of APIs and controller for job queueing. \
+                    It is a job-level manager that decides when a job should \ 
+                    be admitted to start (as in pods can be created) \
+                    and when it should stop (as in active pods should be deleted)."
+LABEL io.k8s.description="Kueue is a set of APIs and controller for job queueing. \
+                    It is a job-level manager that decides when a job should \
+                    be admitted to start (as in pods can be created) \
+                    and when it should stop (as in active pods should be deleted)."
+LABEL summary="Kueue is a set of APIs and controller for job queueing. \
+                    It is a job-level manager that decides when a job should \
+                    be admitted to start (as in pods can be created) \
+                    and when it should stop (as in active pods should be deleted)."
+LABEL io.k8s.display-name="Kueue"
+LABEL io.openshift.tags="openshift,operand,kueue"
+
+ENTRYPOINT ["/manager"]

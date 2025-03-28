@@ -1,0 +1,9 @@
+# Sets the namespace for the role binding as kube-system instead of default kueue-system
+apiVersion: builtin
+kind: PatchTransformer
+metadata:
+  name: fix-visibility-role-binding-namespace
+patch: '[{"op": "replace", "path": "/metadata/namespace", "value": "kube-system"}]'
+target:
+  kind: RoleBinding
+  name: visibility-server-auth-reader
