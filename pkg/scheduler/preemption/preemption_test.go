@@ -2163,12 +2163,7 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
 			targetCQ: "a",
 		},
-		// preemption.borrowWithinCohort does not affect how
-		// we handle fair sharing preemptions. Lower priority
-		// workloads are not preempted unless
-		// DominantResourceShare value indicates that they
-		// should be preempted.
-		"workloads under priority threshold not capriciously preempted": {
+		"workloads under priority threshold can always be preempted": {
 			clusterQueues: baseCQs,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -2181,9 +2176,12 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("preemptible2").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 				*unitWl.Clone().Name("preemptible3").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "a",
-			wantPreempted: nil,
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/preemptible1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/preemptible2", kueue.InCohortReclaimWhileBorrowingReason),
+			),
 		},
 		"preempt lower priority first, even if big": {
 			clusterQueues: baseCQs,
