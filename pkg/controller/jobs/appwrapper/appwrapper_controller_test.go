@@ -95,8 +95,8 @@ func TestPodSets(t *testing.T) {
 	}{
 		"no annotations": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(pytorchJob).
-				Component(batchJob).
+				Component(testingappwrapper.Component{Template: pytorchJob}).
+				Component(testingappwrapper.Component{Template: batchJob}).
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet("aw-0", 1).
@@ -113,7 +113,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"with required and preferred topology annotation": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(pytorchJobTAS).
+				Component(testingappwrapper.Component{Template: pytorchJobTAS}).
 				Obj(),
 
 			wantPodSets: []kueue.PodSet{
@@ -135,7 +135,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(pytorchJobTAS).
+				Component(testingappwrapper.Component{Template: pytorchJobTAS}).
 				Obj(),
 
 			wantPodSets: []kueue.PodSet{
@@ -198,10 +198,14 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("aw", "ns").
@@ -218,14 +222,18 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Annotations(map[string]string{
 					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
 					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
 				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Annotations(map[string]string{
 					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
 					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
@@ -246,10 +254,14 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(false),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
@@ -354,12 +366,16 @@ func TestReconciler(t *testing.T) {
 
 		"workload shouldn't be recreated for completed job": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Queue("foo").
 				SetPhase(awv1beta2.AppWrapperSucceeded).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Queue("foo").
 				SetPhase(awv1beta2.AppWrapperSucceeded).
 				Obj(),
