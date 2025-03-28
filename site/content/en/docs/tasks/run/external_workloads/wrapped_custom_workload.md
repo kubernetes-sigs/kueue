@@ -54,5 +54,5 @@ This gives the AppWrapper controller enough information to enable
 it to "understand" the wrapped resource and provide Kueue the information it needs to
 manage it.
 
-{{< include "examples/jobs/appwrapper-leaderworkerset-sample.yaml" "yaml" >}}
+{{< include "examples/appwrapper/leaderworkerset-sample.yaml" "yaml" >}}
 
