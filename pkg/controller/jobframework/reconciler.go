@@ -67,7 +67,7 @@ const (
 )
 
 var (
-	ErrUnknownWorkloadOwner     = errors.New("workload owner is unknown")
+	ErrCyclicOwnership          = errors.New("cyclic ownership")
 	ErrWorkloadOwnerNotFound    = errors.New("workload owner not found")
 	ErrNoMatchingWorkloads      = errors.New("no matching workloads")
 	ErrExtraWorkloads           = errors.New("extra workloads")
@@ -292,27 +292,31 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	isTopLevelJob := true
-	objectOwner := metav1.GetControllerOf(object)
-	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
-		isTopLevelJob = false
+	var (
+		ancestorJob   client.Object
+		isTopLevelJob bool
+	)
+
+	if topLevelJob, ok := job.(TopLevelJob); ok && topLevelJob.IsTopLevel() {
+		// Skipping traversal to top-level ancestor job because this is already a top-level job.
+		isTopLevelJob = true
+	} else {
+		ancestorJob, err = GetAncestorJobManagedByKueue(ctx, r.client, r.record, object)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		isTopLevelJob = ancestorJob == nil
 	}
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that either
 	// have a queue-name label or have a kueue-managed ancestor that has a queue-name label.
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isTopLevelJob {
-			log.V(3).Info("queue-name label is not set, ignoring the job", "queueName", QueueName(job))
+			log.V(3).Info("queue-name label is not set, ignoring the job")
 			return ctrl.Result{}, nil
 		}
-		isAncestorJobManaged, err := r.IsAncestorJobManaged(ctx, job.Object())
-		if err != nil {
-			log.Error(err, "couldn't check whether an ancestor job is managed by kueue")
-			return ctrl.Result{}, err
-		}
-		if !isAncestorJobManaged {
-			log.V(3).Info("No kueue-managed ancestors have a queue-name label, ignoring the job",
-				"parentJob", objectOwner.Name)
+		if QueueNameForObject(ancestorJob) == "" {
+			log.V(3).Info("No kueue-managed ancestors have a queue-name label, ignoring the job")
 			return ctrl.Result{}, nil
 		}
 	}
@@ -321,7 +325,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getAncestorWorkload(ctx, object); err != nil {
+			if ancestorWorkload, err := r.getAncestorWorkload(ctx, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
@@ -572,20 +576,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// IsAncestorJobManaged checks whether an ancestor job is managed by kueue.
-func (r *JobReconciler) IsAncestorJobManaged(ctx context.Context, jobObj client.Object) (bool, error) {
-	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj)
-	if err != nil {
-		return false, err
-	}
-	return ancestor != nil, nil
-}
-
 // getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
-func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	ancestor, err := r.getAncestorJobManagedByKueue(ctx, jobObj)
-	if err != nil || ancestor == nil {
-		return nil, err
+func (r *JobReconciler) getAncestorWorkload(ctx context.Context, ancestor client.Object) (*kueue.Workload, error) {
+	if QueueNameForObject(ancestor) == "" {
+		return nil, nil
 	}
 	wlList := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wlList, client.InNamespace(ancestor.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(ancestor.GetUID())}); client.IgnoreNotFound(err) != nil {
@@ -593,45 +587,67 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, jobObj client.O
 	}
 	if len(wlList.Items) > 0 {
 		// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"WARNING: The job has multiple associated Workloads.",
+			"job", ancestor.GetName(),
+			"workloads", klog.KObjSlice(wlList.Items),
+		)
 		return &wlList.Items[0], nil
 	}
 	return nil, nil
 }
 
-// getAncestorJobManagedByKueue traverses controllerRefs to find an ancestor job that is manged by Kueue (ie, it has a queue-name label).
-func (r *JobReconciler) getAncestorJobManagedByKueue(ctx context.Context, jobObj client.Object) (client.Object, error) {
+// GetAncestorJobManagedByKueue traverses controllerRefs to find a top-level ancestor Job
+// that is managed by Kueue (i.e., it has a queue-name label). If a Job with a queue-name
+// is not found, it will return the top-level ancestor with an enabled integration.
+func GetAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object) (client.Object, error) {
+	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
-	currentJob := jobObj
-	for {
-		if seen.Has(currentJob.GetUID()) {
-			return nil, nil
-		}
-		seen.Insert(currentJob.GetUID())
+	currentObj := jobObj
 
-		owner := metav1.GetControllerOf(currentJob)
-		if owner == nil || !IsOwnerManagedByKueue(owner) {
-			return nil, nil
+	var topLevelJob client.Object
+	for {
+		if seen.Has(currentObj.GetUID()) {
+			log.Error(ErrCyclicOwnership,
+				"Terminated search for Kueue-managed Job because of cyclic ownership",
+				"owner", currentObj,
+			)
+			return nil, ErrCyclicOwnership
 		}
-		parentJob := GetEmptyOwnerObject(owner)
-		if parentJob == nil {
-			return nil, fmt.Errorf("workload owner %v: %w", owner, ErrUnknownWorkloadOwner)
+		seen.Insert(currentObj.GetUID())
+
+		owner := metav1.GetControllerOf(currentObj)
+		if owner == nil {
+			return topLevelJob, nil
 		}
-		if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentJob); err != nil {
+
+		parentObj := GetEmptyOwnerObject(owner)
+		managed := parentObj != nil
+		if parentObj == nil {
+			parentObj = &metav1.PartialObjectMetadata{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: owner.APIVersion,
+					Kind:       owner.Kind,
+				},
+			}
+		}
+		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
-		if QueueNameForObject(parentJob) != "" {
-			return parentJob, nil
+		if managed && (topLevelJob == nil || QueueNameForObject(topLevelJob) == "" || QueueNameForObject(parentObj) != "") {
+			topLevelJob = parentObj
 		}
-		currentJob = parentJob
+		currentObj = parentObj
 		if len(seen) > managedOwnersChainLimit {
-			r.record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
-			ctrl.LoggerFrom(ctx).V(2).Info(
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainlimit",
-				"limit ", managedOwnersChainLimit,
-				"lastParentReached", parentJob,
+			record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
+				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit,
 			)
-			return nil, nil
+			log.V(2).Info(
+				"WARNING: Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainLimit",
+				"limit ", managedOwnersChainLimit,
+				"lastParentReached", parentObj,
+			)
+			return topLevelJob, nil
 		}
 	}
 }
