@@ -164,6 +164,14 @@ type JobWithManagedBy interface {
 	SetManagedBy(*string)
 }
 
+// TopLevelJob interface is an optional interface used to indicate
+// that the Job owns/manages the Workload object, regardless of the Job
+// owner references.
+type TopLevelJob interface {
+	// IsTopLevel returns true if the Job owns/manages the Workload.
+	IsTopLevel() bool
+}
+
 func QueueName(job GenericJob) string {
 	return QueueNameForObject(job.Object())
 }
