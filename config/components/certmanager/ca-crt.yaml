@@ -1,0 +1,25 @@
+# We need to create a self-signed certificate for the CA
+# to avoid the error: SSL: could not get X509-issuer name.
+# This occurs because the certificate chain is incomplete 
+# or improperly configured.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ca-issuer
+  namespace: system
+spec:
+  ca:
+    secretName: metrics-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: metrics-ca
+  namespace: system
+spec:
+  isCA: true
+  commonName: metrics-ca
+  secretName: metrics-ca
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer

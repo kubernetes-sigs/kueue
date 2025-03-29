@@ -25,6 +25,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -35,6 +37,8 @@ var (
 	k8sClient       client.WithWatch
 	ctx             context.Context
 	defaultKueueCfg *v1beta1.Configuration
+	cfg             *rest.Config
+	restClient      *rest.RESTClient
 )
 
 func TestAPIs(t *testing.T) {
@@ -51,13 +55,26 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	k8sClient, _ = util.CreateClientUsingCluster("")
+	k8sClient, cfg = util.CreateClientUsingCluster("")
+	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info("Kueue operator is available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
+	// Chnage the configuration to disable internal cert management.
+	// Let's do this in the BeforeSuite to avoid applying the same
+	// configuration multiple times.
+	configurationUpdate := time.Now()
+	config := defaultKueueCfg.DeepCopy()
+	config.InternalCertManagement = &v1beta1.InternalCertManagement{
+		Enable: ptr.To(false),
+	}
+	util.ApplyKueueConfiguration(ctx, k8sClient, config)
+	util.RestartKueueController(ctx, k8sClient)
+	util.WaitForKueueAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
 })
 
 var _ = ginkgo.AfterSuite(func() {
