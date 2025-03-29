@@ -299,3 +299,130 @@ func TestQuantityToFloat(t *testing.T) {
 		})
 	}
 }
+
+func TestMulResources(t *testing.T) {
+	cases := map[string]struct {
+		resources  map[corev1.ResourceName]resource.Quantity
+		multiplier float64
+		want       map[corev1.ResourceName]resource.Quantity
+	}{
+		"multiply by 2": {
+			resources: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+			multiplier: 2.0,
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+		"multiply by 0.5": {
+			resources: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("3Gi"),
+			},
+			multiplier: 0.5,
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1.5Gi"),
+			},
+		},
+		"empty resources": {
+			resources:  map[corev1.ResourceName]resource.Quantity{},
+			multiplier: 2.0,
+			want:       map[corev1.ResourceName]resource.Quantity{},
+		},
+		"multiply fractional cpu": {
+			resources: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("1000m"),
+			},
+			multiplier: 2.0,
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("2"),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := MulResources(tc.resources, tc.multiplier)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAddResources(t *testing.T) {
+	cases := map[string]struct {
+		a    map[corev1.ResourceName]resource.Quantity
+		b    map[corev1.ResourceName]resource.Quantity
+		want map[corev1.ResourceName]resource.Quantity
+	}{
+		"add two resource lists": {
+			a: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1.1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+			b: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				"storage":             resource.MustParse("5Gi"),
+			},
+			want: map[corev1.ResourceName]resource.Quantity{
+				// rounding up floats
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("3Gi"),
+				"storage":             resource.MustParse("5Gi"),
+			},
+		},
+		"add with empty map b": {
+			a: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+			b: map[corev1.ResourceName]resource.Quantity{},
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		},
+		"add with empty map a": {
+			a: map[corev1.ResourceName]resource.Quantity{},
+			b: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		},
+		"add two empty maps": {
+			a:    map[corev1.ResourceName]resource.Quantity{},
+			b:    map[corev1.ResourceName]resource.Quantity{},
+			want: map[corev1.ResourceName]resource.Quantity{},
+		},
+		"add fractional cpu": {
+			a: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("1000m"),
+			},
+			b: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("2"),
+			},
+			want: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("3"),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := AddResources(tc.a, tc.b)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
+			}
+		})
+	}
+}

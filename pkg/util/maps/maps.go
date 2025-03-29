@@ -126,3 +126,16 @@ func (dwc *SyncMap[K, V]) Delete(k K) {
 	defer dwc.lock.Unlock()
 	delete(dwc.m, k)
 }
+
+// MapValues applies a function to all values of a map and returns a new map
+// with the transformed values.
+//
+// The type parameters K and V1 represent the key and original value types,
+// and V2 represents the transformed value type.
+func MapValues[K comparable, V1, V2 any](m map[K]V1, valF func(V1) V2) map[K]V2 {
+	result := make(map[K]V2, len(m))
+	for k, v := range m {
+		result[k] = valF(v)
+	}
+	return result
+}

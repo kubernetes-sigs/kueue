@@ -35,4 +35,5 @@ const (
 	RetriableInGroupAnnotationValue   = "false"
 	IsGroupWorkloadAnnotationKey      = "kueue.x-k8s.io/is-group-workload"
 	IsGroupWorkloadAnnotationValue    = "true"
+	FrameworkName                     = "pod"
 )
