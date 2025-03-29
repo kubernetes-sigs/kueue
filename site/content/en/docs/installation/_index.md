@@ -287,6 +287,7 @@ spec:
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  |       |
 | `LocalQueueDefaulting`                | `false` | Alpha      | 0.10  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha      | 0.10  |       |
+| `RemoveFinalizersWithStrictPatch`     | `true`  | Beta       | 0.12  |       |
 
 ### Feature gates for graduated or deprecated features
 
