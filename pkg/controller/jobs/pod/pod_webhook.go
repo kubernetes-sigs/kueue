@@ -190,16 +190,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
+		if suspend {
+			if pod.pod.Labels == nil {
+				pod.pod.Labels = make(map[string]string)
+			}
+			pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+		}
 	}
 
 	if suspend {
 		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
-
-		if pod.pod.Labels == nil {
-			pod.pod.Labels = make(map[string]string)
-		}
-		pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {

@@ -52,6 +52,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -63,6 +64,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("new-test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateSpecQueue("new-test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -77,6 +79,7 @@ func TestDefault(t *testing.T) {
 			deployment:           testingdeployment.MakeDeployment("test-pod", "default").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "default").
 				Queue("default").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateSpecQueue("default").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -87,6 +90,7 @@ func TestDefault(t *testing.T) {
 			deployment:           testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -107,6 +111,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
@@ -116,12 +121,14 @@ func TestDefault(t *testing.T) {
 				Queue("new-test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("new-test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				PodTemplateSpecQueue("new-test-queue").
+				PodTemplateSpecManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
