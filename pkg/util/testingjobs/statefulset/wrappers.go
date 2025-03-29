@@ -76,6 +76,12 @@ func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 	return &ss.StatefulSet
 }
 
+// UID updates the uid of the StatefulSet
+func (ss *StatefulSetWrapper) UID(uid string) *StatefulSetWrapper {
+	ss.ObjectMeta.UID = types.UID(uid)
+	return ss
+}
+
 // Label sets the label of the StatefulSet
 func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 	if ss.Labels == nil {
