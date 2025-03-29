@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	dra "k8s.io/api/resource/v1alpha3"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,6 +31,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -180,4 +184,79 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 		allErrs = append(allErrs, summary.ValidatePodSpec(&ps.Template.Spec, PodSetsPath.Index(i).Child("template").Child("spec"))...)
 	}
 	return allErrs
+}
+
+// GetResourceClaimTemplates will retrieve the ResourceClaimTemplate from the api server.
+func GetResourceClaimTemplates(ctx context.Context, c client.Client, name, namespace string) (dra.ResourceClaimTemplate, error) {
+	resourceClaimTemplate := dra.ResourceClaimTemplate{}
+	err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &resourceClaimTemplate, &client.GetOptions{})
+	return resourceClaimTemplate, err
+}
+
+func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, wl *kueue.Workload) {
+	// If DRA is not enabled then this becomes a no op and workloads won't be modified.
+	// There is a potential issue
+	// If Kueue has this feature enabled but the k8s cluster does not have this enabled,
+	// then Kueue may not be able to actually find these resources
+	if !features.Enabled(features.DynamicResourceStructuredParameters) {
+		return
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	resourceList, errors := handleResourceClaimTemplate(ctx, cl, AddResourceClaimsToResourceList(wl), wl.Namespace)
+	for key, val := range resourceList {
+		log.Info("ResourceList", "key", key, "val", val)
+	}
+	for _, err := range errors {
+		log.Error(err, "Failures adjusting requests for dynamic resources")
+	}
+	for pi := range wl.Spec.PodSets {
+		resourceClaimsToContainerRequests(&wl.Spec.PodSets[pi].Template.Spec, resourceList)
+	}
+}
+
+func resourceClaimsToContainerRequests(podSpec *corev1.PodSpec, resourceList corev1.ResourceList) {
+	for i := range podSpec.InitContainers {
+		res := &podSpec.InitContainers[i].Resources
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, resourceList)
+	}
+	for i := range podSpec.Containers {
+		res := &podSpec.Containers[i].Resources
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, resourceList)
+	}
+}
+func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []PodSetResources, namespace string) (corev1.ResourceList, []error) {
+	var errors []error
+	updateResourceList := corev1.ResourceList{}
+	for _, singlePsr := range psr {
+		for key, request := range singlePsr.Requests {
+			draDeviceClass, err := GetResourceClaimTemplates(ctx, cl, key.String(), namespace)
+			if err != nil {
+				errors = append(errors, fmt.Errorf("unable to get %s/%s resource claim %v", namespace, key, err))
+			}
+			for _, val := range draDeviceClass.Spec.Spec.Devices.Requests {
+				updateResourceList[corev1.ResourceName(val.DeviceClassName)] = *k8sresource.NewQuantity(request, k8sresource.DecimalSI)
+			}
+		}
+	}
+	return updateResourceList, errors
+}
+
+func AddResourceClaimsToResourceList(wl *kueue.Workload) []PodSetResources {
+	if len(wl.Spec.PodSets) == 0 {
+		return nil
+	}
+	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
+	podSets := &wl.Spec.PodSets
+	currentCounts := podSetsCountsAfterReclaim(wl)
+	for _, ps := range *podSets {
+		count := currentCounts[ps.Name]
+		setRes := PodSetResources{
+			Name:  ps.Name,
+			Count: count,
+		}
+		setRes.Requests = resources.NewRequests(limitrange.TotalResourceClaimsFromPodSpec(&ps.Template.Spec))
+		res = append(res, setRes)
+	}
+	return res
 }
