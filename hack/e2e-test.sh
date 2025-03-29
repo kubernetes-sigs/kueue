@@ -81,6 +81,17 @@ function kueue_deploy {
     cluster_kueue_deploy "$KIND_CLUSTER_NAME"
 }
 
+# $1 cluster
+# $2 image
+function cluster_kind_load_image {
+    # filter out 'control-plane' node, usable only in multi-node single-cluster tests  
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
+    if [[ -n "$worker_nodes" ]]; then
+        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
+    fi
+}
+
+
 trap cleanup EXIT
 startup
 kind_load
