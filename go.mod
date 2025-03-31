@@ -2,6 +2,8 @@ module sigs.k8s.io/kueue
 
 go 1.24.0
 
+toolchain go1.24.1
+
 require (
 	github.com/cert-manager/cert-manager v1.17.1
 	github.com/fsnotify/fsnotify v1.8.0
@@ -35,7 +37,7 @@ require (
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 	sigs.k8s.io/controller-runtime v0.20.4
 	sigs.k8s.io/jobset v0.8.1
-	sigs.k8s.io/lws v0.5.1
+	sigs.k8s.io/lws v0.6.0
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0
 	sigs.k8s.io/yaml v1.4.0
 )
