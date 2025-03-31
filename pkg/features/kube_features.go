@@ -163,6 +163,9 @@ const (
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
+	// owner: @kannon92
+	// kep: tbd
+	DynamicResourceStructuredParameters featuregate.Feature = "DynamicResourceStructuredParameters"
 )
 
 func init() {
@@ -251,6 +254,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	DynamicResourceStructuredParameters: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
