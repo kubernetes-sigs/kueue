@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
@@ -204,8 +205,9 @@ func TestPodSets(t *testing.T) {
 	jobSetTemplate := testingjobset.MakeJobSet("jobset", "ns")
 
 	testCases := map[string]struct {
-		jobSet      *JobSet
-		wantPodSets func(jobSet *JobSet) []kueue.PodSet
+		jobSet                        *JobSet
+		wantPodSets                   func(jobSet *JobSet) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
@@ -228,6 +230,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
@@ -263,6 +266,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
 			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
@@ -298,10 +302,57 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			jobSet: (*JobSet)(jobSetTemplate.DeepCopy().
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1},
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "job2",
+						Replicas:    2,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "job3",
+						Replicas:    3,
+						Parallelism: 2,
+						Completions: 3,
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     jobSet.Spec.ReplicatedJobs[0].Name,
+						Template: *jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.DeepCopy(),
+						Count:    2,
+					},
+					{
+						Name:     jobSet.Spec.ReplicatedJobs[1].Name,
+						Template: *jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.DeepCopy(),
+						Count:    2,
+					},
+					{
+						Name:     jobSet.Spec.ReplicatedJobs[2].Name,
+						Template: *jobSet.Spec.ReplicatedJobs[2].Template.Spec.Template.DeepCopy(),
+						Count:    6,
+					},
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets := tc.jobSet.PodSets()
 			if diff := cmp.Diff(tc.wantPodSets(tc.jobSet), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)

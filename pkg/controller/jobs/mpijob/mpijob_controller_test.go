@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
@@ -197,8 +198,9 @@ func TestPodSets(t *testing.T) {
 	)
 
 	testCases := map[string]struct {
-		job         *MPIJob
-		wantPodSets []kueue.PodSet
+		job                           *MPIJob
+		wantPodSets                   []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: (*MPIJob)(jobTemplate.DeepCopy()),
@@ -214,6 +216,7 @@ func TestPodSets(t *testing.T) {
 					Template: *jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.DeepCopy(),
 				},
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -271,6 +274,7 @@ func TestPodSets(t *testing.T) {
 						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -328,10 +332,116 @@ func TestPodSets(t *testing.T) {
 						PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel)},
 				},
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: (*MPIJob)(jobTemplate.Clone().
+				PodAnnotation(
+					kfmpi.MPIReplicaTypeLauncher,
+					kueuealpha.PodSetRequiredTopologyAnnotation,
+					"cloud.com/block",
+				).
+				PodAnnotation(
+					kfmpi.MPIReplicaTypeWorker,
+					kueuealpha.PodSetRequiredTopologyAnnotation,
+					"cloud.com/block",
+				).
+				Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				{
+					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
+					Count: 1,
+					Template: jobTemplate.
+						Clone().
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeLauncher,
+							kueuealpha.PodSetRequiredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeWorker,
+							kueuealpha.PodSetRequiredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
+				},
+				{
+					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
+					Count: 3,
+					Template: jobTemplate.
+						Clone().
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeLauncher,
+							kueuealpha.PodSetRequiredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeWorker,
+							kueuealpha.PodSetRequiredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
+				},
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			job: (*MPIJob)(jobTemplate.Clone().
+				PodAnnotation(
+					kfmpi.MPIReplicaTypeLauncher,
+					kueuealpha.PodSetPreferredTopologyAnnotation,
+					"cloud.com/block",
+				).
+				PodAnnotation(
+					kfmpi.MPIReplicaTypeWorker,
+					kueuealpha.PodSetPreferredTopologyAnnotation,
+					"cloud.com/block",
+				).
+				Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				{
+					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeLauncher)),
+					Count: 1,
+					Template: jobTemplate.
+						Clone().
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeLauncher,
+							kueuealpha.PodSetPreferredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeWorker,
+							kueuealpha.PodSetPreferredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template,
+				},
+				{
+					Name:  strings.ToLower(string(kfmpi.MPIReplicaTypeWorker)),
+					Count: 3,
+					Template: jobTemplate.
+						Clone().
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeLauncher,
+							kueuealpha.PodSetPreferredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						PodAnnotation(
+							kfmpi.MPIReplicaTypeWorker,
+							kueuealpha.PodSetPreferredTopologyAnnotation,
+							"cloud.com/block",
+						).
+						Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template,
+				},
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			if diff := cmp.Diff(tc.wantPodSets, tc.job.PodSets()); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}

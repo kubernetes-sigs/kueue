@@ -29,14 +29,16 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayJob      *RayJob
-		wantPodSets func(rayJob *RayJob) []kueue.PodSet
+		rayJob                        *RayJob
+		wantPodSets                   func(rayJob *RayJob) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -82,6 +84,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -139,6 +142,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -196,6 +200,68 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+					},
+					{
+						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
+						Count:    3,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with submitter topology annotation not specified": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -248,6 +314,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with submitter topology annotation specified": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -316,6 +383,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with NumOfHosts > 1": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -363,6 +431,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with default job submitter": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -414,6 +483,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with submitter job pod template override": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -496,10 +566,12 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			if diff := cmp.Diff(tc.wantPodSets(tc.rayJob), tc.rayJob.PodSets()); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}

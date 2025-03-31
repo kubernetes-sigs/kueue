@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
@@ -105,8 +106,13 @@ func (j *KubeflowJob) PodSets() []kueue.PodSet {
 			Name:     strings.ToLower(string(replicaType)),
 			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
-				ptr.To(kftraining.ReplicaIndexLabel), nil, nil),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[index].TopologyRequest = jobframework.PodSetTopologyRequest(
+				&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+				ptr.To(kftraining.ReplicaIndexLabel),
+				nil, nil,
+			)
 		}
 	}
 	return podSets

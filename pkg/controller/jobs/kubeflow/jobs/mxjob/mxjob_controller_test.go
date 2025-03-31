@@ -37,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mxjob"
 )
@@ -301,8 +302,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job         *kftraining.MXJob
-		wantPodSets func(job *kftraining.MXJob) []kueue.PodSet
+		job                           *kftraining.MXJob
+		wantPodSets                   func(job *kftraining.MXJob) []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingmxjob.MakeMXJob("mxjob", "ns").Obj(),
@@ -325,6 +327,7 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required and preferred topology annotation": {
 			job: testingmxjob.MakeMXJob("mxjob", "ns").
@@ -355,10 +358,38 @@ func TestPodSets(t *testing.T) {
 					},
 				}
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation is TAS is disabled": {
+			job: testingmxjob.MakeMXJob("mxjob", "ns").
+				PodAnnotation(kftraining.MXJobReplicaTypeScheduler, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
+				PodAnnotation(kftraining.MXJobReplicaTypeServer, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantPodSets: func(job *kftraining.MXJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     strings.ToLower(string(kftraining.MXJobReplicaTypeScheduler)),
+						Template: job.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeScheduler].Template,
+						Count:    1,
+					},
+					{
+						Name:     strings.ToLower(string(kftraining.MXJobReplicaTypeServer)),
+						Template: job.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeServer].Template,
+						Count:    1,
+					},
+					{
+						Name:     strings.ToLower(string(kftraining.MXJobReplicaTypeWorker)),
+						Template: job.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeWorker].Template,
+						Count:    1,
+					},
+				}
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets := fromObject(tc.job).PodSets()
 			if diff := cmp.Diff(tc.wantPodSets(tc.job), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
