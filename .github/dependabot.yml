@@ -87,6 +87,9 @@ updates:
       - "ok-to-test"
       - "release-note-none"
     groups:
+      mui-packages:
+        patterns:
+          - "@mui/*"
       all:
         update-types:
           - "minor"
