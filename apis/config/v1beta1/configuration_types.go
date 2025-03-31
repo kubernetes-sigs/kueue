@@ -169,6 +169,11 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+
+	// EnableHTTPMetrics, if true the controller's metrics
+	// will be accessible via HTTP only.
+	// +optional
+	EnableHTTPMetrics bool `json:"enableHttpMetrics,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

@@ -151,10 +151,18 @@ func main() {
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:    cfg.Metrics.BindAddress,
-		SecureServing:  true,
-		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	var metricsServerOptions metricsserver.Options
+	if cfg.Metrics.EnableHTTPMetrics {
+		metricsServerOptions = metricsserver.Options{
+			BindAddress:   cfg.Metrics.BindAddress,
+			SecureServing: false,
+		}
+	} else {
+		metricsServerOptions = metricsserver.Options{
+			BindAddress:    cfg.Metrics.BindAddress,
+			SecureServing:  true,
+			FilterProvider: filters.WithAuthenticationAndAuthorization,
+		}
 	}
 
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {

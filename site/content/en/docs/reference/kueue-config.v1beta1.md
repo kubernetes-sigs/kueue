@@ -392,6 +392,13 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
    <p>EnableClusterQueueResources, if true the cluster queue resource usage and quotas
 metrics will be reported.</p>
 </td>
+
+<tr><td><code>enableHttpMetrics</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>EnableHttpMetrics, if true the controller's  metrics will be accessible via HTTP only.</p>
+</td>
 </tr>
 </tbody>
 </table>
