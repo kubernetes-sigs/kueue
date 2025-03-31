@@ -157,7 +157,7 @@ func main() {
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
 
-	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
+	if cfg.InternalCertManagement == nil || *cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
