@@ -39,7 +39,7 @@ const ResourceFlavorDetail = () => {
 
   if (!flavor) {
     return (
-      <Paper style={{ padding: '16px', marginTop: '20px' }}>
+      <Paper className="parentContainer">
         <Typography variant="h6">Loading...</Typography>
         <CircularProgress />
       </Paper>
@@ -49,11 +49,10 @@ const ResourceFlavorDetail = () => {
   const { details, queues, nodes } = flavor;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Resource Flavor Detail: {flavorName}</Typography>
-
       {/* Display Flavor Details */}
-      <Box mt={3}>
+      <Box mt={3} width="100%">
         <Typography variant="h5" gutterBottom>Flavor Details</Typography>
         <Typography variant="body1"><strong>Node Labels:</strong></Typography>
         {details.nodeLabels ? (
@@ -94,12 +93,12 @@ const ResourceFlavorDetail = () => {
       </Box>
 
       {/* Display Queues Using This Flavor */}
-      <Box mt={5}>
+      <Box mt={5} width="100%">
         <Typography variant="h5" gutterBottom>Queues Using This Flavor</Typography>
         {queues && queues.length === 0 ? (
           <Typography>No cluster queues are using this flavor.</Typography>
         ) : (
-          <TableContainer component={Paper}>
+          <TableContainer component={Paper} className="tableContainerWithBorder">
             <Table>
               <TableHead>
                 <TableRow>
@@ -133,12 +132,12 @@ const ResourceFlavorDetail = () => {
       </Box>
 
       {/* Display Nodes Matching This Flavor */}
-      <Box mt={5}>
+      <Box mt={5} width="100%">
         <Typography variant="h5" gutterBottom>Nodes Matching This Flavor</Typography>
         {nodes && nodes.length === 0 ? (
           <Typography>No nodes match this flavor.</Typography>
         ) : (
-          <TableContainer component={Paper}>
+          <TableContainer component={Paper} className="tableContainerWithBorder">
             <Table>
               <TableHead>
                 <TableRow>

@@ -34,12 +34,12 @@ const ClusterQueues = () => {
   if (error) return <ErrorMessage error={error} />;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cluster Queues</Typography>
       {queues.length === 0 ? (
         <Typography>No Cluster Queues found.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>
@@ -54,19 +54,27 @@ const ClusterQueues = () => {
             <TableBody>
               {queues.map((queue) => (
                 <TableRow key={queue.name}>
-                  <TableCell><Link to={`/cluster-queue/${queue.name}`}>{queue.name}</Link></TableCell>
-                  <TableCell><Link to={`/cohort/${queue.cohort}`}>{queue.cohort || ''}</Link></TableCell>
                   <TableCell>
-                    {queue.flavors.map((flavor, index) => (
-                      <React.Fragment key={flavor}>
-                        <Link to={`/resource-flavor/${flavor}`}>{flavor}</Link>
-                        {index < queue.flavors.length - 1 && ', '}
-                      </React.Fragment>
-                    ))}
+                    <Link to={`/cluster-queue/${queue.name}`}>{queue.name}</Link>
                   </TableCell>
-                  <TableCell>{queue.admittedWorkloads}</TableCell>
-                  <TableCell>{queue.pendingWorkloads}</TableCell>
-                  <TableCell>{queue.reservingWorkloads}</TableCell>
+                  <TableCell>
+                    <Link to={`/cohort/${queue.cohort}`}>{queue.cohort || ''}</Link>
+                  </TableCell>
+                  <TableCell>
+                    {queue.flavors ? (
+                      queue.flavors.map((flavor, index) => (
+                        <React.Fragment key={flavor}>
+                          <Link to={`/resource-flavor/${flavor}`}>{flavor}</Link>
+                          {index < queue.flavors.length - 1 && ', '}
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      'N/A'
+                    )}
+                  </TableCell>
+                  <TableCell>{queue.admittedWorkloads ?? 'N/A'}</TableCell>
+                  <TableCell>{queue.pendingWorkloads ?? 'N/A'}</TableCell>
+                  <TableCell>{queue.reservingWorkloads ?? 'N/A'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

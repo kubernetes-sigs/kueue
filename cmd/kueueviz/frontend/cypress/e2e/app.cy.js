@@ -24,7 +24,8 @@ describe('Kueue Dashboard', () => {
     cy.get('td').contains('spot')
   })
 
-  it('should navigate to cluster-queue and verify local queues', () => {
+  it('should navigate to cluster-queue and verify local queues', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/cluster-queues')
     // Find and click the link to /cluster-queue/agi-cluster-queue
     cy.get('a[href="/cluster-queue/agi-cluster-queue"]').should('exist')
       .click()
@@ -34,10 +35,25 @@ describe('Kueue Dashboard', () => {
     cy.get('th').contains('Queue Name')
 
     // Navigate to the first link in the table
-    cy.get('table').find('a').first().click()
+      cy.get('table').find('a').first().click()
   })
 
-  it('should verify cohort link and navigate to cohorts page', () => {
+  it('should navigate to cluster-queue unused-cluster-queue', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/cluster-queues')
+    // Find and click the link to /cluster-queue/unused-cluster-queue
+    cy.get('a[href="/cluster-queue/unused-cluster-queue"]').should('exist')
+      .click()
+
+    // Verify the section and table
+    cy.contains('Local Queues Using This Cluster Queue').should('exist')
+    cy.get('th').contains('Queue Name')
+    // the table has one empty row
+    cy.get('table').find('td').should('have.text', 'No local queues using this cluster queue')
+ 
+  })
+
+
+  it('should verify cohort link and navigate to cohorts page', { defaultCommandTimeout: 15000 }, () => {
     // Navigate to /cluster-queue/agi-cluster-queue
     cy.visit('/cluster-queue/agi-cluster-queue')
 
