@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -108,8 +109,8 @@ func split(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*
 func NewCandidateIterator(preemptionCtx *preemptionCtx, workloadOrdering workload.Ordering, clock clock.Clock) *candidateIterator {
 	var maxPriorityThreshold *int32
 	sameQueueCandidates := []*candidateElem{}
-	sTCandiates := []*candidateElem{}
-	hierarchicalReclaimCandidates := []*candidateElem{}
+	priorityCandidates := []*candidateElem{}
+	hierarchyCandidates := []*candidateElem{}
 	cq := preemptionCtx.preemptorCQ
 	hierarchicalReclaimCtx := &hierarchicalPreemptionCtx{
 		wl:                preemptionCtx.preemptor.Obj,
@@ -131,18 +132,18 @@ func NewCandidateIterator(preemptionCtx *preemptionCtx, workloadOrdering workloa
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
-		hierarchicalReclaimCandidates, sTCandiates = collectCandidatesForHierarchicalReclaim(
+		hierarchyCandidates, priorityCandidates = collectCandidatesForHierarchicalReclaim(
 			hierarchicalReclaimCtx, maxPriorityThreshold,
 		)
 	}
 	sort.Slice(sameQueueCandidates, candidateElemsOrdering(sameQueueCandidates, cq.Name, clock.Now()))
-	sort.Slice(sTCandiates, candidateElemsOrdering(sTCandiates, cq.Name, clock.Now()))
-	sort.Slice(hierarchicalReclaimCandidates, candidateElemsOrdering(hierarchicalReclaimCandidates, cq.Name, clock.Now()))
+	sort.Slice(priorityCandidates, candidateElemsOrdering(priorityCandidates, cq.Name, clock.Now()))
+	sort.Slice(hierarchyCandidates, candidateElemsOrdering(hierarchyCandidates, cq.Name, clock.Now()))
 	isEvicted := func(candidate *candidateElem) bool {
 		return meta.IsStatusConditionTrue(candidate.wl.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	}
-	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := split(hierarchicalReclaimCandidates, isEvicted)
-	evictedSTCandidates, nonEvictedSTCandidates := split(sTCandiates, isEvicted)
+	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := split(hierarchyCandidates, isEvicted)
+	evictedSTCandidates, nonEvictedSTCandidates := split(priorityCandidates, isEvicted)
 	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := split(sameQueueCandidates, isEvicted)
 	return &candidateIterator{
 		runIndex: map[bool]*candidateIndex{
@@ -155,7 +156,7 @@ func NewCandidateIterator(preemptionCtx *preemptionCtx, workloadOrdering workloa
 			nonEvictedHierarchicalReclaimCandidates, nonEvictedSTCandidates, nonEvictedSameQueueCandidates},
 		maxPriorityThreshold:        maxPriorityThreshold,
 		canBorrowInCohort:           !(borrowWithinCohort == nil || borrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyNever),
-		anyCandidateFromOtherQueues: len(hierarchicalReclaimCandidates) > 0 || len(sTCandiates) > 0,
+		anyCandidateFromOtherQueues: len(hierarchyCandidates) > 0 || len(priorityCandidates) > 0,
 		hierarchicalReclaimCtx:      hierarchicalReclaimCtx,
 	}
 }

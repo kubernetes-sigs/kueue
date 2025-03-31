@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -77,58 +78,51 @@ func cohortWithinNominalInResourcesNeedingPreemption(node *cache.ResourceNode, f
 	return true
 }
 
-func calculatePriorityThreshold(ctx *hierarchicalPreemptionCtx, borrowWithinCohortThreshold *int32, wl *kueue.Workload, inST bool) *int32 {
+func calculatePriorityThreshold(borrowWithinCohortThreshold *int32, wl *kueue.Workload, haveNoHierarchicalAvantage bool) *int32 {
 	wlPriorityMinusOne := priority.Priority(wl) - 1
-	switch {
-	case ctx.cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyAny:
-		if borrowWithinCohortThreshold == nil {
-			return nil
+	if borrowWithinCohortThreshold == nil {
+		if haveNoHierarchicalAvantage {
+			return &wlPriorityMinusOne
 		}
-		threshold := *borrowWithinCohortThreshold
-		if inST {
-			threshold = min(threshold, wlPriorityMinusOne)
-		}
-		return &threshold
-	case borrowWithinCohortThreshold != nil:
-		threshold := min(wlPriorityMinusOne, *borrowWithinCohortThreshold)
-		return &threshold
-	default:
-		return &wlPriorityMinusOne
+		return nil
 	}
+	threshold := *borrowWithinCohortThreshold
+	if haveNoHierarchicalAvantage {
+		threshold = min(wlPriorityMinusOne, *borrowWithinCohortThreshold)
+	}
+	return &threshold
 }
 
 func collectCandidatesForHierarchicalReclaim(ctx *hierarchicalPreemptionCtx, borrowWithinCohortThreshold *int32) ([]*candidateElem, []*candidateElem) {
 	var previousRoot *cache.CohortSnapshot
 	var candidateList *[]*candidateElem
 	trackingNode := ctx.cq.Parent()
-	candidates := []*candidateElem{}
-	sTcandidates := []*candidateElem{}
-	inST := !workloadFitsInQuota(&ctx.cq.ResourceNode, ctx.requests)
-	previousRoot = nil
+	hierarchyCandidates := []*candidateElem{}
+	priorityCandidates := []*candidateElem{}
+	haveNoHierarchicalAdvantage := !workloadFitsInQuota(&ctx.cq.ResourceNode, ctx.requests)
 	for {
-		if inST {
-			candidateList = &sTcandidates
+		if haveNoHierarchicalAdvantage {
+			candidateList = &priorityCandidates
 		} else {
-			candidateList = &candidates
+			candidateList = &hierarchyCandidates
 		}
-		priorityThreshold := calculatePriorityThreshold(ctx, borrowWithinCohortThreshold, ctx.wl, inST)
+		priorityThreshold := calculatePriorityThreshold(borrowWithinCohortThreshold, ctx.wl, haveNoHierarchicalAdvantage)
 		collectCandidatesInSubtree(trackingNode, trackingNode, ctx, previousRoot, candidateList, priorityThreshold)
 		if !trackingNode.HasParent() {
 			break
 		}
-		inST = inST && !workloadFitsInQuota(&trackingNode.ResourceNode, ctx.requests)
+		haveNoHierarchicalAdvantage = haveNoHierarchicalAdvantage && !workloadFitsInQuota(&trackingNode.ResourceNode, ctx.requests)
 		previousRoot = trackingNode
 		trackingNode = trackingNode.Parent()
 	}
-	return candidates, sTcandidates
+	return hierarchyCandidates, priorityCandidates
 }
 
 // visit the nodes in the hierarchy and collect the ones that exceed quota
-// avoid subtrees that are within quota
-// separately collect workloads inside/outside sT
+// avoid subtrees that are within quota and the forbidden subtree
 func collectCandidatesInSubtree(node *cache.CohortSnapshot, startingNode *cache.CohortSnapshot, ctx *hierarchicalPreemptionCtx, forbiddenSubtree *cache.CohortSnapshot, result *[]*candidateElem, priorityThreshold *int32) {
 	for _, childCohort := range node.ChildCohorts() {
-		if forbiddenSubtree != nil && childCohort == forbiddenSubtree {
+		if childCohort == forbiddenSubtree {
 			continue
 		}
 		// don't look for candidates in subtrees that are not exceeding their quotas
