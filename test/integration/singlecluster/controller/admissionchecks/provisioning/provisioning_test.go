@@ -87,23 +87,23 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
-			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, prc)
 
 			prc2 = testing.MakeProvisioningRequestConfig("prov-config2").ProvisioningClass("provisioning-class2").Parameters(map[string]kueue.Parameter{
 				"p1": "v1.2",
 				"p2": "v2.2",
 			}).Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, prc2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, prc2)
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, ac)
 
 			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
@@ -111,11 +111,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Cohort("cohort").
 				AdmissionChecks(ac.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
 				g.Expect(lq.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
 					"invalid-provreq-prefix/Foo":               "Bar"}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
 			provReqKey = types.NamespacedName{
@@ -920,21 +920,21 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, prc)
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, ac)
 
 			pendingAC = testing.MakeAdmissionCheck("pending-ac").
 				ControllerName("dummy-controller").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, pendingAC)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, pendingAC)
 
 			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
@@ -942,7 +942,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Cohort("cohort").
 				AdmissionChecks(ac.Name, pendingAC.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
@@ -954,7 +954,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
 				g.Expect(lq.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
@@ -983,7 +983,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
 					"invalid-provreq-prefix/Foo":               "Bar"}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl)
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, pendingAC.Name, kueue.CheckStateReady, false)
 
 			wlKey = client.ObjectKeyFromObject(wl)
@@ -1146,21 +1146,21 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 			prc = baseConfigWithParameters.Clone().RetryLimit(1).BaseBackoff(1).Obj()
-			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, prc)
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, ac)
 
 			pendingAC = testing.MakeAdmissionCheck("pending-ac").
 				ControllerName("dummy-controller").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, pendingAC)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, pendingAC)
 
 			rf = testing.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
@@ -1168,9 +1168,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Cohort("cohort").
 				AdmissionChecks(ac.Name, pendingAC.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq)
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(lq.Name).
 				PodSets(
@@ -1186,7 +1186,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl)
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, pendingAC.Name, kueue.CheckStateReady, false)
 
 			wlKey = client.ObjectKeyFromObject(wl)
@@ -1491,21 +1491,21 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		ginkgo.JustBeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
-			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, prc)
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, ac)
 
 			readyAC = testing.MakeAdmissionCheck("pending-ac").
 				ControllerName("dummy-controller").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, readyAC)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, readyAC)
 
 			rf = testing.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
@@ -1514,9 +1514,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				AdmissionChecks(ac.Name).
 				AdmissionChecks(ac.Name, readyAC.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq)
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(lq.Name).
 				PodSets(
@@ -1532,7 +1532,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl)
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, readyAC.Name, kueue.CheckStateReady, false)
 
 			wlKey = client.ObjectKeyFromObject(wl)

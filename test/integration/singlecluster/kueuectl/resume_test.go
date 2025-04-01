@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ginkgo.It("Should resume the Workload", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Active(false).Obj()
 			ginkgo.By("Create a Workload")
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl)
 
 			createdWorkload := &v1beta1.Workload{}
 
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 				lq := testing.MakeLocalQueue(name, ns.Name).StopPolicy(wantInitialStopPolicy).Obj()
 
 				ginkgo.By("Create a LocalQueue", func() {
-					gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, lq)
 				})
 
 				createdLocalQueue := &v1beta1.LocalQueue{}
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ginkgo.DescribeTable("Should resume a ClusterQueue",
 			func(cq *v1beta1.ClusterQueue, wantInitialStopPolicy v1beta1.StopPolicy) {
 				ginkgo.By("Create a ClusterQueue", func() {
-					gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, cq)
 				})
 
 				ginkgo.DeferCleanup(func() {

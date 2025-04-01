@@ -93,19 +93,19 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster1)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, workerCluster1)
 
 		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster2)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, workerCluster2)
 
 		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, multiKueueAc)
 
 		ginkgo.By("wait for check active", func() {
 			updatedAc := kueue.AdmissionCheck{}
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 		managerFlavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -127,13 +127,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			).
 			AdmissionChecks(multiKueueAc.Name).
 			Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerCq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltesting.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerLq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sManagerClient, managerLq)
 
 		worker1Flavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Flavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
 
 		worker1Cq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -143,13 +143,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltesting.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Lq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Flavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Flavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
 
 		worker2Cq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -159,10 +159,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Cq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Lq)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2G of memory, this pod can only be admitted in worker 2.
 
 			ginkgo.By("Creating the pod", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, pod)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, pod)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdPod := &corev1.Pod{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the deployment", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, deployment)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, deployment)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdDeployment := &appsv1.Deployment{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
@@ -448,7 +448,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, job)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, job)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, jobSet)
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -642,7 +642,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the appwrapper", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, aw)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, aw)
 			})
 
 			createdWorkload := &kueue.Workload{}
@@ -720,7 +720,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, pyTorchJob)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, pyTorchJob)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
@@ -783,7 +783,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, mpijob)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, mpijob)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
@@ -834,7 +834,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the RayJob", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, rayjob)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, rayjob)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
@@ -876,7 +876,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Obj()
 
 			ginkgo.By("Creating the RayCluster", func() {
-				gomega.Expect(k8sManagerClient.Create(ctx, raycluster)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sManagerClient, raycluster)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
@@ -904,7 +904,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq2)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
 
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)

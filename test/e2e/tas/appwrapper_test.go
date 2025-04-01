@@ -46,13 +46,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-aw-")
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
-		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -62,11 +62,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Queue(localQueue.Name).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 
 			ginkgo.By("AppWrapper is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Queue(localQueue.Name).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 
 			ginkgo.By("AppWrapper is unsuspended, and has all Pods active and ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
