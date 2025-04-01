@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 		rf = testing.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, rf)
 
 		cq = testing.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -68,10 +68,10 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq)
 
 		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Queue(lq.Name).
 				Obj()
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
-			gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, statefulSet)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdStatefulSet := &appsv1.StatefulSet{}
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.Name),
 					Namespace: ns.Name,
 				}
-				gomega.Expect(k8sClient.Create(ctx, conflictingStatefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, conflictingStatefulSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(conflictingStatefulSet), createdStatefulSet)).
@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Queue(lq.Name).
 				Obj()
 			ginkgo.By("Create a StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			createdStatefulSet := &appsv1.StatefulSet{}
@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			ginkgo.By("Waiting for replicas is ready", func() {
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			ginkgo.By("Scale up replicas", func() {
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			ginkgo.By("Waiting for replicas is ready", func() {
@@ -348,7 +348,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			ginkgo.By("Checking that replicas is not ready", func() {
@@ -393,7 +393,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 
 			ginkgo.By("Create StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
 			createdWorkload := &kueue.Workload{}
@@ -439,12 +439,12 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			highPriorityWPC = testing.MakeWorkloadPriorityClass("high-priority").
 				PriorityValue(5000).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityWPC)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, highPriorityWPC)
 
 			lowPriorityWPC = testing.MakeWorkloadPriorityClass("low-priority").
 				PriorityValue(1000).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowPriorityWPC)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lowPriorityWPC)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -463,7 +463,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Obj()
 
 			ginkgo.By("Create a low-priority StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, lowPrioritySTS)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, lowPrioritySTS)
 			})
 
 			ginkgo.By("Waiting for replicas is ready in low-priority StatefulSet", func() {
@@ -498,7 +498,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				Obj()
 
 			ginkgo.By("Create a high-priority StatefulSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, highPrioritySTS)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, highPrioritySTS)
 			})
 
 			ginkgo.By("Waiting for replicas is ready in high-priority StatefulSet", func() {

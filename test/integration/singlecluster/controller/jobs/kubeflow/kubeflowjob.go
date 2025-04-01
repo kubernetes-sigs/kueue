@@ -60,7 +60,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	ginkgo.By("checking the job gets suspended when created unsuspended")
 	priorityClass := testing.MakePriorityClass(priorityClassName).
 		PriorityValue(int32(priorityValue)).Obj()
-	gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, priorityClass)
 
 	if job.KFJobControl.RunPolicy().SchedulingPolicy == nil {
 		job.KFJobControl.RunPolicy().SchedulingPolicy = &kftraining.SchedulingPolicy{}
@@ -106,7 +106,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 	secondWl.Spec.PodSets[0].Count++
 
-	gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, secondWl)
 	gomega.Eventually(func(g gomega.Gomega) {
 		wl := &kueue.Workload{}
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(testing.BeNotFoundError())
@@ -118,9 +118,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 	ginkgo.By("checking the job is unsuspended when workload is assigned")
 	onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-	gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, onDemandFlavor)
 	spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
-	gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, spotFlavor)
 	defer func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)

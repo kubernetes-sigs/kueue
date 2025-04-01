@@ -68,7 +68,7 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 				deployment = testingdeployment.MakeDeployment("deployment", ns.Name).
 					Queue("user-queue").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, deployment)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, deployment)
 			})
 		})
 
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 		ginkgo.BeforeEach(func() {
 			ginkgo.By("Create deployment", func() {
 				deployment = testingdeployment.MakeDeployment("deployment", ns.Name).Obj()
-				gomega.Expect(k8sClient.Create(ctx, deployment)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, deployment)
 			})
 		})
 

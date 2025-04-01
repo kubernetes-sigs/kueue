@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 	ginkgo.DescribeTable("Pass-through commands",
 		func(oType string, makeObject func(ns string) client.Object, getPath string, expectGet string, patch string, expectGetAfterPatch string, deleteArgs ...string) {
 			obj := makeObject(ns.Name)
-			gomega.Expect(k8sClient.Create(ctx, obj)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, obj)
 			key := client.ObjectKeyFromObject(obj)
 
 			identityArgs := []string{oType, key.Name}
