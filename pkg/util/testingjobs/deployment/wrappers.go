@@ -24,7 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 // DeploymentWrapper wraps a Deployment.
@@ -82,7 +83,7 @@ func (d *DeploymentWrapper) Label(k, v string) *DeploymentWrapper {
 
 // Queue updates the queue name of the Deployment
 func (d *DeploymentWrapper) Queue(q string) *DeploymentWrapper {
-	return d.Label(constants.QueueLabel, q)
+	return d.Label(controllerconstants.QueueLabel, q)
 }
 
 // Name updated the name of the Deployment
@@ -153,7 +154,11 @@ func (d *DeploymentWrapper) PodTemplateAnnotation(k, v string) *DeploymentWrappe
 
 // PodTemplateSpecQueue updates the queue name of the pod template spec of the Deployment
 func (d *DeploymentWrapper) PodTemplateSpecQueue(q string) *DeploymentWrapper {
-	return d.PodTemplateSpecLabel(constants.QueueLabel, q)
+	return d.PodTemplateSpecLabel(controllerconstants.QueueLabel, q)
+}
+
+func (d *DeploymentWrapper) PodTemplateSpecManagedByKueue() *DeploymentWrapper {
+	return d.PodTemplateSpecLabel(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 }
 
 func (d *DeploymentWrapper) TerminationGracePeriod(seconds int64) *DeploymentWrapper {

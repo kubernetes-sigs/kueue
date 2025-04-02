@@ -109,6 +109,7 @@ func TestPodReconciler(t *testing.T) {
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 				Queue("queue").
+				ManagedByKueueLabel().
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
 				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
