@@ -283,6 +283,11 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 		return w.adapters[adapterKey], controller
+	} else if refs := local.GetOwnerReferences(); len(refs) > 0 {
+		// For workloads without a controller but with owner references,
+		// use the first owner reference to find the adapter. This supports composable workloads.
+		adapterKey := schema.FromAPIVersionAndKind(refs[0].APIVersion, refs[0].Kind).String()
+		return w.adapters[adapterKey], &refs[0]
 	}
 	return nil, nil
 }
