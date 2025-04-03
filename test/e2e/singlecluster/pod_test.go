@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("should admit group that fits", func() {
-			group := podtesting.MakePod("group", ns.Name).
+			group := podtesting.MakeOCPPod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("Should only admit a complete group", func() {
-			group := podtesting.MakePod("group", ns.Name).
+			group := podtesting.MakeOCPPod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			groupName := "group"
-			group := podtesting.MakePod(groupName, ns.Name).
+			group := podtesting.MakeOCPPod(groupName, ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				eventWatcher.Stop()
 			})
 
-			group := podtesting.MakePod("group", ns.Name).
+			group := podtesting.MakeOCPPod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -360,7 +360,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
-			group := podtesting.MakePod("group", ns.Name).
+			group := podtesting.MakeOCPPod("group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
@@ -417,7 +417,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
 			})
 
-			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
+			defaultPriorityGroup := podtesting.MakeOCPPod("default-priority-group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
@@ -442,7 +442,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
+			highPriorityGroup := podtesting.MakeOCPPod("high-priority-group", ns.Name).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").

@@ -61,6 +61,34 @@ func MakePod(name, ns string) *PodWrapper {
 	}}
 }
 
+func MakeOCPPod(name, ns string) *PodWrapper {
+	return &PodWrapper{corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   ns,
+			Annotations: make(map[string]string, 1),
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{
+				{
+					Name:      "c",
+					Image:     "pause",
+					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+					},
+				},
+			},
+			SchedulingGates: make([]corev1.PodSchedulingGate, 0),
+		},
+	}}
+}
+
 // Obj returns the inner Pod.
 func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
