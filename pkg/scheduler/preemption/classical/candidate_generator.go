@@ -111,13 +111,26 @@ func candidateElemsOrdering(candidates []*candidateElem, cq kueue.ClusterQueueRe
 	return adaptedOrdering
 }
 
-func workloadFitsInQuota(node *cache.ResourceNode, requests resources.FlavorResourceQuantities) bool {
+// Returns if resource requests fit in quota on this node
+// and the amount of resources that exceed the guaranteed
+// quota on this node. It is assumed that subsequent call
+// to this function will be on nodes parent with remainingRequests
+func workloadFitsInQuota(node *cache.ResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+	var guaranteed int64
+	fits := true
+	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
 		if node.Usage[fr]+v > node.SubtreeQuota[fr] {
-			return false
+			fits = false
 		}
+		guaranteed = 0
+		if lendingLimit := node.Quotas[fr].LendingLimit; lendingLimit != nil {
+			guaranteed = max(0, node.SubtreeQuota[fr]-*lendingLimit)
+		}
+		remainingRequests[fr] = v - max(0, guaranteed-node.Usage[fr])
+
 	}
-	return true
+	return fits, remainingRequests
 }
 
 func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
@@ -139,6 +152,11 @@ func split(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*
 	return workloads[:firstFalse], workloads[firstFalse:]
 }
 
+// NewCandidateIterator creates a new iterator that yields candidate workloads for preemption
+// The iterator can be used to perform two independent runs over the list of candidates:
+// with and without borrowing. The runs are independent which means that the same candidates
+// might be returned for both, but note that the candidates with borrrowing are a subset of
+// candidates without borrowing.
 func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
@@ -165,6 +183,8 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 	}
 }
 
+// Next allows to iterate over the ordered sequence of candidates, with the reason
+// for eviction returned together with a candiate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	index := c.runIndex[borrow]
 	for ; index.list < len(c.candidates) && index.element >= len(c.candidates[index.list]); index.list++ {
@@ -181,6 +201,9 @@ func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	return candidate.wl, c.getPreemptionReason(candidate, borrow)
 }
 
+// candidateIsValid checks if candidate is valid,
+// as eg. some candidates can only be considered without borrowing
+// Also, preemption of candidates might invalidate other candidates
 func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bool) bool {
 	if c.hierarchicalReclaimCtx.Cq.Name == candidate.wl.ClusterQueue {
 		return true
@@ -205,7 +228,8 @@ func (c *candidateIterator) getPreemptionReason(candidate *candidateElem, borrow
 	if candidate.wl.ClusterQueue == c.hierarchicalReclaimCtx.Cq.Name {
 		return kueue.InClusterQueueReason
 	}
-	if borrowRun && !workloadFitsInQuota(&c.hierarchicalReclaimCtx.Cq.ResourceNode, c.hierarchicalReclaimCtx.Requests) {
+	fits, _ := workloadFitsInQuota(&c.hierarchicalReclaimCtx.Cq.ResourceNode, c.hierarchicalReclaimCtx.Requests)
+	if borrowRun && !fits {
 		return kueue.InCohortReclaimWhileBorrowingReason
 	}
 	return kueue.InCohortReclamationReason

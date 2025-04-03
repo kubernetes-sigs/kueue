@@ -50,6 +50,10 @@ func IsBorrowingWithinCohortAllowed(cq *cache.ClusterQueueSnapshot) (bool, *int3
 	return true, borrowWithinCohort.MaxPriorityThreshold
 }
 
+// mayPreempt returns if ctx.Wl may preempt candidate wl
+// Preemption possibility withoutBorrowing means that
+// wl can only be preempted by ctx.Wl if ctx.Cq would
+// not be borrowing any quota from its cohort
 func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) PreemptionPossibility {
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
 		return PreemptionPossibilityNever
@@ -139,8 +143,9 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 	}
 	var previousRoot *cache.CohortSnapshot
 	var candidateList *[]*candidateElem
+	var fits bool
 	trackingNode := ctx.Cq.Parent()
-	hasHierarchicalAdvantage := workloadFitsInQuota(&ctx.Cq.ResourceNode, ctx.Requests)
+	hasHierarchicalAdvantage, remainingRequests := workloadFitsInQuota(&ctx.Cq.ResourceNode, ctx.Requests)
 	for {
 		if hasHierarchicalAdvantage {
 			candidateList = &hierarchyCandidates
@@ -151,7 +156,8 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 		if !trackingNode.HasParent() {
 			break
 		}
-		hasHierarchicalAdvantage = hasHierarchicalAdvantage || workloadFitsInQuota(&trackingNode.ResourceNode, ctx.Requests)
+		fits, remainingRequests = workloadFitsInQuota(&trackingNode.ResourceNode, remainingRequests)
+		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
 		previousRoot = trackingNode
 		trackingNode = trackingNode.Parent()
 	}
