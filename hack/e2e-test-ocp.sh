@@ -8,7 +8,7 @@ set -o pipefail
 export OC=$(which oc) # OpenShift CLI
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
-
+DEFAULT_NAMESPACE="kueue-system"
 # This is required to reuse the exisiting code.
 # Set this to empty value for OCP tests.
 export E2E_KIND_VERSION=""
@@ -94,18 +94,42 @@ function collect_logs {
     $OC describe pods -n kueue-system > "$ARTIFACTS/kueue-system-pods.log" || true
     $OC logs -n kueue-system -l app=kueue --tail=-1 > "$ARTIFACTS/kueue-system-logs.log" || true
     restore_ocp_manager_image
+    restore_kueue_namespace
 }
 
 function deploy_kueue {
-    # Update kueue image
-    (cd config/components/manager-ocp && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    local namespace=${KUEUE_NAMESPACE:-kueue-system}
+    (cd config/components/manager-ocp && $KUSTOMIZE edit set image controller="$IMAGE_TAG" && \
+     $KUSTOMIZE edit set namespace "$namespace")
     
     # Deploy kueue
-    $OC apply --server-side -k config/default-ocp
+    local kustomize_path namespace
+    kustomize_path="config/default-ocp"
+
+    # Set namespace in the default-ocp Kustomization
+    (cd "${kustomize_path}" && \
+        $KUSTOMIZE edit set namespace "$namespace")
+
+    namespace="${KUEUE_NAMESPACE:-}"
+    
+    if [[ -n "$namespace" ]]; then
+        # Create a namespace if it doesn't exist
+        $OC create namespace "$namespace" --dry-run=client -o yaml | $OC apply -f -
+        
+        # Apply resources with namespace override
+        $KUSTOMIZE build "${kustomize_path}" | $OC apply --server-side -f -
+    else
+        # Apply directly without modifications
+        $OC apply --server-side -k "${kustomize_path}"
+    fi
 }
 
 function restore_ocp_manager_image {
     (cd config/components/manager-ocp && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+}
+
+function restore_kueue_namespace {
+    (cd config/default-ocp  && $KUSTOMIZE edit set namespace "$DEFAULT_NAMESPACE")
 }
 
 function deploy_cert_manager {

@@ -30,7 +30,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -59,6 +58,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		kueueNS := util.GetKueueNamespace()
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
 		gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: config.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 		}
 		gomega.Expect(k8sClient.Create(ctx, metricsReaderClusterRoleBinding)).Should(gomega.Succeed())
 
-		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -569,12 +569,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 })
 
 func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, config.DefaultNamespace, curlPodName, curlContainerName,
+	kueueNS := util.GetKueueNamespace()
+	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
 		[]string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(
 				"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics ",
-				metricsServiceName, config.DefaultNamespace,
+				metricsServiceName, kueueNS,
 			),
 		})
 
