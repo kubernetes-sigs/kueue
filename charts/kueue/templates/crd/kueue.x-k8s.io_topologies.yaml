@@ -12,15 +12,7 @@ metadata:
   name: topologies.kueue.x-k8s.io
 spec:
   conversion:
-    strategy: Webhook
-    webhook:
-      clientConfig:
-        service:
-          name: {{ include "kueue.fullname" . }}-webhook-service
-          namespace: '{{ .Release.Namespace }}'
-          path: /convert
-      conversionReviewVersions:
-      - v1
+    strategy: None
   group: kueue.x-k8s.io
   names:
     kind: Topology
