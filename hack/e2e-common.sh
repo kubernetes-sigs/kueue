@@ -134,7 +134,16 @@ function cluster_kind_load {
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
-    $KIND load docker-image "$2" --name "$1"
+    # check if the command to get worker nodes could succeeded
+    if ! $KIND get nodes --name "$1" > /dev/null 2>&1; then
+        echo "Failed to retrieve nodes for cluster '$1'."
+        return 1
+    fi
+    # filter out 'control-plane' node, use only worker nodes to load image
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
+    if [[ -n "$worker_nodes" ]]; then
+        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
+    fi
 }
 
 # Wait until all cert-manager deployments are available.
