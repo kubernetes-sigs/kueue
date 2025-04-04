@@ -2599,4 +2599,139 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
+
+	ginkgo.When("Handling multiple workloads with incompatible flavors in a ClusterQueue", func() {
+		var (
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			_ = features.SetEnable(features.FlavorFungibility, true)
+
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "test-")
+
+			onDemandFlavor = testing.MakeResourceFlavor("on-demand").
+				NodeLabel(instanceKey, "on-demand").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+
+			spotTaintedFlavor = testing.MakeResourceFlavor("spot-tainted").
+				NodeLabel(instanceKey, "spot-tainted").
+				Taint(corev1.Taint{
+					Key:    instanceKey,
+					Value:  "spot-tainted",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj()
+			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).To(gomega.Succeed())
+
+			spotToleration = corev1.Toleration{
+				Key:      instanceKey,
+				Operator: corev1.TolerationOpEqual,
+				Value:    spotTaintedFlavor.Name,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}
+
+			spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").
+				NodeLabel(instanceKey, "spot-untainted").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).To(gomega.Succeed())
+
+			cq = testing.MakeClusterQueue("test-cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+					*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5").Obj(),
+					*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				QueueingStrategy(kueue.BestEffortFIFO).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+
+			lq = testing.MakeLocalQueue("test-queue", ns.Name).
+				ClusterQueue(cq.Name).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			workloads := &kueue.WorkloadList{}
+			gomega.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			for _, wl := range workloads.Items {
+				gomega.Expect(k8sClient.Delete(ctx, &wl)).To(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &wl, true)
+			}
+
+			gomega.Expect(k8sClient.Delete(ctx, lq)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+
+			gomega.Expect(k8sClient.Delete(ctx, cq)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+
+			gomega.Expect(k8sClient.Delete(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+
+			gomega.Expect(k8sClient.Delete(ctx, spotTaintedFlavor)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
+
+			gomega.Expect(k8sClient.Delete(ctx, spotUntaintedFlavor)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should handle workloads with incompatible flavors correctly", func() {
+			ginkgo.By("Creating a workload that targets the on-demand flavor")
+			wl1 := testing.MakeWorkload("wl1", ns.Name).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "2").
+				NodeSelector(map[string]string{instanceKey: "on-demand"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+
+			ginkgo.By("Checking wl1 is admitted to the on-demand flavor")
+			wl1Admission := testing.MakeAdmission(cq.Name).
+				Assignment(corev1.ResourceCPU, "on-demand", "2").
+				Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
+
+			ginkgo.By("Creating a workload that targets spot-untainted flavor")
+			wl2 := testing.MakeWorkload("wl2", ns.Name).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "2").
+				NodeSelector(map[string]string{instanceKey: "spot-untainted"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+			ginkgo.By("Checking wl2 is admitted to the spot-untainted flavor")
+			wl2Admission := testing.MakeAdmission(cq.Name).
+				Assignment(corev1.ResourceCPU, "spot-untainted", "2").
+				Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, wl2Admission)
+
+			ginkgo.By("Creating a workload that targets spot-tainted flavor but lacks toleration")
+			wl3 := testing.MakeWorkload("wl3", ns.Name).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "2").
+				NodeSelector(map[string]string{instanceKey: "spot-tainted"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+
+			ginkgo.By("Checking wl3 remains pending due to missing toleration")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+			ginkgo.By("Updating wl3 to include toleration for spot-tainted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedWl3 := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), updatedWl3)).To(gomega.Succeed())
+				updatedWl3.Spec.PodSets[0].Template.Spec.Tolerations = []corev1.Toleration{spotToleration}
+				g.Expect(k8sClient.Update(ctx, updatedWl3)).To(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking wl3 is admitted to spot-tainted flavor after adding toleration")
+			wl3Admission := testing.MakeAdmission(cq.Name).
+				Assignment(corev1.ResourceCPU, "spot-tainted", "2").
+				Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, wl3Admission)
+		})
+	})
 })
