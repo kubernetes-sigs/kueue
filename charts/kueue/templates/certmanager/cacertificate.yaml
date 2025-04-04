@@ -1,0 +1,26 @@
+# Add CA certificate and issuer
+{{- if .Values.enableCertManager }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kueue.fullname" . }}-metrics-ca
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  isCA: true
+  commonName: metrics-ca
+  secretName: metrics-ca
+  issuerRef:
+    name: {{ include "kueue.fullname" . }}-selfsigned-issuer
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kueue.fullname" . }}-metrics-ca-issuer
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: metrics-ca
+{{- end }}
