@@ -2762,15 +2762,17 @@ func TestHierarchicalPreemptions(t *testing.T) {
 	//                             /      \
 	//                          c11        c12
 	//                       /   |   \      |  \
-	//                    c21   c22   c23   q2  q1
+	//                    c21   c22    c23  q2  q1
 	//                  /  |     |  \   | \
 	//                c31  c32   q6  q5 q4 q3
 	//             /  |    |  \
 	//           q10  q9   q8  q7
-	//	quotas (identical for CPU and memory):
+	//	quotas (for CPU and memory):
 	//	4: c11, c12, c21, c22, c32, c32
-	//	2: q10, q9
+	//	2: q9
 	//	0: c31, q1, q2, q3, q4, q5, q6, q7, q8
+	//  q10: memory quota of 4Gi with lending limit of 2Gi
+	//  q10: CPU quota 2
 
 	baseCohorts := []*kueuealpha.Cohort{
 		utiltesting.MakeCohort("r").Obj(),
@@ -2917,7 +2919,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		utiltesting.MakeClusterQueue("q10").
 			Cohort("c31").ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 			Resource(corev1.ResourceCPU, "2").
-			Resource(corev1.ResourceMemory, "2Gi").
+			Resource(corev1.ResourceMemory, "4Gi", "", "2Gi").
 			Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -3521,6 +3523,56 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
+		},
+		"respect lending limits": {
+			cohorts:       baseCohorts,
+			clusterQueues: baseCQs,
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted1", "").
+					Priority(-10).
+					Request(corev1.ResourceMemory, "4Gi").
+					ReserveQuota(utiltesting.MakeAdmission("q1").
+						Assignment(corev1.ResourceMemory, "default", "4Gi").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted2", "").
+					Priority(0).
+					Request(corev1.ResourceMemory, "6Gi").
+					ReserveQuota(utiltesting.MakeAdmission("q3").
+						Assignment(corev1.ResourceMemory, "default", "6Gi").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted3", "").
+					Priority(-1).
+					Request(corev1.ResourceMemory, "6Gi").
+					ReserveQuota(utiltesting.MakeAdmission("q4").
+						Assignment(corev1.ResourceMemory, "default", "6Gi").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted4", "").
+					Priority(-1).
+					Request(corev1.ResourceMemory, "6Gi").
+					ReserveQuota(utiltesting.MakeAdmission("q5").
+						Assignment(corev1.ResourceMemory, "default", "6Gi").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted5", "").
+					Priority(0).
+					Request(corev1.ResourceMemory, "6Gi").
+					ReserveQuota(utiltesting.MakeAdmission("q6").
+						Assignment(corev1.ResourceMemory, "default", "6Gi").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("incoming", "").
+				Priority(-2).
+				Request(corev1.ResourceMemory, "14Gi").
+				Obj(),
+			targetCQ: "q10",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New(
+				targetKeyReason("/admitted3", kueue.InCohortReclaimWhileBorrowingReason),
+				targetKeyReason("/admitted4", kueue.InCohortReclaimWhileBorrowingReason)),
 		},
 	}
 	for name, tc := range cases {
