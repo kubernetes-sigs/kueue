@@ -109,14 +109,14 @@ type LocalQueueFlavorStatus struct {
   // feature gate.
   //
   // +optional
-  Topology *Topology `json:"topology,omitempty"`
+  Topology *TopologyInfo `json:"topology,omitempty"`
 }
 ```
 
-Add `Topology` API object:
+Add `TopologyInfo` API object:
 
 ```go
-type Topology struct {
+type TopologyInfo struct {
   // name is the name of the topology.
   //
   // +required
