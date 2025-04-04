@@ -79,26 +79,3 @@ spec:
         type: object
     served: true
     storage: true
-  - name: v1beta1
-    schema:
-      openAPIV3Schema:
-        properties:
-          levels:
-            description: levels define the levels of topology.
-            items:
-              type: string
-            maxItems: 8
-            minItems: 1
-            type: array
-            x-kubernetes-list-type: atomic
-          name:
-            description: name is the name of the topology.
-            maxLength: 253
-            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-            type: string
-        required:
-        - name
-        - levels
-        type: object
-    served: true
-    storage: false
