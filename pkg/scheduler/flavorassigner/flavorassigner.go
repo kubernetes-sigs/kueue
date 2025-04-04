@@ -67,7 +67,7 @@ func (assignment *Assignment) computeTASUsage() workload.TASUsage {
 	result := make(workload.TASUsage)
 	for _, psa := range assignment.PodSets {
 		if psa.TopologyAssignment != nil {
-			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			singlePodRequests := resources.NewResources(psa.Requests).ScaledDown(int64(psa.Count))
 			for _, flv := range psa.Flavors {
 				if _, ok := result[flv.Name]; !ok {
 					result[flv.Name] = make(workload.TASFlavorUsage, 0)
@@ -477,7 +477,7 @@ func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) 
 	}
 }
 
-func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(requests resources.Resources, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -499,7 +499,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
 	psID int,
-	requests resources.Requests,
+	requests resources.Resources,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
@@ -730,8 +730,8 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
-func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
-	filtered := make(resources.Requests)
+func filterRequestedResources(req resources.Resources, allowList sets.Set[corev1.ResourceName]) resources.Resources {
+	filtered := make(resources.Resources)
 	for n, v := range req {
 		if allowList.Has(n) {
 			filtered[n] = v
