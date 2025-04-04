@@ -47,7 +47,7 @@ const LocalQueueDetail = () => {
   if (workloadsError) return <ErrorMessage error={workloadsError} />;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Local Queue Detail: {queueName}</Typography>
 
       <Grid container spacing={2}>
@@ -66,7 +66,7 @@ const LocalQueueDetail = () => {
       </Grid>
 
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>Conditions</Typography>
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} className="tableContainerWithBorder">
         <Table>
           <TableHead>
             <TableRow>
@@ -91,12 +91,11 @@ const LocalQueueDetail = () => {
 
       {/* Reusable FlavorTable Component for Flavor Usage */}
       <FlavorTable title="Flavor Usage" flavorData={queue.status?.flavorUsage} linkToFlavor={true} />
-
       {/* Reusable FlavorTable Component for Flavors Reservation */}
       <FlavorTable title="Flavors Reservation" flavorData={queue.status?.flavorsReservation} linkToFlavor={true} />
 
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>Admitted Workloads</Typography>
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} className="tableContainerWithBorder">
         <Table>
           <TableHead>
             <TableRow>

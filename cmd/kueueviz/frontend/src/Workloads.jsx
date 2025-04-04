@@ -42,13 +42,13 @@ const Workloads = () => {
   }, {});
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       {/* Display a table with workload details */}
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>Workloads</Typography>
       {workloads.length === 0 ? (
         <Typography>No Workloads found.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>

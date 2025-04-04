@@ -44,12 +44,12 @@ const LocalQueues = () => {
   }, {});
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper  className="parentContainer">
       <Typography variant="h4" gutterBottom>Local Queues</Typography>
       {queues.length === 0 ? (
         <Typography>No Local Queues found.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>

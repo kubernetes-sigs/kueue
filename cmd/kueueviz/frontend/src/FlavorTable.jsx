@@ -22,7 +22,7 @@ import './App.css';
 const FlavorTable = ({ title, flavorData, linkToFlavor, showBorrowingColumn }) => (
   <>
     <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>{title}</Typography>
-    <TableContainer component={Paper}>
+    <TableContainer component={Paper} className="tableContainerWithBorder">
       <Table>
         <TableHead>
           <TableRow style={{ textDecoration: 'none', color: 'inherit', fontWeight: 'bold' }}>

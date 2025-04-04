@@ -34,12 +34,12 @@ const ResourceFlavors = () => {
   if (error) return <ErrorMessage error={error} />;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Resource Flavors</Typography>
       {resourceFlavors.length === 0 ? (
         <Typography>No Resource Flavors found.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>

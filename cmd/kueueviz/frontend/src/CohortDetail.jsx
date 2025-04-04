@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 import React, { useState, useEffect } from 'react';
-import { useParams,Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
@@ -38,7 +38,7 @@ const CohortDetail = () => {
 
   if (!cohortDetails) {
     return (
-      <Paper style={{ padding: '16px', marginTop: '20px' }}>
+      <Paper className="parentContainer">
         <Typography variant="h6">Loading...</Typography>
         <CircularProgress />
       </Paper>
@@ -46,7 +46,7 @@ const CohortDetail = () => {
   }
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cohort Detail: {cohortName}</Typography>
       <Typography variant="body1"><strong>Number of Cluster Queues:</strong> {cohortDetails.clusterQueues.length}</Typography>
 
@@ -56,7 +56,7 @@ const CohortDetail = () => {
       {cohortDetails.clusterQueues.length === 0 ? (
         <Typography>No cluster queues are part of this cohort.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>

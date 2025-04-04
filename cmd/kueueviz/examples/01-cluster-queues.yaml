@@ -75,4 +75,10 @@ spec:
       - name: "memory"
         nominalQuota: 300Mi
 
-
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: unused-cluster-queue
+spec:
+  namespaceSelector: {}
