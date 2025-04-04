@@ -77,6 +77,16 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	return pods
 }
 
+func (p *PodWrapper) MakePodGroupWrappers(count int) []*PodWrapper {
+	var pods []*PodWrapper
+	for i := 0; i < count; i++ {
+		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod)
+	}
+	return pods
+}
+
 // MakeIndexedGroup returns multiple indexed pods that form a pod group, based on the original wrapper.
 func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
