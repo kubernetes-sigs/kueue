@@ -21,3 +21,13 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         v: "3"
+- role: worker
+  labels:
+    instance-type: on-demand
+
+kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        v: "3"
