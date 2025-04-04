@@ -156,7 +156,7 @@ func TestValidateClusterQueue(t *testing.T) {
 					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "1", limitIsEmptyErrorMsg),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "1", "must be nil when cohort is empty"),
 			},
 		},
 		{
