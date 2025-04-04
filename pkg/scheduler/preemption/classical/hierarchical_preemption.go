@@ -82,13 +82,13 @@ func isNeverPreemptable(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incom
 	} else {
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
-	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority && !lowerPriority {
-		return true
+	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority {
+		return !lowerPriority
 	}
-	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority && !(lowerPriority || newerEqualPriority) {
-		return true
+	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
+		return !(lowerPriority || newerEqualPriority)
 	}
-	return false
+	return preemptionPolicy != kueue.PreemptionPolicyAny
 }
 
 func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrowWithinCohortThreshold *int32, haveHierarchicalAdvantage bool) bool {
