@@ -18,8 +18,6 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -tags st
 FROM --platform=${TARGETPLATFORM} ${BASE_IMAGE}
 WORKDIR /
 COPY --from=builder /workspace/manager .
-RUN mkdir /licenses
-COPY --from=builder /workspace/LICENSE /licenses/.
 USER 65532:65532
 
 LABEL com.redhat.component="Kueue"
@@ -40,5 +38,9 @@ LABEL summary="Kueue is a set of APIs and controller for job queueing. \
                     and when it should stop (as in active pods should be deleted)."
 LABEL io.k8s.display-name="Kueue"
 LABEL io.openshift.tags="openshift,operand,kueue"
+
+# Licenses
+
+COPY LICENSE /licenses/LICENSE
 
 ENTRYPOINT ["/manager"]
