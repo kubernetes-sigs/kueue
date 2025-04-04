@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		cq = testing.MakeClusterQueue("cq").Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterEach(func() {

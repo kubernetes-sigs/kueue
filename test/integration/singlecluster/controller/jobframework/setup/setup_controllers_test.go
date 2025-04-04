@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		flavor = testing.MakeResourceFlavor("on-demand").Obj()
-		gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, flavor)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 					Obj(),
 			).Obj()
 
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 	})
 
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		})
 
 		ginkgo.By("Create a JobSet", func() {
-			gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, jobSet)
 		})
 
 		ginkgo.By("Check that the JobSet was created and got suspended", func() {

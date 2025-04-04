@@ -52,15 +52,15 @@ var _ = ginkgo.Describe("JobSet", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			defaultRf = testing.MakeResourceFlavor("default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, defaultRf)
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(defaultRf.Name).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -120,10 +120,10 @@ var _ = ginkgo.Describe("JobSet", func() {
 		ginkgo.BeforeEach(func() {
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
 				NodeLabel("instance-type", "on-demand").Obj()
-			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandRF)
 			spotRF = testing.MakeResourceFlavor("spot").
 				NodeLabel("instance-type", "spot").Obj()
-			gomega.Expect(k8sClient.Create(ctx, spotRF)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, spotRF)
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").
@@ -139,9 +139,9 @@ var _ = ginkgo.Describe("JobSet", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			ginkgo.By("Waiting for the jobSet to be unsuspended", func() {

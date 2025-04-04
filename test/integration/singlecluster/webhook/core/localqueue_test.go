@@ -38,7 +38,7 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			gomega.Expect(k8sClient.Create(ctx, obj)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue")
 			gomega.Eventually(func(g gomega.Gomega) {

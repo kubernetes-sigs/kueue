@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 
 		ginkgo.It("Should update parent", func() {
 			cohort = testing.MakeCohort("cohort").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohort)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createCohort := &kueuealpha.Cohort{}
@@ -360,7 +360,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 		})
 		ginkgo.It("Should reject invalid parent", func() {
 			cohort = testing.MakeCohort("cohort").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cohort)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createCohort := &kueuealpha.Cohort{}

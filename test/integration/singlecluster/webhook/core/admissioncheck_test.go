@@ -33,7 +33,7 @@ import (
 var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 	ginkgo.When("Creating a AdmissionCheck", func() {
 		ginkgo.DescribeTable("Defaulting on creating", func(ac, wantAC kueue.AdmissionCheck) {
-			gomega.Expect(k8sClient.Create(ctx, &ac)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, &ac)
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, &ac, true)
 			}()
@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ac)
 
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ac)
 
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ac)
 
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ac)
 
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)

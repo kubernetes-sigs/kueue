@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		ginkgo.When("The queue-name label is set", func() {
 			ginkgo.It("Should inject queue name, pod group name to pod template labels, and pod group total count to pod template annotations", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
-				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, sts)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		ginkgo.When("The queue-name label is not set", func() {
 			ginkgo.It("Should not inject queue name to pod template labels", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
-				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, sts)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}

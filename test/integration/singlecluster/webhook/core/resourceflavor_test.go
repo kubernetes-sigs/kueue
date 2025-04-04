@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Value:  "true",
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj()
-			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		ginkgo.It("Should have a finalizer", func() {
 			ginkgo.By("Creating a new empty resourceFlavor")
 			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
-			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		ginkgo.It("Should fail to update", func() {
 			ginkgo.By("Creating a new resourceFlavor")
 			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
-			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())

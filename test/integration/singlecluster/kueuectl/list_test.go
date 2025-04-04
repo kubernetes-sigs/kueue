@@ -56,13 +56,13 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 		ginkgo.JustBeforeEach(func() {
 			lq1 = testing.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq1)
 
 			lq2 = testing.MakeLocalQueue("lq2", ns.Name).ClusterQueue("very-long-cluster-queue-name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq2)
 
 			lq3 = testing.MakeLocalQueue("very-long-local-queue-name", ns.Name).ClusterQueue("cq1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq3)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq3)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -120,10 +120,10 @@ very-long-local-queue-name   cq1                            0                   
 
 		ginkgo.JustBeforeEach(func() {
 			cq1 = testing.MakeClusterQueue("cq1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq1)
 
 			cq2 = testing.MakeClusterQueue("very-long-cluster-queue-name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq2)
 
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
 		})
@@ -184,13 +184,13 @@ very-long-cluster-queue-name            0                   0                   
 
 		ginkgo.JustBeforeEach(func() {
 			wl1 = testing.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl1)
 
 			wl2 = testing.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl2)
 
 			wl3 = testing.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, wl3)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -245,10 +245,10 @@ wl2                                             very-long-local-queue-name      
 
 		ginkgo.JustBeforeEach(func() {
 			rf1 = testing.MakeResourceFlavor("rf1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf1)
 
 			rf2 = testing.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, rf2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rf2)
 		})
 
 		ginkgo.JustAfterEach(func() {

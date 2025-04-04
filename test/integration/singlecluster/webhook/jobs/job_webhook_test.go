@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
 		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
-		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 
 	ginkgo.It("Should suspend a Job even no queue name specified", func() {
 		job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 
 	ginkgo.It("Should not suspend a Job with no queue name specified in an unmanaged namespace", func() {
 		job := testingjob.MakeJob("job-without-queue-name-unmanaged", "unmanaged-ns").Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 
 	ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
 		job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 
 	ginkgo.It("should suspend a Job when created in unsuspend state", func() {
 		job := testingjob.MakeJob("job-with-queue-name", ns.Name).Suspend(false).Queue("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 
 	ginkgo.It("should not suspend a Job when no queue name specified", func() {
 		job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 
 	ginkgo.It("should not update unsuspend Job successfully when changing queue name", func() {
 		job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 			Completions(6).
 			SetAnnotation(job.JobMinParallelismAnnotation, "4").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 			Completions(6).
 			SetAnnotation(job.JobMinParallelismAnnotation, "4").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 			SetAnnotation(job.StoppingAnnotation, "true").
 			SetAnnotation(job.JobMinParallelismAnnotation, "2").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, originalJob)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, originalJob)
 
 		lookupKey := types.NamespacedName{Name: originalJob.Name, Namespace: originalJob.Namespace}
 		updatedJob := &batchv1.Job{}

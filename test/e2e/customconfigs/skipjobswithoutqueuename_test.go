@@ -59,15 +59,15 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = testing.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					Suspend(false).
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testJob)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testJob)
 			})
 
 			ginkgo.By("verifying that the job gets suspended", func() {
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				Obj()
 
 			ginkgo.By("creating an unsuspended appwrapper without a queue name", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("verifying that the appwrapper gets suspended", func() {
@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				Obj()
 
 			ginkgo.By("creating an unsuspended appwrapper without a queue name", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("verifying that the appwrapper gets suspended", func() {
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				testPod = testingpod.MakePod("test-pod", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testPod)
 			})
 
 			ginkgo.By("verifying that the pod is gated", func() {
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testPod)
 			})
 
 			ginkgo.By("verifying that the pod is running", func() {
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testDeploy)
 			})
 
 			ginkgo.By("verifying that the pods of the deployment are gated", func() {
@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					TerminationGracePeriod(1).
 					Replicas(2).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testDeploy)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testDeploy)
 			})
 
 			ginkgo.By("verifying that the pods of the deployment are running", func() {
@@ -355,7 +355,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testSts)
 			})
 
 			ginkgo.By("verifying that the pods of the StatefulSet are gated", func() {
@@ -383,7 +383,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, testSts)
 			})
 
 			ginkgo.By("verifying that the pods of the StatefulSet are running", func() {

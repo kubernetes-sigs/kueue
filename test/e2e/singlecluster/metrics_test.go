@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
-		gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
@@ -78,14 +78,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Name:     metricsReaderClusterRoleName,
 			},
 		}
-		gomega.Expect(k8sClient.Create(ctx, metricsReaderClusterRoleBinding)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
 			ServiceAccountName(serviceAccountName).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, curlPod)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -123,13 +123,13 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
 				Queue(localQueue.Name).
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, workload)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 		ginkgo.BeforeEach(func() {
 			admissionCheck = utiltesting.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
-			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, admissionCheck)
 
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
@@ -258,19 +258,19 @@ var _ = ginkgo.Describe("Metrics", func() {
 				).
 				AdmissionChecks(admissionCheck.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(localQueue.Name).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, createdJob)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, createdJob)
 
 			admissionCheckedJobWLName := job.GetWorkloadNameForJob(createdJob.Name, createdJob.UID)
 			workloadKey = types.NamespacedName{
@@ -375,7 +375,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue1)
 
 			clusterQueue2 = utiltesting.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
@@ -393,28 +393,28 @@ var _ = ginkgo.Describe("Metrics", func() {
 					},
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue2)
 
 			localQueue1 = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
 				ClusterQueue(clusterQueue1.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue1)
 
 			localQueue2 = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue2)
 
 			highPriorityClass = utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(localQueue1.Name).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowerJob1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lowerJob1)
 
 			lowerWLName1 := job.GetWorkloadNameForJob(lowerJob1.Name, lowerJob1.UID)
 			lowerWorkload1Key = types.NamespacedName{
@@ -433,7 +433,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Queue(localQueue1.Name).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowerJob2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lowerJob2)
 
 			lowerWLName2 := job.GetWorkloadNameForJob(lowerJob2.Name, lowerJob2.UID)
 			lowerWorkload2Key = types.NamespacedName{
@@ -453,7 +453,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, blockerJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, blockerJob)
 
 			blockerWLName := job.GetWorkloadNameForJob(blockerJob.Name, blockerJob.UID)
 			blockerWorkloadKey = types.NamespacedName{
@@ -473,14 +473,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, higherJob1)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, higherJob1)
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(localQueue2.Name).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, higherJob2)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, higherJob2)
 		})
 
 		ginkgo.AfterEach(func() {
