@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"iter"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -87,4 +89,16 @@ func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 
 func (c *CohortSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
+}
+
+func (c *CohortSnapshot) PathToRoot() iter.Seq[*CohortSnapshot] {
+	return func(yield func(*CohortSnapshot) bool) {
+		cohort := c
+		for cohort.HasParent() {
+			if !yield(cohort) {
+				return
+			}
+			cohort = cohort.Parent()
+		}
+	}
 }
