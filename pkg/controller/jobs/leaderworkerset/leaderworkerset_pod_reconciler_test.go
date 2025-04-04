@@ -69,12 +69,12 @@ func TestPodReconciler(t *testing.T) {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
@@ -84,35 +84,37 @@ func TestPodReconciler(t *testing.T) {
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"should set default values": {
+		"should set default values and priority class when has value": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
 				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Label(constants.WorkloadPriorityClassLabel, "test").
 				Queue("queue").
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
 				PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
-				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Annotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 				Obj(),
