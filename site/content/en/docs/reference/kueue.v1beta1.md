@@ -1293,7 +1293,7 @@ have.</p>
 </td>
 </tr>
 <tr><td><code>topology</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-Topology"><code>Topology</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyInfo"><code>TopologyInfo</code></a>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
@@ -2389,37 +2389,6 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 
 
-## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
-    
-
-**Appears in:**
-
-- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
-</td>
-<td>
-   <p>name is the name of the topology.</p>
-</td>
-</tr>
-<tr><td><code>levels</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>levels define the levels of topology.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
     
 
@@ -2488,6 +2457,37 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
+## `TopologyInfo`     {#kueue-x-k8s-io-v1beta1-TopologyInfo}
+    
+
+**Appears in:**
+
+- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
+</td>
+<td>
+   <p>name is the name of the topology.</p>
+</td>
+</tr>
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
     
 (Alias of `string`)
@@ -2496,7 +2496,7 @@ domain indicated by the values field.</p>
 
 - [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec)
 
-- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
+- [TopologyInfo](#kueue-x-k8s-io-v1beta1-TopologyInfo)
 
 
 <p>TopologyReference is the name of the Topology.</p>
