@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -63,27 +64,48 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(ctx context.Context, mgr manager.Manager) {
-	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+type SetupOption func()
 
-	failedWebhook, err := webhooks.Setup(mgr)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-
-	controllersCfg := &config.Configuration{}
-	mgr.GetScheme().Default(controllersCfg)
-
-	controllersCfg.Metrics.EnableClusterQueueResources = true
-	controllersCfg.QueueVisibility = &config.QueueVisibility{
-		UpdateIntervalSeconds: 2,
-		ClusterQueues: &config.ClusterQueueVisibility{
-			MaxCount: 3,
-		},
+func WithLQMetricsConfig(cfg config.LocalQueueMetrics) SetupOption {
+	return func() {
+		err := metrics.SetLocalQueueMetrics(cfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	}
+}
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+func WithLQMetricsEnabled() SetupOption {
+	return func() {
+		err := metrics.SetLocalQueueMetrics(config.LocalQueueMetrics{})
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+	}
+}
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+func managerSetup(opts ...SetupOption) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+		controllersCfg := &config.Configuration{}
+		mgr.GetScheme().Default(controllersCfg)
+
+		for _, f := range opts {
+			f()
+		}
+		controllersCfg.Metrics.EnableClusterQueueResources = true
+		controllersCfg.QueueVisibility = &config.QueueVisibility{
+			UpdateIntervalSeconds: 2,
+			ClusterQueues: &config.ClusterQueueVisibility{
+				MaxCount: 3,
+			},
+		}
+
+		cCache := cache.New(mgr.GetClient())
+		queues := queue.NewManager(mgr.GetClient(), cCache)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+	}
 }
