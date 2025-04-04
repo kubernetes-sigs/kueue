@@ -134,7 +134,7 @@ function restore_kueue_namespace {
 
 function deploy_cert_manager {
     echo "Deploying cert-manager..."
-    $OC apply -f config/default-ocp/cert_manager_rh.yaml
+    ${SOURCE_DIR}/deploy-cert-manager-ocp.sh
     wait_for_cert_manager_crds
     wait_for_cert_manager_csv
     wait_for_cert_manager_ready
