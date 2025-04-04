@@ -1,0 +1,21 @@
+# permissions for end users to edit resourceflavors.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-topology-editor-role'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - topology
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
