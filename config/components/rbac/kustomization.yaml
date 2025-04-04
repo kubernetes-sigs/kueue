@@ -29,6 +29,8 @@ resources:
 - resourceflavor_viewer_role.yaml
 - pending_workloads_cq_viewer_role.yaml
 - pending_workloads_lq_viewer_role.yaml
+- topology_editor_role.yaml
+- topology_viewer_role.yaml
 - workload_editor_role.yaml
 - workload_viewer_role.yaml
 
