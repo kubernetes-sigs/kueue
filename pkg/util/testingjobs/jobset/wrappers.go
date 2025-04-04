@@ -21,6 +21,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
@@ -93,6 +95,11 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		}
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
 	}
+	return j
+}
+
+func (j *JobSetWrapper) UID(uid string) *JobSetWrapper {
+	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
 
@@ -191,5 +198,19 @@ func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
 // ManagedBy adds a managedby.
 func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	j.Spec.ManagedBy = &c
+	return j
+}
+
+// OwnerReference adds a ownerReference to the default container.
+func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
+	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: ownerGVK.GroupVersion().String(),
+			Kind:       ownerGVK.Kind,
+			Name:       ownerName,
+			UID:        types.UID(ownerName),
+			Controller: ptr.To(true),
+		},
+	}
 	return j
 }

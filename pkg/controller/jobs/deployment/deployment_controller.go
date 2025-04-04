@@ -48,6 +48,8 @@ func init() {
 	}))
 }
 
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
+
 type Deployment appsv1.Deployment
 
 func fromObject(o runtime.Object) *Deployment {
