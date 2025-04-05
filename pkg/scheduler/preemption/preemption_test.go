@@ -1857,7 +1857,7 @@ func TestPreemption(t *testing.T) {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
 
-			snapshotComparer := NewSnapshotComparer()
+			snapshotComparer := NewSnapshotComparer(cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"))
 			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
 				t.Errorf("Snapshot was modified by preemption (-initial,+end):\n%s", diff)
 			}
@@ -2675,7 +2675,7 @@ func TestFairPreemptions(t *testing.T) {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 
-			snapshotComparer := NewSnapshotComparer()
+			snapshotComparer := NewSnapshotComparer(cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"))
 			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
 				t.Errorf("Snapshot was modified by preemption (-initial,+end):\n%s", diff)
 			}
@@ -2778,109 +2778,15 @@ type SnapshotComparer struct {
 	opts cmp.Options
 }
 
-var baseOpts cmp.Options
-
-func init() {
-	baseOpts = cmp.Options{
-		cmp.AllowUnexported(
-			hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{},
-			cache.ClusterQueueSnapshot{},
-			cache.CohortSnapshot{},
-			hierarchy.ClusterQueue[*cache.CohortSnapshot]{},
-			hierarchy.Cohort[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{},
-		),
-		// comparer for sets based on content, not pointers else causing false negatives
-		cmp.Comparer(func(x, y sets.Set[*cache.ClusterQueueSnapshot]) bool {
-			if x.Len() != y.Len() {
-				return false
-			}
-			xList := x.UnsortedList()
-			yList := y.UnsortedList()
-			// sort by name for  consistent comparison,  else its unordered causing false negatives
-			sortByName(xList)
-			sortByName(yList)
-			for i := range xList {
-				if !clusterQueueSnapshotContentEqual(xList[i], yList[i]) {
-					return false
-				}
-			}
-			return true
-		}),
-		cmp.Comparer(func(x, y sets.Set[*cache.CohortSnapshot]) bool {
-			if x.Len() != y.Len() {
-				return false
-			}
-			xList := x.UnsortedList()
-			yList := y.UnsortedList()
-			sortCohortByName(xList)
-			sortCohortByName(yList)
-			for i := range xList {
-				if !cohortSnapshotContentEqual(xList[i], yList[i]) {
-					return false
-				}
-			}
-			return true
-		}),
-	}
-}
-
-func sortByName(slice []*cache.ClusterQueueSnapshot) {
-	sort.Slice(slice, func(i, j int) bool {
-		return slice[i].Name < slice[j].Name
-	})
-}
-
-func sortCohortByName(slice []*cache.CohortSnapshot) {
-	sort.Slice(slice, func(i, j int) bool {
-		return slice[i].Name < slice[j].Name
-	})
-}
-
-func clusterQueueSnapshotContentEqual(x, y *cache.ClusterQueueSnapshot) bool {
-	if x == nil && y == nil {
-		return true
-	}
-	if x == nil || y == nil {
-		return false
-	}
-	opts := append(baseOpts,
-		cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue"),
-		cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"),
-	)
-	if !cmp.Equal(x, y, opts) {
-		return false
-	}
-	xCohort := x.ClusterQueue.Parent()
-	yCohort := y.ClusterQueue.Parent()
-	return cohortSnapshotContentEqual(xCohort, yCohort)
-}
-
-func cohortSnapshotContentEqual(x, y *cache.CohortSnapshot) bool {
-	if x == nil && y == nil {
-		return true
-	}
-	if x == nil || y == nil {
-		return false
-	}
-	opts := append(baseOpts,
-		cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"),
-		cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"),
-	)
-	return cmp.Equal(x, y, opts)
-}
-
-func (c *SnapshotComparer) cohortSnapshotComparer(x, y *cache.CohortSnapshot) bool {
-	return cohortSnapshotContentEqual(x, y)
-}
-
 func NewSnapshotComparer(opts ...cmp.Option) *SnapshotComparer {
-	return &SnapshotComparer{opts: append(baseOpts, opts...)}
+	return &SnapshotComparer{opts: opts}
 }
 
 func (c *SnapshotComparer) Diff(x, y *cache.Snapshot) string {
-	return cmp.Diff(x, y, append(c.opts,
+	return cmp.Diff(x, y, append(c.opts, cmp.Options{
+		cmp.AllowUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
 		cmp.Comparer(c.hierarchyManagerComparer),
-	))
+	}))
 }
 
 func (c *SnapshotComparer) hierarchyManagerComparer(x, y hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]) bool {
@@ -2910,7 +2816,16 @@ func (c *SnapshotComparer) clusterQueuesSnapshotsComparer(x, y map[kueue.Cluster
 }
 
 func (c *SnapshotComparer) clusterQueueSnapshotComparer(x, y *cache.ClusterQueueSnapshot) bool {
-	return clusterQueueSnapshotContentEqual(x, y)
+	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly"))) {
+		return false
+	}
+	if x == nil {
+		return true
+	}
+	if !c.cohortSnapshotComparer(x.ClusterQueue.Parent(), y.ClusterQueue.Parent()) {
+		return false
+	}
+	return true
 }
 
 func (c *SnapshotComparer) cohortSnapshotsComparer(x, y map[kueue.CohortReference]*cache.CohortSnapshot) bool {
@@ -2925,33 +2840,71 @@ func (c *SnapshotComparer) cohortSnapshotsComparer(x, y map[kueue.CohortReferenc
 		if !c.cohortSnapshotComparer(xSnapshot, ySnapshot) {
 			return false
 		}
+	}
+	return true
+}
 
-		xChildCohorts := xSnapshot.Cohort.ChildCohorts()
-		yChildCohorts := ySnapshot.Cohort.ChildCohorts()
-		if len(xChildCohorts) != len(yChildCohorts) {
+func (c *SnapshotComparer) cohortSnapshotComparer(x, y *cache.CohortSnapshot) bool {
+	c.compareCohortSnapshotContent(x, y)
+	if x == nil {
+		return true
+	}
+
+	if !c.compareCohortSnapshotContent(x.Parent(), y.Parent()) {
+		return false
+	}
+
+	xChildCohorts := x.Cohort.ChildCohorts()
+	yChildCohorts := y.Cohort.ChildCohorts()
+	if len(xChildCohorts) != len(yChildCohorts) {
+		return false
+	}
+	sortCohortSnapshotsByName(xChildCohorts)
+	sortCohortSnapshotsByName(yChildCohorts)
+	for index := range xChildCohorts {
+		if !c.compareCohortSnapshotContent(xChildCohorts[index], yChildCohorts[index]) {
 			return false
 		}
-		sortCohortByName(xChildCohorts)
-		sortCohortByName(yChildCohorts)
-		for i := range xChildCohorts {
-			if !cohortSnapshotContentEqual(xChildCohorts[i], yChildCohorts[i]) {
-				return false
-			}
-		}
+	}
 
-		xChildCQs := xSnapshot.Cohort.ChildCQs()
-		yChildCQs := ySnapshot.Cohort.ChildCQs()
-		if len(xChildCQs) != len(yChildCQs) {
+	xChildCQs := x.Cohort.ChildCQs()
+	yChildCQs := y.Cohort.ChildCQs()
+	if len(xChildCQs) != len(yChildCQs) {
+		return false
+	}
+	sortCQSnapshotsByName(xChildCQs)
+	sortCQSnapshotsByName(yChildCQs)
+	for index := range xChildCQs {
+		if !c.compareCQSnapshotContent(xChildCQs[index], yChildCQs[index]) {
 			return false
-		}
-		sortByName(xChildCQs)
-		sortByName(yChildCQs)
-		for i := range xChildCQs {
-			if !clusterQueueSnapshotContentEqual(xChildCQs[i], yChildCQs[i]) {
-				return false
-			}
 		}
 	}
 
 	return true
+}
+
+func (c *SnapshotComparer) compareCohortSnapshotContent(x, y *cache.CohortSnapshot) bool {
+	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"))) {
+		return false
+	}
+	return true
+}
+
+func (c *SnapshotComparer) compareCQSnapshotContent(x, y *cache.ClusterQueueSnapshot) bool {
+	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly"))) {
+		return false
+	}
+	return true
+}
+
+func sortCQSnapshotsByName(slice []*cache.ClusterQueueSnapshot) {
+	sort.Slice(slice, func(i, j int) bool {
+		return slice[i].Name < slice[j].Name
+	})
+}
+
+func sortCohortSnapshotsByName(slice []*cache.CohortSnapshot) {
+	sort.Slice(slice, func(i, j int) bool {
+		return slice[i].Name < slice[j].Name
+	})
 }
