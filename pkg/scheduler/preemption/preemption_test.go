@@ -43,34 +43,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-var snapCmpOpts = cmp.Options{
-	// ignore zero values during comparison, as we consider
-	// zero FlavorResource usage to be same as no map entry.
-	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
-}
-
-type nodeKey struct {
-	cohort       kueue.CohortReference
-	clusterQueue kueue.ClusterQueueReference
-}
-
-func resourceNodes(snapshot *cache.Snapshot) map[nodeKey]cache.ResourceNode {
-	nodes := map[nodeKey]cache.ResourceNode{}
-	for _, cohort := range snapshot.Cohorts() {
-		nodes[nodeKey{cohort: cohort.Name}] = cohort.ResourceNode
-	}
-	for _, cq := range snapshot.ClusterQueues() {
-		nodes[nodeKey{clusterQueue: cq.Name}] = cq.ResourceNode
-	}
-	return nodes
-}
 
 func TestPreemption(t *testing.T) {
 	now := time.Now()
@@ -1879,9 +1857,8 @@ func TestPreemption(t *testing.T) {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
 
-			beforeResourceNodes := resourceNodes(beforeSnapshot)
-			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
-			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
+			snapshotComparer := NewSnapshotComparer()
+			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
@@ -2697,9 +2674,8 @@ func TestFairPreemptions(t *testing.T) {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 
-			beforeResourceNodes := resourceNodes(beforeSnapshot)
-			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
-			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
+			snapshotComparer := NewSnapshotComparer(cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"))
+			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
@@ -2795,4 +2771,135 @@ func TestPreemptionMessage(t *testing.T) {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}
 	}
+}
+
+type SnapshotComparer struct {
+	opts cmp.Options
+}
+
+func NewSnapshotComparer(opts ...cmp.Option) *SnapshotComparer {
+	return &SnapshotComparer{opts: opts}
+}
+
+func (c *SnapshotComparer) Diff(x, y *cache.Snapshot) string {
+	return cmp.Diff(x, y, append(c.opts, cmp.Options{
+		cmp.AllowUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
+		cmp.Comparer(c.hierarchyManagerComparer),
+	}))
+}
+
+func (c *SnapshotComparer) hierarchyManagerComparer(x, y hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]) bool {
+	if !c.clusterQueuesSnapshotsComparer(x.ClusterQueues(), y.ClusterQueues()) {
+		return false
+	}
+	if !c.cohortSnapshotsComparer(x.Cohorts(), y.Cohorts()) {
+		return false
+	}
+	return true
+}
+
+func (c *SnapshotComparer) clusterQueuesSnapshotsComparer(x, y map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	for name, xSnapshot := range x {
+		ySnapshot, ok := y[name]
+		if !ok {
+			return false
+		}
+		if !c.clusterQueueSnapshotComparer(xSnapshot, ySnapshot) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *SnapshotComparer) clusterQueueSnapshotComparer(x, y *cache.ClusterQueueSnapshot) bool {
+	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly"))) {
+		return false
+	}
+	if x == nil {
+		return true
+	}
+	if !c.cohortSnapshotComparer(x.ClusterQueue.Parent(), y.ClusterQueue.Parent()) {
+		return false
+	}
+	return true
+}
+
+func (c *SnapshotComparer) cohortSnapshotsComparer(x, y map[kueue.CohortReference]*cache.CohortSnapshot) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	for name, xSnapshot := range x {
+		ySnapshot, ok := y[name]
+		if !ok {
+			return false
+		}
+		if !c.cohortSnapshotComparer(xSnapshot, ySnapshot) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *SnapshotComparer) cohortSnapshotComparer(x, y *cache.CohortSnapshot) bool {
+	if !c.compareCohortSnapshotContent(x, y) {
+		return false
+	}
+	if x == nil {
+		return true
+	}
+
+	if !c.compareCohortSnapshotContent(x.Parent(), y.Parent()) {
+		return false
+	}
+
+	xChildCohorts := x.Cohort.ChildCohorts()
+	yChildCohorts := y.Cohort.ChildCohorts()
+	if len(xChildCohorts) != len(yChildCohorts) {
+		return false
+	}
+	sortCohortSnapshotsByName(xChildCohorts)
+	sortCohortSnapshotsByName(yChildCohorts)
+	for index := range xChildCohorts {
+		if !c.compareCohortSnapshotContent(xChildCohorts[index], yChildCohorts[index]) {
+			return false
+		}
+	}
+
+	xChildCQs := x.Cohort.ChildCQs()
+	yChildCQs := y.Cohort.ChildCQs()
+	if len(xChildCQs) != len(yChildCQs) {
+		return false
+	}
+	sortCQSnapshotsByName(xChildCQs)
+	sortCQSnapshotsByName(yChildCQs)
+	for index := range xChildCQs {
+		if !c.compareCQSnapshotContent(xChildCQs[index], yChildCQs[index]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *SnapshotComparer) compareCohortSnapshotContent(x, y *cache.CohortSnapshot) bool {
+	return cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort")))
+}
+
+func (c *SnapshotComparer) compareCQSnapshotContent(x, y *cache.ClusterQueueSnapshot) bool {
+	return cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly")))
+}
+
+func sortCQSnapshotsByName(slice []*cache.ClusterQueueSnapshot) {
+	sort.Slice(slice, func(i, j int) bool {
+		return slice[i].Name < slice[j].Name
+	})
+}
+
+func sortCohortSnapshotsByName(slice []*cache.CohortSnapshot) {
+	sort.Slice(slice, func(i, j int) bool {
+		return slice[i].Name < slice[j].Name
+	})
 }
