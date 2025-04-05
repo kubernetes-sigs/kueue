@@ -1857,9 +1857,9 @@ func TestPreemption(t *testing.T) {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
 
-			snapshotComparer := NewSnapshotComparer(cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"))
+			snapshotComparer := NewSnapshotComparer()
 			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
-				t.Errorf("Snapshot was modified by preemption (-initial,+end):\n%s", diff)
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
@@ -2658,7 +2658,6 @@ func TestFairPreemptions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
@@ -2677,7 +2676,7 @@ func TestFairPreemptions(t *testing.T) {
 
 			snapshotComparer := NewSnapshotComparer(cmpopts.IgnoreFields(cache.ResourceNode{}, "Usage"))
 			if diff := snapshotComparer.Diff(beforeSnapshot, snapshotWorkingCopy); diff != "" {
-				t.Errorf("Snapshot was modified by preemption (-initial,+end):\n%s", diff)
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
@@ -2845,7 +2844,9 @@ func (c *SnapshotComparer) cohortSnapshotsComparer(x, y map[kueue.CohortReferenc
 }
 
 func (c *SnapshotComparer) cohortSnapshotComparer(x, y *cache.CohortSnapshot) bool {
-	c.compareCohortSnapshotContent(x, y)
+	if !c.compareCohortSnapshotContent(x, y) {
+		return false
+	}
 	if x == nil {
 		return true
 	}
@@ -2884,17 +2885,11 @@ func (c *SnapshotComparer) cohortSnapshotComparer(x, y *cache.CohortSnapshot) bo
 }
 
 func (c *SnapshotComparer) compareCohortSnapshotContent(x, y *cache.CohortSnapshot) bool {
-	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"))) {
-		return false
-	}
-	return true
+	return cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort")))
 }
 
 func (c *SnapshotComparer) compareCQSnapshotContent(x, y *cache.ClusterQueueSnapshot) bool {
-	if !cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly"))) {
-		return false
-	}
-	return true
+	return cmp.Equal(x, y, append(c.opts, cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue", "tasOnly")))
 }
 
 func sortCQSnapshotsByName(slice []*cache.ClusterQueueSnapshot) {
