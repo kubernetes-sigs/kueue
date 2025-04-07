@@ -21,23 +21,23 @@ import (
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// TopologyApplyConfiguration represents a declarative configuration of the Topology type for use
+// TopologyInfoApplyConfiguration represents a declarative configuration of the TopologyInfo type for use
 // with apply.
-type TopologyApplyConfiguration struct {
+type TopologyInfoApplyConfiguration struct {
 	Name   *kueuev1beta1.TopologyReference `json:"name,omitempty"`
 	Levels []string                        `json:"levels,omitempty"`
 }
 
-// TopologyApplyConfiguration constructs a declarative configuration of the Topology type for use with
+// TopologyInfoApplyConfiguration constructs a declarative configuration of the TopologyInfo type for use with
 // apply.
-func Topology() *TopologyApplyConfiguration {
-	return &TopologyApplyConfiguration{}
+func TopologyInfo() *TopologyInfoApplyConfiguration {
+	return &TopologyInfoApplyConfiguration{}
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *TopologyApplyConfiguration) WithName(value kueuev1beta1.TopologyReference) *TopologyApplyConfiguration {
+func (b *TopologyInfoApplyConfiguration) WithName(value kueuev1beta1.TopologyReference) *TopologyInfoApplyConfiguration {
 	b.Name = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *TopologyApplyConfiguration) WithName(value kueuev1beta1.TopologyReferen
 // WithLevels adds the given value to the Levels field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Levels field.
-func (b *TopologyApplyConfiguration) WithLevels(values ...string) *TopologyApplyConfiguration {
+func (b *TopologyInfoApplyConfiguration) WithLevels(values ...string) *TopologyInfoApplyConfiguration {
 	for i := range values {
 		b.Levels = append(b.Levels, values[i])
 	}
