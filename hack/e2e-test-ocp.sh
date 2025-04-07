@@ -15,6 +15,10 @@ export E2E_KIND_VERSION=""
 # shellcheck source=hack/e2e-common-ocp.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 
+# To toggle deployment of cert-manager and kueue,
+# set SKIP_DEPLOY to "true" to skip these steps.
+SKIP_DEPLOY=${SKIP_DEPLOY:-false}
+
 # To label worker nodes for e2e tests.
 function label_worker_nodes() {
     echo "Labeling two worker nodes for e2e tests..."
@@ -141,19 +145,25 @@ function deploy_cert_manager {
 }
 
 trap collect_logs EXIT
-
-deploy_cert_manager
-deploy_kueue
+GINKGO_SKIP_PATTERN=""
+if [ "$SKIP_DEPLOY" != "true" ]; then
+    deploy_cert_manager
+    deploy_kueue
+    # Skip e2e tests that depend on pod integration features,
+    # such as Deployment and StatefulSet, or other integrations not
+    # supported in OCP. Also, skip Alpha features like TAS.
+    # TODO: Remove Fair Sharing from the skip list once the issue is fixed.
+    GINKGO_SKIP_PATTERN="(AppWrapper|JobSet|LeaderWorkerSet|Pod|Deployment|StatefulSet|Metrics|Fair Sharing|TopologyAwareScheduling)"
+else
+    echo "Skipping cert-manager and kueue deployment because SKIP_DEPLOY is set to true."
+    GINKGO_SKIP_PATTERN="(AppWrapper|JobSet|LeaderWorkerSet|Metrics|Fair Sharing|TopologyAwareScheduling|Failed Pod can be replaced in group|should allow to schedule a group of diverse pods)"
+fi
 
 # Label two worker nodes for e2e tests (similar to the Kind setup).
 label_worker_nodes
 
-# Skip e2e tests that depend on pod integration features,
-# such as Deployment and StatefulSet, or other integrations not
-# supported in OCP. Also, skip Alpha features like TAS.
-# TODO: Remove Fair Sharing from the skip list once the issue is fixed.
 $GINKGO $GINKGO_ARGS \
-  --skip="(AppWrapper|JobSet|LeaderWorkerSet|Pod|Deployment|StatefulSet|Metrics|Fair Sharing|TopologyAwareScheduling)" \
+  --skip="${GINKGO_SKIP_PATTERN}" \
   --junit-report=junit.xml \
   --json-report=e2e.json \
   --output-dir="$ARTIFACTS" \

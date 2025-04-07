@@ -96,6 +96,16 @@ run-test-e2e-ocp-singlecluster:
 	./hack/e2e-test-ocp.sh
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
+.PHONY: test-e2e-upstream-ocp
+test-e2e-upstream-ocp: kustomize-ocp ginkgo-ocp yq-ocp kueuectl-ocp ginkgo-top-ocp run-test-e2e-upstream-ocp-singlecluster
+run-test-e2e-upstream-ocp-singlecluster:
+	@echo "Running e2e tests on OpenShift cluster ($(shell oc whoami --show-server))"
+	ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+	E2E_TARGET_FOLDER="singlecluster" \
+	SKIP_DEPLOY=true \
+	./hack/e2e-test-ocp.sh
+	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
+
 .PHONY: ginkgo-top-ocp
 ginkgo-top-ocp:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/ginkgo-top ./pkg/openshift/ginkgo-top

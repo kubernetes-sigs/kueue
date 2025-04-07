@@ -333,6 +333,11 @@ func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName
 func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Client, nsPrefix string) *corev1.Namespace {
 	ginkgo.GinkgoHelper()
 	ns := utiltesting.MakeNamespaceWithGenerateName(nsPrefix)
+	// Add label to the namespace to mark it as managed by Kueue.
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+	ns.Labels["kueue.openshift.io/managed"] = "true"
 	gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
 	return ns
