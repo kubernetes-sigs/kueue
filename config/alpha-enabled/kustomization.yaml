@@ -3,8 +3,6 @@
 # Use default settings as a base.
 resources:
 - ../default
-- topology_editor_role.yaml
-- topology_viewer_role.yaml
 
 patches:
 # Modify feature gates to enable AllAlpha=true
