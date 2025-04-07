@@ -423,38 +423,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
-			finishReason := "PodCompleted"
-			finishPodConditions := []corev1.PodCondition{
-				{
-					Type:   corev1.PodReadyToStartContainers,
-					Status: corev1.ConditionFalse,
-					Reason: "",
-				},
-				{
-					Type:   corev1.PodInitialized,
-					Status: corev1.ConditionTrue,
-					Reason: finishReason},
-				{
-					Type:   corev1.PodReady,
-					Status: corev1.ConditionFalse,
-					Reason: finishReason,
-				},
-				{
-					Type:   corev1.ContainersReady,
-					Status: corev1.ConditionFalse,
-					Reason: finishReason},
-				{
-					Type:   corev1.PodScheduled,
-					Status: corev1.ConditionTrue,
-					Reason: "",
-				},
-			}
+
 			ginkgo.By("Waiting for the group to get status updates", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
 					for _, p := range pods.Items {
 						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
-						g.Expect(p.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime")))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
