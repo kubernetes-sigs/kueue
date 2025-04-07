@@ -33,8 +33,11 @@ if [[ -n ${JOBSET_VERSION:-} ]]; then
 fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
-    export KUBEFLOW_MANIFEST=${ROOT_DIR}/test/e2e/config/multikueue
-    KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
+    export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
+    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue
+    # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
+    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name == "kubeflow/training-operator") | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
@@ -134,7 +137,16 @@ function cluster_kind_load {
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
-    $KIND load docker-image "$2" --name "$1"
+    # check if the command to get worker nodes could succeeded
+    if ! $KIND get nodes --name "$1" > /dev/null 2>&1; then
+        echo "Failed to retrieve nodes for cluster '$1'."
+        return 1
+    fi
+    # filter out 'control-plane' node, use only worker nodes to load image
+    worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
+    if [[ -n "$worker_nodes" ]]; then
+        $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
+    fi
 }
 
 # Wait until all cert-manager deployments are available.
@@ -180,7 +192,7 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST}"
+    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
 }
 
 #$1 - cluster name

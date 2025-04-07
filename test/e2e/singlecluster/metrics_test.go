@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
+					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
 						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
+					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
 						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
@@ -582,7 +582,7 @@ func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -591,7 +591,7 @@ func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [
 }
 
 func expectMetricsNotToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 

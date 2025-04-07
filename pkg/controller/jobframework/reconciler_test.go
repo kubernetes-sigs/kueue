@@ -181,7 +181,7 @@ func TestIsAncestorJobManaged(t *testing.T) {
 			}
 			cl := builder.Build()
 			r := NewReconciler(cl, recorder)
-			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job, jobNamespace)
+			got, gotErr := r.IsAncestorJobManaged(ctx, tc.job)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from IsAncestorJobManaged want: %v,got: %v", tc.wantManaged, got)
 			}

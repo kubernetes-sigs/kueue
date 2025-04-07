@@ -1,3 +1,17 @@
+## v0.11.2
+
+Changes since `v0.11.1`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix bug which resulted in under-utilization of the resources in a Cohort.
+  Now, when a ClusterQueue is configured with `preemption.reclaimWithinCohort: Any`,
+  its resources can be lent out more freely, as we are certain that we can reclaim
+  them later. Please see PR for detailed description of scenario. (#4822, @gabesaba)
+- PodSetTopologyRequests are now configured only when TopologyAwareScheduling feature gate is enabled. (#4797, @mykysha)
+
 ## v0.11.1
 
 Changes since `v0.11.0`:

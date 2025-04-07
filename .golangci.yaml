@@ -57,6 +57,7 @@ linters-settings:
       - name: increment-decrement
       - name: var-naming
       - name: redundant-import-alias
+      - name: use-any
 
 # Settings for enabling and disabling linters
 linters:

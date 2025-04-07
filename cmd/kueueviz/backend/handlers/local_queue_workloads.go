@@ -29,13 +29,13 @@ func LocalQueueWorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.Ha
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchLocalQueueWorkloads(dynamicClient, namespace, queueName)
 		})(c)
 	}
 }
 
-func fetchLocalQueueWorkloads(dynamicClient dynamic.Interface, namespace, queueName string) (interface{}, error) {
+func fetchLocalQueueWorkloads(dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
 	result, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("spec.queueName=%s", queueName),
 	})
@@ -43,7 +43,7 @@ func fetchLocalQueueWorkloads(dynamicClient dynamic.Interface, namespace, queueN
 		return nil, fmt.Errorf("error fetching workloads for local queue %s: %v", queueName, err)
 	}
 
-	var workloads []map[string]interface{}
+	var workloads []map[string]any
 	for _, item := range result.Items {
 		workloads = append(workloads, item.Object)
 	}
