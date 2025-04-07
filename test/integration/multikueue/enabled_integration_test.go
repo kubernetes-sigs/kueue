@@ -45,15 +45,15 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
 
-		managerMultikueueSecret1 *corev1.Secret
+		managerMultiKueueSecret1 *corev1.Secret
 		workerCluster1           *kueue.MultiKueueCluster
 		managerMultiKueueConfig  *kueue.MultiKueueConfig
-		multikueueAC             *kueue.AdmissionCheck
+		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
 
@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		managerMultikueueSecret1 = &corev1.Secret{
+		managerMultiKueueSecret1 = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "multikueue1",
 				Namespace: managersConfigNamespace.Name,
@@ -87,23 +87,23 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 				kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
 			},
 		}
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultikueueSecret1)).To(gomega.Succeed())
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultiKueueSecret1)).To(gomega.Succeed())
 
-		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultikueueSecret1.Name).Obj()
+		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster1)).To(gomega.Succeed())
 
 		managerMultiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name).Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultiKueueConfig)).Should(gomega.Succeed())
 
-		multikueueAC = utiltesting.MakeAdmissionCheck("ac1").
+		multiKueueAC = utiltesting.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multikueueAC)).Should(gomega.Succeed())
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multiKueueAC)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for check active", func() {
 			updatedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(multikueueAC)
+			acKey := client.ObjectKeyFromObject(multiKueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
 				g.Expect(updatedAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 		})
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
-			AdmissionChecks(multikueueAC.Name).
+			AdmissionChecks(multiKueueAC.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
 
@@ -129,10 +129,10 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 		gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multikueueAC, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultikueueSecret1, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1, true)
 	})
 
 	ginkgo.It("Should create a Job workload, when batch/Job adapter is enabled", func() {
@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -263,9 +263,9 @@ var _ = ginkgo.Describe("Multikueue when not all integrations are enabled", gink
 		ginkgo.By("checking the workload creation was rejected in the management cluster", func() {
 			managerWl := &kueue.Workload{}
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-			acs := workload.FindAdmissionCheck(managerWl.Status.AdmissionChecks, multikueueAC.Name)
+			acs := workload.FindAdmissionCheck(managerWl.Status.AdmissionChecks, multiKueueAC.Name)
 			gomega.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-				Name:    multikueueAC.Name,
+				Name:    multiKueueAC.Name,
 				State:   kueue.CheckStateRejected,
 				Message: `No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob"`,
 			}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))

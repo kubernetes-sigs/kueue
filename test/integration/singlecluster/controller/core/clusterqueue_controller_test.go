@@ -805,7 +805,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Only one Multikueue flavor dependent admission check assigned to cluster queue")
+			ginkgo.By("Only one MultiKueue flavor dependent admission check assigned to cluster queue")
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedCq := &kueue.ClusterQueue{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
@@ -831,7 +831,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Only one Multikueue flavor independent admission check assigned to cluster queue")
+			ginkgo.By("Only one MultiKueue flavor independent admission check assigned to cluster queue")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedAc kueue.AdmissionCheck
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(check2), &updatedAc)).Should(gomega.Succeed())
