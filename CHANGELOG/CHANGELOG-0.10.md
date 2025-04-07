@@ -1,3 +1,21 @@
+## v0.10.4
+
+Changes since `v0.10.3`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix bug which resulted in under-utilization of the resources in a Cohort.
+  Now, when a ClusterQueue is configured with `preemption.reclaimWithinCohort: Any`,
+  its resources can be lent out more freely, as we are certain that we can reclaim
+  them later. Please see PR #4813 for detailed description of scenario. (#4823, @gabesaba)
+- Revert making ClusterQueue.Preemption.BorrowWithinCohort as no-op when used with FairSharing, by reverting
+  https://github.com/kubernetes-sigs/kueue/pull/4165, which was done to prevent infinite-preemption loops as
+  described in https://github.com/kubernetes-sigs/kueue/issues/3779. However, it causes issues with upgrading for
+  users who use that combination. This configuration remains deprecated and can be removed without any notice
+  in future releases, so please consider alternatives. (#4819, @mimowo)
+
 ## v0.10.3
 
 Changes since `v0.10.2`:

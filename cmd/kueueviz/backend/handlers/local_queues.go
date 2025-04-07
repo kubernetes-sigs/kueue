@@ -27,7 +27,7 @@ import (
 
 // LocalQueuesWebSocketHandler streams all local queues
 func LocalQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (interface{}, error) {
+	return GenericWebSocketHandler(func() (any, error) {
 		return fetchLocalQueues(dynamicClient)
 	})
 }
@@ -37,25 +37,25 @@ func LocalQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Hand
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(func() (interface{}, error) {
+		GenericWebSocketHandler(func() (any, error) {
 			return fetchLocalQueueDetails(dynamicClient, namespace, queueName)
 		})(c)
 	}
 }
 
 // Fetch all local queues
-func fetchLocalQueues(dynamicClient dynamic.Interface) (interface{}, error) {
+func fetchLocalQueues(dynamicClient dynamic.Interface) (any, error) {
 	result, err := dynamicClient.Resource(LocalQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
-	var queues []map[string]interface{}
+	var queues []map[string]any
 	for _, item := range result.Items {
 		queue := item.Object
 		queue["namespace"] = item.GetNamespace()
 		queue["name"] = item.GetName()
-		status, statusExists := item.Object["status"].(map[string]interface{})
+		status, statusExists := item.Object["status"].(map[string]any)
 		// Include the status if it exists
 		if statusExists {
 			queue["status"] = status
@@ -66,7 +66,7 @@ func fetchLocalQueues(dynamicClient dynamic.Interface) (interface{}, error) {
 }
 
 // Fetch details for a specific local queue
-func fetchLocalQueueDetails(dynamicClient dynamic.Interface, namespace, queueName string) (interface{}, error) {
+func fetchLocalQueueDetails(dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
 
 	result, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(context.TODO(), queueName, metav1.GetOptions{})
 	if err != nil {
