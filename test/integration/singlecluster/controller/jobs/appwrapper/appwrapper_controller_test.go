@@ -117,8 +117,12 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
 
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
@@ -209,8 +213,12 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		ginkgo.It("An appwrapper created in an unmanaged namespace is not suspended and a workload is not created", func() {
 			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 			aw := testingaw.MakeAppWrapper(awName, "unmanaged-ns").
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
@@ -228,7 +236,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.It("Should finish the preemption when the appwrapper no longer has resources deployed", func() {
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Queue(localQueue.Name).
 				Obj()
@@ -349,12 +359,16 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			createdWorkload := &kueue.Workload{}
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
-					Request(corev1.ResourceCPU, "1").
-					Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
-					Request(corev1.ResourceCPU, "1").
-					Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				}).
 				Queue("queue").
 				Obj()
 
@@ -520,8 +534,12 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj()).
-			Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj(),
+			}).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj(),
+			}).
 			Suspend(false).
 			Obj()
 
@@ -588,8 +606,12 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			ginkgo.By("Create a job")
 			awQueueName := "test-queue"
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj(),
+				}).
 				Queue(awQueueName).
 				Obj()
 
@@ -792,13 +814,17 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 
 		ginkgo.By("checking a dev job starts")
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
-			Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
-				Request(corev1.ResourceCPU, "1").
-				Parallelism(3).
-				Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			}).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
+					Request(corev1.ResourceCPU, "1").
+					Parallelism(3).
+					Obj(),
+			}).
 			Queue(localQueue.Name).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
@@ -889,11 +915,13 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job", ns.Name).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
-				Request(corev1.ResourceCPU, "1").
-				SetTypeMeta().
-				Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+					Request(corev1.ResourceCPU, "1").
+					SetTypeMeta().
+					Obj(),
+			}).
 			Queue(localQueue.Name).
 			Suspend(false).
 			Obj()
