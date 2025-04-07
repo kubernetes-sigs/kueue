@@ -28,58 +28,58 @@ import (
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
-type Requests map[corev1.ResourceName]int64
+// Resources maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
+type Resources map[corev1.ResourceName]int64
 
-func NewRequests(rl corev1.ResourceList) Requests {
-	r := Requests{}
+func NewResources(rl corev1.ResourceList) Resources {
+	r := Resources{}
 	for name, quant := range rl {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
 }
 
-func (r Requests) Clone() Requests {
+func (r Resources) Clone() Resources {
 	return maps.Clone(r)
 }
 
-func (r Requests) ScaledUp(f int64) Requests {
+func (r Resources) ScaledUp(f int64) Resources {
 	ret := r.Clone()
 	ret.Mul(f)
 	return ret
 }
 
-func (r Requests) ScaledDown(f int64) Requests {
+func (r Resources) ScaledDown(f int64) Resources {
 	ret := r.Clone()
 	ret.Divide(f)
 	return ret
 }
 
-func (r Requests) Divide(f int64) {
+func (r Resources) Divide(f int64) {
 	for k := range r {
 		r[k] /= f
 	}
 }
 
-func (r Requests) Mul(f int64) {
+func (r Resources) Mul(f int64) {
 	for k := range r {
 		r[k] *= f
 	}
 }
 
-func (r Requests) Add(addRequests Requests) {
+func (r Resources) Add(addRequests Resources) {
 	for k, v := range addRequests {
 		r[k] += v
 	}
 }
 
-func (r Requests) Sub(subRequests Requests) {
+func (r Resources) Sub(subRequests Resources) {
 	for k, v := range subRequests {
 		r[k] -= v
 	}
 }
 
-func (r Requests) ToResourceList() corev1.ResourceList {
+func (r Resources) ToResourceList() corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
 		ret[k] = ResourceQuantity(k, v)
@@ -115,9 +115,9 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-func (req Requests) CountIn(capacity Requests) int32 {
+func (r Resources) CountIn(capacity Resources) int32 {
 	var result *int32
-	for rName, rValue := range req {
+	for rName, rValue := range r {
 		capacity, found := capacity[rName]
 		if !found {
 			return 0
