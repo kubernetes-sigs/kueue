@@ -37,7 +37,7 @@ if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue
     # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
     # This is necessary because the image version tag does not follow the usual package versioning convention.
-    KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name == "kubeflow/training-operator") | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
+    KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("training-operator")) | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
 fi
