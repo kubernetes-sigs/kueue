@@ -77,13 +77,15 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 	ginkgo.It("Should admit workloads that fit", func() {
 		numPods := 2
 		aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
-			Component(utiltestingjob.MakeJob("job-0", ns.Name).
-				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Parallelism(int32(numPods)).
-				Completions(int32(numPods)).
-				Suspend(false).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				SetTypeMeta().Obj()).
+			Component(awtesting.Component{
+				Template: utiltestingjob.MakeJob("job-0", ns.Name).
+					RequestAndLimit(corev1.ResourceCPU, "200m").
+					Parallelism(int32(numPods)).
+					Completions(int32(numPods)).
+					Suspend(false).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					SetTypeMeta().Obj(),
+			}).
 			Queue(localQueueName).
 			Obj()
 

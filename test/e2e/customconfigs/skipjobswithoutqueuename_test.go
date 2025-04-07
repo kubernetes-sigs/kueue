@@ -127,13 +127,15 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		ginkgo.It("should not suspend child jobs of admitted jobs", func() {
 			numPods := 2
 			aw := awtesting.MakeAppWrapper("aw-child", ns.Name).
-				Component(testingjob.MakeJob("job-0", ns.Name).
-					RequestAndLimit(corev1.ResourceCPU, "200m").
-					Parallelism(int32(numPods)).
-					Completions(int32(numPods)).
-					Suspend(false).
-					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-					SetTypeMeta().Obj()).
+				Component(awtesting.Component{
+					Template: testingjob.MakeJob("job-0", ns.Name).
+						RequestAndLimit(corev1.ResourceCPU, "200m").
+						Parallelism(int32(numPods)).
+						Completions(int32(numPods)).
+						Suspend(false).
+						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						SetTypeMeta().Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
@@ -178,21 +180,23 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 		ginkgo.It("should not suspend grandchildren jobs of admitted jobs", func() {
 			aw := awtesting.MakeAppWrapper("aw-grandchild", ns.Name).
-				Component(testingjobset.MakeJobSet("job-set", ns.Name).
-					ReplicatedJobs(
-						testingjobset.ReplicatedJobRequirements{
-							Name:        "replicated-job-1",
-							Replicas:    2,
-							Parallelism: 2,
-							Completions: 2,
-							Image:       util.E2eTestAgnHostImage,
-							Args:        util.BehaviorExitFast,
-						},
-					).
-					SetTypeMeta().
-					Suspend(false).
-					RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
-					Obj()).
+				Component(awtesting.Component{
+					Template: testingjobset.MakeJobSet("job-set", ns.Name).
+						ReplicatedJobs(
+							testingjobset.ReplicatedJobRequirements{
+								Name:        "replicated-job-1",
+								Replicas:    2,
+								Parallelism: 2,
+								Completions: 2,
+								Image:       util.E2eTestAgnHostImage,
+								Args:        util.BehaviorExitFast,
+							},
+						).
+						SetTypeMeta().
+						Suspend(false).
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
