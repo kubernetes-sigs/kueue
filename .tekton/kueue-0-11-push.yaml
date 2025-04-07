@@ -27,7 +27,6 @@ spec:
   - name: build-platforms
     value:
     - linux/x86_64
-    - linux/arm64
   - name: dockerfile
     value: /Dockerfile.rhel
   pipelineSpec:
@@ -79,7 +78,7 @@ spec:
       description: Skip checks against built image
       name: skip-checks
       type: string
-    - default: "false"
+    - default: "true"
       description: Execute the build with network isolation
       name: hermetic
       type: string
@@ -91,7 +90,7 @@ spec:
       description: Image tag expiration time, time values could be something like
         1h, 2d, 3w for hours, days, and weeks, respectively.
       name: image-expires-after
-    - default: "false"
+    - default: "true"
       description: Build a source image.
       name: build-source-image
       type: string
