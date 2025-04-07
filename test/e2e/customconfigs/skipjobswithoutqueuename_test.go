@@ -302,7 +302,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("verifying that the pods of the deployment are gated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("verifying that the pods of the deployment are running", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
@@ -343,7 +343,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.Delete(ctx, testDeploy)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("verifying that the pods of the StatefulSet are gated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					// If the first pod can't be scheduled, the second won't be created
 					g.Expect(pods.Items).Should(gomega.HaveLen(1))
@@ -393,7 +393,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("verifying that the pods of the StatefulSet are running", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.Delete(ctx, testSts)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
