@@ -54,18 +54,18 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (assignment *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
 	for psName, psResult := range result {
-		psAssignment := assignment.podSetAssignmentByName(psName)
+		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
 	}
-	assignment.Usage.TAS = assignment.computeTASUsage()
+	a.Usage.TAS = a.computeTASUsage()
 }
 
 // TASUsage computes the TAS usage for the assignment
-func (assignment *Assignment) computeTASUsage() workload.TASUsage {
+func (a *Assignment) computeTASUsage() workload.TASUsage {
 	result := make(workload.TASUsage)
-	for _, psa := range assignment.PodSets {
+	for _, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
 			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
 			for _, flv := range psa.Flavors {

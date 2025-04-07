@@ -195,18 +195,18 @@ func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
-func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
-	if psr.TopologyRequest != nil {
-		return psr
+func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
+	if p.TopologyRequest != nil {
+		return p
 	}
 	ret := &PodSetResources{
-		Name:     psr.Name,
-		Requests: maps.Clone(psr.Requests),
-		Count:    psr.Count,
-		Flavors:  maps.Clone(psr.Flavors),
+		Name:     p.Name,
+		Requests: maps.Clone(p.Requests),
+		Count:    p.Count,
+		Flavors:  maps.Clone(p.Flavors),
 	}
 
-	if psr.Count != 0 && psr.Count != newCount {
+	if p.Count != 0 && p.Count != newCount {
 		ret.Requests.Divide(int64(ret.Count))
 		ret.Requests.Mul(int64(newCount))
 		ret.Count = newCount
