@@ -692,7 +692,6 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, int, *Status) {
 	var status Status
 	borrow := a.cq.FindHeightOfLowestSubtreeThatFits(fr, val)
-	fmt.Printf("Borrow for %v: %d\n", a.cq.Name, borrow)
 
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
