@@ -3121,7 +3121,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3150,7 +3150,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3171,7 +3171,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3194,7 +3194,7 @@ func TestEntryOrdering(t *testing.T) {
 				},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -4051,7 +4051,7 @@ func TestResourcesToReserve(t *testing.T) {
 	cases := []struct {
 		name            string
 		assignmentMode  flavorassigner.FlavorAssignmentMode
-		borrowing       bool
+		borrowing       int
 		assignmentUsage resources.FlavorResourceQuantities
 		cqUsage         resources.FlavorResourceQuantities
 		wantReserved    resources.FlavorResourceQuantities
@@ -4131,7 +4131,7 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows",
 			assignmentMode: flavorassigner.Preempt,
-			borrowing:      true,
+			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
@@ -4150,7 +4150,7 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory equal assignment usage, CQ borrowing limit is nil",
 			assignmentMode: flavorassigner.Preempt,
-			borrowing:      true,
+			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,

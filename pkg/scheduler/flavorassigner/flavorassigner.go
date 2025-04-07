@@ -42,7 +42,7 @@ import (
 
 type Assignment struct {
 	PodSets   []PodSetAssignment
-	Borrowing bool
+	Borrowing int
 	LastState workload.AssignmentClusterQueueState
 
 	// Usage is the accumulated Usage of resources as pod sets get
@@ -86,7 +86,7 @@ func (assignment *Assignment) computeTASUsage() workload.TASUsage {
 }
 
 // Borrows return whether assignment requires borrowing.
-func (a *Assignment) Borrows() bool {
+func (a *Assignment) Borrows() int {
 	return a.Borrowing
 }
 
@@ -331,7 +331,7 @@ type FlavorAssignment struct {
 	Name           kueue.ResourceFlavorReference
 	Mode           FlavorAssignmentMode
 	TriedFlavorIdx int
-	borrow         bool
+	borrow         int
 }
 
 type preemptionOracle interface {
@@ -481,8 +481,8 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
-		if flvAssignment.borrow {
-			a.Borrowing = true
+		if flvAssignment.borrow > a.Borrowing {
+			a.Borrowing = flvAssignment.borrow
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
 		a.Usage.Quota[fr] += requests[resource]
@@ -568,7 +568,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			if mode < representativeMode {
 				representativeMode = mode
 			}
-			needsBorrowing = needsBorrowing || borrow
+			needsBorrowing = needsBorrowing || (borrow > 0)
 			if representativeMode == noFit {
 				// The flavor doesn't fit, no need to check other resources.
 				break
@@ -689,10 +689,11 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, bool, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, int, *Status) {
 	var status Status
+	borrow := a.cq.FindHeightOfLowestSubtreeThatFits(fr, val)
+	fmt.Printf("Borrow for %v: %d\n", a.cq.Name, borrow)
 
-	borrow := a.cq.BorrowingWith(fr, val) && a.cq.HasParent()
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
 
@@ -700,7 +701,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	if val > maxCapacity {
 		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
 			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
-		return noFit, false, &status
+		return noFit, 0, &status
 	}
 
 	// Fit

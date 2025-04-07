@@ -410,7 +410,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
@@ -805,7 +805,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    10_000,
 					{Flavor: "default", Resource: corev1.ResourceMemory}: 5 * utiltesting.Gi,
@@ -892,7 +892,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
 				}},
@@ -974,7 +974,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
 				}},
@@ -1340,7 +1340,7 @@ func TestAssignFlavors(t *testing.T) {
 				Obj(),
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
@@ -1441,7 +1441,7 @@ func TestAssignFlavors(t *testing.T) {
 				Obj(),
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
@@ -1498,7 +1498,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
@@ -1555,7 +1555,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
@@ -1768,7 +1768,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
@@ -1818,7 +1818,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Borrowing: true,
+				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
@@ -1856,7 +1856,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{

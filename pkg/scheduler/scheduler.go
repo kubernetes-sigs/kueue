@@ -394,7 +394,7 @@ func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources
 	reservedUsage := make(resources.FlavorResourceQuantities)
 	for fr, usage := range e.assignment.Usage.Quota {
 		cqQuota := cq.QuotaFor(fr)
-		if e.assignment.Borrowing {
+		if e.assignment.Borrowing > 0 {
 			if cqQuota.BorrowingLimit == nil {
 				reservedUsage[fr] = usage
 			} else {
@@ -572,7 +572,7 @@ func (e entryOrdering) Less(i, j int) bool {
 	aBorrows := a.assignment.Borrows()
 	bBorrows := b.assignment.Borrows()
 	if aBorrows != bBorrows {
-		return !aBorrows
+		return aBorrows < bBorrows
 	}
 
 	// 2. Higher priority first if not disabled.
