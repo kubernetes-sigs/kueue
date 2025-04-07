@@ -12,7 +12,7 @@ description: >
 # 2025
 
 * KubeCon EU, April, London<br>
-  [Keynote: Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue](https://sched.co/1u5fo)<br>
+  [Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue](https://sched.co/1u5fo)<br>
   Michał Woźniak, Google & Yuki Iwai, CyberAgent, Inc.
 
 * KubeCon EU, April, London<br>
