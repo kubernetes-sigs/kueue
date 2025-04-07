@@ -167,13 +167,10 @@ func syncLocalPodWithRemote(
 		}
 
 		// Patch the status of the local pod to match the remote pod
-		if err := clientutil.PatchStatus(ctx, localClient, localPod, func() (bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, localPod, func() (bool, error) {
 			localPod.Status = remotePod.Status
 			return true, nil
-		}); err != nil {
-			return err
-		}
-		return nil
+		})
 	}
 
 	// If the remote pod does not exist, create it

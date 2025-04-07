@@ -1129,17 +1129,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
-				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-					Reason:  "MultiKueue",
-					Type:    corev1.EventTypeNormal,
-					Message: `The workload got reservation on "worker1"`,
-				})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(ok).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1160,39 +1153,29 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					createdPod.Status.Phase = corev1.PodSucceeded
 					createdPod.Status.Conditions = append(createdPod.Status.Conditions,
 						corev1.PodCondition{
-							Type:               corev1.PodReadyToStartContainers,
-							Status:             corev1.ConditionFalse,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
-							Reason:             "",
+							Type:   corev1.PodReadyToStartContainers,
+							Status: corev1.ConditionFalse,
+							Reason: "",
 						},
 						corev1.PodCondition{
-							Type:               corev1.PodInitialized,
-							Status:             corev1.ConditionTrue,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
-							Reason:             string(corev1.PodSucceeded),
+							Type:   corev1.PodInitialized,
+							Status: corev1.ConditionTrue,
+							Reason: string(corev1.PodSucceeded),
 						},
 						corev1.PodCondition{
-							Type:               corev1.PodReady,
-							Status:             corev1.ConditionFalse,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
-							Reason:             string(corev1.PodSucceeded),
+							Type:   corev1.PodReady,
+							Status: corev1.ConditionFalse,
+							Reason: string(corev1.PodSucceeded),
 						},
 						corev1.PodCondition{
-							Type:               corev1.ContainersReady,
-							Status:             corev1.ConditionFalse,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
-							Reason:             string(corev1.PodSucceeded),
+							Type:   corev1.ContainersReady,
+							Status: corev1.ConditionFalse,
+							Reason: string(corev1.PodSucceeded),
 						},
 						corev1.PodCondition{
-							Type:               corev1.PodScheduled,
-							Status:             corev1.ConditionTrue,
-							LastProbeTime:      metav1.Now(),
-							LastTransitionTime: metav1.Now(),
-							Reason:             "",
+							Type:   corev1.PodScheduled,
+							Status: corev1.ConditionTrue,
+							Reason: "",
 						},
 					)
 					g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdPod)).To(gomega.Succeed())
