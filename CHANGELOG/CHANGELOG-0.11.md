@@ -1,3 +1,21 @@
+## v0.11.3
+
+Changes since `v0.11.2`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- Fix the bug which annotated the Topology CRD as v1beta1 (along with the v1alpha1 version). This resulted in errors when Kueue was installed via Helm, for example, to list the topologies.
+
+  The LocalQueue type for the status.flavors[].topology is changed from Topology to TopologyInfo, so if you import Kueue as code in your controller, you may need to adjust the code. (#4873, @mbobrovskyi)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix RBAC configuration for the Topology API to allow reading and editing by the service accounts using the Kueue Batch Admin role. (#4864, @KPostOffice)
+
 ## v0.11.2
 
 Changes since `v0.11.1`:
