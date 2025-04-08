@@ -240,7 +240,7 @@ func calculateRemaining(resourceNode ResourceNode, fr resources.FlavorResource, 
 }
 
 // FindHeightOfLowestSubtreeThatFits returns height of a lowest subtree in the cohort
-// that fits addional val of resource fr. If no such subtree exists, it returns
+// that fits additional val of resource fr. If no such subtree exists, it returns
 // height the whole cohort hierarchy. Note that height of a trivial subtree
 // with only one node is 0.
 func (c *ClusterQueueSnapshot) FindHeightOfLowestSubtreeThatFits(fr resources.FlavorResource, val int64) int {

@@ -995,6 +995,5 @@ var _ = ginkgo.Describe("Preemption", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, guaranteedWl)
 			})
 		})
-
 	})
 })

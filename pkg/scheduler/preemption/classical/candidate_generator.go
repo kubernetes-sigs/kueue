@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -128,7 +129,6 @@ func workloadFitsInQuota(node *cache.ResourceNode, requests resources.FlavorReso
 			guaranteed = max(0, node.SubtreeQuota[fr]-*lendingLimit)
 		}
 		remainingRequests[fr] = v - max(0, guaranteed-node.Usage[fr])
-
 	}
 	return fits, remainingRequests
 }
@@ -184,7 +184,7 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 }
 
 // Next allows to iterate over the ordered sequence of candidates, with the reason
-// for eviction returned together with a candiate.
+// for eviction returned together with a candidate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	index := c.runIndex[borrow]
 	for ; index.list < len(c.candidates) && index.element >= len(c.candidates[index.list]); index.list++ {
