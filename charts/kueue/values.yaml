@@ -134,7 +134,7 @@ managerConfig:
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
-    - name: metrics
+    - name: https
       port: 8443
       protocol: TCP
       targetPort: 8443
