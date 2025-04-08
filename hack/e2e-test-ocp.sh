@@ -156,7 +156,7 @@ if [ "$SKIP_DEPLOY" != "true" ]; then
     GINKGO_SKIP_PATTERN="(AppWrapper|JobSet|LeaderWorkerSet|Pod|Deployment|StatefulSet|Metrics|Fair Sharing|TopologyAwareScheduling)"
 else
     echo "Skipping cert-manager and kueue deployment because SKIP_DEPLOY is set to true."
-    GINKGO_SKIP_PATTERN="(AppWrapper|JobSet|LeaderWorkerSet|Metrics|Fair Sharing|TopologyAwareScheduling|Failed Pod can be replaced in group|should allow to schedule a group of diverse pods)"
+    GINKGO_SKIP_PATTERN="(AppWrapper|JobSet|LeaderWorkerSet|Metrics|Fair Sharing|TopologyAwareScheduling|Kueue visibility server|Failed Pod can be replaced in group|should allow to schedule a group of diverse pods)"
 fi
 
 # Label two worker nodes for e2e tests (similar to the Kind setup).
