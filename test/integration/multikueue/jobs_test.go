@@ -1079,6 +1079,112 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
+	ginkgo.It("Should create a pod group on worker if admitted", func() {
+		groupName := "test-group"
+		podgroup := testingpod.MakePod(groupName, managerNs.Name).
+			Queue(managerLq.Name).
+			ManagedByKueueLabel().
+			KueueFinalizer().
+			KueueSchedulingGate().
+			MakeGroup(3)
+
+		for _, p := range podgroup {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, p)).Should(gomega.Succeed())
+		}
+
+		// any pod should give the same workload Key
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: groupName, Namespace: managerNs.Name}
+		admission := utiltesting.MakeAdmission(managerCq.Name).
+			PodSets(
+				kueue.PodSetAssignment{
+					Name:  "bf90803c",
+					Count: ptr.To[int32](3),
+				},
+			).Obj()
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(3)))
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload creation in the worker clusters", func() {
+			managerWl := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		pods := corev1.PodList{}
+		gomega.Expect(managerTestCluster.client.List(managerTestCluster.ctx, &pods)).To(gomega.Succeed())
+
+		ginkgo.By("finishing the worker pod", func() {
+			pods := corev1.PodList{}
+			gomega.Expect(worker1TestCluster.client.List(worker1TestCluster.ctx, &pods)).To(gomega.Succeed())
+			for _, p := range podgroup {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := corev1.Pod{}
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(p), &createdPod)).To(gomega.Succeed())
+					createdPod.Status.Phase = corev1.PodSucceeded
+					createdPod.Status.Conditions = append(createdPod.Status.Conditions,
+						corev1.PodCondition{
+							Type:   corev1.PodReadyToStartContainers,
+							Status: corev1.ConditionFalse,
+							Reason: "",
+						},
+						corev1.PodCondition{
+							Type:   corev1.PodInitialized,
+							Status: corev1.ConditionTrue,
+							Reason: string(corev1.PodSucceeded),
+						},
+						corev1.PodCondition{
+							Type:   corev1.PodReady,
+							Status: corev1.ConditionFalse,
+							Reason: string(corev1.PodSucceeded),
+						},
+						corev1.PodCondition{
+							Type:   corev1.ContainersReady,
+							Status: corev1.ConditionFalse,
+							Reason: string(corev1.PodSucceeded),
+						},
+						corev1.PodCondition{
+							Type:   corev1.PodScheduled,
+							Status: corev1.ConditionTrue,
+							Reason: "",
+						},
+					)
+					g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "Pods succeeded: 3/3.")
+		})
+	})
+
 	ginkgo.It("Should remove the worker's workload and job after reconnect when the managers job and workload are deleted", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(managerLq.Name).
