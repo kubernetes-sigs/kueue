@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		})
 
 		pods := &corev1.PodList{}
-		gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+		gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 			client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 
 		createdWorkloads := make([]*kueue.Workload, 0, len(pods.Items))
@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		})
 
 		pods := &corev1.PodList{}
-		gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+		gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 			client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 
 		createdWorkloads := make([]*kueue.Workload, 0, len(pods.Items))
@@ -193,14 +193,14 @@ var _ = ginkgo.Describe("Deployment", func() {
 
 		ginkgo.By("Check previous pods are deleted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 					client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 				g.Expect(pods.Items).To(gomega.HaveLen(3))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check that workloads are created and admitted", func() {
-			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Namespace),
+			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 				client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 			for _, p := range pods.Items {
 				createdWorkload := &kueue.Workload{}
