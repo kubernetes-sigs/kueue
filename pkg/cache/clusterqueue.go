@@ -36,8 +36,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -59,7 +60,7 @@ type clusterQueue struct {
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
-	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
+	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
@@ -70,11 +71,11 @@ type clusterQueue struct {
 	localQueues                        map[string]*LocalQueue
 	podsReadyTracking                  bool
 	missingFlavors                     []kueue.ResourceFlavorReference
-	missingAdmissionChecks             []string
-	inactiveAdmissionChecks            []string
-	multiKueueAdmissionChecks          []string
-	provisioningAdmissionChecks        []string
-	perFlavorMultiKueueAdmissionChecks []string
+	missingAdmissionChecks             []kueue.AdmissionCheckReference
+	inactiveAdmissionChecks            []kueue.AdmissionCheckReference
+	multiKueueAdmissionChecks          []kueue.AdmissionCheckReference
+	provisioningAdmissionChecks        []kueue.AdmissionCheckReference
+	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
 	isStopped                          bool
@@ -111,7 +112,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
@@ -137,7 +138,7 @@ func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavor
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
-	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
+	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
 
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
@@ -240,12 +241,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 
 		if len(c.multiKueueAdmissionChecks) > 1 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks)
-			messages = append(messages, fmt.Sprintf("Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: %v", strings.Join(c.multiKueueAdmissionChecks, ",")))
+			messages = append(messages, fmt.Sprintf("Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: %v", stringsutils.Join(c.multiKueueAdmissionChecks, ",")))
 		}
 
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor)
-			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", strings.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
+			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", stringsutils.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
@@ -326,14 +327,14 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
-	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
+func (c *clusterQueue) updateWithAdmissionChecks(checks map[kueue.AdmissionCheckReference]AdmissionCheck) {
+	checksPerController := make(map[string][]kueue.AdmissionCheckReference, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
-	multiKueueAdmissionChecks := sets.New[string]()
-	provisioningAdmissionChecks := sets.New[string]()
-	var missing []string
-	var inactive []string
-	var perFlavorMultiKueueChecks []string
+	multiKueueAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
+	provisioningAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
+	var missing []kueue.AdmissionCheckReference
+	var inactive []kueue.AdmissionCheckReference
+	var perFlavorMultiKueueChecks []kueue.AdmissionCheckReference
 	for acName, flavors := range c.AdmissionChecks {
 		if ac, found := checks[acName]; !found {
 			missing = append(missing, acName)
@@ -376,7 +377,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 
 	// remove the controllers which don't have more then one AC or are not single instance.
-	maps.DeleteFunc(checksPerController, func(controller string, acs []string) bool {
+	maps.DeleteFunc(checksPerController, func(controller string, acs []kueue.AdmissionCheckReference) bool {
 		return len(acs) < 2 || !singleInstanceControllers.Has(controller)
 	})
 

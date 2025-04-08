@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
-				AdmissionChecks(admissionCheck.Name).
+				AdmissionChecks(v1beta1.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta1.AdmissionCheckState{
-						Name:  admissionCheck.Name,
+						Name:  v1beta1.AdmissionCheckReference(admissionCheck.Name),
 						State: v1beta1.CheckStateReady,
 					}, realClock)
 					g.Expect(k8sClient.Status().

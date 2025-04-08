@@ -267,14 +267,14 @@ func TestSyncCheckStates(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cases := map[string]struct {
 		states               []kueue.AdmissionCheckState
-		list                 []string
+		list                 []kueue.AdmissionCheckReference
 		wantStates           []kueue.AdmissionCheckState
 		wantChange           bool
 		ignoreTransitionTime bool
 	}{
 		"nil conditions, nil list": {},
 		"add to nil conditions": {
-			list:       []string{"ac1", "ac2"},
+			list:       []kueue.AdmissionCheckReference{"ac1", "ac2"},
 			wantChange: true,
 			wantStates: []kueue.AdmissionCheckState{
 				{
@@ -299,7 +299,7 @@ func TestSyncCheckStates(t *testing.T) {
 					State: kueue.CheckStatePending,
 				},
 			},
-			list:       []string{"ac1", "ac2"},
+			list:       []kueue.AdmissionCheckReference{"ac1", "ac2"},
 			wantChange: true,
 			wantStates: []kueue.AdmissionCheckState{
 				{
@@ -339,7 +339,7 @@ func TestSyncCheckStates(t *testing.T) {
 					State: kueue.CheckStatePending,
 				},
 			},
-			list:       []string{"ac0", "ac1"},
+			list:       []kueue.AdmissionCheckReference{"ac0", "ac1"},
 			wantChange: false,
 			wantStates: []kueue.AdmissionCheckState{
 				{

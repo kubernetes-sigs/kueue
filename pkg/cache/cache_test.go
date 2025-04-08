@@ -734,7 +734,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+					AdmissionChecks: map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
@@ -766,7 +766,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+					AdmissionChecks: map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
@@ -799,7 +799,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+					AdmissionChecks: map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
@@ -832,7 +832,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+					AdmissionChecks: map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
@@ -3277,7 +3277,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueues              []*kueue.ClusterQueue
 		wantInUseClusterQueueNames []kueue.ClusterQueueReference
-		check                      string
+		check                      kueue.AdmissionCheckReference
 	}{
 		"single clusterQueue with check in use": {
 			clusterQueues:              []*kueue.ClusterQueue{fooCq},
@@ -3338,7 +3338,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas(baseFlavor.Name).
 				Resource(corev1.ResourceCPU, "10", "10").Obj()).
-		AdmissionChecks(baseCheck.Name).
+		AdmissionChecks(kueue.AdmissionCheckReference(baseCheck.Name)).
 		Obj()
 
 	cases := map[string]struct {

@@ -54,7 +54,7 @@ func indexWorkloadsChecks(obj client.Object) []string {
 	if !isWl || len(wl.Status.AdmissionChecks) == 0 {
 		return nil
 	}
-	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
+	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return string(c.Name) })
 }
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
