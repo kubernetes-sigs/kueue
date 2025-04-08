@@ -120,7 +120,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor
-	./hack/update-helm.sh
+	$(PROJECT_DIR)/bin/yaml-processor hack/processing-plan.yaml
 
 .PHONY: generate
 generate: gomod-download controller-gen generate-apiref generate-kueuectl-docs ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.

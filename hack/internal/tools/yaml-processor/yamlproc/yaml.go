@@ -20,6 +20,27 @@ func RemoveDocumentSeparators(content []byte) []byte {
 	return []byte(strings.Join(filtered, "\n"))
 }
 
+func SplitYAMLDocuments(data []byte) [][]byte {
+	docs := strings.Split(string(data), "---\n")
+
+	var result [][]byte
+	for _, doc := range docs {
+		if strings.TrimSpace(doc) != "" {
+			result = append(result, []byte(doc))
+		}
+	}
+	return result
+}
+
+func JoinYAMLDocuments(docs [][]byte) []byte {
+	var stringDocs []string
+	for _, doc := range docs {
+		stringDocs = append(stringDocs, string(doc))
+	}
+
+	return []byte(strings.Join(stringDocs, "\n---\n"))
+}
+
 // Sanitize processes the given YAML data and ensures it is valid by replacing invalid lines
 // with dummy key-value pairs. This allows tools like YQ to operate on the file without errors.
 // - Multiline blocks are preserved.

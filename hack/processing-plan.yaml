@@ -155,103 +155,16 @@ files:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
           ports:
           {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
-  - path: ./config/components/webhook/MutatingWebhookConfiguration.yml
-    output_dir: ./charts/kueue/templates/webhook
+  - path: ./config/components/webhook/manifests.yaml
+    multidoc: true
+    output_dir: ./charts/kueue/templates/webhook/
     operations:
       - type: "INSERT_TEXT"
         position: "START"
         value: |
           {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
           {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
-      - type: "INSERT_TEXT"
-        key: ".metadata"
-        value: |
-          labels:
-          {{- include "kueue.labels" . | nindent 4 }}
-        indentation: 2
-      - type: "APPEND"
-        key: ".metadata.name"
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-      - type: "INSERT_TEXT"
-        key: ".metadata.name"
-        value: |
-          {{- if .Values.enableCertManager }}
-          annotations:
-            cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
-          {{- end }}
-          namespace: '{{ .Release.Namespace }}'
-      - type: "APPEND"
-        key: ".webhooks.[].clientConfig.service.name"
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-      - type: "UPDATE"
-        key: ".webhooks.[].clientConfig.service.namespace"
-        value: '"{{ .Release.Namespace }}"'
-      - type: "DELETE"
-        key: ".webhooks.[8].failurePolicy"
-      - type: "INSERT_TEXT"
-        key: ".webhooks.[8].name"
-        value: |
-          {{- if has "pod" $integrationsConfig.frameworks }}
-          failurePolicy: Fail
-          {{- else }}
-          failurePolicy: Ignore
-          {{- end }}
-          namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
-            {{- else }}
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: NotIn
-                values:
-                  - kube-system
-                  - '{{ .Release.Namespace }}'
-            {{- end }}
-      - type: "DELETE"
-        key: ".webhooks.[1].failurePolicy"
-      - type: "INSERT_TEXT"
-        key: ".webhooks.[1].name"
-        value: |
-          {{- if has "deployment" $integrationsConfig.frameworks }}
-          failurePolicy: Fail
-          {{- else }}
-          failurePolicy: Ignore
-          {{- end }}
-          namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
-            {{- else }}
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: NotIn
-                values:
-                  - kube-system
-                  - '{{ .Release.Namespace }}'
-            {{- end }}
-      - type: "DELETE"
-        key: ".webhooks.[13].failurePolicy"
-      - type: "INSERT_TEXT"
-        key: ".webhooks.[13].name"
-        value: |
-          {{- if has "statefulset" $integrationsConfig.frameworks }}
-          failurePolicy: Fail
-          {{- else }}
-          failurePolicy: Ignore
-          {{- end }}
-          namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
-            {{- else }}
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: NotIn
-                values:
-                  - kube-system
-                  - '{{ .Release.Namespace }}'
-            {{- end }}
-  - path: ./config/components/webhook/ValidatingWebhookConfiguration.yml
-    output_dir: ./charts/kueue/templates/webhook
-    operations:
+        on_condition: '.kind == "MutatingWebhookConfiguration"'
       - type: "INSERT_TEXT"
         key: ".metadata"
         value: |

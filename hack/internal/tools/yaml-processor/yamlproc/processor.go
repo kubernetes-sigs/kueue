@@ -19,6 +19,7 @@ type FileOperations struct {
 	Operations       []Operation `yaml:"operations"`
 	OutputDir        string      `yaml:"output_dir,omitempty"`
 	RemoveSeparators bool        `yaml:"remove_separators,omitempty"`
+	Multidoc         bool        `yaml:"multidoc,omitempty"`
 }
 
 type Operation struct {
@@ -68,13 +69,8 @@ func (fp *FileProcessor) ProcessPlan(plan ProcessingPlan) {
 		}
 
 		for _, filePath := range filterFiles(matchedFiles, file.Excludes) {
-			fp.ProcessFile(FileOperations{
-				Path:             filePath,
-				Excludes:         file.Excludes,
-				Operations:       file.Operations,
-				OutputDir:        file.OutputDir,
-				RemoveSeparators: file.RemoveSeparators,
-			})
+			file.Path = filePath
+			fp.ProcessFile(file)
 		}
 	}
 }
@@ -119,7 +115,19 @@ func (fp *FileProcessor) ProcessFile(fileOps FileOperations) {
 		return
 	}
 
-	data = fp.ApplyOperations(data, fileOps)
+	if fileOps.Multidoc {
+		docs := SplitYAMLDocuments(data)
+
+		var modifiedDocs [][]byte
+		for _, doc := range docs {
+			modifiedDoc := fp.ApplyOperations(doc, fileOps)
+			modifiedDocs = append(modifiedDocs, modifiedDoc)
+		}
+
+		data = JoinYAMLDocuments(modifiedDocs)
+	} else {
+		data = fp.ApplyOperations(data, fileOps)
+	}
 
 	outputPath := filepath.Join(fileOps.OutputDir, filepath.Base(fileOps.Path))
 	if err := os.WriteFile(outputPath, []byte(data), 0644); err != nil {

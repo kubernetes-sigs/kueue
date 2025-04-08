@@ -383,6 +383,7 @@ webhooks:
         resources:
           - workloads
     sideEffects: None
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
