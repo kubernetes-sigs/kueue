@@ -115,9 +115,9 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-func (req Requests) CountIn(capacity Requests) int32 {
+func (r Requests) CountIn(capacity Requests) int32 {
 	var result *int32
-	for rName, rValue := range req {
+	for rName, rValue := range r {
 		capacity, found := capacity[rName]
 		if !found {
 			return 0
