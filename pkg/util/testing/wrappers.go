@@ -810,7 +810,7 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 }
 
 // AdmissionChecks replaces the queue additional checks
-func (c *ClusterQueueWrapper) AdmissionChecks(checks ...string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckReference) *ClusterQueueWrapper {
 	c.Spec.AdmissionChecks = checks
 	return c
 }
@@ -1152,7 +1152,7 @@ type AdmissionCheckStrategyRuleWrapper struct {
 	kueue.AdmissionCheckStrategyRule
 }
 
-func MakeAdmissionCheckStrategyRule(name string, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+func MakeAdmissionCheckStrategyRule(name kueue.AdmissionCheckReference, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
 	if len(flavors) == 0 {
 		flavors = make([]kueue.ResourceFlavorReference, 0)
 	}

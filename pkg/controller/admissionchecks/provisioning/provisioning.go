@@ -52,12 +52,12 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityRevoked)
 }
 
-func ProvisioningRequestName(workloadName, checkName string, attempt int32) string {
+func ProvisioningRequestName(workloadName string, checkName kueue.AdmissionCheckReference, attempt int32) string {
 	fullName := fmt.Sprintf("%s-%s-%d", workloadName, checkName, int(attempt))
 	return limitObjectName(fullName)
 }
 
-func getProvisioningRequestNamePrefix(workloadName, checkName string) string {
+func getProvisioningRequestNamePrefix(workloadName string, checkName kueue.AdmissionCheckReference) string {
 	fullName := fmt.Sprintf("%s-%s-", workloadName, checkName)
 	return limitObjectName(fullName)
 }
@@ -67,13 +67,13 @@ func getProvisioningRequestPodTemplateName(prName string, podsetName kueue.PodSe
 	return limitObjectName(fullName)
 }
 
-func matchesWorkloadAndCheck(pr *autoscaling.ProvisioningRequest, workloadName, checkName string) bool {
+func matchesWorkloadAndCheck(pr *autoscaling.ProvisioningRequest, workloadName string, checkName kueue.AdmissionCheckReference) bool {
 	attemptRegex := getAttemptRegex(workloadName, checkName)
 	matches := attemptRegex.FindStringSubmatch(pr.Name)
 	return len(matches) > 0
 }
 
-func getAttempt(log logr.Logger, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
+func getAttempt(log logr.Logger, pr *autoscaling.ProvisioningRequest, workloadName string, checkName kueue.AdmissionCheckReference) int32 {
 	attemptRegex := getAttemptRegex(workloadName, checkName)
 	matches := attemptRegex.FindStringSubmatch(pr.Name)
 	if len(matches) > 0 {
@@ -88,7 +88,7 @@ func getAttempt(log logr.Logger, pr *autoscaling.ProvisioningRequest, workloadNa
 	return 1
 }
 
-func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
+func getAttemptRegex(workloadName string, checkName kueue.AdmissionCheckReference) *regexp.Regexp {
 	prefix := getProvisioningRequestNamePrefix(workloadName, checkName)
 	escapedPrefix := regexp.QuoteMeta(prefix)
 	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")

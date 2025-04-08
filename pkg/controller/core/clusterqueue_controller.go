@@ -297,14 +297,14 @@ func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.
 }
 
 func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionCheck) {
-	var acName string
+	var acName kueue.AdmissionCheckReference
 	switch {
 	case oldAc != nil:
 		// Delete or Update Event.
-		acName = oldAc.Name
+		acName = kueue.AdmissionCheckReference(oldAc.Name)
 	case newAc != nil:
 		// Create Event.
-		acName = newAc.Name
+		acName = kueue.AdmissionCheckReference(newAc.Name)
 	default:
 		return
 	}

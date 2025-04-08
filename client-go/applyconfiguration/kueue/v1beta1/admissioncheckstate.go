@@ -25,11 +25,11 @@ import (
 // AdmissionCheckStateApplyConfiguration represents a declarative configuration of the AdmissionCheckState type for use
 // with apply.
 type AdmissionCheckStateApplyConfiguration struct {
-	Name               *string                          `json:"name,omitempty"`
-	State              *kueuev1beta1.CheckState         `json:"state,omitempty"`
-	LastTransitionTime *v1.Time                         `json:"lastTransitionTime,omitempty"`
-	Message            *string                          `json:"message,omitempty"`
-	PodSetUpdates      []PodSetUpdateApplyConfiguration `json:"podSetUpdates,omitempty"`
+	Name               *kueuev1beta1.AdmissionCheckReference `json:"name,omitempty"`
+	State              *kueuev1beta1.CheckState              `json:"state,omitempty"`
+	LastTransitionTime *v1.Time                              `json:"lastTransitionTime,omitempty"`
+	Message            *string                               `json:"message,omitempty"`
+	PodSetUpdates      []PodSetUpdateApplyConfiguration      `json:"podSetUpdates,omitempty"`
 }
 
 // AdmissionCheckStateApplyConfiguration constructs a declarative configuration of the AdmissionCheckState type for use with
@@ -41,7 +41,7 @@ func AdmissionCheckState() *AdmissionCheckStateApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *AdmissionCheckStateApplyConfiguration) WithName(value string) *AdmissionCheckStateApplyConfiguration {
+func (b *AdmissionCheckStateApplyConfiguration) WithName(value kueuev1beta1.AdmissionCheckReference) *AdmissionCheckStateApplyConfiguration {
 	b.Name = &value
 	return b
 }

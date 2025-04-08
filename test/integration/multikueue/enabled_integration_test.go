@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		})
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
-			AdmissionChecks(multiKueueAC.Name).
+			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
 
@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -270,9 +270,9 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		ginkgo.By("checking the workload creation was rejected in the management cluster", func() {
 			managerWl := &kueue.Workload{}
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-			acs := workload.FindAdmissionCheck(managerWl.Status.AdmissionChecks, multiKueueAC.Name)
+			acs := workload.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 			gomega.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-				Name:    multiKueueAC.Name,
+				Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 				State:   kueue.CheckStateRejected,
 				Message: `No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob"`,
 			}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))

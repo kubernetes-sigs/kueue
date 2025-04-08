@@ -99,7 +99,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(ac, kueue.ResourceInUseFinalizerName) {
-			if cqs := r.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) != 0 {
+			if cqs := r.cache.ClusterQueuesUsingAdmissionCheck(kueue.AdmissionCheckReference(ac.Name)); len(cqs) != 0 {
 				log.V(3).Info("admissionCheck is still in use", "ClusterQueues", cqs)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
 				// Instead, we drive the removal of finalizer by ClusterQueue Update/Delete events
@@ -200,7 +200,7 @@ func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workq
 		if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac); len(cqs) == 0 {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name: ac,
+					Name: string(ac),
 				},
 			}
 			q.Add(req)

@@ -34,7 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -827,7 +827,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	cases := map[string]struct {
 		cq                  *kueue.ClusterQueue
 		wl                  *kueue.Workload
-		wantAdmissionChecks sets.Set[string]
+		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
 	}{
 		"AdmissionCheckStrategy with a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -836,7 +836,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -854,7 +854,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -865,7 +865,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1", "ac2"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
 		"Workload has no QuotaReserved": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -881,7 +881,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, utilac.NewAdmissionChecks(tc.cq))
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq))
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)

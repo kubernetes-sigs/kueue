@@ -16,9 +16,21 @@ limitations under the License.
 
 package cache
 
+import (
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 type AdmissionCheck struct {
 	Active                       bool
 	Controller                   string
 	SingleInstanceInClusterQueue bool
 	FlavorIndependent            bool
+}
+
+func admissionCheckReferencesToStrings(refs []kueue.AdmissionCheckReference) []string {
+	result := make([]string, len(refs))
+	for i, ref := range refs {
+		result[i] = string(ref)
+	}
+	return result
 }

@@ -139,7 +139,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	checkConfig := make(map[string]*kueue.ProvisioningRequestConfig, len(relevantChecks))
+	checkConfig := make(map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig, len(relevantChecks))
 	for _, checkName := range relevantChecks {
 		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 		if client.IgnoreNotFound(err) != nil {
@@ -180,10 +180,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 func (c *Controller) activeOrLastPRForChecks(
 	ctx context.Context,
 	wl *kueue.Workload,
-	checkConfig map[string]*kueue.ProvisioningRequestConfig,
+	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	ownedPRs []autoscaling.ProvisioningRequest,
-) map[string]*autoscaling.ProvisioningRequest {
-	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
+) map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest {
+	activeOrLastPRForChecks := make(map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
 		if prc == nil {
@@ -205,7 +205,7 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
@@ -227,8 +227,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 	ctx context.Context,
 	wl *kueue.Workload,
 	wlInfo *workloadInfo,
-	checkConfig map[string]*kueue.ProvisioningRequestConfig,
-	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
+	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
+	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
 ) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 	var requeAfter *time.Duration
@@ -530,12 +530,12 @@ func (wlInfo *workloadInfo) update(wl *kueue.Workload, c clock.Clock) {
 func (c *Controller) syncCheckStates(
 	ctx context.Context, wl *kueue.Workload,
 	wlInfo *workloadInfo,
-	checkConfig map[string]*kueue.ProvisioningRequestConfig,
-	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
+	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
+	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl, c.clock)
-	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
+	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
