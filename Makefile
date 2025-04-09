@@ -27,7 +27,7 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
-PLATFORMS_X ?= linux/amd64#,linux/arm64,linux/s390x,linux/ppc64le
+RAY_MINI_PLATFORMS ?= linux/amd64,linux/arm64
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
@@ -39,6 +39,7 @@ IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+RAY_VERSION ?= 2.41.0
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -394,8 +395,9 @@ ray-project-mini-image-local-build:
 .PHONY: ray-project-mini-image-build
 ray-project-mini-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/ray-project-mini:$(GIT_TAG) \
-		--platform=$(PLATFORMS_X) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAY_VERSION) \
+		--build-arg RAY_VERSION=$(RAY_VERSION) \
+		--platform=$(RAY_MINI_PLATFORMS) \
 		$(PUSH) \
 		-f ./hack/internal/test-images/Dockerfile ./ \
 
@@ -405,6 +407,6 @@ ray-project-mini-image-push: ray-project-mini-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini image
 .PHONY: ray-project-mini-image
-ray-project-mini-image: PLATFORMS_X=linux/amd64
+ray-project-mini-image: RAY_MINI_PLATFORMS=linux/amd64
 ray-project-mini-image: PUSH=--load
 ray-project-mini-image: ray-project-mini-image-build
