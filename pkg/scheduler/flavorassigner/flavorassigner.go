@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -691,7 +692,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // could help), it returns a Status with reasons.
 func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, int, *Status) {
 	var status Status
-	borrow := a.cq.FindHeightOfLowestSubtreeThatFits(fr, val)
+	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
 
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
@@ -710,7 +711,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// Check if preemption is possible
 	mode := noFit
-	if val <= rQuota.Nominal {
+	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
 		if a.oracle.IsReclaimPossible(log, a.cq, *a.wl, fr, val) {
 			mode = reclaim

@@ -63,7 +63,7 @@ func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchi
 	if isNeverPreemptable(ctx, wl, incomingPriority, candidatePriority) {
 		return PreemptionPossibilityNever
 	}
-	if wl.ClusterQueue == ctx.Cq.Name {
+	if wl.ClusterQueue == ctx.Cq.Name || haveHierarchicalAdvantage {
 		return PreemptionPossibilityAlways
 	}
 	borrowWithinCohortAllowed, borrowWithinCohortThreshold := IsBorrowingWithinCohortAllowed(ctx.Cq)
@@ -121,12 +121,13 @@ func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapsh
 				wl:                   candidateWl,
 				lca:                  lca,
 				onlyWithoutBorrowing: mayPreempt == PreemptionPossibilityWithoutBorrowing,
+				reclaim:              hasHiearchicalAdvantage,
 			})
 	}
 	return candidates
 }
 
-func cohortWithinNominalInResourcesNeedingPreemption(node *cache.ResourceNode, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
+func isWithinNominalInResourcesNeedingPreemption(node *cache.ResourceNode, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
 	for fr := range frsNeedPreemption {
 		if node.Usage[fr] > node.SubtreeQuota[fr] {
 			return false
@@ -172,7 +173,7 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 			continue
 		}
 		// don't look for candidates in subtrees that are not exceeding their quotas
-		if cohortWithinNominalInResourcesNeedingPreemption(&childCohort.ResourceNode, ctx.FrsNeedPreemption) {
+		if isWithinNominalInResourcesNeedingPreemption(&childCohort.ResourceNode, ctx.FrsNeedPreemption) {
 			continue
 		}
 		collectCandidatesInSubtree(ctx, childCohort, startingNode, forbiddenSubtree, hasHierarchicalAdvantage, result)
@@ -181,7 +182,7 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 		if childCq == ctx.Cq {
 			continue
 		}
-		if !cohortWithinNominalInResourcesNeedingPreemption(&childCq.ResourceNode, ctx.FrsNeedPreemption) {
+		if !isWithinNominalInResourcesNeedingPreemption(&childCq.ResourceNode, ctx.FrsNeedPreemption) {
 			*result = append(*result, getCandidatesFromCQ(childCq, startingNode, ctx, hasHierarchicalAdvantage)...)
 		}
 	}
@@ -201,7 +202,44 @@ func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem
 				wl:                   candidateWl,
 				lca:                  nil,
 				onlyWithoutBorrowing: false,
+				reclaim:              false,
 			})
 	}
 	return sameQueueCandidates
+}
+
+// getNodeHeight calculates the distance to the furthest leaf
+func getNodeHeight(node *cache.CohortSnapshot) int {
+	maxHeight := min(len(node.ChildCQs()), 1)
+	for _, childCohort := range node.ChildCohorts() {
+		maxHeight = max(maxHeight, getNodeHeight(childCohort)+1)
+	}
+	return maxHeight
+}
+
+func calculateRemaining(resourceNode *cache.ResourceNode, fr resources.FlavorResource, val int64) int64 {
+	var guaranteed int64
+	if lendingLimit := resourceNode.Quotas[fr].LendingLimit; lendingLimit != nil {
+		guaranteed = max(0, resourceNode.SubtreeQuota[fr]-*lendingLimit)
+	}
+	return val - max(0, guaranteed-resourceNode.Usage[fr])
+}
+
+// FindHeightOfLowestSubtreeThatFits returns height of a lowest subtree in the cohort
+// that fits additional val of resource fr. If no such subtree exists, it returns
+// height the whole cohort hierarchy. Note that height of a trivial subtree
+// with only one node is 0. It also returns if the returned subtree is smaller than the whole cohort tree.
+func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
+	var trackingNode *cache.CohortSnapshot
+	if !(c.BorrowingWith(fr, val) && c.HasParent()) {
+		return 0, c.HasParent()
+	}
+	remaining := calculateRemaining(&c.ResourceNode, fr, val)
+	for trackingNode = c.Parent(); trackingNode.HasParent(); trackingNode = trackingNode.Parent() {
+		if trackingNode.ResourceNode.Usage[fr]+remaining <= trackingNode.ResourceNode.SubtreeQuota[fr] {
+			break
+		}
+		remaining = calculateRemaining(&trackingNode.ResourceNode, fr, remaining)
+	}
+	return getNodeHeight(trackingNode), trackingNode.HasParent()
 }

@@ -2821,10 +2821,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q2").
@@ -2832,10 +2828,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q3").
@@ -2843,10 +2835,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q4").
@@ -2854,10 +2842,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q5").
@@ -2865,10 +2849,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q6").
@@ -2876,10 +2856,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q7").
@@ -2887,10 +2863,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q8").
@@ -2898,10 +2870,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q9").
@@ -2914,6 +2882,10 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+					MaxPriorityThreshold: ptr.To[int32](0),
+				},
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("q10").
@@ -2924,10 +2896,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				BorrowWithinCohort: &kueue.BorrowWithinCohort{
-					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
-				},
 			}).
 			Obj(),
 	}
@@ -2974,7 +2942,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclaimWhileBorrowingReason)),
+			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclamationReason)),
 		},
 		"multiple preemptions with nontrivial sT": {
 			cohorts:       baseCohorts,
@@ -3017,8 +2985,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				},
 			}),
 			wantPreempted: sets.New(
-				targetKeyReason("/admitted2", kueue.InCohortReclaimWhileBorrowingReason),
-				targetKeyReason("/admitted4", kueue.InCohortReclaimWhileBorrowingReason)),
+				targetKeyReason("/admitted2", kueue.InCohortReclamationReason),
+				targetKeyReason("/admitted4", kueue.InCohortReclamationReason)),
 		},
 		"multiple preemptions including own CQ": {
 			cohorts:       baseCohorts,
@@ -3045,7 +3013,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted4", "").
 					Priority(3).
 					Request(corev1.ResourceCPU, "8").
-					ReserveQuota(utiltesting.MakeAdmission("q10").
+					ReserveQuota(utiltesting.MakeAdmission("q9").
 						Assignment(corev1.ResourceCPU, "default", "8").Obj()).
 					Obj(),
 			},
@@ -3053,7 +3021,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				Priority(4).
 				Request(corev1.ResourceCPU, "12").
 				Obj(),
-			targetCQ: "q10",
+			targetCQ: "q9",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
@@ -3105,7 +3073,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				},
 			}),
 			wantPreempted: sets.New(
-				targetKeyReason("/admitted1", kueue.InCohortReclaimWhileBorrowingReason)),
+				targetKeyReason("/admitted1", kueue.InCohortReclamationReason)),
 		},
 		"forced to preempt inside sT": {
 			cohorts:       baseCohorts,
@@ -3125,22 +3093,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("admitted3", "").
 					Priority(1).
-					Request(corev1.ResourceCPU, "12").
+					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q5").
-						Assignment(corev1.ResourceCPU, "default", "12").Obj()).
+						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted4", "").
 					Priority(0).
-					Request(corev1.ResourceCPU, "6").
+					Request(corev1.ResourceCPU, "16").
 					ReserveQuota(utiltesting.MakeAdmission("q8").
-						Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Assignment(corev1.ResourceCPU, "default", "16").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
 				Priority(4).
 				Request(corev1.ResourceCPU, "6").
 				Obj(),
-			targetCQ: "q10",
+			targetCQ: "q9",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
@@ -3226,7 +3194,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				Priority(4).
 				Request(corev1.ResourceCPU, "12").
 				Obj(),
-			targetCQ: "q10",
+			targetCQ: "q9",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
@@ -3262,7 +3230,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted4", "").
 					Priority(3).
 					Request(corev1.ResourceCPU, "6").
-					ReserveQuota(utiltesting.MakeAdmission("q10").
+					ReserveQuota(utiltesting.MakeAdmission("q9").
 						Assignment(corev1.ResourceCPU, "default", "6").Obj()).
 					Obj(),
 			},
@@ -3270,7 +3238,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				Priority(4).
 				Request(corev1.ResourceCPU, "12").
 				Obj(),
-			targetCQ: "q10",
+			targetCQ: "q9",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
@@ -3355,7 +3323,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
 				Priority(0).
-				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceCPU, "6").
 				Obj(),
 			targetCQ: "q10",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -3449,7 +3417,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclaimWhileBorrowingReason)),
+			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclamationReason)),
 		},
 		"prefer evicted workloads": {
 			cohorts:       baseCohorts,
@@ -3571,8 +3539,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				},
 			}),
 			wantPreempted: sets.New(
-				targetKeyReason("/admitted3", kueue.InCohortReclaimWhileBorrowingReason),
-				targetKeyReason("/admitted4", kueue.InCohortReclaimWhileBorrowingReason)),
+				targetKeyReason("/admitted3", kueue.InCohortReclamationReason),
+				targetKeyReason("/admitted4", kueue.InCohortReclamationReason)),
 		},
 	}
 	for name, tc := range cases {

@@ -221,39 +221,3 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 func (c *ClusterQueueSnapshot) IsTASOnly() bool {
 	return c.tasOnly
 }
-
-// getNodeHeight calculates the distance to the furthest leaf
-func getNodeHeight(node *CohortSnapshot) int {
-	maxHeight := min(len(node.ChildCQs()), 1)
-	for _, childCohort := range node.ChildCohorts() {
-		maxHeight = max(maxHeight, getNodeHeight(childCohort)+1)
-	}
-	return maxHeight
-}
-
-func calculateRemaining(resourceNode ResourceNode, fr resources.FlavorResource, val int64) int64 {
-	var guaranteed int64
-	if lendingLimit := resourceNode.Quotas[fr].LendingLimit; lendingLimit != nil {
-		guaranteed = max(0, resourceNode.SubtreeQuota[fr]-*lendingLimit)
-	}
-	return val - max(0, guaranteed-resourceNode.Usage[fr])
-}
-
-// FindHeightOfLowestSubtreeThatFits returns height of a lowest subtree in the cohort
-// that fits additional val of resource fr. If no such subtree exists, it returns
-// height the whole cohort hierarchy. Note that height of a trivial subtree
-// with only one node is 0.
-func (c *ClusterQueueSnapshot) FindHeightOfLowestSubtreeThatFits(fr resources.FlavorResource, val int64) int {
-	var trackingNode *CohortSnapshot
-	if !(c.BorrowingWith(fr, val) && c.HasParent()) {
-		return 0
-	}
-	remaining := calculateRemaining(c.ResourceNode, fr, val)
-	for trackingNode = c.Parent(); trackingNode.HasParent(); trackingNode = trackingNode.Parent() {
-		if trackingNode.ResourceNode.Usage[fr]+remaining <= trackingNode.ResourceNode.SubtreeQuota[fr] {
-			break
-		}
-		remaining = calculateRemaining(trackingNode.ResourceNode, fr, remaining)
-	}
-	return getNodeHeight(trackingNode)
-}

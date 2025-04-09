@@ -212,7 +212,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	switch {
 	case !candidatesGenerator.AnyCandidateFromOtherQueues || (!canBorrowWithinCohort && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		borrowingOptions = []bool{true}
-	case !canBorrowWithinCohort:
+	case !canBorrowWithinCohort && !candidatesGenerator.AnyCandidateForHierarchicalReclaim:
 		borrowingOptions = []bool{false, true}
 	default:
 		borrowingOptions = []bool{true, false}

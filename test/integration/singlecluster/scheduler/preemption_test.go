@@ -933,11 +933,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
-					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-						MaxPriorityThreshold: ptr.To(veryHighPriority),
-					},
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				}).
 				Obj()
@@ -949,10 +945,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-						MaxPriorityThreshold: ptr.To(veryHighPriority),
-					},
 				}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, guaranteedCQ)).To(gomega.Succeed())

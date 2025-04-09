@@ -38,12 +38,13 @@ type candidateIndex struct {
 }
 
 type candidateIterator struct {
-	candidates                  [][]*candidateElem
-	runIndex                    map[bool]*candidateIndex
-	frsNeedPreemption           sets.Set[resources.FlavorResource]
-	snapshot                    *cache.Snapshot
-	AnyCandidateFromOtherQueues bool
-	hierarchicalReclaimCtx      *HierarchicalPreemptionCtx
+	candidates                         [][]*candidateElem
+	runIndex                           map[bool]*candidateIndex
+	frsNeedPreemption                  sets.Set[resources.FlavorResource]
+	snapshot                           *cache.Snapshot
+	AnyCandidateFromOtherQueues        bool
+	AnyCandidateForHierarchicalReclaim bool
+	hierarchicalReclaimCtx             *HierarchicalPreemptionCtx
 }
 
 type candidateElem struct {
@@ -53,6 +54,7 @@ type candidateElem struct {
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
 	onlyWithoutBorrowing bool
+	reclaim              bool
 }
 
 // candidatesOrdering criteria:
@@ -117,18 +119,13 @@ func candidateElemsOrdering(candidates []*candidateElem, cq kueue.ClusterQueueRe
 // quota on this node. It is assumed that subsequent call
 // to this function will be on nodes parent with remainingRequests
 func workloadFitsInQuota(node *cache.ResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
-	var guaranteed int64
 	fits := true
 	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
 		if node.Usage[fr]+v > node.SubtreeQuota[fr] {
 			fits = false
 		}
-		guaranteed = 0
-		if lendingLimit := node.Quotas[fr].LendingLimit; lendingLimit != nil {
-			guaranteed = max(0, node.SubtreeQuota[fr]-*lendingLimit)
-		}
-		remainingRequests[fr] = v - max(0, guaranteed-node.Usage[fr])
+		remainingRequests[fr] = calculateRemaining(node, fr, v)
 	}
 	return fits, remainingRequests
 }
@@ -178,8 +175,9 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 		snapshot:          snapshot,
 		candidates: [][]*candidateElem{evictedHierarchicalReclaimCandidates, evictedSTCandidates, evictedSameQueueCandidates,
 			nonEvictedHierarchicalReclaimCandidates, nonEvictedSTCandidates, nonEvictedSameQueueCandidates},
-		AnyCandidateFromOtherQueues: len(hierarchyCandidates) > 0 || len(priorityCandidates) > 0,
-		hierarchicalReclaimCtx:      hierarchicalReclaimCtx,
+		AnyCandidateFromOtherQueues:        len(hierarchyCandidates) > 0 || len(priorityCandidates) > 0,
+		AnyCandidateForHierarchicalReclaim: len(hierarchyCandidates) > 0,
+		hierarchicalReclaimCtx:             hierarchicalReclaimCtx,
 	}
 }
 
@@ -212,12 +210,12 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if cohortWithinNominalInResourcesNeedingPreemption(&cq.ResourceNode, c.frsNeedPreemption) {
+	if isWithinNominalInResourcesNeedingPreemption(&cq.ResourceNode, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
 	for node := cq.Parent(); node.HasParent() && node != candidate.lca; node = node.Parent() {
-		if cohortWithinNominalInResourcesNeedingPreemption(&node.ResourceNode, c.frsNeedPreemption) {
+		if isWithinNominalInResourcesNeedingPreemption(&node.ResourceNode, c.frsNeedPreemption) {
 			return false
 		}
 	}
@@ -228,8 +226,7 @@ func (c *candidateIterator) getPreemptionReason(candidate *candidateElem, borrow
 	if candidate.wl.ClusterQueue == c.hierarchicalReclaimCtx.Cq.Name {
 		return kueue.InClusterQueueReason
 	}
-	fits, _ := workloadFitsInQuota(&c.hierarchicalReclaimCtx.Cq.ResourceNode, c.hierarchicalReclaimCtx.Requests)
-	if borrowRun && !fits {
+	if borrowRun && !candidate.reclaim {
 		return kueue.InCohortReclaimWhileBorrowingReason
 	}
 	return kueue.InCohortReclamationReason
