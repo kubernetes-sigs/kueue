@@ -106,6 +106,10 @@ func isValidYAMLLine(line string) bool {
 	return err == nil
 }
 
+func isMultiDocumentYAML(data []byte) bool {
+	return strings.Contains(string(data), "---\n")
+}
+
 func YAMLToJSON(yamlStr string) (string, error) {
 	var data interface{}
 	err := yaml.Unmarshal([]byte(yamlStr), &data)

@@ -156,7 +156,6 @@ files:
           ports:
           {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
   - path: ./config/components/webhook/manifests.yaml
-    multidoc: true
     output_dir: ./charts/kueue/templates/webhook/
     operations:
       - type: "INSERT_TEXT"

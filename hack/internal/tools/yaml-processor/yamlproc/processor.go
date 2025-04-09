@@ -19,7 +19,6 @@ type FileOperations struct {
 	Operations       []Operation `yaml:"operations"`
 	OutputDir        string      `yaml:"output_dir,omitempty"`
 	RemoveSeparators bool        `yaml:"remove_separators,omitempty"`
-	Multidoc         bool        `yaml:"multidoc,omitempty"`
 }
 
 type Operation struct {
@@ -115,7 +114,7 @@ func (fp *FileProcessor) ProcessFile(fileOps FileOperations) {
 		return
 	}
 
-	if fileOps.Multidoc {
+	if isMultiDocumentYAML(data) {
 		docs := SplitYAMLDocuments(data)
 
 		var modifiedDocs [][]byte
