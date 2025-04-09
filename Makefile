@@ -387,7 +387,7 @@ generate-kueuectl-docs: kueuectl-docs
 # Build the multiplatform container image locally.
 .PHONY: ray-project-mini-image-local-build
 ray-project-mini-image-local-build:
-	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --name multiarch-builder --use)
 	$(MAKE) ray-project-mini-image-build PUSH=$(PUSH)
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
