@@ -1,5 +1,5 @@
 # Stage 1: Build Ray and dependencies
-FROM python:3.12-slim AS builder
+FROM --platform=${BUILDPLATFORM} python:3.12-slim AS builder
 
 # Set environment variables to avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -25,9 +25,3 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 
 # Expose the default Ray ports
 EXPOSE 6379 6380 8265
-
-# Add a healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:8265 || exit 1
-
-# Set the default command to start a Ray cluster
-CMD ["ray", "start", "--head", "--port=6379", "--dashboard-host=0.0.0.0"]
