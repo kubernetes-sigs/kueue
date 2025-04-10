@@ -50,6 +50,7 @@ type ReplicatedJobRequirements struct {
 	Replicas       int32
 	Parallelism    int32
 	Completions    int32
+	Labels         map[string]string
 	Annotations    map[string]string
 	PodAnnotations map[string]string
 	Image          string
@@ -77,6 +78,7 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
 	for index, req := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
+		jt.Labels = req.Labels
 		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
