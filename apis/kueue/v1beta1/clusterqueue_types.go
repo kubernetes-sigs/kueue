@@ -213,6 +213,10 @@ type ResourceQuota struct {
 	// name of this resource.
 	Name corev1.ResourceName `json:"name"`
 
+	// kind indicates whether this resource is a Structred DRA resource.
+	// +kubebuilder:default=""
+	Kind string `json:"kind,omitempty"`
+
 	// nominalQuota is the quantity of this resource that is available for
 	// Workloads admitted by this ClusterQueue at a point in time.
 	// The nominalQuota must be non-negative.
