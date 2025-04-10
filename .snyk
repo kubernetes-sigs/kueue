@@ -1,0 +1,10 @@
+# References:
+# https://docs.snyk.io/scan-applications/snyk-code/using-snyk-code-from-the-cli/excluding-directories-and-files-from-the-snyk-code-cli-test
+# https://docs.snyk.io/snyk-cli/commands/ignore
+exclude:
+  global:
+    - hack/internal/tools/**
+    - cmd/experimental/kueue-viz/**
+    - site/**
+    - vendor/**
+    - "**/*_test.go"
