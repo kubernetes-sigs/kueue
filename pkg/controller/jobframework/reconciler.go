@@ -301,7 +301,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {
-		ancestorJob, err = GetAncestorJobManagedByKueue(ctx, r.client, r.record, object, r.manageJobsWithoutQueueName)
+		ancestorJob, err = FindAncestorJobManagedByKueue(ctx, r.client, r.record, object, r.manageJobsWithoutQueueName)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -594,26 +594,26 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, ancestor client
 	return nil, nil
 }
 
-// GetAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
+// FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
 // If manageJobsWithoutQueueName is set to false, it returns only Jobs with a queue-name.
 // If manageJobsWithoutQueueName is true, it may return a Job even if it doesn't have a queue-name.
 //
 // Examples:
 //
-// With manageJobsWithoutQueueName=true:
+// With manageJobsWithoutQueueName=false:
 // Job -> JobSet -> AppWrapper => nil
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper => JobSet
 // Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
 // Job -> JobSet (disabled) -> AppWrapper (queue-name) => AppWrapper
 //
-// With manageJobsWithoutQueueName=false:
+// With manageJobsWithoutQueueName=true:
 // Job -> JobSet -> AppWrapper => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper => AppWrapper
 // Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
 // Job -> JobSet (disabled) -> AppWrapper => AppWrapper
-func GetAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
+func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
 	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
 	currentObj := jobObj
