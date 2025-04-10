@@ -1362,7 +1362,10 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 	})
 	c.Resources.Limits = limits
 
-// WithResourceClaim appends a claim request to the container
+	return c
+}
+
+// WithClaimReq appends a claim request to the container
 func (c *ContainerWrapper) WithClaimReq(claims []corev1.ResourceClaim) *ContainerWrapper {
 	c.Container.Resources.Claims = claims
 	return c

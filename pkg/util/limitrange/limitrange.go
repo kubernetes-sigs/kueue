@@ -22,6 +22,7 @@ import (
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
