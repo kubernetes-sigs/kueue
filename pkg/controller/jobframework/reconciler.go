@@ -325,7 +325,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getAncestorWorkload(ctx, ancestorJob); err != nil {
+			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
@@ -576,17 +576,17 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
-func (r *JobReconciler) getAncestorWorkload(ctx context.Context, ancestor client.Object) (*kueue.Workload, error) {
+// getWorkloadForObject returns the Workload associated with the given job.
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
 	wlList := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wlList, client.InNamespace(ancestor.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(ancestor.GetUID())}); client.IgnoreNotFound(err) != nil {
+	if err := r.client.List(ctx, &wlList, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 	if len(wlList.Items) > 0 {
 		// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"WARNING: The job has multiple associated Workloads.",
-			"job", ancestor.GetName(),
+			"job", jobObj.GetName(),
 			"workloads", klog.KObjSlice(wlList.Items),
 		)
 		return &wlList.Items[0], nil
