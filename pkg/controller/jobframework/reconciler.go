@@ -301,7 +301,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {
-		ancestorJob, err = GetAncestorJobManagedByKueue(ctx, r.client, r.record, object)
+		ancestorJob, err = GetAncestorJobManagedByKueue(ctx, r.client, r.record, object, r.manageJobsWithoutQueueName)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -578,9 +578,6 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 
 // getAncestorWorkload returns the Workload object of the Kueue-managed ancestor job.
 func (r *JobReconciler) getAncestorWorkload(ctx context.Context, ancestor client.Object) (*kueue.Workload, error) {
-	if QueueNameForObject(ancestor) == "" {
-		return nil, nil
-	}
 	wlList := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wlList, client.InNamespace(ancestor.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(ancestor.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
@@ -597,10 +594,26 @@ func (r *JobReconciler) getAncestorWorkload(ctx context.Context, ancestor client
 	return nil, nil
 }
 
-// GetAncestorJobManagedByKueue traverses controllerRefs to find a top-level ancestor Job
-// that is managed by Kueue (i.e., it has a queue-name label). If a Job with a queue-name
-// is not found, it will return the top-level ancestor with an enabled integration.
-func GetAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object) (client.Object, error) {
+// GetAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
+// If manageJobsWithoutQueueName is set to false, it returns only Jobs with a queue-name.
+// If manageJobsWithoutQueueName is true, it may return a Job even if it doesn't have a queue-name.
+//
+// Examples:
+//
+// With manageJobsWithoutQueueName=true:
+// Job -> JobSet -> AppWrapper => nil
+// Job (queue-name) -> JobSet (queue-name) -> AppWrapper => JobSet
+// Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
+// Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
+// Job -> JobSet (disabled) -> AppWrapper (queue-name) => AppWrapper
+//
+// With manageJobsWithoutQueueName=false:
+// Job -> JobSet -> AppWrapper => AppWrapper
+// Job (queue-name) -> JobSet (queue-name) -> AppWrapper => AppWrapper
+// Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
+// Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
+// Job -> JobSet (disabled) -> AppWrapper => AppWrapper
+func GetAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
 	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
 	currentObj := jobObj
@@ -634,7 +647,7 @@ func GetAncestorJobManagedByKueue(ctx context.Context, c client.Client, record r
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
-		if managed && (topLevelJob == nil || QueueNameForObject(topLevelJob) == "" || QueueNameForObject(parentObj) != "") {
+		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}
 		currentObj = parentObj
