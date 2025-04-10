@@ -161,6 +161,7 @@ var (
 	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
+	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 )
 
 type options struct {
@@ -318,6 +319,10 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 		return nil
 	})
+}
+
+func (p *Pod) IsTopLevel() bool {
+	return true
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
