@@ -21,11 +21,14 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobSetWrapper wraps a JobSet.
@@ -47,6 +50,7 @@ type ReplicatedJobRequirements struct {
 	Replicas       int32
 	Parallelism    int32
 	Completions    int32
+	Labels         map[string]string
 	Annotations    map[string]string
 	PodAnnotations map[string]string
 	Image          string
@@ -74,6 +78,7 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
 	for index, req := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
+		jt.Labels = req.Labels
 		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
@@ -93,6 +98,11 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		}
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
 	}
+	return j
+}
+
+func (j *JobSetWrapper) UID(uid string) *JobSetWrapper {
+	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
 
@@ -191,5 +201,11 @@ func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
 // ManagedBy adds a managedby.
 func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	j.Spec.ManagedBy = &c
+	return j
+}
+
+// OwnerReference adds a ownerReference to the default container.
+func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
+	testing.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), nil)
 	return j
 }
