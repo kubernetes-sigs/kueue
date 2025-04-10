@@ -55,9 +55,15 @@ The resource needs of the workload are computed by combining the resource needs 
 
 The AppWrapper looks like the following:
 
-{{< include "examples/jobs/appwrapper-pytorch-sample.yaml" "yaml" >}}
+{{< include "examples/appwrapper/pytorch-sample.yaml" "yaml" >}}
 
 {{% alert title="Note" color="primary" %}}
 The example above comes from [here](https://raw.githubusercontent.com/project-codeflare/appwrapper/refs/heads/main/samples/wrapped-pytorch-job.yaml)
 and only has the `queue-name` label changed.
 {{% /alert %}}
+
+## Example AppWrapper containing a Deployment
+
+The AppWrapper looks like the following:
+
+{{< include "examples/appwrapper/deployment-sample.yaml" "yaml" >}}

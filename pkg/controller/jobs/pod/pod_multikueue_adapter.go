@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -49,39 +51,12 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return err
 	}
 
-	remotePod := corev1.Pod{}
-	err = remoteClient.Get(ctx, key, &remotePod)
-	if client.IgnoreNotFound(err) != nil {
-		return err
+	if !isPodAPartOfGroup(localPod) {
+		return syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
 	}
 
-	// the remote pod exists
-	if err == nil {
-		if localPod.DeletionTimestamp != nil {
-			// Ensure the local pod is not terminating before updating its status; otherwise, it will fail when patching the status.
-			log.V(2).Info("Skipping the sync since the local pod is terminating")
-			return nil
-		}
-		// Patch the status of the local pod to match the remote pod
-		return clientutil.PatchStatus(ctx, localClient, &localPod, func() (bool, error) {
-			localPod.Status = remotePod.Status
-			return true, nil
-		})
-	}
-
-	remotePod = corev1.Pod{
-		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
-		Spec:       *localPod.Spec.DeepCopy(),
-	}
-
-	// add the prebuilt workload
-	if remotePod.Labels == nil {
-		remotePod.Labels = map[string]string{}
-	}
-	remotePod.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remotePod.Labels[kueue.MultiKueueOriginLabel] = origin
-
-	return remoteClient.Create(ctx, &remotePod)
+	groupName := podGroupName(localPod)
+	return syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
@@ -90,7 +65,25 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, &pod))
+
+	if !isPodAPartOfGroup(pod) {
+		return client.IgnoreNotFound(remoteClient.Delete(ctx, &pod))
+	}
+
+	groupName := podGroupName(pod)
+	podGroup := &corev1.PodList{}
+	err = remoteClient.List(ctx, podGroup, client.InNamespace(key.Namespace), client.MatchingLabels{podconstants.GroupNameLabel: groupName})
+	if err != nil {
+		return err
+	}
+
+	for _, remotePod := range podGroup.Items {
+		if err = client.IgnoreNotFound(remoteClient.Delete(ctx, &remotePod)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
@@ -123,4 +116,80 @@ func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName
 	}
 
 	return types.NamespacedName{Name: prebuiltWl, Namespace: pod.Namespace}, nil
+}
+
+// isPodAPartOfGroup checks if a pod belongs to a group by verifying the presence of a group name label.
+func isPodAPartOfGroup(p corev1.Pod) bool {
+	return podGroupName(p) != ""
+}
+
+func syncPodGroup(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin, groupName string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	localPodGroup := &corev1.PodList{}
+	err := localClient.List(ctx, localPodGroup, client.InNamespace(key.Namespace), client.MatchingLabels{podconstants.GroupNameLabel: groupName})
+	if err != nil {
+		return err
+	}
+
+	for _, localPod := range localPodGroup.Items {
+		if err = syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func syncLocalPodWithRemote(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	localPod *corev1.Pod,
+	workloadName, origin string,
+	log *logr.Logger,
+) error {
+	key := types.NamespacedName{Name: localPod.Name, Namespace: localPod.Namespace}
+	remotePod := corev1.Pod{}
+
+	// Try to fetch the corresponding remote pod
+	err := remoteClient.Get(ctx, key, &remotePod)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// If the remote pod exists
+	if err == nil {
+		// Skip syncing if the local pod is terminating
+		if localPod.DeletionTimestamp != nil {
+			log.V(2).Info("Skipping sync since the local pod is terminating", "podName", localPod.Name)
+			return nil
+		}
+
+		// Patch the status of the local pod to match the remote pod
+		return clientutil.PatchStatus(ctx, localClient, localPod, func() (bool, error) {
+			localPod.Status = remotePod.Status
+			return true, nil
+		})
+	}
+
+	// If the remote pod does not exist, create it
+	remotePod = corev1.Pod{
+		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
+		Spec:       *localPod.Spec.DeepCopy(),
+	}
+
+	// add the prebuilt workload
+	if remotePod.Labels == nil {
+		remotePod.Labels = map[string]string{}
+	}
+	remotePod.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remotePod.Labels[kueue.MultiKueueOriginLabel] = origin
+
+	if err = remoteClient.Create(ctx, &remotePod); err != nil {
+		log.Error(err, "Failed to create remote pod", "podName", remotePod.Name)
+		return err
+	}
+
+	return nil
 }

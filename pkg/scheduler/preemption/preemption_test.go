@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -53,6 +54,11 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
+	cmp.AllowUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
+	cmpopts.IgnoreFields(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}, "cohortFactory"),
+	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"),
+	cmp.AllowUnexported(cache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue"),
 }
 
 type nodeKey struct {
@@ -1878,6 +1884,10 @@ func TestPreemption(t *testing.T) {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
 
+			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+			}
+
 			beforeResourceNodes := resourceNodes(beforeSnapshot)
 			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
 			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
@@ -2694,6 +2704,10 @@ func TestFairPreemptions(t *testing.T) {
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 
 			beforeResourceNodes := resourceNodes(beforeSnapshot)

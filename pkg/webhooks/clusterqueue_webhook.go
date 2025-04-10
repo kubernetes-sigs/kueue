@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,8 +37,8 @@ import (
 )
 
 const (
-	limitIsEmptyErrorMsg string = `must be nil when cohort is empty`
-	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
+	limitIsEmptyErrorMsgTemplate string = `must be nil when %s is empty`
+	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
 )
 
 type ClusterQueueWebhook struct{}
@@ -101,7 +102,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		hasParent:                        cq.Spec.Cohort != "",
 		enforceNominalGreaterThanLending: true,
 	}
-	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
@@ -135,7 +136,7 @@ func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) f
 	return allErrs
 }
 
-func validateResourceGroups(resourceGroups []kueue.ResourceGroup, config validationConfig, path *field.Path) field.ErrorList {
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, config validationConfig, path *field.Path, isCohort bool) field.ErrorList {
 	var allErrs field.ErrorList
 	seenResources := sets.New[corev1.ResourceName]()
 	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -153,7 +154,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, config validat
 		}
 		for j, fqs := range rg.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, config, path)...)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, config, path, isCohort)...)
 			if seenFlavors.Has(fqs.Name) {
 				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
 			} else {
@@ -164,7 +165,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, config validat
 	return allErrs
 }
 
-func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, config validationConfig, path *field.Path) field.ErrorList {
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, config validationConfig, path *field.Path, isCohort bool) field.ErrorList {
 	var allErrs field.ErrorList
 
 	for i, rq := range flavorQuotas.Resources {
@@ -178,13 +179,13 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
 			borrowingLimitPath := path.Child("borrowingLimit")
-			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, config, borrowingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, config, borrowingLimitPath, isCohort)...)
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
 		}
 		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
 			lendingLimitPath := path.Child("lendingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.LendingLimit, lendingLimitPath)...)
-			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, config, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, config, lendingLimitPath, isCohort)...)
 			allErrs = append(allErrs, validateLendingLimit(*rq.LendingLimit, rq.NominalQuota, config, lendingLimitPath)...)
 		}
 	}
@@ -200,10 +201,16 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 	return allErrs
 }
 
-// validateLimit enforces that BorrowingLimit or LendingLimit must be nil when cohort is empty
-func validateLimit(limit resource.Quantity, config validationConfig, fldPath *field.Path) field.ErrorList {
+// validateLimit enforces that BorrowingLimit or LendingLimit must be nil when cohort (or parent cohort) is empty
+func validateLimit(limit resource.Quantity, config validationConfig, fldPath *field.Path, isCohort bool) field.ErrorList {
 	var allErrs field.ErrorList
 	if !config.hasParent {
+		var limitIsEmptyErrorMsg string
+		if isCohort {
+			limitIsEmptyErrorMsg = fmt.Sprintf(limitIsEmptyErrorMsgTemplate, "parent")
+		} else {
+			limitIsEmptyErrorMsg = fmt.Sprintf(limitIsEmptyErrorMsgTemplate, "cohort")
+		}
 		allErrs = append(allErrs, field.Invalid(fldPath, limit.String(), limitIsEmptyErrorMsg))
 	}
 	return allErrs

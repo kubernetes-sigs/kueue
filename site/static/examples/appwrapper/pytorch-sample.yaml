@@ -1,7 +1,7 @@
 apiVersion: workload.codeflare.dev/v1beta2
 kind: AppWrapper
 metadata:
-  name: sample-pytorch-job
+  name: sample-appwrapper-pytorch-job
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
