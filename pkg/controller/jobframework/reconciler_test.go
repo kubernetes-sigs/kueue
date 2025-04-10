@@ -47,7 +47,7 @@ import (
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
-func TestGetAncestorJobManagedByKueue(t *testing.T) {
+func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	grandparentJobName := "test-job-grandparent"
 	parentJobName := "test-job-parent"
 	childJobName := "test-job-child"
@@ -335,7 +335,7 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
-			gotManaged, gotErr := GetAncestorJobManagedByKueue(ctx, cl, recorder, tc.job, tc.manageJobsWithoutQueueName)
+			gotManaged, gotErr := FindAncestorJobManagedByKueue(ctx, cl, recorder, tc.job, tc.manageJobsWithoutQueueName)
 			if diff := cmp.Diff(tc.wantManaged, gotManaged, cmp.Options{
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 				cmpopts.EquateEmpty(),
