@@ -17,8 +17,6 @@ limitations under the License.
 package queuename
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -29,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -54,12 +53,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		configurationUpdate := time.Now()
-		config := defaultKueueCfg.DeepCopy()
-		config.ManageJobsWithoutQueueName = true
-		util.ApplyKueueConfiguration(ctx, k8sClient, config)
-		util.RestartKueueController(ctx, k8sClient)
-		ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
+		updateKueueConfiguration(func(cfg *config.Configuration) {
+			cfg.ManageJobsWithoutQueueName = true
+		})
 	})
 
 	ginkgo.BeforeEach(func() {
