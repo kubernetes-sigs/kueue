@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterAll(func() {
