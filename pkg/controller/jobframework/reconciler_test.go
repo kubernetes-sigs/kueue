@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -51,33 +52,56 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 	parentJobName := "test-job-parent"
 	childJobName := "test-job-child"
 	jobNamespace := "default"
+
+	cronJob := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID("cronjob"),
+			Name:      "cronjob",
+			Namespace: jobNamespace,
+		},
+	}
+
+	cronJobWithQueueNameLabel := cronJob.DeepCopy()
+	cronJobWithQueueNameLabel.Labels = map[string]string{
+		constants.QueueLabel: "test-q",
+	}
+
 	cases := map[string]struct {
-		integrations []string
-		ancestors    []client.Object
-		job          client.Object
-		wantManaged  client.Object
-		wantErr      error
-		wantEvents   []utiltesting.EventRecord
+		manageJobsWithoutQueueName bool
+		integrations               []string
+		ancestors                  []client.Object
+		job                        client.Object
+		wantManaged                client.Object
+		wantErr                    error
+		wantEvents                 []utiltesting.EventRecord
 	}{
 		"child job has ownerReference with unmanaged workload owner": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
-			ancestors: []client.Object{
-				testingjob.MakeJob(parentJobName, jobNamespace).UID(parentJobName).Obj(),
-			},
+			ancestors: []client.Object{cronJob.DeepCopy()},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("CronJob")).
+				OwnerReference(cronJob.Name, batchv1.SchemeGroupVersion.WithKind("CronJob")).
+				Obj(),
+		},
+		"child job has ownerReference with unmanaged workload owner that has a queue-name": {
+			ancestors: []client.Object{cronJobWithQueueNameLabel.DeepCopy()},
+			job: testingjob.MakeJob(childJobName, jobNamespace).
+				OwnerReference(cronJob.Name, batchv1.SchemeGroupVersion.WithKind("CronJob")).
+				Obj(),
+		},
+		"child job has ownerReference with unknown non-existing workload owner": {
+			job: testingjob.MakeJob(childJobName, jobNamespace).
+				OwnerReference(cronJob.Name, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known non-existing workload owner": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
+			integrations: []string{"kubeflow.org/mpijob"},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job has queue-name label": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
+			integrations: []string{"kubeflow.org/mpijob"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -93,7 +117,7 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 				Obj(),
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job doesn't has queue-name label": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
+			integrations: []string{"kubeflow.org/mpijob"},
 			ancestors: []client.Object{
 				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
 					UID(parentJobName).
@@ -101,47 +125,6 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
-				Obj(),
-			wantManaged: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-				UID(parentJobName).
-				Obj(),
-		},
-		"child job has managed parent and grandparent and grandparent has a queue-name label": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
-			ancestors: []client.Object{
-				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
-					UID(grandparentJobName).
-					Queue("test-q").
-					Obj(),
-				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-					UID(parentJobName).
-					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
-					Obj(),
-			},
-			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
-				Obj(),
-			wantManaged: testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
-				UID(grandparentJobName).
-				Queue("test-q").
-				Obj(),
-		},
-		"child job has managed parent and grandparent and grandparent doesn't have a queue-name label": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
-			ancestors: []client.Object{
-				testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
-					UID(grandparentJobName).
-					Obj(),
-				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-					UID(parentJobName).
-					OwnerReference(grandparentJobName, awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
-					Obj(),
-			},
-			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
-				Obj(),
-			wantManaged: testingaw.MakeAppWrapper(grandparentJobName, jobNamespace).
-				UID(grandparentJobName).
 				Obj(),
 		},
 		"cyclic ownership links are properly handled": {
@@ -162,7 +145,7 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 			wantErr: ErrCyclicOwnership,
 		},
 		"cuts off ancestor traversal at the limit and generates an appropriate event": {
-			integrations: []string{"kubeflow.org/mpijob", "workload.codeflare.dev/appwrapper", "batch/job"},
+			integrations: []string{"batch/job"},
 			ancestors: []client.Object{
 				testingjob.MakeJob("ancestor-0", jobNamespace).UID("ancestor-0").Queue("test-q").Obj(),
 				testingjob.MakeJob("ancestor-1", jobNamespace).UID("ancestor-1").OwnerReference("ancestor-0", batchv1.SchemeGroupVersion.WithKind("Job")).Obj(),
@@ -180,6 +163,7 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference("ancestor-11", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			wantManaged: nil,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: jobNamespace, Name: childJobName},
@@ -188,14 +172,11 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 					Message:   "Terminated search for Kueue-managed Job because ancestor depth exceeded limit of 10",
 				},
 			},
-			wantManaged: testingjob.MakeJob("ancestor-1", jobNamespace).UID("ancestor-1").OwnerReference("ancestor-0", batchv1.SchemeGroupVersion.WithKind("Job")).Obj(),
 		},
-		"child Job has an unmanaged parent but a managed grandparent, and the grandparent has a queue-name label": {
-			integrations: []string{"batch/job", "workload.codeflare.dev/appwrapper"},
+		"Job -> JobSet -> AppWrapper => nil": {
+			integrations: []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
 			ancestors: []client.Object{
-				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").
-					Queue("test-q").
-					Obj(),
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
 				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
 					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 					Obj(),
@@ -203,9 +184,144 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 			job: testingjob.MakeJob("job", jobNamespace).UID("job").
 				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
 				Obj(),
-			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").
+			wantManaged: nil,
+		},
+		"Job (queue-name) -> JobSet (queue-name) -> AppWrapper => JobSet": {
+			integrations: []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Queue("test-q").
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
 				Queue("test-q").
 				Obj(),
+			wantManaged: jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+				OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+				Queue("test-q").
+				Obj(),
+		},
+		"Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper": {
+			integrations: []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("test-q").
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper": {
+			integrations: []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").
+					Queue("test-q").
+					Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Queue("test-q").
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("test-q").
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Job -> JobSet (disabled) -> AppWrapper (queue-name) => AppWrapper": {
+			integrations: []string{"workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Job -> JobSet -> AppWrapper => AppWrapper (manageJobsWithoutQueueName)": {
+			manageJobsWithoutQueueName: true,
+			integrations:               []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+		},
+		"Job (queue-name) -> JobSet (queue-name) -> AppWrapper => AppWrapper (manageJobsWithoutQueueName)": {
+			manageJobsWithoutQueueName: true,
+			integrations:               []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Queue("test-q").
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("test-q").
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+		},
+		"Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper (manageJobsWithoutQueueName)": {
+			manageJobsWithoutQueueName: true,
+			integrations:               []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("test-q").
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper (manageJobsWithoutQueueName)": {
+			manageJobsWithoutQueueName: true,
+			integrations:               []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Queue("test-q").
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("test-q").
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Job -> JobSet (disabled) -> AppWrapper => AppWrapper (manageJobsWithoutQueueName)": {
+			manageJobsWithoutQueueName: true,
+			integrations:               []string{"workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
+				jobset.MakeJobSet("jobset", jobNamespace).UID("jobset").
+					OwnerReference("aw", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
+					Obj(),
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("jobset", v1alpha2.SchemeGroupVersion.WithKind("JobSet")).
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
 		},
 	}
 	for name, tc := range cases {
@@ -219,7 +335,7 @@ func TestGetAncestorJobManagedByKueue(t *testing.T) {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
-			gotManaged, gotErr := GetAncestorJobManagedByKueue(ctx, cl, recorder, tc.job)
+			gotManaged, gotErr := GetAncestorJobManagedByKueue(ctx, cl, recorder, tc.job, tc.manageJobsWithoutQueueName)
 			if diff := cmp.Diff(tc.wantManaged, gotManaged, cmp.Options{
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 				cmpopts.EquateEmpty(),
