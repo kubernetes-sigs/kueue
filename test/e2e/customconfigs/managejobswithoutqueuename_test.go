@@ -240,6 +240,138 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 		})
 
+		ginkgo.It("should not admit child jobs and jobset even if the child job and jobset has a queue-name label", func() {
+			jobSetKey := client.ObjectKey{Name: "job-set", Namespace: ns.Name}
+
+			aw := awtesting.MakeAppWrapper("aw", ns.Name).
+				Component(awtesting.Component{
+					Template: testingjobset.MakeJobSet(jobSetKey.Name, jobSetKey.Namespace).
+						ReplicatedJobs(
+							testingjobset.ReplicatedJobRequirements{
+								Name:        "replicated-job-1",
+								Replicas:    2,
+								Parallelism: 2,
+								Completions: 2,
+								Image:       util.E2eTestAgnHostImage,
+								Args:        util.BehaviorExitFast,
+								Labels: map[string]string{
+									controllerconstants.QueueLabel: localQueue.Name,
+								},
+							},
+						).
+						SetTypeMeta().
+						Suspend(false).
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						Queue(localQueue.Name).
+						Obj(),
+				}).
+				Suspend(false).
+				Obj()
+
+			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
+				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+			})
+
+			createdAppWrapper := &awv1beta2.AppWrapper{}
+
+			ginkgo.By("Verifying that the AppWrapper gets suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the queue-name label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+					createdAppWrapper.Labels[controllerconstants.QueueLabel] = localQueue.Name
+					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
+					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdJobSet := &v1alpha2.JobSet{}
+
+			ginkgo.By("Checking that the JobSet is created and unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the JobSet is finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not admit child jobs even if the child job has a queue-name label", func() {
+			jobSet := testingjobset.MakeJobSet("job-set", ns.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Replicas:    2,
+						Parallelism: 2,
+						Completions: 2,
+						Image:       util.E2eTestAgnHostImage,
+						Args:        util.BehaviorExitFast,
+						Labels: map[string]string{
+							controllerconstants.QueueLabel: localQueue.Name,
+						},
+					},
+				).
+				SetTypeMeta().
+				Suspend(false).
+				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+				Obj()
+
+			ginkgo.By("Creating an unsuspended JobSet without a queue-name", func() {
+				gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
+			})
+
+			createdJobSet := &v1alpha2.JobSet{}
+
+			ginkgo.By("Verifying that the JobSet gets suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
+					g.Expect(createdJobSet.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the queue-name label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
+					if createdJobSet.Labels == nil {
+						createdJobSet.Labels = map[string]string{}
+					}
+					createdJobSet.Labels[controllerconstants.QueueLabel] = localQueue.Name
+					g.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the JobSet is unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the JobSet is finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("should suspend a pod created in the test namespace", func() {
 			var testPod, createdPod *corev1.Pod
 			var podLookupKey types.NamespacedName
@@ -560,30 +692,30 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				Suspend(false).
 				Obj()
 
-			ginkgo.By("creating an unsuspended AppWrapper without a queue name", func() {
+			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
 				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
 			})
 
-			ginkgo.By("AppWrapper is unsuspended", func() {
+			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
 					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			jobSet := &v1alpha2.JobSet{}
+			createdJobSet := &v1alpha2.JobSet{}
 
 			ginkgo.By("Checking that the JobSet is created and unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).Should(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the JobSet is finished", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).Should(gomega.Succeed())
-					g.Expect(jobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
+					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
+					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
