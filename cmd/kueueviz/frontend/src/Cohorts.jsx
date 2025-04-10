@@ -34,12 +34,12 @@ const Cohorts = () => {
   if (error) return <ErrorMessage error={error} />;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cohorts</Typography>
       {cohortList.length === 0 ? (
         <Typography>No Cohorts found.</Typography>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>

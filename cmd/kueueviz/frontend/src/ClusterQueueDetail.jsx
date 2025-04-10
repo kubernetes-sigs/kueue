@@ -37,7 +37,7 @@ const ClusterQueueDetail = () => {
 
   if (!clusterQueue) {
     return (
-      <Paper style={{ padding: '16px', marginTop: '20px' }}>
+      <Paper className="parentContainer">
         <Typography variant="h6">Loading...</Typography>
         <CircularProgress />
       </Paper>
@@ -45,7 +45,7 @@ const ClusterQueueDetail = () => {
   }
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' }}>
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cluster Queue Detail: {clusterQueueName}</Typography>
 
       <Grid container spacing={2}>
@@ -57,9 +57,9 @@ const ClusterQueueDetail = () => {
             <Link to={`/cohort/${clusterQueue.spec?.cohort}`}>{clusterQueue.spec?.cohort}</Link>
           </Typography>        </Grid>
         <Grid item xs={12} sm={6}>
-          <Typography variant="body1"><strong>Admitted Workloads:</strong> {clusterQueue.status?.admittedWorkloads}</Typography>
-          <Typography variant="body1"><strong>Reserving Workloads:</strong> {clusterQueue.status?.reservingWorkloads}</Typography>
-          <Typography variant="body1"><strong>Pending Workloads:</strong> {clusterQueue.status?.pendingWorkloads}</Typography>
+          <Typography variant="body1"><strong>Admitted Workloads:</strong> {clusterQueue.status?.admittedWorkloads ?? 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Reserving Workloads:</strong> {clusterQueue.status?.reservingWorkloads ?? 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Pending Workloads:</strong> {clusterQueue.status?.pendingWorkloads ?? 'N/A'}</Typography>
         </Grid>
       </Grid>
 
@@ -106,10 +106,8 @@ const ClusterQueueDetail = () => {
         Resource Groups (Quotas)
       </Typography>
 
-      {clusterQueue.resourceGroups && clusterQueue.resourceGroups.length === 0 ? (
-        <Typography>No resource groups defined for this cluster queue.</Typography>
-      ) : (
-        <TableContainer component={Paper} style={{ marginTop: '20px' }}>
+      {clusterQueue.spec?.resourceGroups && clusterQueue.spec.resourceGroups.length > 0 ? (
+        <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>
@@ -148,6 +146,8 @@ const ClusterQueueDetail = () => {
             </TableBody>
           </Table>
         </TableContainer>
+      ) : (
+        <Typography>No resource groups defined for this cluster queue.</Typography>
       )}
 
       {/* Flavor Reservation Table */}
@@ -162,22 +162,20 @@ const ClusterQueueDetail = () => {
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
         Local Queues Using This Cluster Queue
       </Typography>
-      {clusterQueue.queues && clusterQueue.queues.length === 0 ? (
-        <Typography>No local queues are using this cluster queue.</Typography>
-      ) : (
-        <TableContainer component={Paper} style={{ marginTop: '20px' }}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Queue Name</TableCell>
-                <TableCell>Flavor</TableCell>
-                <TableCell>Resource</TableCell>
-                <TableCell>Reservation</TableCell>
-                <TableCell>Usage</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {clusterQueue.queues.map((queue) => (
+      <TableContainer component={Paper} className="tableContainerWithBorder">
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Queue Name</TableCell>
+              <TableCell>Flavor</TableCell>
+              <TableCell>Resource</TableCell>
+              <TableCell>Reservation</TableCell>
+              <TableCell>Usage</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {clusterQueue.queues && clusterQueue.queues.length > 0 ? (
+              clusterQueue.queues.map((queue) => (
                 <React.Fragment key={queue.name}>
                   {queue.reservation?.map((reservation, resIndex) => (
                     <React.Fragment key={`${queue.name}-reservation-${resIndex}`}>
@@ -209,11 +207,16 @@ const ClusterQueueDetail = () => {
                     </React.Fragment>
                   ))}
                 </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+              ))
+            ) : (
+              // Render an empty row to maintain table structure
+              <TableRow>
+                <TableCell colSpan={5}>No local queues using this cluster queue</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Paper>
   );
 };

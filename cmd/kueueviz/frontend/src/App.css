@@ -60,7 +60,7 @@ tbody.tr.td {
 .preempted-column,
 .priority-column,
 .priority-class-column {
-  width: auto; /* Allowing them to expand relative to their content */
+  width: auto;
 }
 
 .tree-indicator-column {
@@ -94,7 +94,7 @@ tbody.tr.td {
   text-align: left;
   background-color: #ffe6e6;
   border-radius: 5px;
-  overflow: -moz-scrollbars-vertical; 
+  overflow: -moz-scrollbars-vertical;
   overflow-y: scroll;
 }
 
@@ -113,4 +113,19 @@ tbody.tr.td {
   font-family: monospace;
   white-space: pre-wrap;
   text-align: left;
+}
+
+.tableContainerWithBorder {
+  border: 1px solid ghostwhite border-radius: 8px;
+  overflow: auto;
+  margin: 10px;
+  max-width: 95%;
+  width: 100%;
+}
+
+.parentContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 20px;
 }
