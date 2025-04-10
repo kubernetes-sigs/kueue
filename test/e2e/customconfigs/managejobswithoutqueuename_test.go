@@ -291,8 +291,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
-					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+					g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -697,9 +697,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 			})
 
 			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
+				createdAppWrapper := &awv1beta2.AppWrapper{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
-					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
+					g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
