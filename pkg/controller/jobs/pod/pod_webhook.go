@@ -163,7 +163,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
-		ancestorJob, err := jobframework.FindAncestorJobManagedByKueue(ctx, w.client, nil, pod.Object(), w.manageJobsWithoutQueueName)
+		ancestorJob, err := jobframework.FindAncestorJobManagedByKueue(ctx, w.client, pod.Object(), w.manageJobsWithoutQueueName)
 		if err != nil || ancestorJob != nil {
 			return err
 		}
