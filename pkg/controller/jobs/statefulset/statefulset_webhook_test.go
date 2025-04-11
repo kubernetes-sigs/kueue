@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -41,6 +42,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
+	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
 
@@ -63,6 +66,7 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
@@ -83,6 +87,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
@@ -99,6 +104,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
+				PodTemplateManagedByKueue().
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
@@ -115,6 +121,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
 				PodTemplateSpecQueue("default").
+				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
@@ -130,6 +137,7 @@ func TestDefault(t *testing.T) {
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateManagedByKueue().
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
@@ -227,6 +235,7 @@ func TestValidateCreate(t *testing.T) {
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
 		integrations []string
+		objs         []runtime.Object
 		oldObj       *appsv1.StatefulSet
 		newObj       *appsv1.StatefulSet
 		wantErr      error
@@ -432,17 +441,19 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in replicas (scale up with AppWrapper ownerReference while the previous scaling operation is still in progress)": {
 			integrations: []string{appwrapper.FrameworkName},
+			objs: []runtime.Object{
+				testingappwrapper.MakeAppWrapper("test-app-wrapper", "test-ns").
+					UID("test-app-wrapper").
+					Queue("test-queue").
+					Obj(),
+			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
 				StatusReplicas(3).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       awv1beta2.AppWrapperKind,
-					Controller: ptr.To(true),
-				}).
+				OwnerReference("test-app-wrapper", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 				Queue("test-queue").
 				Replicas(3).
 				StatusReplicas(1).
@@ -450,33 +461,37 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in replicas (scale up with AppWrapper ownerReference)": {
 			integrations: []string{appwrapper.FrameworkName},
+			objs: []runtime.Object{
+				testingappwrapper.MakeAppWrapper("test-app-wrapper", "test-ns").
+					UID("test-app-wrapper").
+					Queue("test-queue").
+					Obj(),
+			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: awv1beta2.GroupVersion.String(),
-					Kind:       awv1beta2.AppWrapperKind,
-					Controller: ptr.To(true),
-				}).
+				OwnerReference("test-app-wrapper", awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind)).
 				Queue("test-queue").
 				Replicas(4).
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference while the previous scaling operation is still in progress)": {
 			integrations: []string{leaderworkerset.FrameworkName},
+			objs: []runtime.Object{
+				testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+					UID("test-lws").
+					Queue("test-queue").
+					Obj(),
+			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(0).
 				StatusReplicas(3).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: leaderworkersetv1.GroupVersion.String(),
-					Kind:       "LeaderWorkerSet",
-					Controller: ptr.To(true),
-				}).
+				OwnerReference("test-lws", leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet")).
 				Queue("test-queue").
 				Replicas(3).
 				StatusReplicas(1).
@@ -484,16 +499,18 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference)": {
 			integrations: []string{leaderworkerset.FrameworkName},
+			objs: []runtime.Object{
+				testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+					UID("test-lws").
+					Queue("test-queue").
+					Obj(),
+			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				WithOwnerReference(metav1.OwnerReference{
-					APIVersion: leaderworkersetv1.GroupVersion.String(),
-					Kind:       "LeaderWorkerSet",
-					Controller: ptr.To(true),
-				}).
+				OwnerReference("test-lws", leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet")).
 				Queue("test-queue").
 				Replicas(4).
 				Obj(),
@@ -613,7 +630,13 @@ func TestValidateUpdate(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.integrations...))
 			ctx := context.Background()
 
-			wh := &Webhook{}
+			client := utiltesting.NewClientBuilder(awv1beta2.AddToScheme, leaderworkersetv1.AddToScheme).
+				WithRuntimeObjects(tc.objs...).
+				Build()
+
+			wh := &Webhook{
+				client: client,
+			}
 
 			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {

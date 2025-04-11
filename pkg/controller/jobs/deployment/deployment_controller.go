@@ -20,6 +20,7 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -38,17 +39,25 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:   SetupIndexes,
-		NewReconciler:  jobframework.NewNoopReconcilerFactory(gvk),
-		GVK:            gvk,
-		SetupWebhook:   SetupWebhook,
-		JobType:        &appsv1.Deployment{},
-		AddToScheme:    appsv1.AddToScheme,
-		DependencyList: []string{"pod"},
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          jobframework.NewNoopReconcilerFactory(gvk),
+		GVK:                    gvk,
+		SetupWebhook:           SetupWebhook,
+		JobType:                &appsv1.Deployment{},
+		AddToScheme:            appsv1.AddToScheme,
+		DependencyList:         []string{"pod"},
+		IsManagingObjectsOwner: isDeployment,
 	}))
 }
 
+func isDeployment(ref *metav1.OwnerReference) bool {
+	return ref.Kind == "Deployment" && ref.APIVersion == "apps/v1"
+}
+
 type Deployment appsv1.Deployment
+
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get;list;watch
 
 func fromObject(o runtime.Object) *Deployment {
 	return (*Deployment)(o.(*appsv1.Deployment))

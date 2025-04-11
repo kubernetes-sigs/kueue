@@ -20,9 +20,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -53,7 +55,10 @@ var (
 )
 
 type Reconciler struct {
-	client client.Client
+	client                       client.Client
+	log                          logr.Logger
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -143,8 +148,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(client client.Client, _ record.EventRecorder, _ ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return &Reconciler{client: client}
+func NewReconciler(client client.Client, _ record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+	options := jobframework.ProcessOptions(opts...)
+
+	return &Reconciler{
+		client:                       client,
+		log:                          ctrl.Log.WithName("statefulset-reconciler"),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+	}
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
@@ -170,8 +182,18 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	if !isSts {
 		return true
 	}
+
+	ctx := context.Background()
+	log := r.log.WithValues("statefulset", klog.KObj(sts))
+	ctrl.LoggerInto(ctx, log)
+
 	// Handle only statefulset managed by kueue.
-	return jobframework.IsManagedByKueue(sts)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	if err != nil {
+		log.Error(err, "Failed to determine if the StatefulSet should be managed by Kueue")
+	}
+
+	return suspend
 }
 
 var _ handler.EventHandler = (*podHandler)(nil)
