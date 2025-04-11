@@ -129,13 +129,17 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
+	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
+
 	allErrs := validateCreate(newLeaderWorkerSet)
 
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
-		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
-		queueNameLabelPath,
-	)...)
+	// Prevents updating the queue-name if at least one replica is ready
+	// or if the queue-name has been deleted.
+	if oldLeaderWorkerSet.Status.ReadyReplicas > 0 || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	}
+
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		newLeaderWorkerSet.Object(),
 		oldLeaderWorkerSet.Object(),

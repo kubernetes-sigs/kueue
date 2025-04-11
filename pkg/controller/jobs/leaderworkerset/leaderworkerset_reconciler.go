@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -83,7 +84,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LeaderWorkerSet")
 
-	err = r.createPrebuiltWorkloadsIfNotExist(ctx, lws)
+	err = r.reconcilePrebuiltWorkloads(ctx, lws)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -91,24 +92,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) createPrebuiltWorkloadsIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
+func (r *Reconciler) reconcilePrebuiltWorkloads(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
 	replicas := ptr.Deref(lws.Spec.Replicas, 1)
 	for i := int32(0); i < replicas; i++ {
-		if err := r.createPrebuiltWorkloadIfNotExist(ctx, lws, i); err != nil {
+		if err := r.reconcilePrebuiltWorkload(ctx, lws, i); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) createPrebuiltWorkloadIfNotExist(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
+func (r *Reconciler) reconcilePrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, client.ObjectKey{Name: GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(index)), Namespace: lws.Namespace}, wl)
-	// Ignore if the Workload already exists or an error occurs.
-	if err == nil || client.IgnoreNotFound(err) != nil {
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return r.createPrebuiltWorkload(ctx, lws, index)
+		}
 		return err
 	}
-	return r.createPrebuiltWorkload(ctx, lws, index)
+	return r.updatePrebuiltWorkload(ctx, lws, wl)
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, index int32) error {
@@ -187,6 +190,20 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	podSets = append(podSets, podSet)
 
 	return podSets
+}
+
+func (r *Reconciler) updatePrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	queueName := jobframework.QueueNameForObject(lws)
+	if wl.Spec.QueueName != queueName {
+		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
+		wl.Spec.QueueName = queueName
+		if err := r.client.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload queue")
+			return err
+		}
+	}
+	return nil
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
