@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -204,11 +206,12 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
 	var targets []*Target
 	var borrowingOptions []bool
 	fits := false
 	canBorrowWithinCohort, _ := classical.IsBorrowingWithinCohortAllowed(preemptionCtx.preemptorCQ)
+	// TODO comment
 	switch {
 	case !candidatesGenerator.AnyCandidateFromOtherQueues || (!canBorrowWithinCohort && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		borrowingOptions = []bool{true}
@@ -218,6 +221,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		borrowingOptions = []bool{true, false}
 	}
 	for _, allowBorrowing := range borrowingOptions {
+		candidatesGenerator.RunIndex = 0
 		for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
 			preemptionCtx.snapshot.RemoveWorkload(candidate)
 			targets = append(targets, &Target{
@@ -359,7 +363,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, classical.CandidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
+	sort.Slice(candidates, CandidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
@@ -489,4 +493,48 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 		}
 	}
 	return true
+}
+
+// candidatesOrdering criteria:
+// 0. Workloads already marked for preemption first.
+// 1. Workloads from other ClusterQueues in the cohort before the ones in the
+// same ClusterQueue as the preemptor.
+// 2. Workloads with lower priority first.
+// 3. Workloads admitted more recently first.
+func CandidatesOrdering(candidates []*workload.Info, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
+	return func(i, j int) bool {
+		a := candidates[i]
+		b := candidates[j]
+		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
+		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
+		if aEvicted != bEvicted {
+			return aEvicted
+		}
+		aInCQ := a.ClusterQueue == cq
+		bInCQ := b.ClusterQueue == cq
+		if aInCQ != bInCQ {
+			return !aInCQ
+		}
+		pa := priority.Priority(a.Obj)
+		pb := priority.Priority(b.Obj)
+		if pa != pb {
+			return pa < pb
+		}
+		timeA := quotaReservationTime(a.Obj, now)
+		timeB := quotaReservationTime(b.Obj, now)
+		if !timeA.Equal(timeB) {
+			return timeA.After(timeB)
+		}
+		// Arbitrary comparison for deterministic sorting.
+		return a.Obj.UID < b.Obj.UID
+	}
+}
+
+func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
+	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		// The condition wasn't populated yet, use the current time.
+		return now
+	}
+	return cond.LastTransitionTime.Time
 }

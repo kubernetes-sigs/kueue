@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -2721,6 +2722,50 @@ func TestFairPreemptions(t *testing.T) {
 
 func targetKeyReason(key, reason string) string {
 	return fmt.Sprintf("%s:%s", key, reason)
+}
+func TestCandidatesOrdering(t *testing.T) {
+	now := time.Now()
+	candidates := []*workload.Info{
+		workload.NewInfo(utiltesting.MakeWorkload("high", "").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
+			Priority(10).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("low", "").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
+			Priority(-10).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("other", "").
+			ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
+			Priority(10).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
+			SetOrReplaceCondition(metav1.Condition{
+				Type:               kueue.WorkloadEvicted,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("old-a", "").
+			UID("old-a").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("old-b", "").
+			UID("old-b").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("current", "").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
+			Obj()),
+	}
+	sort.Slice(candidates, CandidatesOrdering(candidates, "self", now))
+	gotNames := make([]string, len(candidates))
+	for i, c := range candidates {
+		gotNames[i] = workload.Key(c.Obj)
+	}
+	wantCandidates := []string{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
+	if diff := cmp.Diff(wantCandidates, gotNames); diff != "" {
+		t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+	}
 }
 
 func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavorassigner.Assignment {

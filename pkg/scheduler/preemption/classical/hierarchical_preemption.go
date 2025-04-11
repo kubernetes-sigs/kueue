@@ -78,18 +78,18 @@ func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchi
 
 func isNeverPreemptable(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
 	var preemptionPolicy kueue.PreemptionPolicy
-	lowerPriority := incomingPriority > candidatePriority
-	preemptorTS := ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl)
-	newerEqualPriority := (incomingPriority == candidatePriority) && preemptorTS.Before(ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
 	} else {
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
+	lowerPriority := incomingPriority > candidatePriority
 	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority {
 		return !lowerPriority
 	}
 	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
+		preemptorTS := ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl)
+		newerEqualPriority := (incomingPriority == candidatePriority) && preemptorTS.Before(ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
 		return !(lowerPriority || newerEqualPriority)
 	}
 	return preemptionPolicy != kueue.PreemptionPolicyAny
@@ -146,7 +146,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 	var candidateList *[]*candidateElem
 	var fits bool
 	trackingNode := ctx.Cq.Parent()
-	hasHierarchicalAdvantage, remainingRequests := workloadFitsInQuota(&ctx.Cq.ResourceNode, ctx.Requests)
+	hasHierarchicalAdvantage, remainingRequests := cache.WorkloadFitsInQuota(&ctx.Cq.ResourceNode, ctx.Requests)
 	for {
 		if hasHierarchicalAdvantage {
 			candidateList = &hierarchyCandidates
@@ -157,7 +157,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 		if !trackingNode.HasParent() {
 			break
 		}
-		fits, remainingRequests = workloadFitsInQuota(&trackingNode.ResourceNode, remainingRequests)
+		fits, remainingRequests = cache.WorkloadFitsInQuota(&trackingNode.ResourceNode, remainingRequests)
 		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
 		previousRoot = trackingNode
 		trackingNode = trackingNode.Parent()
@@ -217,29 +217,21 @@ func getNodeHeight(node *cache.CohortSnapshot) int {
 	return maxHeight
 }
 
-func calculateRemaining(resourceNode *cache.ResourceNode, fr resources.FlavorResource, val int64) int64 {
-	var guaranteed int64
-	if lendingLimit := resourceNode.Quotas[fr].LendingLimit; lendingLimit != nil {
-		guaranteed = max(0, resourceNode.SubtreeQuota[fr]-*lendingLimit)
-	}
-	return val - max(0, guaranteed-resourceNode.Usage[fr])
-}
-
 // FindHeightOfLowestSubtreeThatFits returns height of a lowest subtree in the cohort
 // that fits additional val of resource fr. If no such subtree exists, it returns
 // height the whole cohort hierarchy. Note that height of a trivial subtree
 // with only one node is 0. It also returns if the returned subtree is smaller than the whole cohort tree.
 func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
-	var trackingNode *cache.CohortSnapshot
 	if !(c.BorrowingWith(fr, val) && c.HasParent()) {
 		return 0, c.HasParent()
 	}
-	remaining := calculateRemaining(&c.ResourceNode, fr, val)
+	remaining := cache.CalculateRemaining(&c.ResourceNode, fr, val)
+	var trackingNode *cache.CohortSnapshot
 	for trackingNode = c.Parent(); trackingNode.HasParent(); trackingNode = trackingNode.Parent() {
 		if trackingNode.ResourceNode.Usage[fr]+remaining <= trackingNode.ResourceNode.SubtreeQuota[fr] {
 			break
 		}
-		remaining = calculateRemaining(&trackingNode.ResourceNode, fr, remaining)
+		remaining = cache.CalculateRemaining(&trackingNode.ResourceNode, fr, remaining)
 	}
 	return getNodeHeight(trackingNode), trackingNode.HasParent()
 }

@@ -21,25 +21,18 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type candidateIndex struct {
-	list    int
-	element int
-}
-
 type candidateIterator struct {
-	candidates                         [][]*candidateElem
-	runIndex                           map[bool]*candidateIndex
+	candidates                         []*candidateElem
+	RunIndex                           int
 	frsNeedPreemption                  sets.Set[resources.FlavorResource]
 	snapshot                           *cache.Snapshot
 	AnyCandidateFromOtherQueues        bool
@@ -57,77 +50,17 @@ type candidateElem struct {
 	reclaim              bool
 }
 
-// candidatesOrdering criteria:
-// 0. Workloads already marked for preemption first.
-// 1. Workloads from other ClusterQueues in the cohort before the ones in the
-// same ClusterQueue as the preemptor.
-// 2. Workloads with lower priority first.
-// 3. Workloads admitted more recently first.
-func CandidatesOrdering(candidates []*workload.Info, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
-	return func(i, j int) bool {
-		a := candidates[i]
-		b := candidates[j]
-		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		if aEvicted != bEvicted {
-			return aEvicted
-		}
-		aInCQ := a.ClusterQueue == cq
-		bInCQ := b.ClusterQueue == cq
-		if aInCQ != bInCQ {
-			return !aInCQ
-		}
-		pa := priority.Priority(a.Obj)
-		pb := priority.Priority(b.Obj)
-		if pa != pb {
-			return pa < pb
-		}
-		timeA := quotaReservationTime(a.Obj, now)
-		timeB := quotaReservationTime(b.Obj, now)
-		if !timeA.Equal(timeB) {
-			return timeA.After(timeB)
-		}
-		// Arbitrary comparison for deterministic sorting.
-		return a.Obj.UID < b.Obj.UID
-	}
-}
-
-func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		// The condition wasn't populated yet, use the current time.
-		return now
-	}
-	return cond.LastTransitionTime.Time
-}
-
 // Need a separate function for candidateElem data type
 // in the future we will modify the ordering to take into
 // account the distance in the cohort hierarchy tree
-func candidateElemsOrdering(candidates []*candidateElem, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
+func candidateElemsOrdering(candidates []*candidateElem, cq kueue.ClusterQueueReference, now time.Time, ordering func([]*workload.Info, kueue.ClusterQueueReference, time.Time) func(int, int) bool) func(int, int) bool {
 	// Adapt the candidatesOrdering function to work with candidateElem
 	adaptedOrdering := func(i, j int) bool {
 		a := candidates[i].wl
 		b := candidates[j].wl
-		return CandidatesOrdering([]*workload.Info{a, b}, cq, now)(0, 1)
+		return ordering([]*workload.Info{a, b}, cq, now)(0, 1)
 	}
 	return adaptedOrdering
-}
-
-// Returns if resource requests fit in quota on this node
-// and the amount of resources that exceed the guaranteed
-// quota on this node. It is assumed that subsequent call
-// to this function will be on nodes parent with remainingRequests
-func workloadFitsInQuota(node *cache.ResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
-	fits := true
-	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
-	for fr, v := range requests {
-		if node.Usage[fr]+v > node.SubtreeQuota[fr] {
-			fits = false
-		}
-		remainingRequests[fr] = calculateRemaining(node, fr, v)
-	}
-	return fits, remainingRequests
 }
 
 func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
@@ -142,7 +75,7 @@ func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 }
 
 // assume a prefix of the elements has predicate = true
-func split(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*candidateElem, []*candidateElem) {
+func splitEvicted(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*candidateElem, []*candidateElem) {
 	firstFalse := sort.Search(len(workloads), func(i int) bool {
 		return !predicate(workloads[i])
 	})
@@ -154,27 +87,30 @@ func split(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock) *candidateIterator {
+func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func([]*workload.Info, kueue.ClusterQueueReference, time.Time) func(int, int) bool) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	sort.Slice(sameQueueCandidates, candidateElemsOrdering(sameQueueCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now()))
-	sort.Slice(priorityCandidates, candidateElemsOrdering(priorityCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now()))
-	sort.Slice(hierarchyCandidates, candidateElemsOrdering(hierarchyCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now()))
+	sort.Slice(sameQueueCandidates, candidateElemsOrdering(sameQueueCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
+	sort.Slice(priorityCandidates, candidateElemsOrdering(priorityCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
+	sort.Slice(hierarchyCandidates, candidateElemsOrdering(hierarchyCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
 	isEvicted := func(candidate *candidateElem) bool {
 		return meta.IsStatusConditionTrue(candidate.wl.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	}
-	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := split(hierarchyCandidates, isEvicted)
-	evictedSTCandidates, nonEvictedSTCandidates := split(priorityCandidates, isEvicted)
-	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := split(sameQueueCandidates, isEvicted)
+	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates, isEvicted)
+	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates, isEvicted)
+	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates, isEvicted)
+	var allCandidates []*candidateElem
+	allCandidates = append(allCandidates, evictedHierarchicalReclaimCandidates...)
+	allCandidates = append(allCandidates, evictedSTCandidates...)
+	allCandidates = append(allCandidates, evictedSameQueueCandidates...)
+	allCandidates = append(allCandidates, nonEvictedHierarchicalReclaimCandidates...)
+	allCandidates = append(allCandidates, nonEvictedSTCandidates...)
+	allCandidates = append(allCandidates, nonEvictedSameQueueCandidates...)
 	return &candidateIterator{
-		runIndex: map[bool]*candidateIndex{
-			true:  {list: 0, element: 0},
-			false: {list: 0, element: 0},
-		},
-		frsNeedPreemption: frsNeedPreemption,
-		snapshot:          snapshot,
-		candidates: [][]*candidateElem{evictedHierarchicalReclaimCandidates, evictedSTCandidates, evictedSameQueueCandidates,
-			nonEvictedHierarchicalReclaimCandidates, nonEvictedSTCandidates, nonEvictedSameQueueCandidates},
+		RunIndex:                           0,
+		frsNeedPreemption:                  frsNeedPreemption,
+		snapshot:                           snapshot,
+		candidates:                         allCandidates,
 		AnyCandidateFromOtherQueues:        len(hierarchyCandidates) > 0 || len(priorityCandidates) > 0,
 		AnyCandidateForHierarchicalReclaim: len(hierarchyCandidates) > 0,
 		hierarchicalReclaimCtx:             hierarchicalReclaimCtx,
@@ -184,15 +120,11 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 // Next allows to iterate over the ordered sequence of candidates, with the reason
 // for eviction returned together with a candidate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
-	index := c.runIndex[borrow]
-	for ; index.list < len(c.candidates) && index.element >= len(c.candidates[index.list]); index.list++ {
-		index.element = 0
-	}
-	if index.list >= len(c.candidates) {
+	if c.RunIndex >= len(c.candidates) {
 		return nil, ""
 	}
-	candidate := c.candidates[index.list][index.element]
-	index.element++
+	candidate := c.candidates[c.RunIndex]
+	c.RunIndex++
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
 	}
@@ -214,7 +146,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
-	for node := cq.Parent(); node.HasParent() && node != candidate.lca; node = node.Parent() {
+	for node := cq.Parent(); node != candidate.lca; node = node.Parent() {
 		if isWithinNominalInResourcesNeedingPreemption(&node.ResourceNode, c.frsNeedPreemption) {
 			return false
 		}
