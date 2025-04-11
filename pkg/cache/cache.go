@@ -511,13 +511,6 @@ func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue
 	return nil, errQNotFound
 }
 
-func (c *Cache) UpdateLQUsage(cqName kueue.ClusterQueueReference, lq *LocalQueue) {
-	c.Lock()
-	defer c.Unlock()
-	cq := c.hm.ClusterQueue(cqName)
-	cq.localQueues[lq.key] = lq
-}
-
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
 		return nil

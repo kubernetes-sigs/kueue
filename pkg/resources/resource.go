@@ -44,8 +44,8 @@ func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	return json.Marshal(temp)
 }
 
-func (frq FlavorResourceQuantities) FlattenFlavors() map[corev1.ResourceName]int64 {
-	result := make(map[corev1.ResourceName]int64, 0)
+func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
+	result := Requests{}
 	for key, val := range frq {
 		result[key.Resource] += val
 	}

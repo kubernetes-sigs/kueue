@@ -19,13 +19,12 @@ package core
 import (
 	"context"
 	"math"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -51,7 +50,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/resources"
+
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -268,27 +268,18 @@ func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqNa
 	halfDecayTimeSeconds := float64(r.fsConfig.AdmissionFairSharing.UsageHalfDecayTime.Seconds())
 	samplingFrequencySeconds := float64(r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Seconds())
 	alpha := 1.0 - math.Pow(0.5, samplingFrequencySeconds/halfDecayTimeSeconds)
-	oldUsage := lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
+
 	cachedLq, err := r.cache.GetCacheLocalQueue(cqName, lq)
 	if err != nil {
 		return err
 	}
-
-	if len(oldUsage) == 0 {
-		// first loop
-		lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = oldUsage
-		r.cache.UpdateLQUsage(cqName, cachedLq)
-		return nil
-	}
-	newUsage := utilmaps.MapValues(cachedLq.GetAdmittedUsage().FlattenFlavors(),
-		func(val int64) resource.Quantity { return resource.MustParse(strconv.FormatInt(val, 10)) },
-	)
-	scaledOld := utilresource.MulResources(oldUsage, 1-alpha)
-	scaledNew := utilresource.MulResources(newUsage, alpha)
-	added := utilresource.AddResources(scaledOld, scaledNew)
-	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = added
+	oldUsage := resources.NewRequests(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources)
+	newUsage := cachedLq.GetAdmittedUsage().FlattenFlavors()
+	newUsage.MulByFloat(alpha)
+	oldUsage.MulByFloat(1 - alpha)
+	oldUsage.Add(newUsage)
+	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = oldUsage.ToResourceList()
 	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
-	r.cache.UpdateLQUsage(cqName, cachedLq)
 	return nil
 }
 

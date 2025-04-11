@@ -35,7 +35,3 @@ type LocalQueue struct {
 func (lq *LocalQueue) GetAdmittedUsage() resources.FlavorResourceQuantities {
 	return lq.admittedUsage
 }
-
-func (lq *LocalQueue) UpdateDecayingUsage(m map[corev1.ResourceName]resource.Quantity) {
-	lq.consumedDecayingUsage = m
-}

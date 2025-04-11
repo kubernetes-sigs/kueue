@@ -51,6 +51,7 @@ type CohortReconcilerOption func(*CohortReconcilerOptions)
 func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
 	return func(o *CohortReconcilerOptions) {
 		o.FairSharingEnabled = enabled
+		// TODO pbundyra
 	}
 }
 

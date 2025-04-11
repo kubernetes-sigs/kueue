@@ -179,7 +179,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8000")},
+								corev1.ResourceCPU: resource.MustParse("8")},
 						},
 					}).
 				Obj(),
@@ -195,7 +195,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.FairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6000"),
+								corev1.ResourceCPU: resource.MustParse("6"),
 							},
 						},
 					}).
@@ -217,7 +217,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				},
 			},
 		},
-		"local queue decaying usage sums the previous state and running workloads with A=2929": {
+		"local queue decaying usage sums the previous state and running workloads half decay twice larger than sampling; A=0.7071, rounded to 6827": {
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -232,7 +232,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							LastUpdate: metav1.NewTime(now.Add(-6 * time.Minute)),
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("8000")},
+								corev1.ResourceCPU: resource.MustParse("8")},
 						},
 					}).
 				Obj(),
@@ -248,7 +248,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.FairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6829"),
+								corev1.ResourceCPU: resource.MustParse("6827m"),
 							},
 						},
 					}).
