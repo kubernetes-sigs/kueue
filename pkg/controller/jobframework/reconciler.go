@@ -67,11 +67,12 @@ const (
 )
 
 var (
-	ErrCyclicOwnership          = errors.New("cyclic ownership")
-	ErrWorkloadOwnerNotFound    = errors.New("workload owner not found")
-	ErrNoMatchingWorkloads      = errors.New("no matching workloads")
-	ErrExtraWorkloads           = errors.New("extra workloads")
-	ErrPrebuiltWorkloadNotFound = errors.New("prebuilt workload not found")
+	ErrCyclicOwnership                = errors.New("cyclic ownership")
+	ErrWorkloadOwnerNotFound          = errors.New("workload owner not found")
+	ErrManagedOwnersChainLimitReached = errors.New("managed owner chain limit reached")
+	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
+	ErrExtraWorkloads                 = errors.New("extra workloads")
+	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -301,8 +302,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {
-		ancestorJob, err = FindAncestorJobManagedByKueue(ctx, r.client, r.record, object, r.manageJobsWithoutQueueName)
+		ancestorJob, err = FindAncestorJobManagedByKueue(ctx, r.client, object, r.manageJobsWithoutQueueName)
 		if err != nil {
+			if errors.Is(err, ErrManagedOwnersChainLimitReached) {
+				errMsg := fmt.Sprintf("Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
+				r.record.Eventf(object, corev1.EventTypeWarning, ReasonJobNestingTooDeep, errMsg)
+				log.Error(err, errMsg)
+			}
 			return ctrl.Result{}, err
 		}
 		isTopLevelJob = ancestorJob == nil
@@ -613,7 +619,7 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 // Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
 // Job -> JobSet (disabled) -> AppWrapper => AppWrapper
-func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, record record.EventRecorder, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
+func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
 	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
 	currentObj := jobObj
@@ -652,15 +658,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, record 
 		}
 		currentObj = parentObj
 		if len(seen) > managedOwnersChainLimit {
-			record.Eventf(jobObj, corev1.EventTypeWarning, ReasonJobNestingTooDeep,
-				"Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit,
-			)
-			log.V(2).Info(
-				"WARNING: Terminated search for Kueue-managed Job because ancestor depth exceeded managedOwnersChainLimit",
-				"limit ", managedOwnersChainLimit,
-				"lastParentReached", parentObj,
-			)
-			return topLevelJob, nil
+			return nil, ErrManagedOwnersChainLimitReached
 		}
 	}
 }

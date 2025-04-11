@@ -163,15 +163,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference("ancestor-11", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
-			wantManaged: nil,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: jobNamespace, Name: childJobName},
-					EventType: corev1.EventTypeWarning,
-					Reason:    ReasonJobNestingTooDeep,
-					Message:   "Terminated search for Kueue-managed Job because ancestor depth exceeded limit of 10",
-				},
-			},
+			wantErr: ErrManagedOwnersChainLimitReached,
 		},
 		"Job -> JobSet -> AppWrapper => nil": {
 			integrations: []string{"jobset.x-k8s.io/jobset", "workload.codeflare.dev/appwrapper"},
@@ -335,7 +327,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 				builder = builder.WithObjects(tc.job)
 			}
 			cl := builder.Build()
-			gotManaged, gotErr := FindAncestorJobManagedByKueue(ctx, cl, recorder, tc.job, tc.manageJobsWithoutQueueName)
+			gotManaged, gotErr := FindAncestorJobManagedByKueue(ctx, cl, tc.job, tc.manageJobsWithoutQueueName)
 			if diff := cmp.Diff(tc.wantManaged, gotManaged, cmp.Options{
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 				cmpopts.EquateEmpty(),
