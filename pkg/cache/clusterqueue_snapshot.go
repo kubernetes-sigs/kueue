@@ -49,7 +49,7 @@ type ClusterQueueSnapshot struct {
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
-	ResourceNode ResourceNode
+	ResourceNode resourceNode
 	hierarchy.ClusterQueue[*CohortSnapshot]
 
 	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
@@ -186,7 +186,7 @@ func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 
 // The methods below implement hierarchicalResourceNode interface.
 
-func (c *ClusterQueueSnapshot) getResourceNode() ResourceNode {
+func (c *ClusterQueueSnapshot) getResourceNode() resourceNode {
 	return c.ResourceNode
 }
 

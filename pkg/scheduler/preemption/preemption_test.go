@@ -62,22 +62,6 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue"),
 }
 
-type nodeKey struct {
-	cohort       kueue.CohortReference
-	clusterQueue kueue.ClusterQueueReference
-}
-
-func resourceNodes(snapshot *cache.Snapshot) map[nodeKey]cache.ResourceNode {
-	nodes := map[nodeKey]cache.ResourceNode{}
-	for _, cohort := range snapshot.Cohorts() {
-		nodes[nodeKey{cohort: cohort.Name}] = cohort.ResourceNode
-	}
-	for _, cq := range snapshot.ClusterQueues() {
-		nodes[nodeKey{clusterQueue: cq.Name}] = cq.ResourceNode
-	}
-	return nodes
-}
-
 func TestPreemption(t *testing.T) {
 	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
@@ -1888,12 +1872,6 @@ func TestPreemption(t *testing.T) {
 			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
-
-			beforeResourceNodes := resourceNodes(beforeSnapshot)
-			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
-			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
-				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
-			}
 		})
 	}
 }
@@ -2708,12 +2686,6 @@ func TestFairPreemptions(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
-				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
-			}
-
-			beforeResourceNodes := resourceNodes(beforeSnapshot)
-			afterResourceNodes := resourceNodes(snapshotWorkingCopy)
-			if diff := cmp.Diff(beforeResourceNodes, afterResourceNodes, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})

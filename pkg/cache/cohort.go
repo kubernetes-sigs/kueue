@@ -29,7 +29,7 @@ type cohort struct {
 	Name kueue.CohortReference
 	hierarchy.Cohort[*clusterQueue, *cohort]
 
-	resourceNode ResourceNode
+	resourceNode resourceNode
 
 	FairWeight resource.Quantity
 }
@@ -66,7 +66,7 @@ func (c *cohort) getRootUnsafe() *cohort {
 
 // implements hierarchicalResourceNode interface.
 
-func (c *cohort) getResourceNode() ResourceNode {
+func (c *cohort) getResourceNode() resourceNode {
 	return c.resourceNode
 }
 
