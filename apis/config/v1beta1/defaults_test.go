@@ -590,6 +590,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				FairSharing: &FairSharing{
 					Enable:               true,
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
+					Modes:                []FairSharingMode{PreemptionBasedMode},
 				},
 			},
 		},
