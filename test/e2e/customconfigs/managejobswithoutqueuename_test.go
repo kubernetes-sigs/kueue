@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				Obj()
 
 			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 			})
 
 			createdAppWrapper := &awv1beta2.AppWrapper{}
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				Obj()
 
 			ginkgo.By("Creating an unsuspended JobSet without a queue-name", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			createdJobSet := &v1alpha2.JobSet{}
@@ -743,15 +743,15 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = testing.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -788,7 +788,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				Obj()
 
 			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
