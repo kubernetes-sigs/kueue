@@ -19,6 +19,8 @@ package cache
 import (
 	"maps"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
@@ -190,4 +192,37 @@ func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
 	for fr, childUsage := range child.getResourceNode().Usage {
 		parent.resourceNode.Usage[fr] += max(0, childUsage-child.getResourceNode().guaranteedQuota(fr))
 	}
+}
+
+func CalculateRemaining(resourceNode *ResourceNode, fr resources.FlavorResource, val int64) int64 {
+	var guaranteed int64
+	if lendingLimit := resourceNode.Quotas[fr].LendingLimit; lendingLimit != nil {
+		guaranteed = max(0, resourceNode.SubtreeQuota[fr]-*lendingLimit)
+	}
+	return val - max(0, guaranteed-resourceNode.Usage[fr])
+}
+
+// WorkloadFitsInQuota returns if resource requests fit in quota on this node
+// and the amount of resources that exceed the guaranteed
+// quota on this node. It is assumed that subsequent call
+// to this function will be on nodes parent with remainingRequests
+func WorkloadFitsInQuota(node *ResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+	fits := true
+	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
+	for fr, v := range requests {
+		if node.Usage[fr]+v > node.SubtreeQuota[fr] {
+			fits = false
+		}
+		remainingRequests[fr] = CalculateRemaining(node, fr, v)
+	}
+	return fits, remainingRequests
+}
+
+func IsWithinNominalInResources(node *ResourceNode, frs sets.Set[resources.FlavorResource]) bool {
+	for fr := range frs {
+		if node.Usage[fr] > node.SubtreeQuota[fr] {
+			return false
+		}
+	}
+	return true
 }
