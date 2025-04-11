@@ -211,7 +211,21 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	var borrowingOptions []bool
 	fits := false
 	canBorrowWithinCohort, _ := classical.IsBorrowingWithinCohortAllowed(preemptionCtx.preemptorCQ)
-	// TODO comment
+	// We have three types of candidates:
+	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
+	// 	  hierarchical advantage (it is closer to the quota used by the candidate).
+	//    We can preempt such candidates regardless of their priority.
+	// 2. Priority candidates. Candidates over which there is no hiearchical advantage
+	//    but the possibility to preempt is determined based on priorities.
+	// 	  We respect the BorrowWithinCohort configuration only for these candidates.
+	// 3. Same queue candidates.
+	// We can only preempt a priority candidate with priority > MaxPriorityThreshold
+	// if the target CQ is not borrowing (by the definition of the MaxPriorityThreshold).
+	// We sometimes need to consider both options allowBorrowing = true and false
+	// (because with false we have more candidates but cannot use borrowing).
+	// The order in which the options are considered is arbitrary and the condition
+	// in which we try allowBorrowing=false before true is to keep compatibility with
+	// previous versions.
 	switch {
 	case !candidatesGenerator.AnyCandidateFromOtherQueues || (!canBorrowWithinCohort && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		borrowingOptions = []bool{true}

@@ -142,12 +142,12 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if isWithinNominalInResourcesNeedingPreemption(&cq.ResourceNode, c.frsNeedPreemption) {
+	if cache.IsWithinNominalInResources(&cq.ResourceNode, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
 	for node := cq.Parent(); node != candidate.lca; node = node.Parent() {
-		if isWithinNominalInResourcesNeedingPreemption(&node.ResourceNode, c.frsNeedPreemption) {
+		if cache.IsWithinNominalInResources(&node.ResourceNode, c.frsNeedPreemption) {
 			return false
 		}
 	}

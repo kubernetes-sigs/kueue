@@ -127,15 +127,6 @@ func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapsh
 	return candidates
 }
 
-func isWithinNominalInResourcesNeedingPreemption(node *cache.ResourceNode, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
-	for fr := range frsNeedPreemption {
-		if node.Usage[fr] > node.SubtreeQuota[fr] {
-			return false
-		}
-	}
-	return true
-}
-
 func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]*candidateElem, []*candidateElem) {
 	hierarchyCandidates := []*candidateElem{}
 	priorityCandidates := []*candidateElem{}
@@ -173,7 +164,7 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 			continue
 		}
 		// don't look for candidates in subtrees that are not exceeding their quotas
-		if isWithinNominalInResourcesNeedingPreemption(&childCohort.ResourceNode, ctx.FrsNeedPreemption) {
+		if cache.IsWithinNominalInResources(&childCohort.ResourceNode, ctx.FrsNeedPreemption) {
 			continue
 		}
 		collectCandidatesInSubtree(ctx, childCohort, startingNode, forbiddenSubtree, hasHierarchicalAdvantage, result)
@@ -182,7 +173,7 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 		if childCq == ctx.Cq {
 			continue
 		}
-		if !isWithinNominalInResourcesNeedingPreemption(&childCq.ResourceNode, ctx.FrsNeedPreemption) {
+		if !cache.IsWithinNominalInResources(&childCq.ResourceNode, ctx.FrsNeedPreemption) {
 			*result = append(*result, getCandidatesFromCQ(childCq, startingNode, ctx, hasHierarchicalAdvantage)...)
 		}
 	}

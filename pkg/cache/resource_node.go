@@ -19,6 +19,8 @@ package cache
 import (
 	"maps"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
@@ -214,4 +216,13 @@ func WorkloadFitsInQuota(node *ResourceNode, requests resources.FlavorResourceQu
 		remainingRequests[fr] = CalculateRemaining(node, fr, v)
 	}
 	return fits, remainingRequests
+}
+
+func IsWithinNominalInResources(node *ResourceNode, frs sets.Set[resources.FlavorResource]) bool {
+	for fr := range frs {
+		if node.Usage[fr] > node.SubtreeQuota[fr] {
+			return false
+		}
+	}
+	return true
 }
