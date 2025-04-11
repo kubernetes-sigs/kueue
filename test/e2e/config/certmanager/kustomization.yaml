@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: kueue-system
 
 resources:
-  - ../default
+  - ../../../../config/dev
   - ../../../../config/components/certmanager
 
 transformers:
@@ -33,9 +33,34 @@ patches:
   - path: cert_metrics_manager_patch.yaml
     target:
       kind: Deployment
+  - path: manager_e2e_patch.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: kueue-controller-manager
+      namespace: kueue-system
 
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system
 
 vars:
+- name: METRICS_SERVICE_NAME
+  objref:
+    kind: Service
+    version: v1
+    name: controller-manager-metrics-service
+- name: METRICS_SERVICE_NAMESPACE
+  objref:
+    kind: Service
+    version: v1
+    name: controller-manager-metrics-service
+  fieldref:
+    fieldpath: metadata.namespace
 - name: SERVICE_NAMESPACE
   objref:
     kind: Service
