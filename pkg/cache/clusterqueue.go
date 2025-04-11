@@ -82,7 +82,7 @@ type clusterQueue struct {
 	isStopped                                       bool
 	workloadInfoOptions                             []workload.InfoOption
 
-	resourceNode ResourceNode
+	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
 
 	tasCache *TASCache
@@ -94,7 +94,7 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 
 // implements hierarchicalResourceNode interface.
 
-func (c *clusterQueue) getResourceNode() ResourceNode {
+func (c *clusterQueue) getResourceNode() resourceNode {
 	return c.resourceNode
 }
 
