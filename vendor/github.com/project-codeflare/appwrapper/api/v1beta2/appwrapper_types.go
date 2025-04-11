@@ -42,7 +42,7 @@ type AppWrapperComponent struct {
 	//+optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 
-	// DeclaredPodSets for the Component (optional for known PodCreating GVKs)
+	// DeclaredPodSets for the Component (optional for known GVKs whose PodSets can be automatically inferred)
 	//+optional
 	DeclaredPodSets []AppWrapperPodSet `json:"podSets,omitempty"`
 
@@ -50,19 +50,19 @@ type AppWrapperComponent struct {
 	//+optional
 	PodSetInfos []AppWrapperPodSetInfo `json:"podSetInfos,omitempty"`
 
+	// Template defines the Kubernetes resource for the Component
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
-	// Template defines the Kubernetes resource for the Component
 	Template runtime.RawExtension `json:"template"`
 }
 
-// AppWrapperPodSet describes an homogeneous set of pods
+// AppWrapperPodSet describes a homogeneous set of pods
 type AppWrapperPodSet struct {
 	// Replicas is the number of pods in this PodSet
 	//+optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Path is the path Component.Template to the PodTemplateSpec for this PodSet
+	// Path is the path within Component.Template to the PodTemplateSpec for this PodSet
 	Path string `json:"path"`
 
 	// Annotations is an unstructured key value map that may be used to store and retrieve
@@ -90,7 +90,7 @@ type AppWrapperPodSetInfo struct {
 	SchedulingGates []corev1.PodSchedulingGate `json:"schedulingGates,omitempty"`
 }
 
-// AppWrapperStatus defines the observed state of the appwrapper
+// AppWrapperStatus defines the observed state of the AppWrapper
 type AppWrapperStatus struct {
 	// Phase of the AppWrapper object
 	//+optional
@@ -149,7 +149,7 @@ type AppWrapperComponentStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-// AppWrapperPhase is the phase of the appwrapper
+// AppWrapperPhase enumerates the valid Phases of an AppWrapper
 type AppWrapperPhase string
 
 const (
@@ -164,6 +164,7 @@ const (
 	AppWrapperTerminating AppWrapperPhase = "Terminating"
 )
 
+// AppWrapperCondition enumerates the Condition Types that may appear in AppWrapper status
 type AppWrapperCondition string
 
 const (
