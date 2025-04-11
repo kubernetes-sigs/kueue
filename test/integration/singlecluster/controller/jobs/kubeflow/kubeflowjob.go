@@ -223,7 +223,7 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
 	ginkgo.By("Create a job")
 	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})
-	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, job.Object())).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, job.Object())
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 
@@ -300,7 +300,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 
 func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, clusterQueue *kueue.ClusterQueue, podSetsResources []PodSetsResource) {
 	ginkgo.By("checking a job starts")
-	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, job.Object())).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, job.Object())
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job.Object()), createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
