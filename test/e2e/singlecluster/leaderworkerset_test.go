@@ -841,6 +841,58 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
 			})
 		})
+
+		ginkgo.It("should allow to change queue-name if ReadyReplicas=0", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Size(1).
+				Replicas(1).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Queue(fmt.Sprintf("%s-invalid", lq.Name)).
+				Obj()
+
+			ginkgo.By("Creating a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			wlLookupKey := types.NamespacedName{
+				Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Checking that workload is created and inadmissible", func() {
+				util.ExpectWorkloadsToBeInadmissibleByKeys(ctx, k8sClient, wlLookupKey)
+			})
+
+			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+
+			ginkgo.By("Checking that the replicas is not ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Updating queue-name label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Labels[ctrlconstants.QueueLabel] = lq.Name
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the workload is created and admitted", func() {
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("LeaderWorkerSet created with WorkloadPriorityClass", func() {

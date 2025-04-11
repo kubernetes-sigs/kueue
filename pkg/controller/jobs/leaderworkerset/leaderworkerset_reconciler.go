@@ -341,6 +341,15 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	if !equality.ComparePodSetSlices(podSets, wl.Spec.PodSets) {
 		return r.deleteWorkload(ctx, wl)
 	}
+	log := ctrl.LoggerFrom(ctx)
+	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
+		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
+		wl.Spec.QueueName = queueName
+		if err := r.client.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload queue name")
+			return err
+		}
+	}
 	if features.Enabled(features.AdmissionGatedBy) {
 		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
 			return err
