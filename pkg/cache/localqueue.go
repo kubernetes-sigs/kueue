@@ -17,19 +17,15 @@ limitations under the License.
 package cache
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type LocalQueue struct {
-	key                   string
-	reservingWorkloads    int
-	admittedWorkloads     int
-	totalReserved         resources.FlavorResourceQuantities
-	admittedUsage         resources.FlavorResourceQuantities
-	consumedDecayingUsage map[corev1.ResourceName]resource.Quantity
+	key                string
+	reservingWorkloads int
+	admittedWorkloads  int
+	totalReserved      resources.FlavorResourceQuantities
+	admittedUsage      resources.FlavorResourceQuantities
 }
 
 func (lq *LocalQueue) GetAdmittedUsage() resources.FlavorResourceQuantities {

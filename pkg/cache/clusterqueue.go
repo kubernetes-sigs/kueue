@@ -558,9 +558,6 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		reservingWorkloads: 0,
 		totalReserved:      make(resources.FlavorResourceQuantities),
 	}
-	if q.Status.FairSharingStatus.AdmissionFairSharingStatus != nil {
-		qImpl.consumedDecayingUsage = q.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
-	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
