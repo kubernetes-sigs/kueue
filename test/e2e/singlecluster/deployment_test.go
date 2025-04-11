@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 		rf = testing.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, rf)
 
 		cq = testing.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -66,10 +66,10 @@ var _ = ginkgo.Describe("Deployment", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq)
 
 		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 			Obj()
 
 		ginkgo.By("Create a deployment", func() {
-			gomega.Expect(k8sClient.Create(ctx, deployment)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, deployment)
 		})
 
 		ginkgo.By("Wait for replicas ready", func() {
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Deployment", func() {
 			Obj()
 
 		ginkgo.By("Create a deployment", func() {
-			gomega.Expect(k8sClient.Create(ctx, deployment)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, deployment)
 		})
 
 		ginkgo.By("Wait for replicas unavailable", func() {

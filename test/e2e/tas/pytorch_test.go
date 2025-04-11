@@ -47,13 +47,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
 
 		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
-		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -63,11 +63,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, pytorchjob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, pytorchjob)
 
 			ginkgo.By("PyTorchJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

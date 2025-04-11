@@ -45,17 +45,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	)
 
 	var createCohort = func(cohort *kueuealpha.Cohort) *kueuealpha.Cohort {
-		gomega.Expect(k8sClient.Create(ctx, cohort)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cohort)
 		cohorts = append(cohorts, cohort)
 		return cohort
 	}
 
 	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq)
 		cqs = append(cqs, cq)
 
 		lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq)
 		lqs = append(lqs, lq)
 		return cq
 	}
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Queue(queue).
 			Request(corev1.ResourceCPU, cpuRequests).Obj()
 		wls = append(wls, wl)
-		gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, wl)
 		return wl
 	}
 
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.BeforeEach(func() {
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("cq-c reclaims one unit, preemption happens in cq-a")
 			cWorkload := testing.MakeWorkload("c0", ns.Name).Queue("c").Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cWorkload)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cWorkload)
 			util.ExpectPendingWorkloadsMetric(cqC, 1, 0)
 			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
 			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)

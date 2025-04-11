@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		rf = utiltesting.MakeResourceFlavor("rf").Obj()
-		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, rf)
 
 		cq1 = utiltesting.MakeClusterQueue("cq1").
 			Cohort("cohort").
@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq1)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq1)
 		cq2 = utiltesting.MakeClusterQueue("cq2").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq2)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq2)
 		cq3 = utiltesting.MakeClusterQueue("cq3").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
@@ -71,14 +71,14 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, cq3)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cq3)
 
 		lq1 = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq1)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq1)
 		lq2 = utiltesting.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq2)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq2)
 		lq3 = utiltesting.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, lq3)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, lq3)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					RequestAndLimit("cpu", "1").
 					RequestAndLimit("memory", "200Mi").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, job)
 			}
 
 			ginkgo.By("checking cluster queues")
