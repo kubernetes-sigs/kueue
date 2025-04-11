@@ -567,6 +567,45 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"pod with pod-group-sets and inconsistent total count": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				Group("test-group").
+				GroupTotalCount("1").
+				PodGroupSets(`
+- name: main
+  count: 1
+- name: generated
+  count: 1
+  template:
+    spec:
+      containers:
+      - resources:
+          limits:
+            cpu: 1
+`).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-sets]",
+				},
+			}.ToAggregate(),
+		},
+		"pod with invalid pod-group-sets": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				Group("test-group").
+				GroupTotalCount("1").
+				PodGroupSets(`invalid podsets`).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-sets]",
+				},
+			}.ToAggregate(),
+		},
 		"valid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
