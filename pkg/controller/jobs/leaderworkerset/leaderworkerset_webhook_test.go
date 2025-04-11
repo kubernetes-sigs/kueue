@@ -269,14 +269,44 @@ func TestValidateUpdate(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"change queue name": {
+		"change in queue label": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				LeaderTemplate(corev1.PodTemplateSpec{}).
-				Queue("new-test-queue").
+				Queue("test-queue-new").
+				Obj(),
+		},
+		"change in queue label (ReadyReplicas > 0)": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue-new").
+				ReadyReplicas(1).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"set queue label": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"set queue label (ReadyReplicas > 0)": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				ReadyReplicas(1).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
