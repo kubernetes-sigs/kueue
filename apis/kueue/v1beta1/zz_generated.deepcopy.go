@@ -396,7 +396,7 @@ func (in *ClusterQueueSpec) DeepCopyInto(out *ClusterQueueSpec) {
 	}
 	if in.AdmissionChecks != nil {
 		in, out := &in.AdmissionChecks, &out.AdmissionChecks
-		*out = make([]string, len(*in))
+		*out = make([]AdmissionCheckReference, len(*in))
 		copy(*out, *in)
 	}
 	if in.AdmissionChecksStrategy != nil {

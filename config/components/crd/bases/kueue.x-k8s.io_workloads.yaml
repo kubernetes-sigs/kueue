@@ -8565,7 +8565,7 @@ spec:
                       maxLength: 32768
                       type: string
                     name:
-                      description: name identifies the admission check.
+                      description: Name identifies the admission check.
                       maxLength: 316
                       type: string
                     podSetUpdates:

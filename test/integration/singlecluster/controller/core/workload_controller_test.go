@@ -211,7 +211,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
-						return c.Name
+						return string(c.Name)
 					})).Should(gomega.ConsistOf("check1", "check2"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				queueKey := client.ObjectKeyFromObject(clusterQueue)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
-					createdQueue.Spec.AdmissionChecks = []string{"check2", "check3"}
+					createdQueue.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check2", "check3"}
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
-						return c.Name
+						return string(c.Name)
 					})).Should(gomega.ConsistOf("check2", "check3"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
-						return c.Name
+						return string(c.Name)
 					})).Should(gomega.ConsistOf("check1", "check2"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
-						return c.Name
+						return string(c.Name)
 					})).Should(gomega.ConsistOf("check1", "check2"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

@@ -89,9 +89,9 @@ func (ch *ConfigHelper[PtrT, T]) ConfigFromRef(ctx context.Context, ref *kueue.A
 
 // ConfigForAdmissionCheck - get the configuration of the admission check identified by its name if it uses the
 // helpers configuration type.
-func (ch *ConfigHelper[PtrT, T]) ConfigForAdmissionCheck(ctx context.Context, checkName string) (PtrT, error) {
+func (ch *ConfigHelper[PtrT, T]) ConfigForAdmissionCheck(ctx context.Context, checkName kueue.AdmissionCheckReference) (PtrT, error) {
 	ac := &kueue.AdmissionCheck{}
-	if err := ch.client.Get(ctx, types.NamespacedName{Name: checkName}, ac); err != nil {
+	if err := ch.client.Get(ctx, types.NamespacedName{Name: string(checkName)}, ac); err != nil {
 		return nil, err
 	}
 
@@ -131,15 +131,15 @@ func IndexerByConfigFunction(controllerName string, gvk schema.GroupVersionKind)
 }
 
 // FilterForController - returns a list of check names controlled by ControllerName.
-func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, controllerName string) ([]string, error) {
-	var retActive []string
+func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, controllerName string) ([]kueue.AdmissionCheckReference, error) {
+	var retActive []kueue.AdmissionCheckReference
 	for _, state := range states {
 		ac := &kueue.AdmissionCheck{}
 
-		if err := c.Get(ctx, types.NamespacedName{Name: state.Name}, ac); client.IgnoreNotFound(err) != nil {
+		if err := c.Get(ctx, types.NamespacedName{Name: string(state.Name)}, ac); client.IgnoreNotFound(err) != nil {
 			return nil, err
 		} else if err == nil && ac.Spec.ControllerName == controllerName {
-			retActive = append(retActive, ac.Name)
+			retActive = append(retActive, kueue.AdmissionCheckReference(ac.Name))
 		}
 	}
 	return retActive, nil
@@ -157,15 +157,15 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 }
 
 // NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
-func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[kueue.ResourceFlavorReference] {
-	var checks map[string]sets.Set[kueue.ResourceFlavorReference]
+func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference] {
+	var checks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	if cq.Spec.AdmissionChecksStrategy != nil {
-		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
 		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
 			checks[check.Name] = sets.New(check.OnFlavors...)
 		}
 	} else {
-		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
+		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
 		for _, checkName := range cq.Spec.AdmissionChecks {
 			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
 		}

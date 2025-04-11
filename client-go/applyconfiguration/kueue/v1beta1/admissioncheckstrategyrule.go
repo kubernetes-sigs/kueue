@@ -24,7 +24,7 @@ import (
 // AdmissionCheckStrategyRuleApplyConfiguration represents a declarative configuration of the AdmissionCheckStrategyRule type for use
 // with apply.
 type AdmissionCheckStrategyRuleApplyConfiguration struct {
-	Name      *string                                `json:"name,omitempty"`
+	Name      *kueuev1beta1.AdmissionCheckReference  `json:"name,omitempty"`
 	OnFlavors []kueuev1beta1.ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
@@ -37,7 +37,7 @@ func AdmissionCheckStrategyRule() *AdmissionCheckStrategyRuleApplyConfiguration 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *AdmissionCheckStrategyRuleApplyConfiguration) WithName(value string) *AdmissionCheckStrategyRuleApplyConfiguration {
+func (b *AdmissionCheckStrategyRuleApplyConfiguration) WithName(value kueuev1beta1.AdmissionCheckReference) *AdmissionCheckStrategyRuleApplyConfiguration {
 	b.Name = &value
 	return b
 }
