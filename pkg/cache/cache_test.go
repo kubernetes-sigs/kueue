@@ -3845,7 +3845,8 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cohorts: []*kueuealpha.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 			},
-			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			cq:            utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			wantAncestors: []kueue.CohortReference{},
 		},
 		"two level": {
 			cohorts: []*kueuealpha.Cohort{
