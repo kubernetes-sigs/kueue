@@ -169,6 +169,12 @@ const (
 	//
 	// Enable hierarchical cohorts controller
 	HierarchialCohorts featuregate.Feature = "HierarchialCohorts"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -259,6 +265,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	HierarchialCohorts: {
+		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
+	},
+	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
