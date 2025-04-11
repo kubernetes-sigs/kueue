@@ -653,6 +653,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.BaseSSAWorkload(e.Obj)
 		workload.AdmissionStatusPatch(e.Obj, patch, true)
+		workload.AdmissionChecksStatusPatch(e.Obj, patch, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {
