@@ -182,9 +182,13 @@ lint-fix: golangci-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
 
-PATHS_TO_VERIFY := config/components apis charts/kueue/templates client-go site/
+.PHONY: sync-hugo-version
+sync-hugo-version:
+	$(SED) -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "$(subst v,,$(HUGO_VERSION))"/g' -i netlify.toml
+
+PATHS_TO_VERIFY := config/components apis charts/kueue/templates client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify prepare-release-branch
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify prepare-release-branch sync-hugo-version
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
