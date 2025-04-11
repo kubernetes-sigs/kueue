@@ -503,18 +503,18 @@ func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	cq.deleteLocalQueue(q)
 }
 
-func (c *Cache) GetCacheLocalQueue(cqName string, lq *kueue.LocalQueue) (error, *LocalQueue) {
-	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqName))
+func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue.LocalQueue) (*LocalQueue, error) {
+	cq := c.hm.ClusterQueue(cqName)
 	if cacheLq, ok := cq.localQueues[queueKey(lq)]; ok {
-		return nil, cacheLq
+		return cacheLq, nil
 	}
-	return errQNotFound, nil
+	return nil, errQNotFound
 }
 
-func (c *Cache) UpdateLQUsage(cqName string, lq *LocalQueue) {
+func (c *Cache) UpdateLQUsage(cqName kueue.ClusterQueueReference, lq *LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(kueue.ClusterQueueReference(cqName))
+	cq := c.hm.ClusterQueue(cqName)
 	cq.localQueues[lq.key] = lq
 }
 

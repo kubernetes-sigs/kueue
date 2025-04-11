@@ -180,7 +180,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return ctrl.Result{RequeueAfter: recheckAfter}, client.IgnoreNotFound(err)
 			}
 
-			if err := r.ReconcileConsumedUsage(&queueObj, cq.Name); err != nil {
+			if err := r.ReconcileConsumedUsage(&queueObj, queueObj.Spec.ClusterQueue); err != nil {
 				r.log.Error(err, err.Error())
 			}
 			if err := r.client.Status().Update(ctx, &queueObj); err != nil {
@@ -264,12 +264,12 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqName string) error {
+func (r *LocalQueueReconciler) ReconcileConsumedUsage(lq *kueue.LocalQueue, cqName kueue.ClusterQueueReference) error {
 	halfDecayTimeSeconds := float64(r.fsConfig.AdmissionFairSharing.UsageHalfDecayTime.Seconds())
 	samplingFrequencySeconds := float64(r.fsConfig.AdmissionFairSharing.UsageSamplingFrequency.Seconds())
 	alpha := 1.0 - math.Pow(0.5, samplingFrequencySeconds/halfDecayTimeSeconds)
 	oldUsage := lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
-	err, cachedLq := r.cache.GetCacheLocalQueue(cqName, lq)
+	cachedLq, err := r.cache.GetCacheLocalQueue(cqName, lq)
 	if err != nil {
 		return err
 	}
