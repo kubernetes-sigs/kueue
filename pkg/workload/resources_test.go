@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -630,74 +629,6 @@ func TestValidateLimitRange(t *testing.T) {
 					limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
 				),
 			},
-func TestAddDeviceClassesToContainerRequests(t *testing.T) {
-	cases := map[string]struct {
-		wl                    *kueue.Workload
-		resourceClaimTemplate dra.ResourceClaimTemplate
-		wantWl                *kueue.Workload
-	}{
-		"single device class request": {
-			wl: utiltesting.MakeWorkload("foo", "").
-				PodSets(
-					*utiltesting.MakePodSet("a", 1).
-						InitContainers(corev1.Container{}).
-						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						InitContainers(corev1.Container{}).
-						Limit(corev1.ResourceCPU, "6").
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						InitContainers(corev1.Container{}).
-						Request(corev1.ResourceCPU, "1").
-						Obj(),
-				).
-				Obj(),
-			wantWl: utiltesting.MakeWorkload("foo", "").
-				PodSets(
-					*utiltesting.MakePodSet("a", 1).
-						Limit(corev1.ResourceCPU, "4").
-						Request(corev1.ResourceCPU, "3").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
-							},
-						}).
-						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "6").
-						Request(corev1.ResourceCPU, "3").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
-							},
-						}).
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						Limit(corev1.ResourceCPU, "4").
-						Request(corev1.ResourceCPU, "1").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
-							},
-						}).
-						Obj(),
-				).
-				Obj(),
 		},
 	}
 	for name, tc := range cases {
@@ -720,6 +651,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 		wl                    *kueue.Workload
 		enableDRAGate         bool
 		resourceClaimTemplate []dra.ResourceClaimTemplate
+		resourceClaim         []dra.ResourceClaim
 		wantWl                *kueue.Workload
 	}{
 		"dra feature gate off; ignore devices": {
@@ -773,7 +705,69 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 		},
-		"single device class request in a container": {
+		//"single device class request with containers in pod sharing gpus": {
+		//	enableDRAGate: true,
+		//	resourceClaimTemplate: []dra.ResourceClaimTemplate{
+		//		{
+		//			ObjectMeta: metav1.ObjectMeta{
+		//				Name:      "single-gpu",
+		//				Namespace: "",
+		//			},
+		//			Spec: dra.ResourceClaimTemplateSpec{
+		//				Spec: dra.ResourceClaimSpec{
+		//					Devices: dra.DeviceClaim{
+		//						Requests: []dra.DeviceRequest{{
+		//							Name:            "single-gpu",
+		//							DeviceClassName: "gpu.example.com",
+		//							AllocationMode:  dra.DeviceAllocationModeExactCount,
+		//							Count:           1,
+		//						}},
+		//					},
+		//				},
+		//			},
+		//		},
+		//	},
+		//	wl: utiltesting.MakeWorkload("foo", "").
+		//		PodSets(
+		//			*utiltesting.MakePodSet("a", 1).
+		//				Containers([]corev1.Container{
+		//					utiltesting.SingleContainerForRequest(
+		//						map[corev1.ResourceName]string{
+		//							corev1.ResourceCPU: "2",
+		//						})[0],
+		//					utiltesting.SingleContainerForRequest(
+		//						map[corev1.ResourceName]string{
+		//							corev1.ResourceCPU: "2",
+		//						})[0],
+		//				}...,
+		//				).
+		//				Claim(corev1.ResourceClaim{
+		//					Name: "gpu",
+		//				}).
+		//				ResourceClaim(corev1.PodResourceClaim{
+		//					Name:                      "gpu",
+		//					ResourceClaimTemplateName: ptr.To("single-gpu"),
+		//				}).
+		//				Obj(),
+		//		).Obj(),
+		//	wantWl: utiltesting.MakeWorkload("foo", "").
+		//		PodSets(
+		//			*utiltesting.MakePodSet("a", 1).
+		//				Limit(corev1.ResourceCPU, "2").
+		//				Request(corev1.ResourceCPU, "1").
+		//				Request("gpu.example.com", "2").
+		//				Claim(corev1.ResourceClaim{
+		//					Name: "gpu",
+		//				}).
+		//				ResourceClaim(corev1.PodResourceClaim{
+		//					Name:                      "gpu",
+		//					ResourceClaimTemplateName: ptr.To("single-gpu"),
+		//				}).
+		//				Obj(),
+		//		).
+		//		Obj(),
+		//},
+		"single device class request with multiple gpus in a container": {
 			enableDRAGate: true,
 			resourceClaimTemplate: []dra.ResourceClaimTemplate{
 				{
@@ -787,6 +781,8 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 								Requests: []dra.DeviceRequest{{
 									Name:            "single-gpu",
 									DeviceClassName: "gpu.example.com",
+									AllocationMode:  dra.DeviceAllocationModeExactCount,
+									Count:           2,
 								}},
 							},
 						},
@@ -813,7 +809,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
-						Request("gpu.example.com", "1").
+						Request("gpu.example.com", "2").
 						Claim(corev1.ResourceClaim{
 							Name: "gpu",
 						}).
@@ -825,6 +821,201 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 		},
+		"single device class request with multiple claims in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu-0",
+									DeviceClassName: "gpu.example.com",
+									AllocationMode:  dra.DeviceAllocationModeExactCount,
+									Count:           1,
+								}},
+							},
+						},
+					},
+				},
+			},
+			wl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-0",
+						}).
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-1",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-0",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-1",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("gpu.example.com", "2").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-0",
+						}).
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-1",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-0",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-1",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single resource claim with multiple device class requests in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "multiple-gpus",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{
+									{
+										Name:            "gpu-0",
+										DeviceClassName: "gpu-0.example.com",
+										AllocationMode:  dra.DeviceAllocationModeExactCount,
+										Count:           1,
+									},
+									{
+										Name:            "gpu-1",
+										DeviceClassName: "gpu-1.example.com",
+										AllocationMode:  dra.DeviceAllocationModeExactCount,
+										Count:           1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "multiple-gpus",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "multiple-gpus",
+							ResourceClaimTemplateName: ptr.To("multiple-gpus"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("gpu-0.example.com", "1").
+						Request("gpu-1.example.com", "1").
+						Claim(corev1.ResourceClaim{
+							Name: "multiple-gpus",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "multiple-gpus",
+							ResourceClaimTemplateName: ptr.To("multiple-gpus"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		//"single resource claim with multiple pods sharing gpu": {
+		//	enableDRAGate: true,
+		//	resourceClaim: []dra.ResourceClaim{
+		//		{
+		//			ObjectMeta: metav1.ObjectMeta{
+		//				Name:      "single-gpu",
+		//				Namespace: "",
+		//			},
+		//			Spec: dra.ResourceClaimSpec{
+		//				Devices: dra.DeviceClaim{
+		//					Requests: []dra.DeviceRequest{{
+		//						Name:            "single-gpu",
+		//						DeviceClassName: "gpu.example.com",
+		//						AllocationMode:  dra.DeviceAllocationModeExactCount,
+		//						Count:           1,
+		//					}},
+		//				},
+		//			},
+		//		},
+		//	},
+		//	wl: utiltesting.MakeWorkload("foo", "").
+		//		PodSets(
+		//			*utiltesting.MakePodSet("a", 1).
+		//				Limit(corev1.ResourceCPU, "2").
+		//				Request(corev1.ResourceCPU, "1").
+		//				Claim(corev1.ResourceClaim{
+		//					Name: "single-gpu",
+		//				}).
+		//				ResourceClaim(corev1.PodResourceClaim{
+		//					Name:                      "single-gpu",
+		//					ResourceClaimTemplateName: ptr.To("single-gpu"),
+		//				}).
+		//				Obj(),
+		//			*utiltesting.MakePodSet("a", 1).
+		//				Limit(corev1.ResourceCPU, "2").
+		//				Request(corev1.ResourceCPU, "1").
+		//				Claim(corev1.ResourceClaim{
+		//					Name: "single-gpu",
+		//				}).
+		//				ResourceClaim(corev1.PodResourceClaim{
+		//					Name:                      "single-gpu",
+		//					ResourceClaimTemplateName: ptr.To("single-gpu"),
+		//				}).
+		//				Obj(),
+		//		).
+		//		Obj(),
+		//	wantWl: utiltesting.MakeWorkload("foo", "").
+		//		PodSets(
+		//			*utiltesting.MakePodSet("a", 1).
+		//				Limit(corev1.ResourceCPU, "2").
+		//				Request(corev1.ResourceCPU, "1").
+		//				Request("gpu-0.example.com", "1").
+		//				Request("gpu-1.example.com", "1").
+		//				Claim(corev1.ResourceClaim{
+		//					Name: "multiple-gpus",
+		//				}).
+		//				ResourceClaim(corev1.PodResourceClaim{
+		//					Name:                      "multiple-gpus",
+		//					ResourceClaimTemplateName: ptr.To("multiple-gpus"),
+		//				}).
+		//				Obj(),
+		//		).
+		//		Obj(),
+		//},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

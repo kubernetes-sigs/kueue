@@ -234,8 +234,14 @@ func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []Po
 			if err != nil {
 				errors = append(errors, fmt.Errorf("unable to get %s/%s resource claim %v", namespace, key, err))
 			}
+			// TODO: 1. this needs to change with prioritized lists
+			// TODO: 2. implement allocation mode of all
+			// TODO: 3. need to change with partitionable devices
 			for _, val := range draDeviceClass.Spec.Spec.Devices.Requests {
-				updateResourceList[corev1.ResourceName(val.DeviceClassName)] = *k8sresource.NewQuantity(request, k8sresource.DecimalSI)
+				if val.AllocationMode == dra.DeviceAllocationModeExactCount {
+					updateResourceList[corev1.ResourceName(val.DeviceClassName)] = *k8sresource.NewQuantity(request*val.Count, k8sresource.DecimalSI)
+				} else if val.AllocationMode == dra.DeviceAllocationModeExactCount {
+				}
 			}
 		}
 	}

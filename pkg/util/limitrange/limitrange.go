@@ -141,49 +141,29 @@ func TotalResourceClaimsFromPodSpec(ps *corev1.PodSpec) corev1.ResourceList {
 }
 
 func calculatePodClaims(ps *corev1.PodSpec) corev1.ResourceList {
-	totalClaims := make(map[string]int64)
 	totalResourceClaimTemplate := corev1.ResourceList{}
-	containers := ps.Containers
-	initContainers := ps.InitContainers
-	// We want to track the number of claims for the pod.
-	for i := range ps.Containers {
-		for _, val := range containers[i].Resources.Claims {
-			totalClaims[val.Name]++
-		}
-	}
-	for i := range initContainers {
-		for _, val := range initContainers[i].Resources.Claims {
-			totalClaims[val.Name]++
-		}
-	}
-	for i := range initContainers {
-		if isSidecarContainer(initContainers[i]) {
-			for _, val := range initContainers[i].Resources.Claims {
-				totalClaims[val.Name]++
-			}
-		}
-	}
+
+	// Process all claims defined in the pod spec
 	for _, val := range ps.ResourceClaims {
-		_, ok := totalClaims[val.Name]
-		if ok {
-			keyName := ""
-			switch {
-			case ptr.Deref(val.ResourceClaimName, "") != "":
-				keyName = *val.ResourceClaimName
-			case ptr.Deref(val.ResourceClaimTemplateName, "") != "":
-				keyName = *val.ResourceClaimTemplateName
-			default:
-				return totalResourceClaimTemplate
-			}
-			countOfClaims, ok := totalResourceClaimTemplate[corev1.ResourceName(keyName)]
-			if ok {
-				count := countOfClaims.Value() + totalClaims[val.Name]
-				totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(count, k8sresource.DecimalSI)
-			} else {
-				totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(totalClaims[val.Name], k8sresource.DecimalSI)
-			}
+		keyName := ""
+		switch {
+		case ptr.Deref(val.ResourceClaimName, "") != "":
+			keyName = *val.ResourceClaimName
+		case ptr.Deref(val.ResourceClaimTemplateName, "") != "":
+			keyName = *val.ResourceClaimTemplateName
+		default:
+			continue
+		}
+
+		// Count each claim as 1
+		if count, ok := totalResourceClaimTemplate[corev1.ResourceName(keyName)]; ok {
+			count.Add(*k8sresource.NewQuantity(1, k8sresource.DecimalSI))
+			totalResourceClaimTemplate[corev1.ResourceName(keyName)] = count
+		} else {
+			totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(1, k8sresource.DecimalSI)
 		}
 	}
+
 	return totalResourceClaimTemplate
 }
 

@@ -312,6 +312,57 @@ func TestTotalResourceClaimsFromPodSpec(t *testing.T) {
 				"single-gpu": resource.MustParse("2"),
 			},
 		},
+		"pod with init container, multiple-containers, sharing single resource claim": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test"}}).
+						Obj(),
+				},
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test"}}).
+						Obj(),
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test"}}).
+						Obj(),
+				},
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:                      "test",
+						ResourceClaimTemplateName: ptr.To("single-gpu"),
+					},
+				},
+			},
+			want: corev1.ResourceList{
+				"single-gpu": resource.MustParse("1"),
+			},
+		},
+		"pod with one container multiple resources claims to same device class": {
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test-0"}}).
+						Obj(),
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test-1"}}).
+						Obj(),
+				},
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:                      "test-0",
+						ResourceClaimTemplateName: ptr.To("single-gpu"),
+					},
+					{
+						Name:                      "test-1",
+						ResourceClaimTemplateName: ptr.To("single-gpu"),
+					},
+				},
+			},
+			want: corev1.ResourceList{
+				"single-gpu": resource.MustParse("2"),
+			},
+		},
 	}
 
 	for name, tc := range cases {
