@@ -4,7 +4,14 @@
 exclude:
   global:
     - hack/internal/tools/**
+    # Disable kueue-viz as openshift does not support.
     - cmd/experimental/kueue-viz/**
+    # Disable kueuectl as openshift does not support.
+    - cmd/kueuectl/**
     - site/**
     - vendor/**
     - "**/*_test.go"
+    # Disable test code
+    - test/**
+    # ginkgo-top is used for displaying test results
+    - pkg/openshift/ginkgo-top/**
