@@ -67,10 +67,8 @@ func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*work
 		prunedCohorts:       sets.New[*cache.CohortSnapshot](),
 	}
 
-	cohort := cq.Parent()
-	for cohort != nil {
-		t.preemptorAncestors.Insert(cohort)
-		cohort = cohort.Parent()
+	for ancestor := range cq.PathParentToRoot() {
+		t.preemptorAncestors.Insert(ancestor)
 	}
 
 	for _, candidate := range candidates {
