@@ -110,8 +110,7 @@ func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.log.WithValues("cohort", klog.KObj(e.ObjectNew))
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec.ResourceGroups, e.ObjectNew.Spec.ResourceGroups) &&
-		e.ObjectOld.Spec.Parent == e.ObjectNew.Spec.Parent {
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
