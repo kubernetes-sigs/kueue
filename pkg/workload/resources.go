@@ -216,23 +216,24 @@ func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, 
 }
 
 func resourceClaimsToContainerRequests(podSpec *corev1.PodSpec, resourceList corev1.ResourceList) {
-	for i := range podSpec.InitContainers {
-		res := &podSpec.InitContainers[i].Resources
-		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, resourceList)
-	}
 	for i := range podSpec.Containers {
 		res := &podSpec.Containers[i].Resources
 		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, resourceList)
+		// just inject the dra resources to 1 container to make sure they are not being double counted.
+		break
 	}
 }
+
 func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []PodSetResources, namespace string) (corev1.ResourceList, []error) {
 	var errors []error
 	updateResourceList := corev1.ResourceList{}
 	for _, singlePsr := range psr {
 		for key, request := range singlePsr.Requests {
+			// TODO: This needs to handle ResourceClaim objects as well
 			draDeviceClass, err := GetResourceClaimTemplates(ctx, cl, key.String(), namespace)
 			if err != nil {
 				errors = append(errors, fmt.Errorf("unable to get %s/%s resource claim %v", namespace, key, err))
+				continue
 			}
 			// TODO: 1. this needs to change with prioritized lists
 			// TODO: 2. implement allocation mode of all
@@ -240,7 +241,8 @@ func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []Po
 			for _, val := range draDeviceClass.Spec.Spec.Devices.Requests {
 				if val.AllocationMode == dra.DeviceAllocationModeExactCount {
 					updateResourceList[corev1.ResourceName(val.DeviceClassName)] = *k8sresource.NewQuantity(request*val.Count, k8sresource.DecimalSI)
-				} else if val.AllocationMode == dra.DeviceAllocationModeExactCount {
+				} else if val.AllocationMode == dra.DeviceAllocationModeAll {
+					// TODO: implement me
 				}
 			}
 		}
