@@ -43,6 +43,7 @@ fields:
     waitForPodsReady:
       enable: true
       timeout: 10m
+      recoveryTimeout: 3m
       blockAdmission: true
       requeuingStrategy:
         timestamp: Eviction | Creation
@@ -68,6 +69,14 @@ When the `timeout` expires for an admitted Workload, and the workload's
 pods are not all scheduled yet (i.e., the Workload condition remains
 `PodsReady=False`), then the Workload's admission is
 cancelled, the corresponding job is suspended and the Workload is re-queued.
+
+`recoveryTimeout` is an optional parameter used for
+workloads that are already running but have one or more Pods in a not-ready state
+(e.g., due to Pod failure). If a Pod is not ready, the workload often cannot
+progress, leading to wasted resources. To prevent this, users can configure
+a timeout period they are willing to wait for a recovery Pod. If the
+`recoveryTimeout` expires, similar to the regular timeout, the workload is evicted and requeued.
+It has no default value, so it must be set explicitly.
 
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock
