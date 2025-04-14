@@ -38,6 +38,7 @@ IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+RAY_VERSION ?= 2.41.0
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -381,3 +382,23 @@ generate-kueuectl-docs: kueuectl-docs
 	$(PROJECT_DIR)/bin/kueuectl-docs \
 		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
+
+# Build the ray-project-mini image
+.PHONY: ray-project-mini-image-build
+ray-project-mini-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAY_VERSION)$(RAY_ARCHITECTURE) \
+		--platform=$(PLATFORMS) \
+		--build-arg RAY_VERSION=$(RAY_VERSION) \
+		$(PUSH) \
+		-f ./hack/internal/test-images/Dockerfile ./ \
+
+.PHONY: ray-project-mini-image-push
+ray-project-mini-image-push: PUSH=--push
+ray-project-mini-image-push: ray-project-mini-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini image
+.PHONY: ray-project-mini-image
+ray-project-mini-image: PLATFORMS=linux/amd64
+ray-project-mini-image: PUSH=--load
+ray-project-mini-image: ray-project-mini-image-build
