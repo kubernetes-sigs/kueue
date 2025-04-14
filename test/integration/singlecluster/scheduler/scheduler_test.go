@@ -2082,7 +2082,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2152,7 +2152,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
