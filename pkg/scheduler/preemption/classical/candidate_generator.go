@@ -46,8 +46,7 @@ type candidateElem struct {
 	lca *cache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
-	onlyWithoutBorrowing bool
-	reclaim              bool
+	preemptionVariant PreemptionVariant
 }
 
 // Need a separate function for candidateElem data type
@@ -99,7 +98,7 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates, isEvicted)
 	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates, isEvicted)
 	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates, isEvicted)
-	var allCandidates []*candidateElem
+	allCandidates := make([]*candidateElem, 0, len(hierarchyCandidates)+len(priorityCandidates)+len(sameQueueCandidates))
 	allCandidates = append(allCandidates, evictedHierarchicalReclaimCandidates...)
 	allCandidates = append(allCandidates, evictedSTCandidates...)
 	allCandidates = append(allCandidates, evictedSameQueueCandidates...)
@@ -128,7 +127,7 @@ func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
 	}
-	return candidate.wl, c.getPreemptionReason(candidate, borrow)
+	return candidate.wl, candidate.preemptionVariant.PreemptionReason()
 }
 
 // candidateIsValid checks if candidate is valid,
@@ -138,28 +137,18 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 	if c.hierarchicalReclaimCtx.Cq.Name == candidate.wl.ClusterQueue {
 		return true
 	}
-	if borrow && candidate.onlyWithoutBorrowing {
+	if borrow && candidate.preemptionVariant == ReclaimWithoutBorrowing {
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if cache.IsWithinNominalInResources(&cq.ResourceNode, c.frsNeedPreemption) {
+	if cache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
 	for node := cq.Parent(); node != candidate.lca; node = node.Parent() {
-		if cache.IsWithinNominalInResources(&node.ResourceNode, c.frsNeedPreemption) {
+		if cache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
 			return false
 		}
 	}
 	return true
-}
-
-func (c *candidateIterator) getPreemptionReason(candidate *candidateElem, borrowRun bool) string {
-	if candidate.wl.ClusterQueue == c.hierarchicalReclaimCtx.Cq.Name {
-		return kueue.InClusterQueueReason
-	}
-	if borrowRun && !candidate.reclaim {
-		return kueue.InCohortReclaimWhileBorrowingReason
-	}
-	return kueue.InCohortReclamationReason
 }

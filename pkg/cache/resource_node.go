@@ -194,23 +194,25 @@ func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
 	}
 }
 
-func CalculateRemaining(resourceNode *ResourceNode, fr resources.FlavorResource, val int64) int64 {
+// CalculateRemaining returns, for a given node and some amount of quota,
+// how much of this quota would not not fit in the guaranteed quota at this node
+func CalculateRemaining(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) int64 {
 	var guaranteed int64
-	if lendingLimit := resourceNode.Quotas[fr].LendingLimit; lendingLimit != nil {
-		guaranteed = max(0, resourceNode.SubtreeQuota[fr]-*lendingLimit)
+	if lendingLimit := node.getResourceNode().Quotas[fr].LendingLimit; lendingLimit != nil {
+		guaranteed = max(0, node.getResourceNode().SubtreeQuota[fr]-*lendingLimit)
 	}
-	return val - max(0, guaranteed-resourceNode.Usage[fr])
+	return val - max(0, guaranteed-node.getResourceNode().Usage[fr])
 }
 
 // WorkloadFitsInQuota returns if resource requests fit in quota on this node
 // and the amount of resources that exceed the guaranteed
 // quota on this node. It is assumed that subsequent call
 // to this function will be on nodes parent with remainingRequests
-func WorkloadFitsInQuota(node *ResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+func WorkloadFitsInQuota(node hierarchicalResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
 	fits := true
 	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
-		if node.Usage[fr]+v > node.SubtreeQuota[fr] {
+		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
 			fits = false
 		}
 		remainingRequests[fr] = CalculateRemaining(node, fr, v)
@@ -218,9 +220,11 @@ func WorkloadFitsInQuota(node *ResourceNode, requests resources.FlavorResourceQu
 	return fits, remainingRequests
 }
 
-func IsWithinNominalInResources(node *ResourceNode, frs sets.Set[resources.FlavorResource]) bool {
+// IsWithinNominalInResources returns whether or not, the node quota usage exceeds its
+// nominal quota in any resource flavor out of a set of resource flavours.
+func IsWithinNominalInResources(node hierarchicalResourceNode, frs sets.Set[resources.FlavorResource]) bool {
 	for fr := range frs {
-		if node.Usage[fr] > node.SubtreeQuota[fr] {
+		if node.getResourceNode().Usage[fr] > node.getResourceNode().SubtreeQuota[fr] {
 			return false
 		}
 	}

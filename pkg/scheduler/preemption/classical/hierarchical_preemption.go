@@ -26,13 +26,29 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptionPossibility string
+type PreemptionVariant int
 
 const (
-	PreemptionPossibilityNever            PreemptionPossibility = "never"
-	PreemptionPossibilityWithoutBorrowing PreemptionPossibility = "withoutBorrowing"
-	PreemptionPossibilityAlways           PreemptionPossibility = "always"
+	Never PreemptionVariant = iota
+	WithinCQ
+	HiearchicalReclaim
+	ReclaimWithoutBorrowing
+	ReclaimWhileBorrowing
 )
+
+func (m PreemptionVariant) PreemptionReason() string {
+	switch m {
+	case WithinCQ:
+		return kueue.InClusterQueueReason
+	case HiearchicalReclaim:
+		return kueue.InCohortReclamationReason
+	case ReclaimWhileBorrowing:
+		return kueue.InCohortReclaimWhileBorrowingReason
+	case ReclaimWithoutBorrowing:
+		return kueue.InCohortReclamationReason
+	}
+	return "Unknown"
+}
 
 type HierarchicalPreemptionCtx struct {
 	Wl                *kueue.Workload
@@ -51,32 +67,36 @@ func IsBorrowingWithinCohortAllowed(cq *cache.ClusterQueueSnapshot) (bool, *int3
 }
 
 // mayPreempt returns if ctx.Wl may preempt candidate wl
-// Preemption possibility withoutBorrowing means that
+// It returns one of five possible variants.
+// Preemption variant ReclaimWithoutBorrowing means that
 // wl can only be preempted by ctx.Wl if ctx.Cq would
 // not be borrowing any quota from its cohort
-func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) PreemptionPossibility {
+func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) PreemptionVariant {
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
-		return PreemptionPossibilityNever
+		return Never
 	}
 	incomingPriority := priority.Priority(ctx.Wl)
 	candidatePriority := priority.Priority(wl.Obj)
-	if isNeverPreemptable(ctx, wl, incomingPriority, candidatePriority) {
-		return PreemptionPossibilityNever
+	if priorityTooHighToPreempt(ctx, wl, incomingPriority, candidatePriority) {
+		return Never
 	}
-	if wl.ClusterQueue == ctx.Cq.Name || haveHierarchicalAdvantage {
-		return PreemptionPossibilityAlways
+	if wl.ClusterQueue == ctx.Cq.Name {
+		return WithinCQ
+	}
+	if haveHierarchicalAdvantage {
+		return HiearchicalReclaim
 	}
 	borrowWithinCohortAllowed, borrowWithinCohortThreshold := IsBorrowingWithinCohortAllowed(ctx.Cq)
 	if !borrowWithinCohortAllowed {
-		return PreemptionPossibilityWithoutBorrowing
+		return ReclaimWithoutBorrowing
 	}
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold, haveHierarchicalAdvantage) {
-		return PreemptionPossibilityWithoutBorrowing
+		return ReclaimWithoutBorrowing
 	}
-	return PreemptionPossibilityAlways
+	return ReclaimWhileBorrowing
 }
 
-func isNeverPreemptable(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
+func priorityTooHighToPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
 	var preemptionPolicy kueue.PreemptionPolicy
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
@@ -109,19 +129,26 @@ func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrow
 	return aboveThreshold
 }
 
+func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {
+	var sameQueueCandidates []*candidateElem
+	if ctx.Cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
+		return sameQueueCandidates
+	}
+	return getCandidatesFromCQ(ctx.Cq, nil, ctx, false)
+}
+
 func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
 	candidates := []*candidateElem{}
 	for _, candidateWl := range cq.Workloads {
-		mayPreempt := mayPreempt(ctx, candidateWl, hasHiearchicalAdvantage)
-		if mayPreempt == PreemptionPossibilityNever {
+		preemptionVariant := mayPreempt(ctx, candidateWl, hasHiearchicalAdvantage)
+		if preemptionVariant == Never {
 			continue
 		}
 		candidates = append(candidates,
 			&candidateElem{
-				wl:                   candidateWl,
-				lca:                  lca,
-				onlyWithoutBorrowing: mayPreempt == PreemptionPossibilityWithoutBorrowing,
-				reclaim:              hasHiearchicalAdvantage,
+				wl:                candidateWl,
+				lca:               lca,
+				preemptionVariant: preemptionVariant,
 			})
 	}
 	return candidates
@@ -137,7 +164,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 	var candidateList *[]*candidateElem
 	var fits bool
 	trackingNode := ctx.Cq.Parent()
-	hasHierarchicalAdvantage, remainingRequests := cache.WorkloadFitsInQuota(&ctx.Cq.ResourceNode, ctx.Requests)
+	hasHierarchicalAdvantage, remainingRequests := cache.WorkloadFitsInQuota(ctx.Cq, ctx.Requests)
 	for {
 		if hasHierarchicalAdvantage {
 			candidateList = &hierarchyCandidates
@@ -148,7 +175,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 		if !trackingNode.HasParent() {
 			break
 		}
-		fits, remainingRequests = cache.WorkloadFitsInQuota(&trackingNode.ResourceNode, remainingRequests)
+		fits, remainingRequests = cache.WorkloadFitsInQuota(trackingNode, remainingRequests)
 		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
 		previousRoot = trackingNode
 		trackingNode = trackingNode.Parent()
@@ -164,7 +191,7 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 			continue
 		}
 		// don't look for candidates in subtrees that are not exceeding their quotas
-		if cache.IsWithinNominalInResources(&childCohort.ResourceNode, ctx.FrsNeedPreemption) {
+		if cache.IsWithinNominalInResources(childCohort, ctx.FrsNeedPreemption) {
 			continue
 		}
 		collectCandidatesInSubtree(ctx, childCohort, startingNode, forbiddenSubtree, hasHierarchicalAdvantage, result)
@@ -173,30 +200,10 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, node *cache.Coho
 		if childCq == ctx.Cq {
 			continue
 		}
-		if !cache.IsWithinNominalInResources(&childCq.ResourceNode, ctx.FrsNeedPreemption) {
+		if !cache.IsWithinNominalInResources(childCq, ctx.FrsNeedPreemption) {
 			*result = append(*result, getCandidatesFromCQ(childCq, startingNode, ctx, hasHierarchicalAdvantage)...)
 		}
 	}
-}
-
-func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {
-	var sameQueueCandidates []*candidateElem
-	if ctx.Cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
-		return sameQueueCandidates
-	}
-	for _, candidateWl := range ctx.Cq.Workloads {
-		if mayPreempt(ctx, candidateWl, false) == PreemptionPossibilityNever {
-			continue
-		}
-		sameQueueCandidates = append(sameQueueCandidates,
-			&candidateElem{
-				wl:                   candidateWl,
-				lca:                  nil,
-				onlyWithoutBorrowing: false,
-				reclaim:              false,
-			})
-	}
-	return sameQueueCandidates
 }
 
 // getNodeHeight calculates the distance to the furthest leaf
@@ -216,13 +223,13 @@ func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resourc
 	if !(c.BorrowingWith(fr, val) && c.HasParent()) {
 		return 0, c.HasParent()
 	}
-	remaining := cache.CalculateRemaining(&c.ResourceNode, fr, val)
+	remaining := cache.CalculateRemaining(c, fr, val)
 	var trackingNode *cache.CohortSnapshot
 	for trackingNode = c.Parent(); trackingNode.HasParent(); trackingNode = trackingNode.Parent() {
 		if trackingNode.ResourceNode.Usage[fr]+remaining <= trackingNode.ResourceNode.SubtreeQuota[fr] {
 			break
 		}
-		remaining = cache.CalculateRemaining(&trackingNode.ResourceNode, fr, remaining)
+		remaining = cache.CalculateRemaining(trackingNode, fr, remaining)
 	}
 	return getNodeHeight(trackingNode), trackingNode.HasParent()
 }
