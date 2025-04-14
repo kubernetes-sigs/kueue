@@ -421,3 +421,12 @@ ray-project-mini-image-push: ray-project-mini-image-build
 ray-project-mini-image: PLATFORMS=linux/amd64
 ray-project-mini-image: PUSH=--load
 ray-project-mini-image: ray-project-mini-image-build
+
+# The step is required for local e2e test run
+.PHONY: kind-ray-project-mini-image-build
+kind-ray-project-mini-image-build:
+	@if [ "$(shell uname -m)" = "arm64" ]; then \
+		$(MAKE) PLATFORMS=linux/arm64  RAY_ARCHITECTURE=-aarch64 PUSH=--load  ray-project-mini-image-build; \
+	else \
+		$(MAKE) PLATFORMS=linux/amd64 PUSH=--load ray-project-mini-image-build; \
+	fi

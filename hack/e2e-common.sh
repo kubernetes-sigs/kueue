@@ -50,8 +50,8 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
-    export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
-    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
+    export KUBERAY_RAY_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:2.41.0
+    export KUBERAY_RAY_IMAGE_ARM=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:2.41.0-aarch64
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
