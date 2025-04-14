@@ -37,6 +37,7 @@ IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+RAY_VERSION := 2.41.0
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -347,3 +348,22 @@ generate-kueuectl-docs: kueuectl-docs
 	$(PROJECT_DIR)/bin/kueuectl-docs \
 		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
+
+# Build the ray-project-mini image
+.PHONY: ray-project-mini-image-build
+ray-project-mini-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAY_VERSION)$(RAY_ARCHITECTURE) \
+		--platform=$(PLATFORMS) \
+		--build-arg RAY_VERSION=$(RAY_VERSION) \
+		$(PUSH) \
+		-f ./hack/internal/test-images/ray/Dockerfile ./ \
+
+# The step is required for local e2e test run
+.PHONY: kind-ray-project-mini-image-build
+kind-ray-project-mini-image-build:
+	@if [ "$(shell uname -m)" = "arm64" ]; then \
+		$(MAKE) PLATFORMS=linux/arm64  RAY_ARCHITECTURE=-aarch64 PUSH=--load  ray-project-mini-image-build; \
+	else \
+		$(MAKE) PLATFORMS=linux/amd64 PUSH=--load ray-project-mini-image-build; \
+	fi
