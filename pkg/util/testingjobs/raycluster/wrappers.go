@@ -38,6 +38,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: rayv1.RayClusterSpec{
+			RayVersion: "2.41.0",
 			HeadGroupSpec: rayv1.HeadGroupSpec{
 				RayStartParams: map[string]string{},
 				Template: corev1.PodTemplateSpec{
@@ -236,7 +237,17 @@ func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []s
 	return j
 }
 
-func (j *ClusterWrapper) RayVersion(rv string) *ClusterWrapper {
-	j.Spec.RayVersion = rv
+func (j *ClusterWrapper) Env(rayType rayv1.RayNodeType, name, value string) *ClusterWrapper {
+	if rayType == rayv1.HeadNode {
+		if j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env == nil {
+			j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
+		}
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env = append(j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+	} else if rayType == rayv1.WorkerNode {
+		if j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
+			j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
+		}
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+	}
 	return j
 }
