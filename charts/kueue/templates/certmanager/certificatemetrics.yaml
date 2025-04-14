@@ -7,6 +7,7 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 spec:
+  commonName: {{ include "kueue.fullname" . }}-metrics
   dnsNames:
   - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
   - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
