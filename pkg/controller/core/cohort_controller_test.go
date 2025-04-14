@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -338,6 +339,21 @@ func TestCohortReconcilerFilters(t *testing.T) {
 		"deleting parent returns true": {
 			old:  utiltesting.MakeCohort("cohort").Parent("parent").Obj(),
 			new:  utiltesting.MakeCohort("cohort").Obj(),
+			want: true,
+		},
+		"adding weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").Obj(),
+			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			want: true,
+		},
+		"deleting weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltesting.MakeCohort("cohort").Obj(),
+			want: true,
+		},
+		"updating weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("2")).Obj(),
 			want: true,
 		},
 	}
