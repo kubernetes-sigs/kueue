@@ -141,7 +141,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
-		localQueues:         make(map[string]*queue),
+		localQueues:         make(map[string]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
@@ -397,7 +397,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for _, q := range queues.Items {
 		qKey := queueKey(&q)
-		qImpl := &queue{
+		qImpl := &LocalQueue{
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,

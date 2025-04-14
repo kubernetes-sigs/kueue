@@ -2386,7 +2386,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cases := map[string]struct {
 		ops             []func(context.Context, client.Client, *Cache) error
-		wantLocalQueues map[string]*queue
+		wantLocalQueues map[string]*LocalQueue
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -2394,7 +2394,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2435,14 +2435,14 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllClusterQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{},
+			wantLocalQueues: map[string]*LocalQueue{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{},
+			wantLocalQueues: map[string]*LocalQueue{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -2450,7 +2450,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllQueues,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2498,7 +2498,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllClusterQueues,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2546,7 +2546,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.AssumeWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2587,7 +2587,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.ForgetWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2622,7 +2622,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.DeleteWorkload(workloads[0])
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2668,7 +2668,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/gamma": {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
@@ -2690,7 +2690,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns2/beta": {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
@@ -2726,7 +2726,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					t.Fatalf("Running op %d: %v", i, err)
 				}
 			}
-			cacheQueues := make(map[string]*queue)
+			cacheQueues := make(map[string]*LocalQueue)
 			for _, cacheCQ := range cache.hm.ClusterQueues() {
 				for qKey, cacheQ := range cacheCQ.localQueues {
 					if _, ok := cacheQueues[qKey]; ok {
@@ -2735,7 +2735,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					cacheQueues[qKey] = cacheQ
 				}
 			}
-			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(queue{}), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 		})
