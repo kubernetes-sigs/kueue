@@ -67,7 +67,7 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                                     map[string]*queue
+	localQueues                                     map[string]*LocalQueue
 	podsReadyTracking                               bool
 	missingFlavors                                  []kueue.ResourceFlavorReference
 	missingAdmissionChecks                          []string
@@ -100,14 +100,6 @@ func (c *clusterQueue) getResourceNode() resourceNode {
 
 func (c *clusterQueue) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
-}
-
-type queue struct {
-	key                string
-	reservingWorkloads int
-	admittedWorkloads  int
-	totalReserved      resources.FlavorResourceQuantities
-	admittedUsage      resources.FlavorResourceQuantities
 }
 
 func (c *clusterQueue) Active() bool {
@@ -489,7 +481,7 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(len(c.Workloads)))
 }
 
-func (q *queue) reportActiveWorkloads() {
+func (q *LocalQueue) reportActiveWorkloads() {
 	qKeySlice := strings.Split(q.key, "/")
 	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
 	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
@@ -561,7 +553,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	// We need to count the workloads, because they could have been added before
 	// receiving the queue add event.
-	qImpl := &queue{
+	qImpl := &LocalQueue{
 		key:                qKey,
 		reservingWorkloads: 0,
 		totalReserved:      make(resources.FlavorResourceQuantities),
@@ -604,7 +596,7 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	return false
 }
 
-func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
+func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
 	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
