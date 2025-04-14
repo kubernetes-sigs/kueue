@@ -410,17 +410,7 @@ ray-project-mini-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
-		-f ./hack/internal/test-images/Dockerfile ./ \
-
-.PHONY: ray-project-mini-image-push
-ray-project-mini-image-push: PUSH=--push
-ray-project-mini-image-push: ray-project-mini-image-build
-
-# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini image
-.PHONY: ray-project-mini-image
-ray-project-mini-image: PLATFORMS=linux/amd64
-ray-project-mini-image: PUSH=--load
-ray-project-mini-image: ray-project-mini-image-build
+		-f ./hack/internal/test-images/ray/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build

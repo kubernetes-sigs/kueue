@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 SHELL ["/bin/bash", "-c"]
 
-RUN pip3 install --no-cache-dir ray[default] fastapi==0.95.2 uvicorn==0.22.0 websockets==10.4
+RUN pip3 install --no-cache-dir ray[default]==${RAY_VERSION} fastapi==0.95.2 uvicorn==0.22.0 websockets==10.4 \
+    && rm -rf ~/.cache
 
 RUN useradd -ms /bin/bash -d /home/ray ray --uid $RAY_UID --gid $RAY_GID || echo "Group already exists" \
  && usermod -aG sudo ray || echo "User already exists" \
@@ -25,7 +26,7 @@ USER $RAY_UID
 ENV HOME=/home/ray
 ENV PYTHONPATH="/app"
 
-COPY hack/internal/test-images/mock_server.py /app/mock_server.py
+COPY hack/internal/test-images/ray/mock_server.py /app/mock_server.py
 
 # Make sure the ports are exposed
 EXPOSE 52365
