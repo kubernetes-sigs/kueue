@@ -215,10 +215,11 @@ func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 }
 
 func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *corev1.Namespace) {
+	ginkgo.GinkgoHelper()
 	pods := corev1.PodList{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		g.ExpectWithOffset(1, c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-		g.ExpectWithOffset(1, pods.Items).Should(gomega.BeEmpty())
+		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+		g.Expect(pods.Items).Should(gomega.BeEmpty())
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
