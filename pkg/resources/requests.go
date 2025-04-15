@@ -18,6 +18,7 @@ package resources
 
 import (
 	"maps"
+	"math"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -119,11 +120,16 @@ func (req Requests) CountIn(capacity Requests) int32 {
 	var result *int32
 	for rName, rValue := range req {
 		capacity, found := capacity[rName]
-		if !found {
+		if !found && rValue != 0 {
 			return 0
 		}
 		// find the minimum count matching all the resource quota.
-		count := int32(capacity / rValue)
+		var count int32
+		if rValue == 0 {
+			count = int32(math.MaxInt32)
+		} else {
+			count = int32(capacity / rValue)
+		}
 		if result == nil || count < *result {
 			result = ptr.To(count)
 		}
