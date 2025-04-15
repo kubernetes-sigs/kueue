@@ -46,7 +46,7 @@ type FairSharingStatus struct {
 	// Cohort, among all the resources provided by the Node, and
 	// divided by the weight.  If zero, it means that the usage of
 	// the Node is below the nominal quota.  If the Node has a
-	// weight of zero, this will return 9223372036854775807, the
-	// maximum possible share value.
+	// weight of zero and is borrowing, this will return
+	// 9223372036854775807, the maximum possible share value.
 	WeightedShare int64 `json:"weightedShare"`
 }

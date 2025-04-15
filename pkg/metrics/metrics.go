@@ -365,7 +365,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 quota to the lendable resources in the cohort, among all the resources provided by 
 the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
 the maximum possible share value.`,
 		}, []string{"cluster_queue"},
 	)
@@ -378,7 +378,7 @@ the maximum possible share value.`,
 quota to the lendable resources in the Cohort, among all the resources provided by 
 the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
-If the Cohort has a weight of zero, this will return 9223372036854775807,
+If the Cohort has a weight of zero and is borrowing, this will return 9223372036854775807,
 the maximum possible share value.`,
 		}, []string{"cohort"},
 	)
