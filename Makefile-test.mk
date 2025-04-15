@@ -51,9 +51,12 @@ endif
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_KIND_VERSION ?= kindest/node:v1.31.0
-# E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.28.13 1.29.8 1.30.4 1.31.0
+E2E_K8S_VERSIONS ?= 1.30.10 1.31.6 1.32.3
+E2E_K8S_VERSION ?= 1.32
+E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
+# Default to E2E_K8S_VERSION.0 if no match is found
+E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
+E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
