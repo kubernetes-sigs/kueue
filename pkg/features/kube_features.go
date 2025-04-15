@@ -163,6 +163,12 @@ const (
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
+
+	// owner: @mwielgus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/79-hierarchical-cohorts
+	//
+	// Enable hierarchical cohorts
+	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
 )
 
 func init() {
@@ -251,6 +257,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	HierarchicalCohorts: {
+		{Version: version.MustParse("0.7"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.8"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
