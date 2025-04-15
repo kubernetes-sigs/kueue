@@ -954,7 +954,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for replicas is not ready", func() {
+			ginkgo.By("Waiting for replicas to not be ready", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
 				gomega.Eventually(func(g gomega.Gomega) {
