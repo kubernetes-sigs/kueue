@@ -38,18 +38,17 @@ type dominantResourceShareNode interface {
 	hierarchicalResourceNode
 }
 
-// dominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
-// of usage above nominal quota to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.
-// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-// The function also returns the resource name that yielded this value.
-// Also for a weight of zero, this will return 9223372036854775807.
+// dominantResourceShare returns a value from 0 to 1,000,000
+// representing the maximum of the ratios of usage above nominal quota
+// to the lendable resources in the cohort, among all the resources
+// provided by the ClusterQueue, and divided by the weight.  If zero,
+// it means that the usage of the ClusterQueue is below the nominal
+// quota.  The function also returns the resource name that yielded
+// this value.  When the FairSharing weight is 0, and the ClusterQueue
+// or Cohort is borrowing, we return math.MaxInt.
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
 	if !node.HasParent() {
 		return 0, ""
-	}
-	if node.fairWeight().IsZero() {
-		return math.MaxInt, ""
 	}
 
 	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
@@ -77,6 +76,11 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 			}
 		}
 	}
+
+	if node.fairWeight().IsZero() {
+		return math.MaxInt, dRes
+	}
+
 	dws := drs * 1000 / node.fairWeight().MilliValue()
 	return int(dws), dRes
 }
