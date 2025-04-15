@@ -54,7 +54,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	}
 
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
-	if features.Enabled(features.HierarchialCohorts) {
+	if features.Enabled(features.HierarchicalCohorts) {
 		cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager, CohortReconcilerWithFairSharing(fairSharingEnabled))
 		if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 			return "Cohort", err
