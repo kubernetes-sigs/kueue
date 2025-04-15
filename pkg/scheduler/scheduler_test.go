@@ -5100,6 +5100,7 @@ func TestScheduleForTAS(t *testing.T) {
 				*utiltesting.MakeWorkload("foo", "default").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
+						PreferredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "0").
 						Request(corev1.ResourceMemory, "10Mi").
 						Obj()).
