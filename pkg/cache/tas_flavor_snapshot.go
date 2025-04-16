@@ -667,7 +667,10 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// assignments for previous PodSets.
 		domain.state = 0
 	}
-	compiledSelector := s.compileNodeSelector(nodeSelectors)
+	selector, err := labels.ValidatedSelectorFromSet(nodeSelectors)
+	if err != nil {
+		//WIP: add error handling here
+	}
 	for _, leaf := range s.leaves {
 		// 1. Check Tolerations against Node Taints
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(leaf.nodeTaints, tolerations, func(t *corev1.Taint) bool {
@@ -682,7 +685,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		if leaf.nodeLabels != nil {
 			nodeLabelSet = leaf.nodeLabels
 		}
-		if !compiledSelector.Matches(nodeLabelSet) {
+		// isLowestLevelNode() is necessary because we gather node level information only when
+		// node is the lowest level of the topology
+		if s.isLowestLevelNode() && !selector.Matches(nodeLabelSet) {
 			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			continue
 		}
@@ -719,16 +724,4 @@ func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, fitCount, totalCount)
-}
-
-// compileNodeSelector validates and compiles node selectors, returning a selector.
-// Returns labels.Everything() if no selectors are provided.
-// Returns labels.Nothing() if selectors are invalid.
-func (s *TASFlavorSnapshot) compileNodeSelector(nodeSelectors map[string]string) labels.Selector {
-	selector, err := labels.ValidatedSelectorFromSet(nodeSelectors)
-	if err != nil {
-		s.log.Error(err, "invalid node selectors provided, no nodes will be matched", "selectors", nodeSelectors)
-		return labels.Nothing()
-	}
-	return selector
 }
