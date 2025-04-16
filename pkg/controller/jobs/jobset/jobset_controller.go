@@ -19,7 +19,6 @@ package jobset
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -46,14 +45,13 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupJobSetWebhook,
-		JobType:                &jobsetapi.JobSet{},
-		AddToScheme:            jobsetapi.AddToScheme,
-		IsManagingObjectsOwner: isJobSet,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupJobSetWebhook,
+		JobType:           &jobsetapi.JobSet{},
+		AddToScheme:       jobsetapi.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
@@ -73,10 +71,6 @@ func NewJob() jobframework.GenericJob {
 }
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
-
-func isJobSet(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")
-}
 
 type JobSet jobsetapi.JobSet
 

@@ -59,13 +59,12 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &batchv1.Job{},
-		IsManagingObjectsOwner: isJob,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupWebhook,
+		JobType:           &batchv1.Job{},
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
@@ -87,10 +86,6 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
 })
-
-func isJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()
-}
 
 type parentWorkloadHandler struct {
 	client client.Client

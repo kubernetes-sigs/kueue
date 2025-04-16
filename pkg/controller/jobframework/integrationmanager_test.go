@@ -365,23 +365,23 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	}
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
-		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1"}}
+		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K1"}
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1", APIVersion: "test-group/v1"}}
 		return ret
 	}()
 	manageK2 := func() IntegrationCallbacks {
 		ret := dontManage
-		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K2" }
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2"}}
+		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K2"}
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2", APIVersion: "test-group/v1"}}
 		return ret
 	}()
 	externalK3 := func() runtime.Object {
-		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
+		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3", APIVersion: "test-group/v1"}}
 	}()
 	disabledK4 := func() IntegrationCallbacks {
 		ret := dontManage
-		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K4" }
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4"}}
+		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K4"}
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4", APIVersion: "test-group/v1"}}
 		return ret
 	}()
 
@@ -406,23 +406,23 @@ func TestGetJobTypeForOwner(t *testing.T) {
 		wantJobType runtime.Object
 	}{
 		"K1": {
-			owner:       &metav1.OwnerReference{Kind: "K1"},
+			owner:       &metav1.OwnerReference{Kind: "K1", APIVersion: "test-group/v1"},
 			wantJobType: manageK1.JobType,
 		},
 		"K2": {
-			owner:       &metav1.OwnerReference{Kind: "K2"},
+			owner:       &metav1.OwnerReference{Kind: "K2", APIVersion: "test-group/v1"},
 			wantJobType: manageK2.JobType,
 		},
 		"K3": {
-			owner:       &metav1.OwnerReference{Kind: "K3"},
+			owner:       &metav1.OwnerReference{Kind: "K3", APIVersion: "test-group/v1"},
 			wantJobType: externalK3,
 		},
 		"K4": {
-			owner:       &metav1.OwnerReference{Kind: "K4"},
+			owner:       &metav1.OwnerReference{Kind: "K4", APIVersion: "test-group/v1"},
 			wantJobType: nil,
 		},
 		"K5": {
-			owner:       &metav1.OwnerReference{Kind: "K5"},
+			owner:       &metav1.OwnerReference{Kind: "K5", APIVersion: "test-group/v1"},
 			wantJobType: nil,
 		},
 	}
@@ -509,38 +509,29 @@ func TestOwnerFrameworkEnabledChecks(t *testing.T) {
 	}
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
-		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1"}}
-		ret.GVK = ret.JobType.GetObjectKind().GroupVersionKind()
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1", APIVersion: "test-group/v1"}}
+		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K1"}
 		return ret
 	}()
-	manageK2 := func() IntegrationCallbacks {
-		ret := dontManage
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2"}}
-		ret.GVK = ret.JobType.GetObjectKind().GroupVersionKind()
-		return ret
+	externalK2 := func() runtime.Object {
+		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2", APIVersion: "test-group/v1"}}
 	}()
-	externalK3 := func() runtime.Object {
-		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
-	}()
-	disabledK4 := func() IntegrationCallbacks {
+	disabledK3 := func() IntegrationCallbacks {
 		ret := dontManage
-		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K4" }
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4"}}
-		ret.GVK = ret.JobType.GetObjectKind().GroupVersionKind()
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3", APIVersion: "test-group/v1"}}
+		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K3"}
 		return ret
 	}()
 
 	mgr := integrationManager{
-		names: []string{"manageK1", "dontManage", "manageK2", "disabledK4"},
+		names: []string{"dontManage", "manageK1", "disabledK3"},
 		integrations: map[string]IntegrationCallbacks{
 			"dontManage": dontManage,
 			"manageK1":   manageK1,
-			"manageK2":   manageK2,
-			"disabledK4": disabledK4,
+			"disabledK3": disabledK3,
 		},
 		externalIntegrations: map[string]runtime.Object{
-			"externalK3": externalK3,
+			"externalK2": externalK2,
 		},
 	}
 	mgr.enableIntegration("manageK1")
@@ -552,27 +543,22 @@ func TestOwnerFrameworkEnabledChecks(t *testing.T) {
 		wantOwnerIsEnabled bool
 	}{
 		"K1": {
-			owner:              &metav1.OwnerReference{Kind: "K1"},
+			owner:              &metav1.OwnerReference{Kind: "K1", APIVersion: "test-group/v1"},
 			wantOwnerIsManaged: true,
 			wantOwnerIsEnabled: true,
 		},
 		"K2": {
-			owner:              &metav1.OwnerReference{Kind: "K2"},
-			wantOwnerIsManaged: false,
-			wantOwnerIsEnabled: true,
-		},
-		"K3": {
-			owner:              &metav1.OwnerReference{Kind: "K3"},
+			owner:              &metav1.OwnerReference{Kind: "K2", APIVersion: "test-group/v1"},
 			wantOwnerIsManaged: true,
 			wantOwnerIsEnabled: true,
 		},
-		"K4": {
-			owner:              &metav1.OwnerReference{Kind: "K4"},
+		"K3": {
+			owner:              &metav1.OwnerReference{Kind: "K3", APIVersion: "test-group/v1"},
 			wantOwnerIsManaged: false,
 			wantOwnerIsEnabled: false,
 		},
 		"K5": {
-			owner:              &metav1.OwnerReference{Kind: "K5"},
+			owner:              &metav1.OwnerReference{Kind: "K5", APIVersion: "test-group/v1"},
 			wantOwnerIsManaged: false,
 			wantOwnerIsEnabled: false,
 		},
