@@ -2089,7 +2089,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					TopologyRequest: tc.topologyRequest,
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							Tolerations: tc.tolerations,
+							Tolerations:  tc.tolerations,
 							NodeSelector: tc.nodeSelector,
 						},
 					},
