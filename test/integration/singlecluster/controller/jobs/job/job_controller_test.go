@@ -2187,7 +2187,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
 				job.Status.Active = 1
 				job.Status.Ready = ptr.To[int32](1)
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("ensuring workload has PodsReady=True condition")
@@ -2208,7 +2208,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				job.Status.Active = 0
 				job.Status.Ready = ptr.To[int32](0)
 				job.Status.Failed = 1
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the workload is still admitted")
@@ -2246,7 +2246,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
 				job.Status.Active = 1
 				job.Status.Ready = ptr.To[int32](1)
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("ensuring workload has PodsReady=True condition")
@@ -2267,7 +2267,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				job.Status.Active = 0
 				job.Status.Ready = ptr.To[int32](0)
 				job.Status.Failed = 1
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the workload is evicted")
@@ -2323,7 +2323,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
 				job.Status.Active = 1
 				job.Status.Ready = ptr.To[int32](1)
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("ensuring workload has PodsReady=True condition")
@@ -2344,7 +2344,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				job.Status.Active = 0
 				job.Status.Ready = ptr.To[int32](0)
 				job.Status.Failed = 1
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("ensuring workload has PodsReady=False condition")
@@ -2365,7 +2365,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				job.Status.Active = 1
 				job.Status.Ready = ptr.To[int32](1)
 				job.Status.Failed = 1
-				gomega.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("ensuring workload has PodsReady=True condition")
