@@ -259,8 +259,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	HierarchicalCohorts: {
-		{Version: version.MustParse("0.7"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.8"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
