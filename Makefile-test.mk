@@ -127,11 +127,6 @@ test-e2e-customconfigs: kustomize ginkgo yq gomod-download dep-crds kueuectl gin
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
-MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSIONS})
-.PHONY: test-e2e-all
-test-e2e-all: ginkgo ginkgo-top $(E2E_TARGETS) $(MULTIKUEUE-E2E_TARGETS)
-
 FORCE:
 
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
