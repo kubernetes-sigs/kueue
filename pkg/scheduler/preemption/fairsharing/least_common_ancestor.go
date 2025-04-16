@@ -38,7 +38,8 @@ func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
 			return ancestor
 		}
 	}
-	return nil
+	// to make the compiler happy
+	panic("serious bug: could not find LeastCommonAncestor")
 }
 
 // getAlmostLCA traverses from a ClusterQueue towards the root,
@@ -52,5 +53,6 @@ func getAlmostLCA(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) alm
 		}
 		aLca = ancestor
 	}
-	panic("Could not find least common ancestor.")
+	// to make the compiler happy
+	panic("serious bug: could not find AlmostLeastCommonAncestor")
 }
