@@ -294,7 +294,6 @@ spec:
 |---------------------------------------|---------|------------|-------|-------|
 | `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
-| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   |       |
 | `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   |       |
 | `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
 | `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |

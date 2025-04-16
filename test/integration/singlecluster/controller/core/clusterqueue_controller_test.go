@@ -645,9 +645,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
-			ginkgo.By("Enabling AdmissionCheckValidationRules feature", func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionCheckValidationRules, true)
-			})
 			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)

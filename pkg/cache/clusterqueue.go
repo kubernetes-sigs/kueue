@@ -67,20 +67,18 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                                     map[string]*LocalQueue
-	podsReadyTracking                               bool
-	missingFlavors                                  []kueue.ResourceFlavorReference
-	missingAdmissionChecks                          []string
-	inactiveAdmissionChecks                         []string
-	multipleSingleInstanceControllersChecks         map[string][]string // key = controllerName
-	flavorIndependentAdmissionCheckAppliedPerFlavor []string
-	multiKueueAdmissionChecks                       []string
-	provisioningAdmissionChecks                     []string
-	perFlavorMultiKueueAdmissionChecks              []string
-	tasFlavors                                      map[kueue.ResourceFlavorReference]kueue.TopologyReference
-	admittedWorkloadsCount                          int
-	isStopped                                       bool
-	workloadInfoOptions                             []workload.InfoOption
+	localQueues                        map[string]*LocalQueue
+	podsReadyTracking                  bool
+	missingFlavors                     []kueue.ResourceFlavorReference
+	missingAdmissionChecks             []string
+	inactiveAdmissionChecks            []string
+	multiKueueAdmissionChecks          []string
+	provisioningAdmissionChecks        []string
+	perFlavorMultiKueueAdmissionChecks []string
+	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
+	admittedWorkloadsCount             int
+	isStopped                          bool
+	workloadInfoOptions                []workload.InfoOption
 
 	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -201,8 +199,6 @@ func (c *clusterQueue) updateQueueStatus() {
 		len(c.missingFlavors) > 0 ||
 		len(c.missingAdmissionChecks) > 0 ||
 		len(c.inactiveAdmissionChecks) > 0 ||
-		len(c.multipleSingleInstanceControllersChecks) > 0 ||
-		len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 ||
 		c.isTASViolated() ||
 		// one multikueue admission check is allowed
 		len(c.multiKueueAdmissionChecks) > 1 ||
@@ -250,19 +246,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", strings.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
-		}
-
-		// This doesn't need to be gated behind, because it is empty when the gate is disabled
-		if len(c.multipleSingleInstanceControllersChecks) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
-			for _, controller := range slices.Sorted(maps.Keys(c.multipleSingleInstanceControllersChecks)) {
-				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
-			}
-		}
-		// This doesn't need to be gated behind, because it is empty when the gate is disabled
-		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
-			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
@@ -409,18 +392,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	// sort the remaining set
 	for c := range checksPerController {
 		slices.Sort(checksPerController[c])
-	}
-
-	// Behind the gate due to being triggered when AC is MultiKueue
-	if features.Enabled(features.AdmissionCheckValidationRules) {
-		if !maps.EqualFunc(checksPerController, c.multipleSingleInstanceControllersChecks, slices.Equal) {
-			c.multipleSingleInstanceControllersChecks = checksPerController
-			update = true
-		}
-		if !slices.Equal(c.flavorIndependentAdmissionCheckAppliedPerFlavor, flavorIndependentCheckOnFlavors) {
-			c.flavorIndependentAdmissionCheckAppliedPerFlavor = flavorIndependentCheckOnFlavors
-			update = true
-		}
 	}
 
 	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueChecks) {

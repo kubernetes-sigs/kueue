@@ -24,19 +24,17 @@ import (
 
 // ClusterQueue Active condition reasons.
 const (
-	ClusterQueueActiveReasonTerminating                                     = "Terminating"
-	ClusterQueueActiveReasonStopped                                         = "Stopped"
-	ClusterQueueActiveReasonFlavorNotFound                                  = "FlavorNotFound"
-	ClusterQueueActiveReasonAdmissionCheckNotFound                          = "AdmissionCheckNotFound"
-	ClusterQueueActiveReasonAdmissionCheckInactive                          = "AdmissionCheckInactive"
-	ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks = "MultipleSingleInstanceControllerAdmissionChecks"
-	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks               = "MultipleMultiKueueAdmissionChecks"
-	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor        = "MultiKueueAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling         = "NotSupportedWithTopologyAwareScheduling"
-	ClusterQueueActiveReasonTopologyNotFound                                = "TopologyNotFound"
-	ClusterQueueActiveReasonUnknown                                         = "Unknown"
-	ClusterQueueActiveReasonReady                                           = "Ready"
+	ClusterQueueActiveReasonTerminating                              = "Terminating"
+	ClusterQueueActiveReasonStopped                                  = "Stopped"
+	ClusterQueueActiveReasonFlavorNotFound                           = "FlavorNotFound"
+	ClusterQueueActiveReasonAdmissionCheckNotFound                   = "AdmissionCheckNotFound"
+	ClusterQueueActiveReasonAdmissionCheckInactive                   = "AdmissionCheckInactive"
+	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
+	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling  = "NotSupportedWithTopologyAwareScheduling"
+	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonUnknown                                  = "Unknown"
+	ClusterQueueActiveReasonReady                                    = "Ready"
 )
 
 // CohortReference is the name of the Cohort.

@@ -1208,38 +1208,6 @@ func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *Admiss
 	return ac
 }
 
-func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
-	cond := metav1.Condition{
-		Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: observedGeneration,
-	}
-	if !singleInstance {
-		cond.Status = metav1.ConditionFalse
-	}
-
-	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
-	return ac
-}
-
-func (ac *AdmissionCheckWrapper) ApplyToAllFlavors(applyToAllFlavors bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
-	cond := metav1.Condition{
-		Type:               kueue.FlavorIndependentAdmissionCheck,
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: observedGeneration,
-	}
-	if !applyToAllFlavors {
-		cond.Status = metav1.ConditionFalse
-	}
-
-	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
-	return ac
-}
-
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
 }
