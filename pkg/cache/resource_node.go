@@ -79,6 +79,13 @@ type hierarchicalResourceNode interface {
 	parentHRN() hierarchicalResourceNode
 }
 
+// LocalAvailable returns, for a given node and resource flavor,
+// how much guaranteed quota in this flavor exceeds usage.
+// This quota is available at this node but is not visible at its parent.
+func LocalAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) int64 {
+	return max(0, node.getResourceNode().guaranteedQuota(fr)-node.getResourceNode().Usage[fr])
+}
+
 // available determines how much capacity remains for the current
 // node, taking into account usage and BorrowingLimits. It finds remaining
 // capacity which is stored locally. If the node has a parent, it
@@ -93,7 +100,6 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64
 	if !node.HasParent() {
 		return r.SubtreeQuota[fr] - r.Usage[fr]
 	}
-	localAvailable := max(0, r.guaranteedQuota(fr)-r.Usage[fr])
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
@@ -102,7 +108,7 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64
 		withMaxFromParent := storedInParent - usedInParent + *borrowingLimit
 		parentAvailable = min(withMaxFromParent, parentAvailable)
 	}
-	return localAvailable + parentAvailable
+	return LocalAvailable(node, fr) + parentAvailable
 }
 
 // potentialAvailable returns the maximum capacity available to this node,
@@ -124,7 +130,7 @@ func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResour
 // its Cohort when usage exceeds guaranteedQuota.
 func addUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) {
 	r := node.getResourceNode()
-	localAvailable := max(0, r.guaranteedQuota(fr)-r.Usage[fr])
+	localAvailable := LocalAvailable(node, fr)
 	r.Usage[fr] += val
 	if node.HasParent() && val > localAvailable {
 		deltaParentUsage := val - localAvailable
@@ -194,28 +200,18 @@ func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
 	}
 }
 
-// CalculateRemaining returns, for a given node and some amount of quota,
-// how much of this quota would not not fit in the guaranteed quota at this node
-func CalculateRemaining(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) int64 {
-	var guaranteed int64
-	if lendingLimit := node.getResourceNode().Quotas[fr].LendingLimit; lendingLimit != nil {
-		guaranteed = max(0, node.getResourceNode().SubtreeQuota[fr]-*lendingLimit)
-	}
-	return val - max(0, guaranteed-node.getResourceNode().Usage[fr])
-}
-
-// WorkloadFitsInQuota returns if resource requests fit in quota on this node
+// QuantitiesFitInQuota returns if resource requests fit in quota on this node
 // and the amount of resources that exceed the guaranteed
 // quota on this node. It is assumed that subsequent call
 // to this function will be on nodes parent with remainingRequests
-func WorkloadFitsInQuota(node hierarchicalResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+func QuantitiesFitInQuota(node hierarchicalResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
 	fits := true
 	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
 		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
 			fits = false
 		}
-		remainingRequests[fr] = v - localAvailable(node, fr)
+		remainingRequests[fr] = v - LocalAvailable(node, fr)
 	}
 	return fits, remainingRequests
 }

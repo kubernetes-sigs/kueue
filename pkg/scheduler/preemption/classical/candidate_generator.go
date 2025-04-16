@@ -32,7 +32,7 @@ import (
 
 type candidateIterator struct {
 	candidates                         []*candidateElem
-	RunIndex                           int
+	runIndex                           int
 	frsNeedPreemption                  sets.Set[resources.FlavorResource]
 	snapshot                           *cache.Snapshot
 	AnyCandidateFromOtherQueues        bool
@@ -106,7 +106,7 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 	allCandidates = append(allCandidates, nonEvictedSTCandidates...)
 	allCandidates = append(allCandidates, nonEvictedSameQueueCandidates...)
 	return &candidateIterator{
-		RunIndex:                           0,
+		runIndex:                           0,
 		frsNeedPreemption:                  frsNeedPreemption,
 		snapshot:                           snapshot,
 		candidates:                         allCandidates,
@@ -119,11 +119,11 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 // Next allows to iterate over the ordered sequence of candidates, with the reason
 // for eviction returned together with a candidate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
-	if c.RunIndex >= len(c.candidates) {
+	if c.runIndex >= len(c.candidates) {
 		return nil, ""
 	}
-	candidate := c.candidates[c.RunIndex]
-	c.RunIndex++
+	candidate := c.candidates[c.runIndex]
+	c.runIndex++
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
 	}
@@ -145,10 +145,17 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
-	for node := cq.Parent(); node != candidate.lca; node = node.Parent() {
+	for node := range cq.PathParentToRoot() {
+		if node == candidate.lca {
+			break
+		}
 		if cache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
 			return false
 		}
 	}
 	return true
+}
+
+func (c *candidateIterator) Reset() {
+	c.runIndex = 0
 }

@@ -235,7 +235,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		borrowingOptions = []bool{true, false}
 	}
 	for _, allowBorrowing := range borrowingOptions {
-		candidatesGenerator.RunIndex = 0
+		candidatesGenerator.Reset()
 		for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
 			preemptionCtx.snapshot.RemoveWorkload(candidate)
 			targets = append(targets, &Target{
