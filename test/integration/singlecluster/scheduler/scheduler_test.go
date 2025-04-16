@@ -1237,7 +1237,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, devQueue)
 
-			ginkgo.By("Creating two workloads for prod ClusterQueue")
+			ginkgo.By("Creating the first workload for the prod ClusterQueue")
 			pWl1 := testing.MakeWorkload("p-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, pWl1)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl1)
@@ -1251,9 +1251,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.WaitForNextSecondAfterCreation(pWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl2)
 
-			ginkgo.By("Finishing one workload for prod ClusterQueue")
+			ginkgo.By("Finishing the first workload for the prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl1)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl2)
 
 			// The pWl2 workload gets accepted, even though it was created after dWl1.
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl2)
