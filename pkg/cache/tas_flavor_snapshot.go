@@ -490,7 +490,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+			s.log.V(2).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			continue
 		}
 		// 2. Check Node Labels against Compiled Selector
@@ -499,7 +499,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			nodeLabelSet = labels.Set(leaf.nodeLabels)
 		}
 		if !compiledSelector.Matches(nodeLabelSet) {
-			s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
