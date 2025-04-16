@@ -34,7 +34,7 @@ it should be specified in the `spec.podMetadata` section of the Workflow configu
 
 ### b. Targeting a different LocalQueue per template
 
-If prefer to target a different [local queue](/docs/concepts/local_queue) for each step of your Workflow,
+If you prefer to target a different [local queue](/docs/concepts/local_queue) for each step of your Workflow,
 you can define the queue in the `spec.templates[].metadata` section of the Workflow configuration.
 
 In this example `hello1` and `hello2a` will target `user-queue` and `hello2b` will
