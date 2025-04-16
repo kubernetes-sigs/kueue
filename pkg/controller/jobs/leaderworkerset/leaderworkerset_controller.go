@@ -18,9 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
-	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -47,7 +45,6 @@ func init() {
 		JobType:                  &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:              leaderworkersetv1.AddToScheme,
 		DependencyList:           []string{"pod"},
-		IsManagingObjectsOwner:   isLeaderWorkerSet,
 		GVK:                      gvk,
 	}))
 }
@@ -56,10 +53,6 @@ type LeaderWorkerSet leaderworkersetv1.LeaderWorkerSet
 
 func fromObject(o runtime.Object) *LeaderWorkerSet {
 	return (*LeaderWorkerSet)(o.(*leaderworkersetv1.LeaderWorkerSet))
-}
-
-func isLeaderWorkerSet(ref *metav1.OwnerReference) bool {
-	return ref.Kind == "LeaderWorkerSet" && strings.HasPrefix(ref.APIVersion, "leaderworkerset.x-k8s.io/v1")
 }
 
 func (lws *LeaderWorkerSet) Object() client.Object {

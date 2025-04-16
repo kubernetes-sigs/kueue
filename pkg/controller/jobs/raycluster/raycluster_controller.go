@@ -19,11 +19,9 @@ package raycluster
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,14 +46,13 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupRayClusterWebhook,
-		JobType:                &rayv1.RayCluster{},
-		AddToScheme:            rayv1.AddToScheme,
-		IsManagingObjectsOwner: isRayCluster,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupRayClusterWebhook,
+		JobType:           &rayv1.RayCluster{},
+		AddToScheme:       rayv1.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
@@ -207,10 +204,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func GetWorkloadNameForRayCluster(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
-}
-
-func isRayCluster(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "RayCluster" && strings.HasPrefix(owner.APIVersion, "ray.io/v1")
 }
 
 func fromObject(o runtime.Object) *RayCluster {

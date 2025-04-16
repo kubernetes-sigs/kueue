@@ -20,7 +20,6 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -39,19 +38,14 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewReconciler:          jobframework.NewNoopReconcilerFactory(gvk),
-		GVK:                    gvk,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &appsv1.Deployment{},
-		AddToScheme:            appsv1.AddToScheme,
-		DependencyList:         []string{"pod"},
-		IsManagingObjectsOwner: isDeployment,
+		SetupIndexes:   SetupIndexes,
+		NewReconciler:  jobframework.NewNoopReconcilerFactory(gvk),
+		GVK:            gvk,
+		SetupWebhook:   SetupWebhook,
+		JobType:        &appsv1.Deployment{},
+		AddToScheme:    appsv1.AddToScheme,
+		DependencyList: []string{"pod"},
 	}))
-}
-
-func isDeployment(ref *metav1.OwnerReference) bool {
-	return ref.Kind == "Deployment" && ref.APIVersion == "apps/v1"
 }
 
 type Deployment appsv1.Deployment

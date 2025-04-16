@@ -19,10 +19,8 @@ package pytorchjob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,14 +48,13 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupPyTorchJobWebhook,
-		JobType:                &kftraining.PyTorchJob{},
-		AddToScheme:            kftraining.AddToScheme,
-		IsManagingObjectsOwner: isPyTorchJob,
-		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject),
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupPyTorchJobWebhook,
+		JobType:           &kftraining.PyTorchJob{},
+		AddToScheme:       kftraining.AddToScheme,
+		MultiKueueAdapter: kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject),
 	}))
 }
 
@@ -79,10 +76,6 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
 })
-
-func isPyTorchJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == kftraining.PyTorchJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
-}
 
 type JobControl kftraining.PyTorchJob
 

@@ -20,12 +20,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -57,15 +55,14 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		NewJob:                 NewJob,
-		GVK:                    gvk,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupAppWrapperWebhook,
-		JobType:                &awv1beta2.AppWrapper{},
-		SetupIndexes:           SetupIndexes,
-		AddToScheme:            awv1beta2.AddToScheme,
-		IsManagingObjectsOwner: isAppWrapper,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		NewJob:            NewJob,
+		GVK:               gvk,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupAppWrapperWebhook,
+		JobType:           &awv1beta2.AppWrapper{},
+		SetupIndexes:      SetupIndexes,
+		AddToScheme:       awv1beta2.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
@@ -83,10 +80,6 @@ func init() {
 
 func NewJob() jobframework.GenericJob {
 	return &AppWrapper{}
-}
-
-func isAppWrapper(owner *metav1.OwnerReference) bool {
-	return owner.Kind == awv1beta2.AppWrapperKind && strings.HasPrefix(owner.APIVersion, gvk.Group)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

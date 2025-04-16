@@ -19,11 +19,9 @@ package mpijob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,14 +43,13 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupMPIJobWebhook,
-		JobType:                &kfmpi.MPIJob{},
-		AddToScheme:            kfmpi.AddToScheme,
-		IsManagingObjectsOwner: isMPIJob,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupMPIJobWebhook,
+		JobType:           &kfmpi.MPIJob{},
+		AddToScheme:       kfmpi.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
@@ -72,10 +69,6 @@ func NewJob() jobframework.GenericJob {
 }
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
-
-func isMPIJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, kfmpi.SchemeGroupVersion.Group)
-}
 
 type MPIJob kfmpi.MPIJob
 
