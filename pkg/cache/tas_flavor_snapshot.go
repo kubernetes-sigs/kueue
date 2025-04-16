@@ -539,10 +539,6 @@ func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
 // Returns labels.Everything() if no selectors are provided.
 // Returns labels.Nothing() if selectors are invalid.
 func (s *TASFlavorSnapshot) compileNodeSelector(nodeSelectors map[string]string) labels.Selector {
-	// If there are no node selectors match everything.
-	if len(nodeSelectors) == 0 {
-		return labels.Everything()
-	}
 	selector, err := labels.ValidatedSelectorFromSet(nodeSelectors)
 	if err != nil {
 		s.log.Error(err, "invalid node selectors provided, no nodes will be matched", "selectors", nodeSelectors)
