@@ -6,11 +6,12 @@ metadata:
   name: metrics-certs  # this name should match the one appeared in kustomizeconfig.yaml
   namespace: system
 spec:
+  commonName: kueue-metrics
   dnsNames:
-  # SERVICE_NAME and SERVICE_NAMESPACE will be substituted by kustomize
+  # METRICS_SERVICE_NAME and METRICS_SERVICE_NAMESPACE will be substituted by kustomize
   # replacements in the config/default/kustomization.yaml file.
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  - $(METRICS_SERVICE_NAME).$(METRICS_SERVICE_NAMESPACE).svc
+  - $(METRICS_SERVICE_NAME).$(METRICS_SERVICE_NAMESPACE).svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer

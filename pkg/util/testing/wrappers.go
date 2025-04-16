@@ -321,12 +321,12 @@ func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	appendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
 func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	appendOwnerReference(&w.Workload, gvk, name, uid, nil, nil)
+	AppendOwnerReference(&w.Workload, gvk, name, uid, nil, nil)
 	return w
 }
 
@@ -1528,7 +1528,7 @@ func (w *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTempla
 }
 
 func (w *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	appendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
@@ -1544,6 +1544,10 @@ func MakeNamespaceWrapper(name string) *NamespaceWrapper {
 			},
 		},
 	}
+}
+
+func (w *NamespaceWrapper) Clone() *NamespaceWrapper {
+	return &NamespaceWrapper{Namespace: *w.DeepCopy()}
 }
 
 func (w *NamespaceWrapper) Obj() *corev1.Namespace {
@@ -1563,7 +1567,7 @@ func (w *NamespaceWrapper) Label(k, v string) *NamespaceWrapper {
 	return w
 }
 
-func appendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
+func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
 	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), metav1.OwnerReference{
 		APIVersion:         gvk.GroupVersion().String(),
 		Kind:               gvk.Kind,

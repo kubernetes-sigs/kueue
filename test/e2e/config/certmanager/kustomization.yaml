@@ -4,8 +4,18 @@ kind: Kustomization
 namespace: kueue-system
 
 resources:
-  - ../default
   - ../../../../config/components/certmanager
+  - ../../../../config/dev
+
+# Delete the secret created by internalCertManagement workflow.
+patchesStrategicMerge:
+  - |-
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: kueue-webhook-server-cert
+      namespace: kueue-system
+    $patch: delete
 
 transformers:
   - |
@@ -32,10 +42,32 @@ patches:
       name: validating-webhook-configuration
   - path: cert_metrics_manager_patch.yaml
     target:
+      group: apps
+      version: v1
       kind: Deployment
+      name: kueue-controller-manager
+      namespace: kueue-system
 
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system
 
 vars:
+- name: METRICS_SERVICE_NAME
+  objref:
+    kind: Service
+    version: v1
+    name: controller-manager-metrics-service
+- name: METRICS_SERVICE_NAMESPACE
+  objref:
+    kind: Service
+    version: v1
+    name: controller-manager-metrics-service
+  fieldref:
+    fieldpath: metadata.namespace
 - name: SERVICE_NAMESPACE
   objref:
     kind: Service
@@ -48,3 +80,17 @@ vars:
     kind: Service
     version: v1
     name: webhook-service
+- name: CERTIFICATE_NAMESPACE
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: serving-cert
+  fieldref:
+    fieldpath: metadata.namespace
+- name: CERTIFICATE_NAME
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: serving-cert

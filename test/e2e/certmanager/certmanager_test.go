@@ -17,16 +17,12 @@ limitations under the License.
 package certmanager
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -42,35 +38,23 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 		clusterQueue *kueue.ClusterQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		configurationUpdate := time.Now()
-		config := defaultKueueCfg.DeepCopy()
-		config.InternalCertManagement = &v1beta1.InternalCertManagement{
-			Enable: ptr.To(false),
-		}
-		util.ApplyKueueConfiguration(ctx, k8sClient, config)
-		util.RestartKueueController(ctx, k8sClient)
-		util.WaitForKueueAvailability(ctx, k8sClient)
-		ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
-	})
-
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-cert-manager-"},
 		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ns)
 
 		defaultRf = testing.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, defaultRf)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*testing.MakeFlavorQuotas(defaultRf.Name).
 				Resource(corev1.ResourceCPU, "2").
 				Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -86,7 +70,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 				Queue("main").
 				Suspend(false).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, testJob)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, testJob)
 
 			ginkgo.By("Checking resource status", func() {
 				jobKey := types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}

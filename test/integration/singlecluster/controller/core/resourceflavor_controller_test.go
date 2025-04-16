@@ -56,8 +56,8 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			ginkgo.By("Wait for the queue to become active", func() {
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)

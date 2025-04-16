@@ -88,7 +88,9 @@ const WorkloadDetail = () => {
             <TableBody>
               {events.map((event) => (
                 <TableRow key={event.name}>
-                  <TableCell>{new Date(event.timestamp).toLocaleString()}</TableCell>
+                  <TableCell>
+                    {new Date(event.firstTimestamp).toISOString().replace('T', '@').slice(0, 19)  } UTC
+                  </TableCell>
                   <TableCell>{event.type}</TableCell>
                   <TableCell>{event.reason}</TableCell>
                   <TableCell>{event.message}</TableCell>

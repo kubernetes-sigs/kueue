@@ -458,7 +458,7 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:     "cq",
 					NodeType: nodeTypeCq,
-					DrName:   "",
+					DrName:   "example.com/gpu",
 					DrValue:  math.MaxInt,
 				},
 				{

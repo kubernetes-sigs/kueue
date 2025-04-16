@@ -62,11 +62,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			topology = testing.MakeDefaultThreeLevelTopology("datacenter")
-			gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, topology)
 
 			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, tasFlavor)
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("tas-flavor").
@@ -74,11 +74,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			ginkgo.By(fmt.Sprintf("workload %q not getting an admission", wlLookupKey), func() {
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			ginkgo.By("Job is unsuspended, and has all Pods active and ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

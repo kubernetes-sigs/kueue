@@ -64,9 +64,9 @@ make test-e2e-kueueviz
 make test-multikueue-e2e
 ```
 
-You can also change `kind` version by modifying `E2E_KIND_VERSION` variable:
+You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_KIND_VERSION=kindest/node:v1.32.0 make test-e2e
+E2E_K8S_FULL_VERSION=1.32.2 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).

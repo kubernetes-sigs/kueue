@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 
 	ginkgo.When("Creating a ClusterQueue", func() {
 		ginkgo.DescribeTable("Defaulting on creation", func(cq, wantCQ kueue.ClusterQueue) {
-			gomega.Expect(k8sClient.Create(ctx, &cq)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, &cq)
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, &cq, true)
 			}()
@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			cq := testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				QueueingStrategy(kueue.StrictFIFO).
 				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)

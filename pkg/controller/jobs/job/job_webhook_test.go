@@ -27,6 +27,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -40,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -549,6 +551,7 @@ func TestValidateUpdate(t *testing.T) {
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
 		job                                    *batchv1.Job
+		objs                                   []runtime.Object
 		queues                                 []kueue.LocalQueue
 		clusterQueues                          []kueue.ClusterQueue
 		admissionCheck                         *kueue.AdmissionCheck
@@ -675,6 +678,9 @@ func TestDefault(t *testing.T) {
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
+			objs: []runtime.Object{
+				testingmpijob.MakeMPIJob("owner", "default").UID("owner").Obj(),
+			},
 			want: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
@@ -689,6 +695,7 @@ func TestDefault(t *testing.T) {
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Queue("default").
 				Obj(),
+			wantErr: jobframework.ErrWorkloadOwnerNotFound,
 		},
 	}
 	for name, tc := range testcases {
@@ -699,10 +706,9 @@ func TestDefault(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				)
+			clientBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace("default")).
+				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)

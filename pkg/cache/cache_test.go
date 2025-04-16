@@ -446,7 +446,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
-					resourceNode: ResourceNode{
+					resourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
 						},
@@ -887,7 +887,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: 1000,
 					},
 					FairWeight: oneQuantity,
-					resourceNode: ResourceNode{
+					resourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "f1", Resource: corev1.ResourceCPU}: 2000,
 						},
@@ -2386,7 +2386,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cases := map[string]struct {
 		ops             []func(context.Context, client.Client, *Cache) error
-		wantLocalQueues map[string]*queue
+		wantLocalQueues map[string]*LocalQueue
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -2394,7 +2394,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2435,14 +2435,14 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllClusterQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{},
+			wantLocalQueues: map[string]*LocalQueue{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*queue{},
+			wantLocalQueues: map[string]*LocalQueue{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -2450,7 +2450,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllQueues,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2498,7 +2498,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllClusterQueues,
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2546,7 +2546,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.AssumeWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2587,7 +2587,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.ForgetWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2622,7 +2622,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.DeleteWorkload(workloads[0])
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2668,7 +2668,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns1/gamma": {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
@@ -2690,7 +2690,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*queue{
+			wantLocalQueues: map[string]*LocalQueue{
 				"ns2/beta": {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
@@ -2726,7 +2726,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					t.Fatalf("Running op %d: %v", i, err)
 				}
 			}
-			cacheQueues := make(map[string]*queue)
+			cacheQueues := make(map[string]*LocalQueue)
 			for _, cacheCQ := range cache.hm.ClusterQueues() {
 				for qKey, cacheQ := range cacheCQ.localQueues {
 					if _, ok := cacheQueues[qKey]; ok {
@@ -2735,7 +2735,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					cacheQueues[qKey] = cacheQ
 				}
 			}
-			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(queue{}), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 		})
@@ -3554,7 +3554,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// cohort's SubtreeQuota contains resources from cq.
 		gotResource := cache.hm.Cohort("cohort").getResourceNode()
-		wantResource := ResourceNode{
+		wantResource := resourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
@@ -3591,7 +3591,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// cohort's SubtreeQuota contains resources from cq
 		gotResource := cache.hm.Cohort("cohort").getResourceNode()
-		wantResource := ResourceNode{
+		wantResource := resourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
@@ -3612,7 +3612,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// Cohort's SubtreeQuota no longer contains resources from CQ.
 		gotResource = cache.hm.Cohort("cohort").getResourceNode()
-		wantResource = ResourceNode{
+		wantResource = resourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000},
 			},
@@ -3645,14 +3645,14 @@ func TestCohortCycles(t *testing.T) {
 
 		// before move
 		{
-			wantRoot1 := ResourceNode{
+			wantRoot1 := resourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			wantRoot2 := ResourceNode{
+			wantRoot2 := resourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
@@ -3670,12 +3670,12 @@ func TestCohortCycles(t *testing.T) {
 		}
 		// after move
 		{
-			wantRoot1 := ResourceNode{
+			wantRoot1 := resourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			wantRoot2 := ResourceNode{
+			wantRoot2 := resourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
@@ -3712,7 +3712,7 @@ func TestCohortCycles(t *testing.T) {
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
-		wantRoot := ResourceNode{
+		wantRoot := resourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
@@ -3743,7 +3743,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// before move
 		{
-			wantRoot := ResourceNode{
+			wantRoot := resourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
@@ -3762,7 +3762,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// after move
 		{
-			wantRoot := ResourceNode{
+			wantRoot := resourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
@@ -3845,7 +3845,8 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cohorts: []*kueuealpha.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 			},
-			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			cq:            utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			wantAncestors: []kueue.CohortReference{},
 		},
 		"two level": {
 			cohorts: []*kueuealpha.Cohort{

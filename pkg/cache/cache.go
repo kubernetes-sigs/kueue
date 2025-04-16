@@ -141,7 +141,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
-		localQueues:         make(map[string]*queue),
+		localQueues:         make(map[string]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
@@ -397,7 +397,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for _, q := range queues.Items {
 		qKey := queueKey(&q)
-		qImpl := &queue{
+		qImpl := &LocalQueue{
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
@@ -732,12 +732,12 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	}
 
 	var ancestors []kueue.CohortReference
-	for cohort != nil && cohort.HasParent() {
-		ancestors = append(ancestors, cohort.Name)
-		cohort = cohort.Parent()
+
+	for ancestor := range cohort.PathSelfToRoot() {
+		ancestors = append(ancestors, ancestor.Name)
 	}
 
-	return ancestors, nil
+	return ancestors[:len(ancestors)-1], nil
 }
 
 func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {

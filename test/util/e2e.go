@@ -321,7 +321,7 @@ func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Clie
 }
 
 func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
-	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
 	return ns
 }

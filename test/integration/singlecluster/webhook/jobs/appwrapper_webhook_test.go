@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("AppWrapper Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("should suspend an AppWrapper when created in unsuspend state", func() {
 		appwrapper := testingaw.MakeAppWrapper("aw-with-queue-name", ns.Name).Suspend(false).Queue("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, appwrapper)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, appwrapper)
 
 		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
 		createdAppWrapper := &awv1beta2.AppWrapper{}

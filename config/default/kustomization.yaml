@@ -95,3 +95,15 @@ patches:
 #     kind: Service
 #     version: v1
 #     name: webhook-service
+# - name: METRICS_SERVICE_NAME
+#   objref:
+#     kind: Service
+#     version: v1
+#     name: controller-manager-metrics-service
+# - name: METRICS_SERVICE_NAMESPACE
+#   objref:
+#     kind: Service
+#     version: v1
+#     name: controller-manager-metrics-service
+#   fieldref:
+#     fieldpath: metadata.namespace

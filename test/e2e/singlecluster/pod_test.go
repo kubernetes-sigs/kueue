@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
-		gomega.Expect(k8sClient.Create(ctx, onDemandRF)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, onDemandRF)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -69,9 +69,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, cq)
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				MakeGroup(2)
 			gKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
 			for _, p := range group {
-				gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
 						Name: podconstants.SchedulingGateName}))
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			ginkgo.By("Incomplete group should not start", func() {
 				// Create incomplete group.
 				for _, p := range group[:2] {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Consistently(func(g gomega.Gomega) {
 					for _, origPod := range group[:2] {
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 			ginkgo.By("Complete group runs successfully", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
@@ -186,7 +186,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				// Use a pod template that can succeed fast.
 				rep := group[2].DeepCopy()
 				rep.Name = "replacement"
-				gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, rep)
 				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				excess.Name = "excess"
 				excessPods := sets.New(client.ObjectKeyFromObject(excess))
 				ginkgo.By("Create the excess pod", func() {
-					gomega.Expect(k8sClient.Create(ctx, excess)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, excess)
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
 					util.ExpectEventsForObjects(eventWatcher, excessPods, func(e *corev1.Event) bool {
@@ -300,7 +300,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			ginkgo.By("Replacement pod is un-gated, and the failed one is deleted", func() {
 				rep := group[0].DeepCopy()
 				rep.Name = "replacement"
-				gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, rep)
 				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
@@ -372,7 +372,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
@@ -412,7 +412,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
 			})
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Default-priority group starts", func() {
 				for _, p := range defaultPriorityGroup {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range defaultPriorityGroup {
@@ -453,7 +453,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Create the high-priority group", func() {
 				for _, p := range highPriorityGroup {
-					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range highPriorityGroup {
@@ -493,7 +493,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					rep := origPod.DeepCopy()
 					rep.Name = "replacement-for-" + rep.Name
 					rep.Spec.Containers[0].Args = util.BehaviorExitFast
-					gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, rep)
 					replacementPods = append(replacementPods, client.ObjectKeyFromObject(rep))
 				}
 			})

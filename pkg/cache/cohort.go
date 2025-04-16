@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"iter"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -29,7 +31,7 @@ type cohort struct {
 	Name kueue.CohortReference
 	hierarchy.Cohort[*clusterQueue, *cohort]
 
-	resourceNode ResourceNode
+	resourceNode resourceNode
 
 	FairWeight resource.Quantity
 }
@@ -66,7 +68,7 @@ func (c *cohort) getRootUnsafe() *cohort {
 
 // implements hierarchicalResourceNode interface.
 
-func (c *cohort) getResourceNode() ResourceNode {
+func (c *cohort) getResourceNode() resourceNode {
 	return c.resourceNode
 }
 
@@ -84,4 +86,17 @@ func (c *cohort) CCParent() hierarchy.CycleCheckable {
 
 func (c *cohort) fairWeight() *resource.Quantity {
 	return &c.FairWeight
+}
+
+// Returns all ancestors starting with self and ending with root
+func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
+	return func(yield func(*cohort) bool) {
+		cohort := c
+		for cohort != nil {
+			if !yield(cohort) {
+				return
+			}
+			cohort = cohort.Parent()
+		}
+	}
 }
