@@ -680,7 +680,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// 2. Check Node Labels against Compiled Selector
 		var nodeLabelSet labels.Set
 		if leaf.nodeLabels != nil {
-			nodeLabelSet = labels.Set(leaf.nodeLabels)
+			nodeLabelSet = leaf.nodeLabels
 		}
 		if !compiledSelector.Matches(nodeLabelSet) {
 			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
