@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -650,6 +651,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					hasOwnerRef, err := controllerutil.HasOwnerReference(createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(hasOwnerRef).To(gomega.BeTrue())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -673,6 +677,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Delete the LeaderWorkerSet", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+				})
+
+				ginkgo.By("Check workload is deleted", func() {
+					wlLookupKey := types.NamespacedName{
+						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+						Namespace: ns.Name,
+					}
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
 			})
 		})
 
@@ -695,6 +714,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+					hasOwnerRef, err := controllerutil.HasOwnerReference(createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(hasOwnerRef).To(gomega.BeTrue())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -717,6 +739,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
 						g.Expect(utilpod.HasGate(&pod, podcontroller.SchedulingGateName)).Should(gomega.BeTrue())
 					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete the LeaderWorkerSet", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+			})
+
+			ginkgo.By("Check workload is deleted", func() {
+				wlLookupKey := types.NamespacedName{
+					Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+					Namespace: ns.Name,
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
