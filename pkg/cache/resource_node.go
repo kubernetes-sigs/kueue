@@ -215,7 +215,7 @@ func WorkloadFitsInQuota(node hierarchicalResourceNode, requests resources.Flavo
 		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
 			fits = false
 		}
-		remainingRequests[fr] = CalculateRemaining(node, fr, v)
+		remainingRequests[fr] = v - localAvailable(node, fr)
 	}
 	return fits, remainingRequests
 }
