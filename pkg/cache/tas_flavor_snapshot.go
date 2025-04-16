@@ -543,7 +543,7 @@ func (s *TASFlavorSnapshot) compileNodeSelector(nodeSelectors map[string]string)
 	if len(nodeSelectors) == 0 {
 		return labels.Everything()
 	}
-	selector, err := labels.ValidatedSelectorFromSet(labels.Set(nodeSelectors))
+	selector, err := labels.ValidatedSelectorFromSet(nodeSelectors)
 	if err != nil {
 		s.log.Error(err, "invalid node selectors provided, no nodes will be matched", "selectors", nodeSelectors)
 		return labels.Nothing()
