@@ -116,12 +116,6 @@ const (
 	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 
-	// owner: @mszadkow
-	// kep: https://github.com/kubernetes-sigs/kueue/issues/3094
-	//
-	// Enable additional AdmissionCheck validation rules that will appear in status conditions.
-	AdmissionCheckValidationRules featuregate.Feature = "AdmissionCheckValidationRules"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
 	//
@@ -233,9 +227,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	AdmissionCheckValidationRules: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	KeepQuotaForProvReqRetry: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
