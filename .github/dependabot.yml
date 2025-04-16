@@ -9,6 +9,8 @@ updates:
       - "/site"
     schedule:
       interval: "weekly"
+    allow:
+      - dependency-type: "indirect"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -68,6 +70,8 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+    allow:
+      - dependency-type: "indirect"
     groups:
       kubernetes:
         patterns:
