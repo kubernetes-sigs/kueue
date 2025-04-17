@@ -345,6 +345,10 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
 func (p *Pod) Finished() (message string, success, finished bool) {
+	if p.isServing() {
+		return "", true, false
+	}
+
 	finished = true
 	success = true
 

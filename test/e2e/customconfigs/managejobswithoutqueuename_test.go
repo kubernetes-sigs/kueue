@@ -17,12 +17,14 @@ limitations under the License.
 package queuename
 
 import (
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
@@ -650,6 +652,12 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdWorkloads.Items[0].OwnerReferences).To(gomega.ContainElement(
+						gomega.BeComparableTo(metav1.OwnerReference{
+							Name: lws.Name,
+							UID:  lws.UID,
+						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))),
+					)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -673,6 +681,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Delete the LeaderWorkerSet", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+				})
+
+				ginkgo.By("Check workload is deleted", func() {
+					wlLookupKey := types.NamespacedName{
+						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+						Namespace: ns.Name,
+					}
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
 			})
 		})
 
@@ -695,6 +718,12 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+					g.Expect(createdWorkloads.Items[0].OwnerReferences).To(gomega.ContainElement(
+						gomega.BeComparableTo(metav1.OwnerReference{
+							Name: lws.Name,
+							UID:  lws.UID,
+						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))),
+					)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -717,6 +746,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
 						g.Expect(utilpod.HasGate(&pod, podcontroller.SchedulingGateName)).Should(gomega.BeTrue())
 					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete the LeaderWorkerSet", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+			})
+
+			ginkgo.By("Check workload is deleted", func() {
+				wlLookupKey := types.NamespacedName{
+					Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+					Namespace: ns.Name,
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
