@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // MPIJobWrapper wraps a Job.
@@ -203,13 +204,7 @@ func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *MPIJobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *MPIJobWrapper {
-	j.ObjectMeta.OwnerReferences = append(j.ObjectMeta.OwnerReferences, metav1.OwnerReference{
-		APIVersion: ownerGVK.GroupVersion().String(),
-		Kind:       ownerGVK.Kind,
-		Name:       ownerName,
-		UID:        types.UID(ownerName),
-		Controller: ptr.To(true),
-	})
+	testing.AppendOwnerReference(&j.MPIJob, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
 

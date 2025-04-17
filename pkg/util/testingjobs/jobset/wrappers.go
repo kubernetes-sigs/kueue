@@ -206,6 +206,6 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
-	testing.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), nil)
+	testing.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
