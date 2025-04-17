@@ -64,7 +64,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
-		"Kueue, JobSet, KubeFlow Training, KubeFlow MPI, AppWrapper, LeaderWorkerSet and KubeRay operators are available in the cluster",
+		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 
