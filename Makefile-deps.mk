@@ -81,8 +81,11 @@ yq: ## Download yq locally if necessary.
 
 HELM = $(PROJECT_DIR)/bin/helm
 .PHONY: helm
-helm: ## Download helm locally if necessary.
+helm: ## Download helm and helm-unittest locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
+	@if ! $(HELM) plugin list | grep -q unittest; then \
+		$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git; \
+	fi
 
 GENREF = $(PROJECT_DIR)/bin/genref
 .PHONY: genref
