@@ -207,9 +207,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		WorkloadOrdering:  p.workloadOrdering,
 	}
 	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
-	var targets []*Target
 	var borrowingOptions []bool
-	fits := false
 	canBorrowWithinCohort, _ := classical.IsBorrowingWithinCohortAllowed(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
 	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
@@ -234,6 +232,8 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	default:
 		borrowingOptions = []bool{true, false}
 	}
+	var targets []*Target
+	fits := false
 	for _, allowBorrowing := range borrowingOptions {
 		candidatesGenerator.Reset()
 		for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
@@ -374,9 +374,6 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) []*Target {
 	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	if len(candidates) == 0 {
-		return nil
-	}
 	sort.Slice(candidates, CandidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))

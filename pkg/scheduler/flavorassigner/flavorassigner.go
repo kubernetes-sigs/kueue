@@ -42,7 +42,9 @@ import (
 )
 
 type Assignment struct {
-	PodSets   []PodSetAssignment
+	PodSets []PodSetAssignment
+	// Borrowing is the height of the smallest cohort tree that fits
+	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
 	LastState workload.AssignmentClusterQueueState
 

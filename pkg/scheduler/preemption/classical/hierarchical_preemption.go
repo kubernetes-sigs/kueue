@@ -26,17 +26,24 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptionVariant int
+type preemptionType int
 
 const (
-	Never PreemptionVariant = iota
+	// Cannot be preempted
+	Never preemptionType = iota
+	// Candidate within the same CQ as the preemptor
 	WithinCQ
+	// Preemptor has preferential access to the resources needing preemption
+	// over the candidate, because of its CQ position in the cohort topology.
 	HiearchicalReclaim
+	// Can only be preempted if preemptor CQ (after all preemptions and the
+	// admission of the incoming workload) would not be borrowing any quota
 	ReclaimWithoutBorrowing
+	// Can be preemped even if preemptor CQ would be borrowing
 	ReclaimWhileBorrowing
 )
 
-func (m PreemptionVariant) PreemptionReason() string {
+func (m preemptionType) PreemptionReason() string {
 	switch m {
 	case WithinCQ:
 		return kueue.InClusterQueueReason
@@ -66,12 +73,9 @@ func IsBorrowingWithinCohortAllowed(cq *cache.ClusterQueueSnapshot) (bool, *int3
 	return true, borrowWithinCohort.MaxPriorityThreshold
 }
 
-// mayPreempt returns if ctx.Wl may preempt candidate wl
-// It returns one of five possible variants.
-// Preemption variant ReclaimWithoutBorrowing means that
-// wl can only be preempted by ctx.Wl if ctx.Cq would
-// not be borrowing any quota from its cohort
-func mayPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) PreemptionVariant {
+// classifyPreemptionType evaluates, based on config and priorities, the
+// preemption type for a given candidate
+func classifyPreemptionType(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) preemptionType {
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
 		return Never
 	}
@@ -136,7 +140,7 @@ func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem
 func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
 	candidates := []*candidateElem{}
 	for _, candidateWl := range cq.Workloads {
-		preemptionVariant := mayPreempt(ctx, candidateWl, hasHiearchicalAdvantage)
+		preemptionVariant := classifyPreemptionType(ctx, candidateWl, hasHiearchicalAdvantage)
 		if preemptionVariant == Never {
 			continue
 		}
@@ -175,9 +179,10 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 }
 
 // visit the nodes in the hierarchy and collect the ones that exceed quota
-// avoid subtrees that are within quota and the forbidden subtree
+// avoid subtrees that are within quota and the skipped subtree
 func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *cache.CohortSnapshot, subtreeRoot *cache.CohortSnapshot, skipSubtree *cache.CohortSnapshot, hasHierarchicalAdvantage bool, result *[]*candidateElem) {
 	for _, childCohort := range currentCohort.ChildCohorts() {
+		// we already processed this subtree
 		if childCohort == skipSubtree {
 			continue
 		}

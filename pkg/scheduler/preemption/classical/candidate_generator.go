@@ -46,7 +46,7 @@ type candidateElem struct {
 	lca *cache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
-	preemptionVariant PreemptionVariant
+	preemptionVariant preemptionType
 }
 
 // Need a separate function for candidateElem data type
@@ -157,7 +157,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 }
 
 // Reset moves the candidate iterator back to the starting position.
-// It is required to reset the iterator befor each run.
+// It is required to reset the iterator before each run.
 func (c *candidateIterator) Reset() {
 	c.runIndex = 0
 }
