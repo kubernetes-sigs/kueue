@@ -160,7 +160,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		}
 	}
 
-	if !features.Enabled((features.ManagedJobsNamespaceSelector)) {
+	if !features.Enabled(features.ManagedJobsNamespaceSelector) {
 		// Backwards compatibility: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
 		if cfg.Integrations.PodOptions == nil {
 			cfg.Integrations.PodOptions = &PodIntegrationOptions{}

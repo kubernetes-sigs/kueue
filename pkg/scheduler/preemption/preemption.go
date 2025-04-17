@@ -482,7 +482,7 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 	wlPriority := priority.Priority(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		considerSamePrio := (cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority)
+		considerSamePrio := cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority
 		preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 		for _, candidateWl := range cq.Workloads {
