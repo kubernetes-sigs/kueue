@@ -170,7 +170,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
-		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
+		AdmissionChecks:               utilmaps.DeepCopySets(c.AdmissionChecks),
 		ResourceNode:                  c.resourceNode.Clone(),
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       c.isTASOnly(),

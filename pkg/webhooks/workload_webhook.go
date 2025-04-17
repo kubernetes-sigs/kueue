@@ -184,7 +184,7 @@ func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, 
 
 func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) string { return f.Name })
+	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return f.Name })
 	for i := range oldObj.Status.AdmissionChecks {
 		oldAc := &oldObj.Status.AdmissionChecks[i]
 		newAc, found := newAcs[oldAc.Name]

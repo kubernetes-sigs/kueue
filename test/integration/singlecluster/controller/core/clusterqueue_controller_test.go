@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Resource(resourceGPU, "5", "5").Obj(),
 				).
 				Cohort("cohort").
-				AdmissionChecks(ac.Name).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Setting the admission check for the first 4 workloads")
 			for _, w := range workloads[:4] {
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -838,7 +838,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = []string{"check1"}
+				updatedCq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check1"}
 				updatedCq.Spec.AdmissionChecksStrategy = nil
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -869,7 +869,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			check = testing.MakeAdmissionCheck("check").ControllerName("check-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check)
 
-			cq = testing.MakeClusterQueue("foo-cq").AdmissionChecks(check.Name).Obj()
+			cq = testing.MakeClusterQueue("foo-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.MustCreate(ctx, k8sClient, cq)
@@ -892,7 +892,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, check.Name, kueue.CheckStateReady, true)
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
 				key := client.ObjectKeyFromObject(wl)
 				updatedWl := &kueue.Workload{}

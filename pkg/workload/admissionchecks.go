@@ -77,7 +77,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
-func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *kueue.AdmissionCheckState {
+func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
 	for i := range checks {
 		if checks[i].Name == checkName {
 			return &checks[i]
@@ -155,7 +155,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 }
 
 // HasAllChecks returns true if all the mustHaveChecks are present in the workload.
-func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
+func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}

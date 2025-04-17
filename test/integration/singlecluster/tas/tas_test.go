@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			clusterQueue = testing.MakeClusterQueue("cq").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-				).AdmissionChecks(admissionCheck.Name).Obj()
+				).AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			clusterQueue = testing.MakeClusterQueue("cq").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-				).AdmissionChecks(admissionCheck.Name).Obj()
+				).AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			gomega.Eventually(func(g gomega.Gomega) {

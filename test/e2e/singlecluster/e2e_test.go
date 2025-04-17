@@ -364,9 +364,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) {
+					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (kueue.AdmissionCheckReference, string) {
 						return createdWorkload.Status.AdmissionChecks[i].Name, ""
-					})).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+					})).Should(gomega.BeComparableTo(map[kueue.AdmissionCheckReference]string{"check1": ""}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -418,9 +418,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) {
+					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (kueue.AdmissionCheckReference, string) {
 						return createdWorkload.Status.AdmissionChecks[i].Name, ""
-					})).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+					})).Should(gomega.BeComparableTo(map[kueue.AdmissionCheckReference]string{"check1": ""}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

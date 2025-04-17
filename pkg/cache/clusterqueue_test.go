@@ -192,7 +192,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		name            string
 		cq              *kueue.ClusterQueue
 		cqStatus        metrics.ClusterQueueStatus
-		admissionChecks map[string]AdmissionCheck
+		admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck
 		wantStatus      metrics.ClusterQueueStatus
 		wantReason      string
 		wantMessage     string
@@ -201,7 +201,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Pending clusterQueue updated valid AC list",
 			cq:       cqWithAC,
 			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -223,7 +223,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
 			cq:       cqWithACStrategy,
 			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -245,7 +245,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue updated with not found AC",
 			cq:       cqWithAC,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -263,7 +263,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue with an AC strategy updated with not found AC",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -281,7 +281,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue updated with inactive AC",
 			cq:       cqWithAC,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -303,7 +303,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -325,7 +325,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: kueue.MultiKueueControllerName,
@@ -347,7 +347,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -369,7 +369,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -391,7 +391,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue updated with not found AC",
 			cq:       cqWithAC,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -409,7 +409,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -427,7 +427,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue with an AC strategy updated",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -462,8 +462,8 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 				cq.missingAdmissionChecks = nil
 				cq.inactiveAdmissionChecks = nil
 			} else {
-				cq.missingAdmissionChecks = []string{"missing-ac"}
-				cq.inactiveAdmissionChecks = []string{"inactive-ac"}
+				cq.missingAdmissionChecks = []kueue.AdmissionCheckReference{"missing-ac"}
+				cq.inactiveAdmissionChecks = []kueue.AdmissionCheckReference{"inactive-ac"}
 			}
 			cq.updateWithAdmissionChecks(tc.admissionChecks)
 

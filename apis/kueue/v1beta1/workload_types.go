@@ -386,12 +386,15 @@ type RequeueState struct {
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
 
+// AdmissionCheckReference is the name of an AdmissionCheck.
+// +kubebuilder:validation:MaxLength=316
+type AdmissionCheckReference string
+
 type AdmissionCheckState struct {
 	// name identifies the admission check.
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=316
-	Name string `json:"name"`
+	Name AdmissionCheckReference `json:"name"`
 	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
 	// +required
 	// +kubebuilder:validation:Required

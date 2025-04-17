@@ -45,7 +45,7 @@ type ClusterQueueSnapshot struct {
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
-	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
+	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.

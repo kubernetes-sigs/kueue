@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
-			AdmissionChecks(multiKueueAC.Name).
+			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
@@ -237,7 +237,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -331,7 +331,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -1033,7 +1033,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -1150,7 +1150,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
@@ -1434,9 +1434,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAC.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:  multiKueueAC.Name,
+					Name:  kueue.AdmissionCheckReference(multiKueueAC.Name),
 					State: kueue.CheckStatePending,
 				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 
@@ -1596,7 +1596,7 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, acName)
+			acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
 			g.Expect(acs).NotTo(gomega.BeNil())
 			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker2"`))

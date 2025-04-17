@@ -333,10 +333,10 @@ func TestReconcile(t *testing.T) {
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").Obj()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", baseCheck.Name, 1): {
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
-						Name:      ProvisioningRequestName("wl", baseCheck.Name, 1),
+						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
 						Labels: map[string]string{
 							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 						},
@@ -1014,7 +1014,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", baseCheck.Name, 2): {
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2): {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
 						Name:      "wl-check1-2",
@@ -1410,7 +1410,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 	cases := map[string]struct {
 		requests   []autoscaling.ProvisioningRequest
-		wantResult map[string]*autoscaling.ProvisioningRequest
+		wantResult map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest
 	}{
 		"no provisioning requests": {},
 		"two provisioning requests; 1 then 2": {
@@ -1418,7 +1418,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				*pr1Failed.DeepCopy(),
 				*pr2Created.DeepCopy(),
 			},
-			wantResult: map[string]*autoscaling.ProvisioningRequest{
+			wantResult: map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest{
 				"check": pr2Created.DeepCopy(),
 			},
 		},
@@ -1427,7 +1427,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				*pr2Created.DeepCopy(),
 				*pr1Failed.DeepCopy(),
 			},
-			wantResult: map[string]*autoscaling.ProvisioningRequest{
+			wantResult: map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest{
 				"check": pr2Created.DeepCopy(),
 			},
 		},
@@ -1437,8 +1437,8 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			workload := baseWorkload.DeepCopy()
 			checks := []kueue.AdmissionCheck{*baseCheck.DeepCopy()}
-			checkConfig := map[string]*kueue.ProvisioningRequestConfig{
-				baseCheck.Name: baseConfig.DeepCopy(),
+			checkConfig := map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig{
+				kueue.AdmissionCheckReference(baseCheck.Name): baseConfig.DeepCopy(),
 			}
 
 			builder, ctx := getClientBuilder(t.Context())
