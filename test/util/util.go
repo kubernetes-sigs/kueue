@@ -47,6 +47,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
@@ -1039,4 +1040,10 @@ func GetListOptsFromLabel(label string) *client.ListOptions {
 func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	ginkgo.GinkgoHelper()
 	gomega.ExpectWithOffset(1, c.Create(ctx, obj)).Should(gomega.Succeed())
+}
+
+func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {
+	hasOwnerRef, err := controllerutil.HasOwnerReference(ownerRefs, obj, scheme)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(hasOwnerRef).To(gomega.BeTrue())
 }

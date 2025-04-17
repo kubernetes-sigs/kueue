@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -170,11 +169,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).To(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(wl.Spec.PodSets[0].Template.Spec.Containers).To(gomega.BeComparableTo(createdJob.Spec.Template.Spec.Containers), "Check the way the job and workload is created")
-					g.Expect(createdWorkload.OwnerReferences).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.OwnerReference{
-							Name: sampleJob.Name,
-							UID:  sampleJob.UID,
-						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))))
+					util.MustHaveOwnerReference(g, createdWorkload.OwnerReferences, sampleJob, k8sClient.Scheme())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
