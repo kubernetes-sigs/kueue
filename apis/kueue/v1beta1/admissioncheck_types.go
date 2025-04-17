@@ -97,9 +97,6 @@ const (
 	// AdmissionCheckActive indicates that the controller of the admission check is
 	// ready to evaluate the checks states
 	AdmissionCheckActive string = "Active"
-
-	// FlavorIndependentAdmissionCheck indicates if the AdmissionCheck cannot be applied at ResourceFlavor level.
-	FlavorIndependentAdmissionCheck string = "FlavorIndependent"
 )
 
 // +genclient
