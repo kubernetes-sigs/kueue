@@ -7,7 +7,7 @@ description: >
   Run a RayCluster on Kueue.
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayCluster](https://docs.ray.io/en/latest/cluster/getting-started.html).
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html).
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -17,16 +17,16 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
-3. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
+3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator) for installation and configuration details of KubeRay.
 
 {{% alert title="Note" color="primary" %}}
 In order to use RayCluster, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
+You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
 {{% /alert %}}
 
 ## RayCluster definition
 
-When running [RayClusters](https://docs.ray.io/en/latest/cluster/getting-started.html) on
+When running [RayClusters](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html) on
 Kueue, take into consideration the following aspects:
 
 ### a. Queue selection
