@@ -58,7 +58,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue, JobSet and AppWrapper operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info("Kueue, JobSet, AppWrapper and LeaderWorkerSet operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 })
 
