@@ -1,0 +1,35 @@
+# This workflow syncs dependency versions for Dependabot PRs
+name: Dependabot Version Sync
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+    run-sync-hugo-version:
+        if: ${{ github.actor == 'dependabot[bot]' }}
+        runs-on: ubuntu-latest
+
+        # Permission required to edit a PR
+        permissions:
+          contents: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with: 
+                ref: ${{github.head_ref}}
+            - name: sync hugo version
+              if: ${{ contains(github.event.pull_request.title, 'hugo') }}
+              run: |
+                  make sync-hugo-version
+            - name: commit and push the changes
+              run: |
+                if ! git diff --exit-code; then
+                      git config user.name "$(git log -1 --pretty=%an)"
+                      git config user.email "$(git log -1 --pretty=%ae)"
+                      git add .
+                      git commit -m "Sync hugo version"
+                      git push
+                else
+                      echo "No changes to commit"
+                fi
