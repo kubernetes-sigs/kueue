@@ -116,12 +116,6 @@ const (
 	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 
-	// owner: @pbundyra
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
-	//
-	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
-	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
-
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -227,9 +221,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	KeepQuotaForProvReqRetry: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	ManagedJobsNamespaceSelector: {
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
