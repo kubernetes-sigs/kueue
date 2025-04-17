@@ -239,6 +239,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Beta},
 	},
 	TASProfileMostFreeCapacity: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},

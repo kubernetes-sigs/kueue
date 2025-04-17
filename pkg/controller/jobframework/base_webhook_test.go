@@ -246,7 +246,9 @@ func TestBaseWebhookDefault(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			if !tc.localQueueDefaulting {
+				features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			}
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(

@@ -147,7 +147,9 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			if !tc.localQueueDefaulting {
+				features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			}
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
