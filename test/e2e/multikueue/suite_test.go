@@ -301,7 +301,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 
-	ginkgo.GinkgoLogr.Info("Kueue and all integration operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in all the clusters",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
