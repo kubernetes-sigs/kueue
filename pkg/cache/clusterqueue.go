@@ -333,7 +333,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	provisioningAdmissionChecks := sets.New[string]()
 	var missing []string
 	var inactive []string
-	var flavorIndependentCheckOnFlavors []string
 	var perFlavorMultiKueueChecks []string
 	for acName, flavors := range c.AdmissionChecks {
 		if ac, found := checks[acName]; !found {
@@ -343,13 +342,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 				inactive = append(inactive, acName)
 			}
 			checksPerController[ac.Controller] = append(checksPerController[ac.Controller], acName)
-			if ac.SingleInstanceInClusterQueue {
-				singleInstanceControllers.Insert(ac.Controller)
-			}
-			if ac.FlavorIndependent && flavors.Len() != 0 {
-				flavorIndependentCheckOnFlavors = append(flavorIndependentCheckOnFlavors, acName)
-			}
-
 			if ac.Controller == kueue.ProvisioningRequestControllerName {
 				provisioningAdmissionChecks.Insert(acName)
 			}
@@ -368,7 +360,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	// sort the lists since c.AdmissionChecks is a map
 	slices.Sort(missing)
 	slices.Sort(inactive)
-	slices.Sort(flavorIndependentCheckOnFlavors)
 	slices.Sort(perFlavorMultiKueueChecks)
 	multiKueueChecks := sets.List(multiKueueAdmissionChecks)
 	provisioningChecks := sets.List(provisioningAdmissionChecks)

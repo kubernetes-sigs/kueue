@@ -188,12 +188,6 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
-	cqWithACPerFlavor := utiltesting.MakeClusterQueue("cq3").
-		AdmissionCheckStrategy(
-			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1", "flavor2", "flavor3").Obj(),
-		).
-		Obj()
-
 	testcases := []struct {
 		name            string
 		cq              *kueue.ClusterQueue
@@ -350,21 +344,6 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
 		{
-			name:     "Pending clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
-			cq:       cqWithACPerFlavor,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:            true,
-					Controller:        "controller1",
-					FlavorIndependent: true,
-				},
-			},
-			wantStatus:  active,
-			wantReason:  "Ready",
-			wantMessage: "Can admit new workloads",
-		},
-		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
@@ -450,38 +429,21 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			cqStatus: active,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
-					Active:                       true,
-					Controller:                   "controller1",
-					SingleInstanceInClusterQueue: true,
+					Active:     true,
+					Controller: "controller1",
 				},
 				"check2": {
 					Active:     true,
 					Controller: "controller2",
 				},
 				"check3": {
-					Active:                       true,
-					Controller:                   "controller2",
-					SingleInstanceInClusterQueue: true,
+					Active:     true,
+					Controller: "controller2",
 				},
 			},
 			wantStatus:  active,
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
-		},
-		{
-			name:     "Active clusterQueue with a FlavorIndependent MultiKueue AC applied per ResourceFlavor",
-			cq:       cqWithACPerFlavor,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:            true,
-					Controller:        kueue.MultiKueueControllerName,
-					FlavorIndependent: true,
-				},
-			},
-			wantStatus:  pending,
-			wantReason:  "MultiKueueAdmissionCheckAppliedPerFlavor",
-			wantMessage: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
 		},
 	}
 
