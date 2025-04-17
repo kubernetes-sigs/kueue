@@ -8,7 +8,7 @@ description: >
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [KubeRay's](https://github.com/ray-project/kuberay)
-[RayJob](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started.html).
+[RayJob](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html).
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
