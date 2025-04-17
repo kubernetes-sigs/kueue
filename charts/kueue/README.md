@@ -96,5 +96,6 @@ The following table lists the configurable parameters of the kueue chart and the
 | `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
 | `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
 | `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
+| `webhook.reinvocationPolicy`                           | Webhook's reinvocation policy                          | `Never`                                     |
 | `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
 | `metrics.serviceMonitor.tlsConfig`                     | service monitor for prometheus                         | abbr.                                       |
