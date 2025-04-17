@@ -322,6 +322,6 @@ func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Clie
 
 func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
 	MustCreate(ctx, k8sClient, ns)
-	ginkgo.GinkgoLogr.Info(fmt.Sprintf("Created namespace: %s", ns.Name))
+	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
 }
