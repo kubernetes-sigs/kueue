@@ -27,7 +27,6 @@ import (
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -651,9 +650,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					hasOwnerRef, err := controllerutil.HasOwnerReference(createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
-					g.Expect(err).ToNot(gomega.HaveOccurred())
-					g.Expect(hasOwnerRef).To(gomega.BeTrue())
+					util.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -714,9 +711,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-					hasOwnerRef, err := controllerutil.HasOwnerReference(createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
-					g.Expect(err).ToNot(gomega.HaveOccurred())
-					g.Expect(hasOwnerRef).To(gomega.BeTrue())
+					util.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

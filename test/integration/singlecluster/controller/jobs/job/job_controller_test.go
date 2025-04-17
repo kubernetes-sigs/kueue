@@ -478,11 +478,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-					g.Expect(createdWl.OwnerReferences).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.OwnerReference{
-							Name: job.Name,
-							UID:  job.UID,
-						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))))
+					util.MustHaveOwnerReference(g, createdWl.OwnerReferences, job, k8sClient.Scheme())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -523,14 +519,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-
-					g.Expect(createdWl.OwnerReferences).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.OwnerReference{
-							Name: job.Name,
-							UID:  job.UID,
-						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion")),
-					))
-
+					util.MustHaveOwnerReference(g, createdWl.OwnerReferences, job, k8sClient.Scheme())
 					// The workload is not marked as finished.
 					g.Expect(createdWl.Status.Conditions).ShouldNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

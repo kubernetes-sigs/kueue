@@ -878,12 +878,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								Message: "Pods succeeded: 2/2.",
 							}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						))
-						g.Expect(createdWorkload.OwnerReferences).Should(gomega.ContainElement(metav1.OwnerReference{
-							APIVersion: "v1",
-							Kind:       "Pod",
-							Name:       replacementPod.Name,
-							UID:        replacementPod.UID,
-						}))
+						util.MustHaveOwnerReference(g, createdWorkload.OwnerReferences, replacementPod, k8sClient.Scheme())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
