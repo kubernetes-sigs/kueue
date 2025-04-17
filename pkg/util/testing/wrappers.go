@@ -659,9 +659,21 @@ func (q *LocalQueueWrapper) StopPolicy(p kueue.StopPolicy) *LocalQueueWrapper {
 	return q
 }
 
+// FairSharing sets the fair sharing config.
+func (q *LocalQueueWrapper) FairSharing(fs *kueue.FairSharing) *LocalQueueWrapper {
+	q.Spec.FairSharing = fs
+	return q
+}
+
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
+	return q
+}
+
+// ReservingWorkloads updates the reservingWorkloads in status.
+func (q *LocalQueueWrapper) ReservingWorkloads(n int32) *LocalQueueWrapper {
+	q.Status.ReservingWorkloads = n
 	return q
 }
 
@@ -680,6 +692,22 @@ func (q *LocalQueueWrapper) Condition(conditionType string, status metav1.Condit
 		Message:            message,
 		ObservedGeneration: generation,
 	})
+	return q
+}
+
+func (q *LocalQueueWrapper) Active(status metav1.ConditionStatus) *LocalQueueWrapper {
+	apimeta.SetStatusCondition(&q.Status.Conditions, metav1.Condition{
+		Type:    kueue.LocalQueueActive,
+		Status:  status,
+		Reason:  "Ready",
+		Message: "Can submit new workloads to localQueue",
+	})
+	return q
+}
+
+// AdmittedWorkloads updates the admittedWorkloads in status.
+func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.FairSharingStatus) *LocalQueueWrapper {
+	q.Status.FairSharingStatus = *status
 	return q
 }
 
@@ -768,6 +796,24 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
 	}
 	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
+	return c
+}
+
+func (c *ClusterQueueWrapper) AdmissionMode(am kueue.AdmissionMode) *ClusterQueueWrapper {
+	if c.Spec.AdmissionScope == nil {
+		c.Spec.AdmissionScope = &kueue.AdmissionScope{}
+	}
+	c.Spec.AdmissionScope.AdmissionMode = am
+	return c
+}
+
+func (c *ClusterQueueWrapper) Active(status metav1.ConditionStatus) *ClusterQueueWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    kueue.ClusterQueueActive,
+		Status:  status,
+		Reason:  "By test",
+		Message: "by test",
+	})
 	return c
 }
 

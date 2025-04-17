@@ -447,6 +447,7 @@ type PreemptionStrategy string
 const (
 	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
+	NoPreemption                PreemptionStrategy = "NoPreemption"
 )
 
 type FairSharing struct {
@@ -469,6 +470,25 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
+	// - NoPreemption: Never preempt a workload.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+
+	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
+	// +optional
+	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
+}
+
+type AdmissionFairSharing struct {
+	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
+	// If set to 0, usage will be reset to 0.
+	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime,omitempty"`
+
+	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
+
+	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue/ClusterQueue/Cohort's
+	// resource usage and order Workloads.
+	// Defaults to 1.
+	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
 }

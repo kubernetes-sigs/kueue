@@ -15,6 +15,47 @@ description: Generated API reference documentation for Kueue Configuration.
     
     
 
+## `AdmissionFairSharing`     {#AdmissionFairSharing}
+    
+
+**Appears in:**
+
+- [FairSharing](#FairSharing)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>usageHalfLifeTime</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half
+If set to 0, usage will be reset to 0.</p>
+</td>
+</tr>
+<tr><td><code>usageSamplingInterval</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus</p>
+</td>
+</tr>
+<tr><td><code>resourceWeights</code> <B>[Required]</B><br/>
+<code>map[ResourceName]float64</code>
+</td>
+<td>
+   <p>resourceWeights assigns weights to resources which then are used to calculate LocalQueue/ClusterQueue/Cohort's
+resource usage and order Workloads.
+Defaults to 1.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ClientConnection`     {#ClientConnection}
     
 
@@ -481,9 +522,17 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.
+newest start time first.</li>
+<li>NoPreemption: Never preempt a workload.
 The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>admissionFairSharing</code><br/>
+<a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+</td>
+<td>
+   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
 </tbody>

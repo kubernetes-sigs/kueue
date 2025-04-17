@@ -19,9 +19,11 @@ package fairsharing
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -68,13 +70,23 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
-	fairSharing := &config.FairSharing{Enable: true}
+	fairSharing := &config.FairSharing{
+		Enable: true,
+		AdmissionFairSharing: &config.AdmissionFairSharing{
+			UsageHalfLifeTime: metav1.Duration{
+				Duration: 250 * time.Microsecond,
+			},
+			UsageSamplingInterval: metav1.Duration{
+				Duration: 250 * time.Millisecond,
+			},
+		},
+	}
 
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithFairSharing(fairSharing))
 
 	configuration := &config.Configuration{FairSharing: fairSharing}
 	configuration.Metrics.EnableClusterQueueResources = true

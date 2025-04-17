@@ -2196,6 +2196,18 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_low", kueue.InCohortFairSharingReason)),
 		},
+		"NoPreemption strategy; no preemption even if off balanced": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.NoPreemption},
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b_low", "").Priority(0).Request(corev1.ResourceCPU, "5").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b_high", "").Priority(1).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "1").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
+		},
 		"preempt workload that doesn't transfer the imbalance, even if high priority": {
 			clusterQueues: baseCQs,
 			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},

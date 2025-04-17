@@ -103,3 +103,17 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 	}
 	return float64(q.MilliValue()) / 1000
 }
+
+// MulByFloat multiplies every element in q by f.
+// It first mutiplies f by 1 000 to mitigate further precision loss, and then leverages
+// k8s.io/apimachinery/pkg/api/resource package to provide precision to 3 decimal places
+func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
+	ret := q.DeepCopy()
+	scaleFact := f * 1_000
+	for k, v := range ret {
+		scaledV := float64(v.MilliValue()) * scaleFact
+		scaledV /= 1_000
+		ret[k] = *resource.NewMilliQuantity(int64(scaledV), resource.DecimalSI)
+	}
+	return ret
+}

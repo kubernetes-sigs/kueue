@@ -485,7 +485,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateFlavorUsage(frUsage, lq.totalReserved, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
-			updateFlavorUsage(frUsage, lq.admittedUsage, m)
+			lq.UpdateAdmittedUsage(frUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
@@ -529,7 +529,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			updateFlavorUsage(frq, qImpl.totalReserved, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				updateFlavorUsage(frq, qImpl.admittedUsage, 1)
+				qImpl.UpdateAdmittedUsage(frq, 1)
 				qImpl.admittedWorkloads++
 			}
 		}
@@ -566,6 +566,8 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 
 func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
+	q.Lock()
+	defer q.Unlock()
 	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }

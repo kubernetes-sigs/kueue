@@ -41,3 +41,7 @@ func LessThanOrEqualToFinalShare(preemptorNewShare PreemptorNewShare, _ TargetOl
 func LessThanInitialShare(preemptorNewShare PreemptorNewShare, targetOldShare TargetOldShare, _ TargetNewShare) bool {
 	return int(preemptorNewShare) < int(targetOldShare)
 }
+
+func NoPreemption(_ PreemptorNewShare, _ TargetOldShare, _ TargetNewShare) bool {
+	return false
+}

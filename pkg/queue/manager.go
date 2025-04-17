@@ -47,6 +47,7 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	fairSharing                 *config.FairSharing
 }
 
 // Option configures the manager.
@@ -55,6 +56,12 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+}
+
+func WithFairSharing(cfg *config.FairSharing) Option {
+	return func(o *options) {
+		o.fairSharing = cfg
+	}
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -101,6 +108,8 @@ type Manager struct {
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 
 	topologyUpdateWatchers []TopologyUpdateWatcher
+
+	fairSharingConfig *config.FairSharing
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -121,6 +130,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
+		fairSharingConfig:      options.fairSharing,
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -162,7 +172,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	cqImpl, err := newClusterQueue(cq, m.workloadOrdering)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.fairSharingConfig)
 	if err != nil {
 		return err
 	}
@@ -233,6 +243,17 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		}
 		m.Broadcast()
 	}
+	return nil
+}
+
+func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+	if cqImpl == nil {
+		return ErrClusterQueueDoesNotExist
+	}
+	cqImpl.Heapify(lqName)
 	return nil
 }
 

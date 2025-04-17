@@ -20,7 +20,8 @@ package v1beta1
 // FairSharingStatusApplyConfiguration represents a declarative configuration of the FairSharingStatus type for use
 // with apply.
 type FairSharingStatusApplyConfiguration struct {
-	WeightedShare *int64 `json:"weightedShare,omitempty"`
+	WeightedShare              *int64                                        `json:"weightedShare,omitempty"`
+	AdmissionFairSharingStatus *AdmissionFairSharingStatusApplyConfiguration `json:"admissionFairSharingStatus,omitempty"`
 }
 
 // FairSharingStatusApplyConfiguration constructs a declarative configuration of the FairSharingStatus type for use with
@@ -34,5 +35,13 @@ func FairSharingStatus() *FairSharingStatusApplyConfiguration {
 // If called multiple times, the WeightedShare field is set to the value of the last call.
 func (b *FairSharingStatusApplyConfiguration) WithWeightedShare(value int64) *FairSharingStatusApplyConfiguration {
 	b.WeightedShare = &value
+	return b
+}
+
+// WithAdmissionFairSharingStatus sets the AdmissionFairSharingStatus field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AdmissionFairSharingStatus field is set to the value of the last call.
+func (b *FairSharingStatusApplyConfiguration) WithAdmissionFairSharingStatus(value *AdmissionFairSharingStatusApplyConfiguration) *FairSharingStatusApplyConfiguration {
+	b.AdmissionFairSharingStatus = value
 	return b
 }

@@ -16,7 +16,11 @@ limitations under the License.
 
 package v1beta1
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // FairSharing contains the properties of the ClusterQueue or Cohort,
 // when participating in FairSharing.
@@ -49,4 +53,30 @@ type FairSharingStatus struct {
 	// weight of zero and is borrowing, this will return
 	// 9223372036854775807, the maximum possible share value.
 	WeightedShare int64 `json:"weightedShare"`
+
+	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
+	AdmissionFairSharingStatus *AdmissionFairSharingStatus `json:"admissionFairSharingStatus,omitempty"`
 }
+
+type AdmissionFairSharingStatus struct {
+	// ConsumedResources represents the aggregated usage of resources over time,
+	// with decaying function applied.
+	// The value is populated if usage consumption functionality is enabled in Kueue config.
+	ConsumedResources corev1.ResourceList `json:"consumedResources,omitempty"`
+
+	// LastUpdate is the time when share and consumed resources were updated.
+	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
+}
+
+type AdmissionScope struct {
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
+}
+
+type AdmissionMode string
+
+const (
+	// FairSharing based on usage, with QueuingStrategy as defined in CQ.
+	UsageBasedFairSharing AdmissionMode = "UsageBasedFairSharing"
+
+	NoFairSharing AdmissionMode = "NoFairSharing"
+)

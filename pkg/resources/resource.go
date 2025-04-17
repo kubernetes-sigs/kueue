@@ -43,3 +43,11 @@ func (q FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(temp)
 }
+
+func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
+	result := Requests{}
+	for key, val := range frq {
+		result[key.Resource] += val
+	}
+	return result
+}

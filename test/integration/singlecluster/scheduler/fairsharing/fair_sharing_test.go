@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -390,6 +391,78 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(chemistryQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
+		})
+	})
+
+	ginkgo.When("Using AdmissionFairSharing", func() {
+		var (
+			cq  *kueue.ClusterQueue
+			lqA *kueue.LocalQueue
+			lqB *kueue.LocalQueue
+			lqC *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("cq").
+				ResourceGroup(*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "32").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyNever}).
+				QueueingStrategy(kueue.StrictFIFO).
+				AdmissionMode(kueue.UsageBasedFairSharing).
+				Obj()
+			cqs = append(cqs, cq)
+			util.MustCreate(ctx, k8sClient, cq)
+
+			lqA = testing.MakeLocalQueue("lq-a", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			lqB = testing.MakeLocalQueue("lq-b", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			lqC = testing.MakeLocalQueue("lq-c", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			lqs = append(lqs, lqA)
+			lqs = append(lqs, lqB)
+			lqs = append(lqs, lqC)
+			util.MustCreate(ctx, k8sClient, lqA)
+			util.MustCreate(ctx, k8sClient, lqB)
+			util.MustCreate(ctx, k8sClient, lqC)
+		})
+
+		ginkgo.It("should promote a workload from LQ with lower recent usage", func() {
+			ginkgo.By("Creating a workload")
+			wl := createWorkload("lq-a", "32")
+
+			ginkgo.By("Admitting the workload")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+
+			ginkgo.By("Checking that LQ's resource usage is updated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).Should(gomega.Succeed())
+					g.Expect(lqA.Status.FairSharingStatus).ShouldNot(gomega.BeNil())
+					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("32")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating two pending workloads")
+			wlA := createWorkload("lq-a", "32")
+			wlB := createWorkload("lq-b", "32")
+
+			ginkgo.By("Finish the previous workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					util.FinishWorkloads(ctx, k8sClient, wl)
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCQ)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Admitting the workload from LQ-b, which has lower recent usage")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlA)
 		})
 	})
 })
