@@ -68,6 +68,12 @@ func (r Requests) Mul(f int64) {
 	}
 }
 
+func (r Requests) MulByFloat(f float64) {
+	for k, v := range r {
+		r[k] = int64(f * float64(v))
+	}
+}
+
 func (r Requests) Add(addRequests Requests) {
 	for k, v := range addRequests {
 		r[k] += v

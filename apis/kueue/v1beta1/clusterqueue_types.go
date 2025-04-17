@@ -130,6 +130,10 @@ type ClusterQueueSpec struct {
 	// if FairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
+	// +optional
+	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
@@ -148,6 +152,19 @@ type AdmissionCheckStrategyRule struct {
 	// +optional
 	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
+
+type AdmissionScope struct {
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
+}
+
+type AdmissionMode string
+
+const (
+	// FairSharing based on usage, with QueuingStrategy as defined in CQ.
+	UsageBasedFairSharing AdmissionMode = "UsageBasedFairSharing"
+
+	NoFairSharing AdmissionMode = "NoFairSharing"
+)
 
 type QueueingStrategy string
 

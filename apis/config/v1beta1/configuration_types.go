@@ -449,6 +449,13 @@ const (
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
 )
 
+type FairSharingMode string
+
+const (
+	PreemptionBasedMode FairSharingMode = "PreemptionBased"
+	AdmissionTimeMode   FairSharingMode = "AdmissionTime"
+)
+
 type FairSharing struct {
 	// enable indicates whether to enable Fair Sharing for all cohorts.
 	// Defaults to false.
@@ -471,4 +478,24 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+
+	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
+	// +optional
+	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
+}
+
+type AdmissionFairSharing struct {
+	// usageHalfLifeDecayTime indicates the time after which the current usage will decay by a half
+	UsageHalfLifeDecayTime metav1.Duration `json:"usageHalfLifeDecayTime,omitempty"`
+
+	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
+
+	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue/ClusterQueue/Cohort's
+	// resource usage and order Workloads.
+	// Defaults to 1.
+	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
+
+	// resetInactivityPeriod defines period after which the consumedResources in FairSharingStatus is zeroed if it wasn't updated
+	ResetInactivityPeriod metav1.Duration `json:"usageSamplingFrequency,omitempty"`
 }

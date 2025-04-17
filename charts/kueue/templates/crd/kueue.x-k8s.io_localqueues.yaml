@@ -80,6 +80,31 @@ spec:
                 x-kubernetes-validations:
                 - message: field is immutable
                   rule: self == oldSelf
+              fairSharing:
+                description: |-
+                  fairSharing defines the properties of the LocalQueue when
+                  participating in FairSharing.  The values are only relevant
+                  if FairSharing is enabled in the Kueue configuration.
+                properties:
+                  weight:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1
+                    description: |-
+                      weight gives a comparative advantage to this ClusterQueue
+                      or Cohort when competing for unused resources in the
+                      Cohort.  The share is based on the dominant resource usage
+                      above nominal quotas for each resource, divided by the
+                      weight.  Admission prioritizes scheduling workloads from
+                      ClusterQueues and Cohorts with the lowest share and
+                      preempting workloads from the ClusterQueues and Cohorts
+                      with the highest share.  A zero weight implies infinite
+                      share value, meaning that this Node will always be at
+                      disadvantage against other ClusterQueues and Cohorts.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
               stopPolicy:
                 default: None
                 description: |-
@@ -168,6 +193,46 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              fairSharingStatus:
+                description: FairSharing contains the information about the current
+                  status of fair sharing.
+                properties:
+                  admissionFairSharingStatus:
+                    description: admissionFairSharingStatus represents information
+                      relevant to the Admission Fair Sharing
+                    properties:
+                      consumedResources:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          ConsumedResources represents the aggregated usage of resources over time,
+                          with decaying function applied.
+                          The value is populated if usage consumption functionality is enabled in Kueue config.
+                        type: object
+                      lastUpdate:
+                        description: LastUpdate is the time when share and consumed
+                          resources were updated.
+                        format: date-time
+                        type: string
+                    type: object
+                  weightedShare:
+                    description: |-
+                      WeightedShare represents the maximum of the ratios of usage
+                      above nominal quota to the lendable resources in the
+                      Cohort, among all the resources provided by the Node, and
+                      divided by the weight.  If zero, it means that the usage of
+                      the Node is below the nominal quota.  If the Node has a
+                      weight of zero and is borrowing, this will return
+                      9223372036854775807, the maximum possible share value.
+                    format: int64
+                    type: integer
+                required:
+                - weightedShare
+                type: object
               flavorUsage:
                 description: |-
                   flavorsUsage are the used quotas, by flavor currently in use by the

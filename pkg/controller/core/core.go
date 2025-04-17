@@ -43,14 +43,15 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
-	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc)
+	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
+		WithFairSharingConfig(cfg.FairSharing))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
 
 	var fairSharingEnabled bool
 	if cfg.FairSharing != nil {
-		fairSharingEnabled = cfg.FairSharing.Enable
+		fairSharingEnabled = cfg.FairSharing.Enable && len(cfg.FairSharing.PreemptionStrategies) > 0
 	}
 
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
