@@ -156,6 +156,8 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 	return true
 }
 
+// Reset moves the candidate iterator back to the starting position.
+// It is required to reset the iterator befor each run.
 func (c *candidateIterator) Reset() {
 	c.runIndex = 0
 }
