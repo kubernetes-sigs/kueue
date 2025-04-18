@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -163,16 +162,13 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	requeueAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
+	err = c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
 		return reconcile.Result{}, err
 	}
 
-	if requeueAfter != nil {
-		return reconcile.Result{RequeueAfter: *requeueAfter}, nil
-	}
 	return reconcile.Result{}, nil
 }
 
@@ -228,9 +224,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 	wlInfo *workloadInfo,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
-) (*time.Duration, error) {
+) error {
 	log := ctrl.LoggerFrom(ctx)
-	var requeAfter *time.Duration
 	for checkName, prc := range checkConfig {
 		if prc == nil {
 			// the check is not active
@@ -285,7 +280,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 				ps, psFound := podSetMap[psName]
 				psa, psaFound := psaMap[psName]
 				if !psFound || !psaFound {
-					return nil, errInconsistentPodSetAssignments
+					return errInconsistentPodSetAssignments
 				}
 
 				ptName := getProvisioningRequestPodTemplateName(requestName, psName)
@@ -293,14 +288,14 @@ func (c *Controller) syncOwnedProvisionRequest(
 				pt := &corev1.PodTemplate{}
 				err := c.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ptName}, pt)
 				if client.IgnoreNotFound(err) != nil {
-					return nil, err
+					return err
 				}
 				if err != nil {
 					// it's a not found, so create it
 					_, err := c.createPodTemplate(ctx, wl, ptName, ps, psa)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return nil, c.handleError(ctx, wl, ac, msg, err)
+						return c.handleError(ctx, wl, ac, msg, err)
 					}
 				}
 
@@ -313,21 +308,21 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 
 			if err := ctrl.SetControllerReference(wl, req, c.client.Scheme()); err != nil {
-				return nil, err
+				return err
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
-				return nil, c.handleError(ctx, wl, ac, msg, err)
+				return c.handleError(ctx, wl, ac, msg, err)
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return requeAfter, nil
+	return nil
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
