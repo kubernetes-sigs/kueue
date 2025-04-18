@@ -81,7 +81,7 @@ as a part of the Preemptive FS implementation in hierarchical structure).
 
 ```go
 type FairSharingStatus struct {
-	// WeightShare represents the usage above nominal quota, with the weight applied in.
+	// WeightedShare represents the usage above nominal quota, with the weight applied in.
 	// The bigger the value is the more shared resources has been allocated and the less 
 	// entitled the queue is for more shared resources. 
 	// The exact details and the interpretation of the value depends on 
