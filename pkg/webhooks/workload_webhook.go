@@ -289,6 +289,18 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 	if old == nil || new == nil {
 		return nil
 	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
+			return apivalidation.ValidateImmutableField(new, old, path)
+		}
+		// override the old values for the TopologyAssignment to allow setting it
+		for i := range new.PodSetAssignments {
+			if old.PodSetAssignments[i].TopologyAssignment == nil {
+				old.PodSetAssignments[i].TopologyAssignment =
+					new.PodSetAssignments[i].TopologyAssignment
+			}
+		}
+	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 

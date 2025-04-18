@@ -313,8 +313,8 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.popCycle++
+	c.inflight = nil
 	if c.heap.Len() == 0 {
-		c.inflight = nil
 		return nil
 	}
 	c.inflight = c.heap.Pop()

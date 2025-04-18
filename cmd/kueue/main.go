@@ -219,6 +219,7 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
 	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
+	queueOptions = append(queueOptions, queue.WithSecondPassChecker(cCache))
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	ctx := ctrl.SetupSignalHandler()

@@ -178,9 +178,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	// 1. Get the heads from the queues, including their desired clusterQueue.
-	// This operation blocks while the queues are empty.
-	headWorkloads := s.queues.Heads(ctx)
+	// 1. Select candidates for scheduling, it blocks if there are no candidates
+	headWorkloads := s.selectCandidates(ctx)
 	// If there are no elements, it means that the program is finishing.
 	if len(headWorkloads) == 0 {
 		return wait.KeepGoing
@@ -307,6 +306,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+func (s *Scheduler) selectCandidates(ctx context.Context) []workload.Info {
+	// 1. Get the heads from the queues, including their desired clusterQueue.
+	// This operation blocks while the queues are empty.
+	return s.queues.Heads(ctx)
 }
 
 type entryStatus string
@@ -508,7 +513,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
-	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
+	allowUpdate := s.queues.IsSecondPassReady(e.Obj)
+	if err := s.cache.AssumeWorkloadWithOpts(newWorkload, allowUpdate); err != nil {
 		return err
 	}
 	e.status = assumed
@@ -575,6 +581,13 @@ func (e entryOrdering) Swap(i, j int) {
 func (e entryOrdering) Less(i, j int) bool {
 	a := e.entries[i]
 	b := e.entries[j]
+
+	// Already has quota reserved
+	aHasQuota := workload.HasQuotaReservation(a.Info.Obj)
+	bHasQuota := workload.HasQuotaReservation(b.Info.Obj)
+	if aHasQuota != bHasQuota {
+		return aHasQuota
+	}
 
 	// 1. Request under nominal quota.
 	aBorrows := a.assignment.Borrows()

@@ -765,6 +765,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
+		if r.queues.IsSecondPassReady(e.ObjectNew) {
+			r.queues.QueueWorkloadForSecondPass(e.ObjectNew)
+		}
 	}
 
 	return true

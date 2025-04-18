@@ -562,23 +562,6 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
 		},
 		{
-			name: "TAS do not support ProvisioningRequest AdmissionCheck",
-			cq: utiltesting.MakeClusterQueue("cq").
-				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
-						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
-				).Obj(),
-			updatedCq: utiltesting.MakeClusterQueue("cq").
-				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
-						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
-				).AdmissionChecks("pr-check").Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
-		},
-		{
 			name:         "Referenced TAS flavor without topology",
 			skipTopology: true,
 			cq: utiltesting.MakeClusterQueue("cq").
