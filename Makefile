@@ -166,6 +166,11 @@ helm-verify: helm helm-lint ## run helm template and detect any rendering failur
 	$(HELM) template charts/kueue > /dev/null
 # test nondefault options (kueueviz, prometheus, certmanager)
 	$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
+
+.PHONY: helm-unit-test
+helm-unit-test: helm
+	$(HELM) unittest charts/kueue --strict --debug
+
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
@@ -188,7 +193,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue/templates client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify prepare-release-branch sync-hugo-version
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
