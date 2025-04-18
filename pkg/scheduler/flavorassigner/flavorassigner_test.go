@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2318,6 +2319,138 @@ func TestLastAssignmentOutdated(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := lastAssignmentOutdated(tt.args.wl, tt.args.cq); got != tt.want {
 				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// We have 3 flavors: one, two, three and a 3-level cohort hierarchy where
+// each cohort get 4 units of CPU in a different flavor.
+func TestHierarchical(t *testing.T) {
+	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
+	cases := map[string]struct {
+		workloadRequests       *utiltesting.PodSetWrapper
+		testClusterQueueUsage  resources.FlavorResourceQuantities
+		otherClusterQueueUsage resources.FlavorResourceQuantities
+		flavorFungibility      *kueue.FlavorFungibility
+		wantMode               FlavorAssignmentMode
+		wantAssigment          rfMap
+	}{
+		"Select the top flavor": {
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 4_000,
+			},
+			otherClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "two", Resource: corev1.ResourceCPU}: 4_000,
+			},
+			wantMode:      Fit,
+			wantAssigment: rfMap{corev1.ResourceCPU: "three"},
+		},
+		"Select the first flavor which fits": {
+			workloadRequests: utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 4_000,
+			},
+			wantMode:      Fit,
+			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"one":   utiltesting.MakeResourceFlavor("one").Obj(),
+				"two":   utiltesting.MakeResourceFlavor("two").Obj(),
+				"three": utiltesting.MakeResourceFlavor("three").Obj(),
+			}
+			cohorts := []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("three").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("three").
+						Resource(corev1.ResourceCPU, "4").
+						Obj()).Obj(),
+				utiltesting.MakeCohort("two").
+					Parent("three").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4").
+						Obj()).Obj(),
+				utiltesting.MakeCohort("one").
+					Parent("two").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4").
+						Obj()).Obj(),
+			}
+			testCq := utiltesting.MakeClusterQueue("test-clusterqueue").
+				Cohort("one").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.TryNextFlavor,
+				}).ClusterQueue
+			otherCq := utiltesting.MakeClusterQueue("other-clusterqueue").
+				Cohort("two").ResourceGroup(
+				utiltesting.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+				utiltesting.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+				utiltesting.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+			).ClusterQueue
+
+			wlInfo := workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						tc.workloadRequests.PodSet,
+					},
+				},
+			})
+
+			if tc.flavorFungibility != nil {
+				testCq.Spec.FlavorFungibility = tc.flavorFungibility
+			}
+			cache := cache.New(utiltesting.NewFakeClient())
+			for _, cohort := range cohorts {
+				if err := cache.AddOrUpdateCohort(cohort); err != nil {
+					t.Fatalf("Couldn't add Cohort to cache: %v", err)
+				}
+			}
+			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
+			}
+			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(rf)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			otherClusterQueue := snapshot.ClusterQueue("other-clusterqueue")
+			otherClusterQueue.AddUsage(workload.Usage{Quota: tc.otherClusterQueueUsage})
+
+			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
+			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
+
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
+			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
+			assignment := flvAssigner.Assign(log, nil)
+			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
+				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
+			}
+			if len(assignment.PodSets[0].Flavors) != len(tc.wantAssigment) {
+				t.Errorf("Wrong number of flavors. got %d, want %d", len(assignment.PodSets[0].Flavors), len(tc.wantAssigment))
+			}
+			for resourceName, wantFlavor := range tc.wantAssigment {
+				if gotFlavor := assignment.PodSets[0].Flavors[resourceName].Name; gotFlavor != wantFlavor {
+					t.Errorf("Unexpected flavor. got %s, want %s", gotFlavor, wantFlavor)
+				}
 			}
 		})
 	}

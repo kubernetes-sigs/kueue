@@ -26,11 +26,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type preemptionType int
+type preemptionVariant int
 
 const (
 	// Cannot be preempted
-	Never preemptionType = iota
+	Never preemptionVariant = iota
 	// Candidate within the same CQ as the preemptor
 	WithinCQ
 	// Preemptor has preferential access to the resources needing preemption
@@ -43,7 +43,7 @@ const (
 	ReclaimWhileBorrowing
 )
 
-func (m preemptionType) PreemptionReason() string {
+func (m preemptionVariant) PreemptionReason() string {
 	switch m {
 	case WithinCQ:
 		return kueue.InClusterQueueReason
@@ -73,9 +73,9 @@ func IsBorrowingWithinCohortAllowed(cq *cache.ClusterQueueSnapshot) (bool, *int3
 	return true, borrowWithinCohort.MaxPriorityThreshold
 }
 
-// classifyPreemptionType evaluates, based on config and priorities, the
+// classifyPreemptionVariant evaluates, based on config and priorities, the
 // preemption type for a given candidate
-func classifyPreemptionType(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) preemptionType {
+func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) preemptionVariant {
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
 		return Never
 	}
@@ -140,7 +140,7 @@ func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem
 func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
 	candidates := []*candidateElem{}
 	for _, candidateWl := range cq.Workloads {
-		preemptionVariant := classifyPreemptionType(ctx, candidateWl, hasHiearchicalAdvantage)
+		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, hasHiearchicalAdvantage)
 		if preemptionVariant == Never {
 			continue
 		}

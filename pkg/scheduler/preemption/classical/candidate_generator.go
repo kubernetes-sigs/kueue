@@ -46,7 +46,7 @@ type candidateElem struct {
 	lca *cache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
-	preemptionVariant preemptionType
+	preemptionVariant preemptionVariant
 }
 
 // Need a separate function for candidateElem data type
