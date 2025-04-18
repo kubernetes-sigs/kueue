@@ -17,25 +17,23 @@ limitations under the License.
 package queue
 
 import (
-	"fmt"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // Key is the key used to index the queue.
-func Key(q *kueue.LocalQueue) string {
-	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+func Key(q *kueue.LocalQueue) kueue.LocalQueueReference {
+	return kueue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }
 
-func DefaultQueueKey(namespace string) string {
-	return fmt.Sprintf("%s/%s", namespace, constants.DefaultLocalQueueName)
+func DefaultQueueKey(namespace string) kueue.LocalQueueReference {
+	return kueue.NewLocalQueueReference(namespace, constants.DefaultLocalQueueName)
 }
 
 // LocalQueue is the internal implementation of kueue.LocalQueue.
 type LocalQueue struct {
-	Key          string
+	Key          kueue.LocalQueueReference
 	ClusterQueue kueue.ClusterQueueReference
 
 	items map[string]*workload.Info
@@ -71,7 +69,7 @@ func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
 			result++
 		}
 	}
-	if c.inflight != nil && workloadKey(c.inflight) == lq.Key {
+	if c.inflight != nil && workloadKey(c.inflight) == string(lq.Key) {
 		result++
 	}
 	return result

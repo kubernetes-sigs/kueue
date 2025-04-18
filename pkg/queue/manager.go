@@ -89,7 +89,7 @@ type Manager struct {
 
 	client        client.Client
 	statusChecker StatusChecker
-	localQueues   map[string]*LocalQueue
+	localQueues   map[kueue.LocalQueueReference]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
 	snapshots      map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload
@@ -111,7 +111,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 	m := &Manager{
 		client:         client,
 		statusChecker:  checker,
-		localQueues:    make(map[string]*LocalQueue),
+		localQueues:    make(map[kueue.LocalQueueReference]*LocalQueue),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
 		workloadOrdering: workload.Ordering{
@@ -441,7 +441,7 @@ func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey string) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey kueue.LocalQueueReference) {
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
@@ -677,17 +677,13 @@ func (m *Manager) PendingWorkloadsInfo(cqName kueue.ClusterQueueReference) []*wo
 
 // ClusterQueueFromLocalQueue returns ClusterQueue name and whether it's found,
 // given a QueueKey(namespace/localQueueName) as the parameter
-func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey kueue.LocalQueueReference) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if lq, ok := m.localQueues[localQueueKey]; ok {
 		return lq.ClusterQueue, true
 	}
 	return "", false
-}
-
-func QueueKey(namespace, name string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the

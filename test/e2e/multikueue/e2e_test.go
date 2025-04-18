@@ -439,7 +439,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
-				Queue(managerLq.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit("cpu", "1").
 				RequestAndLimit("memory", "2G").
 				TerminationGracePeriod(1).

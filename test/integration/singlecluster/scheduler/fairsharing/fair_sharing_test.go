@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		return cq
 	}
 
-	var createWorkloadWithPriority = func(queue string, cpuRequests string, priority int32) *kueue.Workload {
+	var createWorkloadWithPriority = func(queue kueue.LocalQueueName, cpuRequests string, priority int32) *kueue.Workload {
 		wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
 			Priority(priority).
 			Queue(queue).
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		return wl
 	}
 
-	var createWorkload = func(queue string, cpuRequests string) *kueue.Workload {
+	var createWorkload = func(queue kueue.LocalQueueName, cpuRequests string) *kueue.Workload {
 		return createWorkloadWithPriority(queue, cpuRequests, 0)
 	}
 
@@ -357,8 +357,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("all capacity used")
 			for range 6 {
-				createWorkloadWithPriority(bestEffortQueue.GetName(), "1", -1)
-				createWorkloadWithPriority(physicsQueue.GetName(), "1", -1)
+				createWorkloadWithPriority(kueue.LocalQueueName(bestEffortQueue.GetName()), "1", -1)
+				createWorkloadWithPriority(kueue.LocalQueueName(physicsQueue.GetName()), "1", -1)
 			}
 			expectCohortWeightedShare("best-effort", 1000)
 			expectCohortWeightedShare("physics", 500)
@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("create high priority workloads")
 			for range 6 {
 				for _, cq := range cqs {
-					createWorkloadWithPriority(cq.GetName(), "1", 100)
+					createWorkloadWithPriority(kueue.LocalQueueName(cq.GetName()), "1", 100)
 				}
 			}
 

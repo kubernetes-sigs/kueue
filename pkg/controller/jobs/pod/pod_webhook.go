@@ -175,7 +175,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			if pod.pod.Labels == nil {
 				pod.pod.Labels = make(map[string]string)
 			}
-			pod.pod.Labels[ctrlconstants.QueueLabel] = ctrlconstants.DefaultLocalQueueName
+			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName

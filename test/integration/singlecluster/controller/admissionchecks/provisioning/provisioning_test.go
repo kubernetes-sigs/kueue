@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			wl := testing.MakeWorkload("wl", ns.Name).
-				Queue(lq.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
@@ -937,7 +937,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			wl := testing.MakeWorkload("wl", ns.Name).
-				Queue(lq.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").

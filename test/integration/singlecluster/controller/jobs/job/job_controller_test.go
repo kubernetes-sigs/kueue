@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 		gomega.Expect(metav1.IsControlledBy(createdWorkload, job)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 
 		createdTime := createdWorkload.CreationTimestamp
@@ -133,8 +133,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
-		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+		var jobQueueName kueue.LocalQueueName = "test-queue"
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: string(jobQueueName)}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.It("Should reconcile job when queueName set by annotation (deprecated)", func() {
 		ginkgo.By("checking the workload is created with correct queue name assigned")
-		jobQueueName := "test-queue"
+		var jobQueueName kueue.LocalQueueName = "test-queue"
 		job := testingjob.MakeJob(jobName, ns.Name).QueueNameAnnotation("test-queue").Obj()
 		util.MustCreate(ctx, k8sClient, job)
 		createdWorkload := &kueue.Workload{}
@@ -373,7 +373,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		ginkgo.It("Should not update the queue name of the workload with an empty value that the child job has", func() {
-			jobQueueName := "test-queue"
+			var jobQueueName kueue.LocalQueueName = "test-queue"
 
 			ginkgo.By("creating the parent job with queue name")
 			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Queue(jobQueueName).Obj()
@@ -699,7 +699,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
 			job := testingjob.MakeJob(jobName, ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "5").
 				PodAnnotation("old-ann-key", "old-ann-value").
 				Toleration(corev1.Toleration{
@@ -847,7 +847,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
 			job := testingjob.MakeJob(jobName, ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "5").
 				PodLabel("label-key", "old-label-value").
 				Obj()
@@ -1308,7 +1308,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.MustCreate(ctx, k8sClient, devLocalQ)
 
 		ginkgo.By("checking the first prod job starts")
-		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
 		util.MustCreate(ctx, k8sClient, prodJob1)
 		lookupKey1 := types.NamespacedName{Name: prodJob1.Name, Namespace: prodJob1.Namespace}
 		createdProdJob1 := &batchv1.Job{}
@@ -1321,7 +1321,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
-		prodJob2 := testingjob.MakeJob("prod-job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
+		prodJob2 := testingjob.MakeJob("prod-job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "5").Obj()
 		util.MustCreate(ctx, k8sClient, prodJob2)
 		lookupKey2 := types.NamespacedName{Name: prodJob2.Name, Namespace: prodJob2.Namespace}
 		createdProdJob2 := &batchv1.Job{}
@@ -1333,7 +1333,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a dev job starts")
-		devJob := testingjob.MakeJob("dev-job", ns.Name).Queue(devLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
+		devJob := testingjob.MakeJob("dev-job", ns.Name).Queue(kueue.LocalQueueName(devLocalQ.Name)).Request(corev1.ResourceCPU, "5").Obj()
 		util.MustCreate(ctx, k8sClient, devJob)
 		createdDevJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -1387,7 +1387,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		localQueue.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
 
 		ginkgo.By("create a job")
-		prodJob := testingjob.MakeJob("prod-job", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob := testingjob.MakeJob("prod-job", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 		util.MustCreate(ctx, k8sClient, prodJob)
 
 		ginkgo.By("job should be suspend")
@@ -1416,7 +1416,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	ginkgo.When("The workload's admission is removed", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
 
@@ -1476,7 +1476,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	ginkgo.When("The workload is deleted while admitted", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
+			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
 
@@ -1535,7 +1535,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	ginkgo.When("The job is deleted while admitted", func() {
 		ginkgo.It("Its workload finalizer should be removed", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
+			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
 
@@ -1590,7 +1590,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.MustCreate(ctx, k8sClient, prodLocalQ)
 		})
 
-		job1 := testingjob.MakeJob("job1", ns.Name).Queue(prodLocalQ.Name).
+		job1 := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Request(corev1.ResourceCPU, "2").
 			Completions(5).
 			Parallelism(2).
@@ -1609,7 +1609,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 		})
 
-		job2 := testingjob.MakeJob("job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "3").Obj()
+		job2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "3").Obj()
 		lookupKey2 := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
 
 		ginkgo.By("checking a second no-fit job does not start", func() {
@@ -1664,7 +1664,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
 		ginkgo.By("Low priority job is unsuspended and has nodeSelector", func() {
 			job := testingjob.MakeJob("low", ns.Name).
-				Queue(devLocalQ.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
 				Parallelism(5).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -1677,7 +1677,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 		ginkgo.By("High priority job preemtps low priority job", func() {
 			job := testingjob.MakeJob("high", ns.Name).
-				Queue(devLocalQ.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
 				PriorityClass("high").
 				Parallelism(5).
 				Request(corev1.ResourceCPU, "1").
@@ -1711,7 +1711,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
 		ginkgo.By("Low priority job is unsuspended and has nodeSelector", func() {
 			job := testingjob.MakeJob("low", ns.Name).
-				Queue(devLocalQ.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
 				Parallelism(5).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -1724,7 +1724,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 		ginkgo.By("High priority job preemtps low priority job", func() {
 			job := testingjob.MakeJob("high", ns.Name).
-				Queue(devLocalQ.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
 				WorkloadPriorityClass("high-workload").
 				Parallelism(5).
 				Request(corev1.ResourceCPU, "1").
@@ -1748,7 +1748,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	ginkgo.It("Should schedule jobs with partial admission", func() {
 		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		job1 := testingjob.MakeJob("job1", ns.Name).
-			Queue(prodLocalQ.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Parallelism(5).
 			Completions(6).
 			Request(corev1.ResourceCPU, "2").
@@ -1837,7 +1837,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.MustCreate(ctx, k8sClient, localQ)
 		ginkgo.By("Creating a job with no requests, will set the resource flavors selectors when admitted ", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Queue(localQ.Name).
+				Queue(kueue.LocalQueueName(localQ.Name)).
 				Parallelism(2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
@@ -1852,7 +1852,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 
-		job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
 
@@ -1899,7 +1899,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			localQueue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 
-			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			lookupKey1 := types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}
 			wll := &kueue.Workload{}
 
@@ -1955,7 +1955,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking a second job starts after first job is suspended")
-			sampleJob2 := testingjob.MakeJob("job2", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			sampleJob2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 
 			lookupKey2 := types.NamespacedName{Name: sampleJob2.Name, Namespace: sampleJob2.Namespace}
 			wll2 := &kueue.Workload{}
@@ -2099,7 +2099,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ginkgo.It("should evict workload due waitForPodsReady.timeout", func() {
 			ginkgo.By("creating job")
-			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
 			wl := &kueue.Workload{}
@@ -2158,7 +2158,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ginkgo.It("shouldn't evict workload due waitForPodsReady.recoveryTimeout", func() {
 			ginkgo.By("creating job")
-			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
 			jobKey := client.ObjectKeyFromObject(job)
 
@@ -2217,7 +2217,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ginkgo.It("should evict workload due waitForPodsReady.recoveryTimeout", func() {
 			ginkgo.By("creating job")
-			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
 			jobKey := client.ObjectKeyFromObject(job)
 
@@ -2294,7 +2294,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ginkgo.It("should wait for .recoveryTimeout for a workload to recover", func() {
 			ginkgo.By("creating job")
-			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
 			jobKey := client.ObjectKeyFromObject(job)
 
@@ -2387,7 +2387,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
 			ginkgo.By("creating job")
-			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
+			job := testingjob.MakeJob("job", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
 			wl := &kueue.Workload{}
@@ -2568,7 +2568,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
 		job := testingjob.MakeJob("job", ns.Name).
-			Queue(localQueue.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
 			PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 			Request(corev1.ResourceCPU, "1").
 			Obj()
@@ -2617,7 +2617,7 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 
 	ginkgo.It("should admit workload with topology unconstrained annotation which fits", func() {
 		job := testingjob.MakeJob("job", ns.Name).
-			Queue(localQueue.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
 			PodAnnotation(kueuealpha.PodSetUnconstrainedTopologyAnnotation, "true").
 			Request(corev1.ResourceCPU, "1").
 			Obj()

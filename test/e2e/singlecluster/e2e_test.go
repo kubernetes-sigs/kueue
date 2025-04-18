@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 				wl = testing.MakeWorkload("prebuilt-wl", ns.Name).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					PodSets(
 						*testing.MakePodSet(kueue.DefaultPodSetName, 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
 					).

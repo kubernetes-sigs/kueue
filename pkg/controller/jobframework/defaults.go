@@ -90,7 +90,7 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		if labels == nil {
 			labels = make(map[string]string, 1)
 		}
-		labels[constants.QueueLabel] = constants.DefaultLocalQueueName
+		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
 		jobObj.SetLabels(labels)
 	}
 }
@@ -102,7 +102,7 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *queue.Manager, cache *cach
 			if !found {
 				return
 			}
-			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.Object().GetNamespace(), localQueueName))
+			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(kueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
 			if !ok {
 				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
 				return

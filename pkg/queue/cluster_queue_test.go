@@ -254,10 +254,10 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
-	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
-	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(q.Name).Obj()
-	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(q.Name).Obj()
-	wl4 := utiltesting.MakeWorkload("wl4", "").Queue(q.Name).Obj()
+	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
+	wl4 := utiltesting.MakeWorkload("wl4", "").Queue(kueue.LocalQueueName(q.Name)).Obj()
 	admissibleworkloads := []*kueue.Workload{wl1, wl2}
 	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
 

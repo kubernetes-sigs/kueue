@@ -68,7 +68,7 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                        map[string]*LocalQueue
+	localQueues                        map[kueue.LocalQueueReference]*LocalQueue
 	podsReadyTracking                  bool
 	missingFlavors                     []kueue.ResourceFlavorReference
 	missingAdmissionChecks             []kueue.AdmissionCheckReference
@@ -445,9 +445,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 }
 
 func (q *LocalQueue) reportActiveWorkloads() {
-	qKeySlice := strings.Split(q.key, "/")
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+	namespace, name := kueue.MustParseLocalQueueReference(q.key)
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.reservingWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -574,7 +574,7 @@ func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.Fl
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
-	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
+	return wl.Namespace == q.Namespace && string(wl.Spec.QueueName) == q.Name
 }
 
 // Implements dominantResourceShareNode interface.

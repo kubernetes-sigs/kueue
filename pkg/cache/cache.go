@@ -141,7 +141,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
-		localQueues:         make(map[string]*LocalQueue),
+		localQueues:         make(map[kueue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
@@ -942,6 +942,6 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 }
 
 // Key is the key used to index the queue.
-func queueKey(q *kueue.LocalQueue) string {
-	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+func queueKey(q *kueue.LocalQueue) kueue.LocalQueueReference {
+	return kueue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }
