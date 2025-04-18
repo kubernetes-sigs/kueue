@@ -1995,7 +1995,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				"zone": "zone-a",
 			},
 			nodeSelector: map[string]string{
-				"custom-label-1": "custom-value-1",
+				"custom-label-1": "value-2",
 			},
 			levels: defaultOneLevel,
 			requests: resources.Requests{
