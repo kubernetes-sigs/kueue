@@ -92,7 +92,7 @@ type FairSharingStatus struct {
 	// ConsumedResources represents the aggregated usage of resources over time,
 	// with decaying function applied. 
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
-	ConsumedResources map[corev1.ResourceName]resource.Quantity `json:"consumedResources,omitempty"`
+	ConsumedResources corev1.ResourceList `json:"consumedResources,omitempty"`
 
 	// LastUpdate is the time when share and consumed resources were updated.
 	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
