@@ -5,6 +5,9 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager-metrics-monitor
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  {{- if .Values.metrics.prometheusRelease }}
+    release: {{ .Values.metrics.prometheusRelease }}
+  {{- end }}
   namespace: '{{ .Release.Namespace }}'
 spec:
   endpoints:
