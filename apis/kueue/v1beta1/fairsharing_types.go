@@ -67,3 +67,16 @@ type AdmissionFairSharingStatus struct {
 	// LastUpdate is the time when share and consumed resources were updated.
 	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
 }
+
+type AdmissionScope struct {
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
+}
+
+type AdmissionMode string
+
+const (
+	// FairSharing based on usage, with QueuingStrategy as defined in CQ.
+	UsageBasedFairSharing AdmissionMode = "UsageBasedFairSharing"
+
+	NoFairSharing AdmissionMode = "NoFairSharing"
+)

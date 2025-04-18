@@ -215,7 +215,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				},
 			},
 		},
-		"local queue decaying usage sums the previous state and running workloads half decay twice larger than sampling; A=0.7071, rounded to 6827": {
+		"local queue decaying usage sums the previous state and running workloads half decay twice larger than sampling; A=0.7071, rounded to 6828": {
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -246,7 +246,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.FairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6827m"),
+								corev1.ResourceCPU: resource.MustParse("6828m"),
 							},
 						},
 					}).

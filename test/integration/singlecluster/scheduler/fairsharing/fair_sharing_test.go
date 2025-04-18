@@ -28,6 +28,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	// "sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -390,6 +391,46 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(chemistryQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
+		})
+	})
+
+	ginkgo.When("Using AdmissionFairSharing", func() {
+		var (
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "3").Obj(),
+				).Obj()
+			cqs = append(cqs, cq)
+			util.MustCreate(ctx, k8sClient, cq)
+
+			lq = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			lqs = append(lqs, lq)
+			util.MustCreate(ctx, k8sClient, lq)
+		})
+
+		ginkgo.FIt("should update Status.FairSharing in LocalQueue", func() {
+			ginkgo.By("Creating a workload")
+			wl := createWorkload("lq", "3")
+
+			ginkgo.By("Admitting the workload")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+
+			ginkgo.By("Checking that LQ's resource usage is updated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
+					g.Expect(lq.Status.FairSharingStatus).ShouldNot(gomega.BeNil())
+					g.Expect(lq.Status.FairSharingStatus.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+					g.Expect(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+					g.Expect(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("3")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 })

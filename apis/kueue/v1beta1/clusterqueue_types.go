@@ -153,19 +153,6 @@ type AdmissionCheckStrategyRule struct {
 	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
-type AdmissionScope struct {
-	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
-}
-
-type AdmissionMode string
-
-const (
-	// FairSharing based on usage, with QueuingStrategy as defined in CQ.
-	UsageBasedFairSharing AdmissionMode = "UsageBasedFairSharing"
-
-	NoFairSharing AdmissionMode = "NoFairSharing"
-)
-
 type QueueingStrategy string
 
 const (

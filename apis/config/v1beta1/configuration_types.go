@@ -449,13 +449,6 @@ const (
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
 )
 
-type FairSharingMode string
-
-const (
-	PreemptionBasedMode FairSharingMode = "PreemptionBased"
-	AdmissionTimeMode   FairSharingMode = "AdmissionTime"
-)
-
 type FairSharing struct {
 	// enable indicates whether to enable Fair Sharing for all cohorts.
 	// Defaults to false.
@@ -497,5 +490,5 @@ type AdmissionFairSharing struct {
 	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
 
 	// resetInactivityPeriod defines period after which the consumedResources in FairSharingStatus is zeroed if it wasn't updated
-	ResetInactivityPeriod metav1.Duration `json:"usageSamplingFrequency,omitempty"`
+	ResetInactivityPeriod *metav1.Duration `json:"usageSamplingFrequency,omitempty"`
 }

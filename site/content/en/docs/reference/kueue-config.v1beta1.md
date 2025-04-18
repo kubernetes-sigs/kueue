@@ -543,14 +543,6 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </tbody>
 </table>
 
-## `FairSharingMode`     {#FairSharingMode}
-    
-(Alias of `string`)
-
-
-
-
-
 ## `Integrations`     {#Integrations}
     
 
