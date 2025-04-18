@@ -34,8 +34,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
+	hasAllTopologyAssignmentsReady := hasAllTopologyAssignmentsReady(w)
 
-	if isAdmitted == (hasReservation && hasAllChecksReady) {
+	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
 		return false
 	}
 	newCondition := metav1.Condition{
@@ -148,6 +149,20 @@ func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
 func HasAllChecksReady(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateReady {
+			return false
+		}
+	}
+	return true
+}
+
+// hasAllTopologyAssignmentsReady returns true if all required TopologyAssignments are ready
+func hasAllTopologyAssignmentsReady(wl *kueue.Workload) bool {
+	if wl.Status.Admission == nil {
+		return true
+	}
+	for i := range wl.Status.Admission.PodSetAssignments {
+		if wl.Spec.PodSets[i].TopologyRequest != nil &&
+			wl.Status.Admission.PodSetAssignments[i].TopologyAssignment == nil {
 			return false
 		}
 	}

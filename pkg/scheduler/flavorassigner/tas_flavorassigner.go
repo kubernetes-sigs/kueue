@@ -41,7 +41,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
 				psAssignment.error(err)
-			} else {
+			} else if psTASRequest != nil {
 				tasRequests[psTASRequest.Flavor] = append(tasRequests[psTASRequest.Flavor], *psTASRequest)
 			}
 		}
@@ -66,6 +66,10 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}
 	if cq.TASFlavors[*tasFlvr] == nil {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
+	}
+	// TODO: check admission checks based on flavor, and if there is ProvReq
+	if !workload.HasQuotaReservation(wl.Obj) && len(cq.AdmissionChecks) > 0 {
+		return nil, nil
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
 	return &cache.TASPodSetRequests{

@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	schedulerapi "sigs.k8s.io/kueue/pkg/scheduler/api"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -47,6 +48,7 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	secondPassChecker           schedulerapi.SecondPassChecker
 }
 
 // Option configures the manager.
@@ -79,6 +81,13 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithSecondPassChecker sets the checker which determines if the Workload requires delayed TAS scheduling
+func WithSecondPassChecker(checker schedulerapi.SecondPassChecker) Option {
+	return func(o *options) {
+		o.secondPassChecker = checker
+	}
+}
+
 type TopologyUpdateWatcher interface {
 	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
 }
@@ -101,6 +110,10 @@ type Manager struct {
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 
 	topologyUpdateWatchers []TopologyUpdateWatcher
+
+	// readyForSecondPass are workloads which are ready for the second scheduler pass
+	secondPassQueue   *secondPassQueue
+	secondPassChecker schedulerapi.SecondPassChecker
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -121,6 +134,8 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
+		secondPassChecker:      options.secondPassChecker,
+		secondPassQueue:        newSecondPassQueue(),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -398,6 +413,14 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
 	return nil
 }
 
+func (m *Manager) QueueWorkloadForSecondPass(w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	m.secondPassQueue.offer(wInfo)
+	m.Broadcast()
+}
+
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
@@ -446,6 +469,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	if q == nil {
 		return
 	}
+	m.secondPassQueue.deleteByKey(workload.Key(w))
 	delete(q.items, workload.Key(w))
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
@@ -604,6 +628,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
+	workloads = append(workloads, m.secondPassQueue.drain()...)
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -734,4 +759,18 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
+}
+
+func (m *Manager) IsSecondPassRequired(w *kueue.Workload) bool {
+	if m.secondPassChecker == nil {
+		return false
+	}
+	return m.secondPassChecker.IsRequired(w)
+}
+
+func (m *Manager) IsSecondPassReady(w *kueue.Workload) bool {
+	if m.secondPassChecker == nil {
+		return false
+	}
+	return m.secondPassChecker.IsReady(w)
 }

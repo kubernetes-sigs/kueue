@@ -283,18 +283,12 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
-	return slices.ContainsFunc(i.TotalRequests,
-		func(ps PodSetResources) bool {
-			return ps.TopologyRequest != nil
-		})
+	return IsUsingTAS(i.Obj)
 }
 
 // IsRequestingTAS returns information if the workload is requesting TAS
 func (i *Info) IsRequestingTAS() bool {
-	return slices.ContainsFunc(i.Obj.Spec.PodSets,
-		func(ps kueue.PodSet) bool {
-			return ps.TopologyRequest != nil
-		})
+	return IsRequestingTAS(i.Obj)
 }
 
 // TASUsage returns topology usage requested by the Workload
@@ -357,6 +351,25 @@ func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// IsRequestingTAS returns information if the workload is using TAS
+func IsUsingTAS(w *kueue.Workload) bool {
+	if w.Status.Admission == nil {
+		return false
+	}
+	return slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+		func(ps kueue.PodSetAssignment) bool {
+			return ps.TopologyAssignment != nil
+		})
+}
+
+// IsRequestingTAS returns information if the workload is requesting TAS
+func IsRequestingTAS(w *kueue.Workload) bool {
+	return slices.ContainsFunc(w.Spec.PodSets,
+		func(ps kueue.PodSet) bool {
+			return ps.TopologyRequest != nil
+		})
 }
 
 func Key(w *kueue.Workload) string {

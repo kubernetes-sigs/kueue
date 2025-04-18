@@ -254,10 +254,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
 				messages = append(messages, "TAS is not supported with MultiKueue admission check")
 			}
-			if len(c.provisioningAdmissionChecks) > 0 {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported with ProvisioningRequest admission check")
-			}
+
 			for tasFlavor, topology := range c.tasFlavors {
 				if c.tasCache.Get(tasFlavor) == nil {
 					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
@@ -284,7 +281,7 @@ func (c *clusterQueue) isTASViolated() bool {
 			return true
 		}
 	}
-	return len(c.multiKueueAdmissionChecks) > 0 || len(c.provisioningAdmissionChecks) > 0
+	return len(c.multiKueueAdmissionChecks) > 0
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
@@ -406,9 +403,9 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[kueue.AdmissionCheck
 	}
 }
 
-func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addWorkload(w *kueue.Workload, allowUpdate bool) error {
 	k := workload.Key(w)
-	if _, exist := c.Workloads[k]; exist {
+	if _, exist := c.Workloads[k]; exist && !allowUpdate {
 		return errors.New("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
