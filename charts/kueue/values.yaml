@@ -158,6 +158,11 @@ kueueViz:
   frontend:
     image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
 metrics:
+  # If `prometheusRelease` is set, a label `release: <prometheusRelease>` will be added to the ServiceMonitor.
+  # This is required for the default configuration of Prometheus when installed by the `kube-prometheus-stack` chart.
+  # See `serviceMonitorSelectorNilUsesHelmValues` in the following link for more details.
+  # https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#prometheusioscrape
+  # prometheusRelease: "$PROMETHEUS_HELM_RELEASE"
   prometheusNamespace: monitoring
   serviceMonitor:
     tlsConfig:
