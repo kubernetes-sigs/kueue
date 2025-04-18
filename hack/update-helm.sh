@@ -23,14 +23,12 @@ SRC_CRD_DIR=config/components/crd/bases
 SRC_RBAC_DIR=config/components/rbac
 SRC_WEBHOOK_DIR=config/components/webhook
 SRC_VISIBILITY_DIR=config/components/visibility
-SRC_VISIBILITY_APF_DIR=config/components/visibility-apf
 SRC_KUEUEVIZ_DIR=config/components/kueueviz
 
 DEST_CRD_DIR=charts/kueue/templates/crd
 DEST_RBAC_DIR=charts/kueue/templates/rbac
 DEST_WEBHOOK_DIR=charts/kueue/templates/webhook
 DEST_VISIBILITY_DIR=charts/kueue/templates/visibility
-DEST_VISIBILITY_APF_DIR=charts/kueue/templates/visibility-apf
 DEST_KUEUEVIZ_DIR=charts/kueue/templates/kueueviz
 
 YQ=./bin/yq
@@ -52,8 +50,6 @@ find $SRC_RBAC_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_RBAC_D
 find $SRC_WEBHOOK_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_WEBHOOK_DIR \;
 # shellcheck disable=SC2086
 find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_DIR \;
-# shellcheck disable=SC2086
-find $SRC_VISIBILITY_APF_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_APF_DIR \;
 # shellcheck disable=SC2086
 find $SRC_KUEUEVIZ_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_KUEUEVIZ_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
@@ -411,19 +407,6 @@ for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
 EOT
   fi
   $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
-done
-
-# Replace flowcontrol version on visibility-apf directory
-for output_file in "${DEST_VISIBILITY_APF_DIR}"/*.yaml; do
-  $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
-  $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
-  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
-  {
-    echo '{{- if .Values.enableVisibilityAPF }}'
-    cat "$output_file"
-    echo "{{- end }}"
-  } > "${output_file}.tmp"
-  mv "${output_file}.tmp" "${output_file}"
 done
 
 # Add kueueviz templating on kueueviz directory
