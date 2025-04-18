@@ -68,7 +68,7 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                        map[string]*LocalQueue
+	localQueues                        map[kueue.LocalQueueReference]*LocalQueue
 	podsReadyTracking                  bool
 	missingFlavors                     []kueue.ResourceFlavorReference
 	missingAdmissionChecks             []kueue.AdmissionCheckReference

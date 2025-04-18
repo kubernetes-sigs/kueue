@@ -37,6 +37,11 @@ const (
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
 
+// ClusterQueueReference is the name of the ClusterQueue.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type ClusterQueueReference string
+
 // CohortReference is the name of the Cohort.
 //
 // Validation of a cohort name is equivalent to that of object names:
