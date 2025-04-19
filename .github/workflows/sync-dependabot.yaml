@@ -1,0 +1,36 @@
+# This workflow runs the make sync-hugo-version command and alters the dependabot pr
+name: Hugo Version Synchronizer
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+    run-sync-hugo-version:
+        if: ${{ github.actor == 'dependabot[bot]' }}
+        runs-on: ubuntu-latest
+
+        # Permission required to edit a PR
+        permissions:
+          contents: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with: 
+                ref: ${{github.head_ref}}
+            - name: sync hugo version
+
+            # Space for other changes to supplement dependabot
+
+            - run: |
+                  make sync-hugo-version
+
+
+
+            - name: commit and push the changes
+            - run: |
+                  git config user.name "$(git log -1 --pretty=%an)"
+                  git config user.email "$(git log -1 --pretty=%ae)"
+                  git add .
+                  git commit -m "Sync versions for dependabot"
+                  git push
