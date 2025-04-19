@@ -27,3 +27,7 @@ type LocalQueue struct {
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
 }
+
+func (lq *LocalQueue) GetAdmittedUsage() resources.FlavorResourceQuantities {
+	return lq.admittedUsage
+}

@@ -496,6 +496,14 @@ func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	cq.deleteLocalQueue(q)
 }
 
+func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue.LocalQueue) (*LocalQueue, error) {
+	cq := c.hm.ClusterQueue(cqName)
+	if cacheLq, ok := cq.localQueues[queueKey(lq)]; ok {
+		return cacheLq, nil
+	}
+	return nil, errQNotFound
+}
+
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
 		return nil

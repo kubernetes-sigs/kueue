@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"math"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -46,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -60,13 +63,43 @@ const (
 	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
 )
 
+type LocalQueueReconcilerOptions struct {
+	admissionFSConfig *config.AdmissionFairSharing
+	clock             clock.Clock
+}
+
+// LocalQueueReconcilerOption configures the reconciler.
+type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
+
+func WithFairSharingConfig(cfg *config.FairSharing) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		if cfg == nil || !cfg.Enable || cfg.AdmissionFairSharing == nil {
+			o.admissionFSConfig = nil
+		} else {
+			o.admissionFSConfig = cfg.AdmissionFairSharing
+		}
+	}
+}
+
+func WithClock(c clock.Clock) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.clock = c
+	}
+}
+
+var defaultLQOptions = LocalQueueReconcilerOptions{
+	clock: realClock,
+}
+
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
-	client     client.Client
-	log        logr.Logger
-	queues     *queue.Manager
-	cache      *cache.Cache
-	wlUpdateCh chan event.GenericEvent
+	client            client.Client
+	log               logr.Logger
+	queues            *queue.Manager
+	cache             *cache.Cache
+	wlUpdateCh        chan event.GenericEvent
+	admissionFSConfig *config.AdmissionFairSharing
+	clock             clock.Clock
 }
 
 var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
@@ -76,13 +109,20 @@ func NewLocalQueueReconciler(
 	client client.Client,
 	queues *queue.Manager,
 	cache *cache.Cache,
+	opts ...LocalQueueReconcilerOption,
 ) *LocalQueueReconciler {
+	options := defaultLQOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &LocalQueueReconciler{
-		log:        ctrl.Log.WithName("localqueue-reconciler"),
-		queues:     queues,
-		cache:      cache,
-		client:     client,
-		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		log:               ctrl.Log.WithName("localqueue-reconciler"),
+		queues:            queues,
+		cache:             cache,
+		client:            client,
+		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
+		admissionFSConfig: options.admissionFSConfig,
+		clock:             options.clock,
 	}
 }
 
@@ -105,8 +145,8 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/finalizers,verbs=update
 
 func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var queueObj kueue.LocalQueue
-	if err := r.client.Get(ctx, req.NamespacedName, &queueObj); err != nil {
+	var lq kueue.LocalQueue
+	if err := r.client.Get(ctx, req.NamespacedName, &lq); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -114,24 +154,45 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LocalQueue")
 
-	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
-		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
+	if ptr.Deref(lq.Spec.StopPolicy, kueue.None) != kueue.None {
+		err := r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	var cq kueue.ClusterQueue
-	err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq)
+	err := r.client.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, &cq)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			err = r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
-		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue")
+	if !meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
+		err = r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
+	if err := r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue"); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if r.admissionFSConfig != nil {
+		if lq.Status.FairSharingStatus.AdmissionFairSharingStatus == nil {
+			lq.Status.FairSharingStatus.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
+				LastUpdate: metav1.NewTime(r.clock.Now()),
+			}
+			err = r.client.Status().Update(ctx, &lq)
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		recheckAfter := r.clock.Now().Sub(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time)
+		if recheckAfter < r.admissionFSConfig.UsageSamplingInterval.Duration {
+			return ctrl.Result{RequeueAfter: recheckAfter}, client.IgnoreNotFound(err)
+		}
+		err := r.ReconcileConsumedUsage(ctx, &lq, lq.Spec.ClusterQueue)
+		if err != nil {
+			r.log.Error(err, err.Error())
+		}
+		r.queues.HeapifyClusterQueue(&cq, lq.Name)
+		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, client.IgnoreNotFound(err)
+	}
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
@@ -202,6 +263,27 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	r.queues.DeleteLocalQueue(e.ObjectOld)
 
 	return true
+}
+
+func (r *LocalQueueReconciler) ReconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue, cqName kueue.ClusterQueueReference) error {
+	halfDecayTimeSeconds := float64(r.admissionFSConfig.UsageHalfLifeDecayTime.Seconds())
+	samplingFrequencySeconds := float64(r.admissionFSConfig.UsageSamplingInterval.Seconds())
+	alpha := 1.0 - math.Pow(0.5, samplingFrequencySeconds/halfDecayTimeSeconds)
+	cachedLq, err := r.cache.GetCacheLocalQueue(cqName, lq)
+	if err != nil {
+		return err
+	}
+	oldUsage := resources.NewRequests(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources)
+	newUsage := cachedLq.GetAdmittedUsage().FlattenFlavors()
+	oldUsage.Mul(1000)
+	newUsage.Mul(1000)
+	newUsage.MulByFloat(alpha)
+	oldUsage.MulByFloat(1 - alpha)
+	oldUsage.Add(newUsage)
+	oldUsage.Divide(1000)
+	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = oldUsage.ToResourceList()
+	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
+	return r.client.Status().Update(ctx, lq)
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
