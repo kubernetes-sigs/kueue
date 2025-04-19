@@ -33,7 +33,7 @@ type AdmissionResult string
 type ClusterQueueStatus string
 
 type LocalQueueReference struct {
-	Name      string
+	Name      kueue.LocalQueueName
 	Namespace string
 }
 
@@ -451,10 +451,10 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func LQRefFromLocalQueueKey(lqKey string) LocalQueueReference {
-	split := strings.Split(lqKey, "/")
+func LQRefFromLocalQueueKey(lqKey kueue.LocalQueueReference) LocalQueueReference {
+	split := strings.Split(string(lqKey), "/")
 	return LocalQueueReference{
-		Name:      split[1],
+		Name:      kueue.LocalQueueReference(split[1]),
 		Namespace: split[0],
 	}
 }
