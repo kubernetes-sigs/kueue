@@ -168,6 +168,7 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
+      - jaxjobs
       - mpijobs
       - paddlejobs
       - pytorchjobs
@@ -182,6 +183,7 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
+      - jaxjobs/finalizers
       - mpijobs/finalizers
       - paddlejobs/finalizers
       - pytorchjobs/finalizers
@@ -193,6 +195,7 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
+      - jaxjobs/status
       - mpijobs/status
       - paddlejobs/status
       - pytorchjobs/status

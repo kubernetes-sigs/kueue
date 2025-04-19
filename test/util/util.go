@@ -178,6 +178,10 @@ func DeleteAllPyTorchJobsInNamespace(ctx context.Context, c client.Client, ns *c
 	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.PyTorchJob{})
 }
 
+func DeleteAllJAXJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.JAXJob{})
+}
+
 func DeleteAllAppWrappersInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &awv1beta2.AppWrapper{})
 }

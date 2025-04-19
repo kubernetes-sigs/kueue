@@ -152,7 +152,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			})
 
 			createdStatefulSet := &appsv1.StatefulSet{}
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).
 						To(gomega.Succeed())
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -261,7 +261,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -329,7 +329,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
@@ -466,7 +466,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				util.MustCreate(ctx, k8sClient, lowPrioritySTS)
 			})
 
-			ginkgo.By("Waiting for replicas is ready in low-priority StatefulSet", func() {
+			ginkgo.By("Waiting for replicas to be ready in low-priority StatefulSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLowPrioritySTS := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPrioritySTS), createdLowPrioritySTS)).To(gomega.Succeed())
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				util.MustCreate(ctx, k8sClient, highPrioritySTS)
 			})
 
-			ginkgo.By("Waiting for replicas is ready in high-priority StatefulSet", func() {
+			ginkgo.By("Waiting for replicas to be ready in high-priority StatefulSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdHighPrioritySTS := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPrioritySTS), createdHighPrioritySTS)).To(gomega.Succeed())
