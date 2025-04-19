@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -52,11 +53,11 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		localQueueDefaulting       bool
 		defaultLqExist             bool
-		enableIntegrations         []string
+		enableIntegrations         []configapi.IntegrationReference
 		want                       *appsv1.StatefulSet
 	}{
 		"statefulset with queue": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -66,7 +67,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateManagedByKueue().
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -75,7 +76,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset with queue and priority class": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
 				Queue("test-queue").
@@ -87,7 +88,7 @@ func TestDefault(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateManagedByKueue().
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
@@ -97,7 +98,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"statefulset without replicas": {
-			enableIntegrations: []string{"pod"},
+			enableIntegrations: []configapi.IntegrationReference{configapi.Pod},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				Obj(),
@@ -107,7 +108,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
 				PodTemplateSpecPodGroupServingAnnotation().
 				PodTemplateSpecPodGroupPodIndexLabelAnnotation(appsv1.PodIndexLabel).
@@ -121,7 +122,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				PodTemplateSpecQueue("default").
 				PodTemplateManagedByKueue().
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -137,7 +138,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateManagedByKueue().
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, string(FrameworkName)).
 				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation().
@@ -233,7 +234,7 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
+		integrations []configapi.IntegrationReference
 		objs         []runtime.Object
 		oldObj       *appsv1.StatefulSet
 		newObj       *appsv1.StatefulSet
@@ -439,7 +440,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []string{appwrapper.FrameworkName},
+			integrations: []configapi.IntegrationReference{appwrapper.FrameworkName},
 			objs: []runtime.Object{
 				testingappwrapper.MakeAppWrapper("test-app-wrapper", "test-ns").
 					UID("test-app-wrapper").
@@ -459,7 +460,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with AppWrapper ownerReference)": {
-			integrations: []string{appwrapper.FrameworkName},
+			integrations: []configapi.IntegrationReference{appwrapper.FrameworkName},
 			objs: []runtime.Object{
 				testingappwrapper.MakeAppWrapper("test-app-wrapper", "test-ns").
 					UID("test-app-wrapper").
@@ -477,7 +478,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference while the previous scaling operation is still in progress)": {
-			integrations: []string{leaderworkerset.FrameworkName},
+			integrations: []configapi.IntegrationReference{leaderworkerset.FrameworkName},
 			objs: []runtime.Object{
 				testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
 					UID("test-lws").
@@ -497,7 +498,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change in replicas (scale up with LeaderWorkerSet ownerReference)": {
-			integrations: []string{leaderworkerset.FrameworkName},
+			integrations: []configapi.IntegrationReference{leaderworkerset.FrameworkName},
 			objs: []runtime.Object{
 				testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
 					UID("test-lws").
