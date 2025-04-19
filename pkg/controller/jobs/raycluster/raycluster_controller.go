@@ -101,9 +101,28 @@ func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
+func (j *RayCluster) computePodSetsLength() int {
+	// The PodSets are dependent on whether Ray AutoScaling is disabled:
+	// 	  disabled: We create PodSet objects for the head node and all the workerGroups when working with this RayCluster object
+	//    enabled: When handling the RayCluster object, we create 1 PodSet object just for the head node. The remaining PodSet objects will be created by Kueue whenever the Ray AutoScaler creates a pod for one of the WorkerGroupSpec replica
+
+	// Therefore, lenPodSets here is conditional:
+	//    If Ray AutoScaling is disabled: 1 for the head node
+	//    If Ray AutoScaling is enabled: 1 for the head node + N for the WorkerGroupSpecs
+
+	lenPodSets := 1
+
+	if ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) == false {
+		lenPodSets += len(j.Spec.WorkerGroupSpecs)
+	}
+
+	return lenPodSets
+}
+
 func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
-	// len = workerGroups + head
-	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
+	lenPodSets := j.computePodSetsLength()
+
+	podSets := make([]kueue.PodSet, lenPodSets)
 
 	// head
 	podSets[0] = kueue.PodSet{
@@ -119,7 +138,11 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 		)
 	}
 
-	// workers
+	// When the autoscaler is enabled, there will be 1 Pod object per replica of each WorkerGroup
+	if ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) == true {
+		return podSets, nil
+	}
+
 	for index := range j.Spec.WorkerGroupSpecs {
 		wgs := &j.Spec.WorkerGroupSpecs[index]
 		count := int32(1)
@@ -145,7 +168,8 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.WorkerGroupSpecs) + 1
+	expectedLen := j.computePodSetsLength()
+
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -159,7 +183,10 @@ func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 		return err
 	}
 
-	// workers
+	// workers - these only exist for RayClusters with disabled ray scaling -- see @computePodSetsLength for more
+	if expectedLen == 1 {
+		return nil
+	}
 	for index := range j.Spec.WorkerGroupSpecs {
 		workerPod := &j.Spec.WorkerGroupSpecs[index].Template
 
@@ -172,13 +199,20 @@ func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 }
 
 func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != len(j.Spec.WorkerGroupSpecs)+1 {
+	expectedLen := j.computePodSetsLength()
+
+	if len(podSetsInfo) != expectedLen {
 		return false
 	}
 
 	// head
 	headPod := &j.Spec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
+
+	// Workers only exist for RayClusters with disabled ray scaling -- see @computePodSetsLength for more
+	if expectedLen == 1 {
+		return changed
+	}
 
 	// workers
 	for index := range j.Spec.WorkerGroupSpecs {
