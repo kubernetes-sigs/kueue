@@ -155,7 +155,9 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			if !tc.localQueueDefaulting {
+				features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			}
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 
