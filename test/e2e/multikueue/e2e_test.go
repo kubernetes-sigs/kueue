@@ -831,6 +831,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
+				Env(rayv1.HeadNode, "RAY_START_HOOK", "mock_server.ray_startup_hook").
+				Env(rayv1.WorkerNode, "RAY_START_HOOK", "mock_server.ray_startup_hook").
 				Obj()
 
 			ginkgo.By("Creating the RayJob", func() {
@@ -846,9 +848,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdRayJob := &rayv1.RayJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 					g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
-					finishReasonMessage := "Job finished successfully."
-					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+					checkFinishStatusCondition(g, wlLookupKey, "") // ray-project mini image lacks the finish message
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {

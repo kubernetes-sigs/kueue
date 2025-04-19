@@ -50,8 +50,8 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
-    export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
-    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
+    export KUBERAY_RAY_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAY_VERSION}
+    export KUBERAY_RAY_IMAGE_ARM=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAY_VERSION}-aarch64
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
@@ -113,14 +113,6 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBERAY_VERSION:-} ]]; then
         docker pull "${KUBERAY_IMAGE}"
-
-        # Extra e2e images required for Kuberay
-        unamestr=$(uname)
-        if [[ "$unamestr" == 'Linux' ]]; then
-            docker pull "${KUBERAY_RAY_IMAGE}"
-        elif [[ "$unamestr" == 'Darwin' ]]; then
-            docker pull "${KUBERAY_RAY_IMAGE_ARM}"
-        fi
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
         docker pull "${LEADERWORKERSET_IMAGE}"

@@ -40,7 +40,7 @@ func MakeJob(name, ns string) *JobWrapper {
 		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
 			RayClusterSpec: &rayv1.RayClusterSpec{
-				RayVersion: "2.9.0",
+				RayVersion: "2.41.0",
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{

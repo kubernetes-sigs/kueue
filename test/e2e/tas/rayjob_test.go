@@ -180,6 +180,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 				}).
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
+				Env(rayv1.HeadNode, "RAY_START_HOOK", "mock_server.ray_startup_hook").
+				Env(rayv1.WorkerNode, "RAY_START_HOOK", "mock_server.ray_startup_hook").
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, rayjob)
