@@ -19,7 +19,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -59,8 +58,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.BeforeEach(func() {
 		_ = features.SetEnable(features.FlavorFungibility, true)
-		// ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
-		ns = util.CreateNamespaceWithLog(ctx, k8sClient, "repro")
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 
@@ -512,7 +510,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 		})
 
-		ginkgo.FIt("Should unreserve quota on skipped workload", func() {
+		ginkgo.It("Should unreserve quota on skipped workload", func() {
 			wl1 := testing.MakeWorkload("admission-check-wl1", ns.Name).
 				Queue(admissionCheckQueue.Name).
 				Request(corev1.ResourceCPU, "9001m"). // will fit in first scheduling loop
@@ -522,13 +520,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl2 := testing.MakeWorkload("admission-check-wl2", ns.Name).
 				Queue(admissionCheckQueue.Name).
 				Request(corev1.ResourceCPU, "9001m"). // will be pending
-				Priority(2).
+				Priority(1).
 				Obj()
 
 			wl3 := testing.MakeWorkload("admission-check-wl3", ns.Name).
 				Queue(admissionPreemptionQueue.Name).
 				Request(corev1.ResourceCPU, "9001m"). // will be evaluated in first scheduling loop but not nominated.
-				Priority(3).
+				Priority(2).
 				Obj()
 
 			var clk clock.RealClock
@@ -548,23 +546,23 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				applyDualFieldOwner := func(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock) {
 					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-						State:              kueue.CheckStatePending,
+						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.NewTime(clk.Now()),
 					}, clk)
 					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-						State:              kueue.CheckStatePending,
+						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.NewTime(clk.Now()),
 					}, clk)
 					gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, constants.AdmissionName)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-						State:              kueue.CheckStatePending,
+						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.NewTime(clk.Now()),
 					}, clk)
 					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-						State:              kueue.CheckStatePending,
+						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.NewTime(clk.Now()),
 					}, clk)
 					gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, "dupe")).To(gomega.Succeed())
@@ -575,9 +573,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				applyDualFieldOwner(ctx, k8sClient, wl3, clk)
 			})
 
-			ginkgo.By("non-fitting should have quota unreserved after first scheduling loop", func() {
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2, wl3)
+			ginkgo.By("wl2 should be pending", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
+			ginkgo.By("wl3 should be pending", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+			})
+
 		})
 
 		ginkgo.When("Hold ClusterQueue at startup", func() {
