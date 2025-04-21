@@ -702,10 +702,15 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
-		if err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
-		}
+		// trigger the move of associated inadmissibleWorkloads, if there are any.
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
+			// Update the workload from cache while holding the queues lock
+			// to guarantee that requeued workloads are taken into account before
+			// the next scheduling cycle.
+			if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		})
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(e.ObjectOld)
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
@@ -762,9 +767,15 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
-			log.Error(err, "Updating workload in cache")
-		}
+		// trigger the move of associated inadmissibleWorkloads, if there are any.
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.ObjectNew, func() {
+			// Update the workload from cache while holding the queues lock
+			// to guarantee that requeued workloads are taken into account before
+			// the next scheduling cycle.
+			if err := r.cache.UpdateWorkload(e.ObjectOld, wlCopy); err != nil {
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		})
 	}
 
 	return true
