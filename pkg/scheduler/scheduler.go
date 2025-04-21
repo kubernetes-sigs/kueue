@@ -647,8 +647,6 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
-	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.BaseSSAWorkload(e.Obj)
@@ -656,11 +654,27 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		workload.AdmissionChecksStatusPatch(e.Obj, patch, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
-		if reservationIsChanged || resourceRequestsIsChanged {
+		requeuedConditionChanged := false
+		if e.requeueReason == queue.RequeueReasonGeneric {
+			requeuedConditionChanged = workload.SetRequeuedConditionIfNeeded(patch, string(queue.RequeueReasonNoReservation), string(queue.RequeueReasonNoReservation), true)
+		} else {
+			requeuedConditionChanged = workload.SetRequeuedConditionIfNeeded(patch, string(e.requeueReason), string(e.requeueReason), true)
+		}
+		if reservationIsChanged || resourceRequestsIsChanged || requeuedConditionChanged {
+			// litter.Dump(patch.Name, patch.ResourceVersion, patch.Status)
+			if diff := cmp.Diff(e.Obj.Status, patch.Status); diff != "" {
+				log.V(2).Info("Workload status patch differs from the current status")
+				fmt.Printf("%s\n%s\n", patch.Name, diff)
+			}
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
+
+	// requeue after updating object status locally
+	// manager will requeue latest API version which will be stale otherwise
+	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 }
