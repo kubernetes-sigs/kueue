@@ -597,20 +597,13 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		workload.AdmissionChecksStatusPatch(e.Obj, patch, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
-		requeuedConditionChanged := false
-		if e.requeueReason == queue.RequeueReasonGeneric {
-			requeuedConditionChanged = workload.SetRequeuedConditionIfNeeded(patch, string(queue.RequeueReasonNoReservation), string(queue.RequeueReasonNoReservation), true)
-		} else {
-			requeuedConditionChanged = workload.SetRequeuedConditionIfNeeded(patch, string(e.requeueReason), string(e.requeueReason), true)
-		}
-		if reservationIsChanged || resourceRequestsIsChanged || requeuedConditionChanged {
-			// litter.Dump(patch.Name, patch.ResourceVersion, patch.Status)
-			if diff := cmp.Diff(e.Obj.Status, patch.Status); diff != "" {
-				log.V(2).Info("Workload status patch differs from the current status")
-				fmt.Printf("%s\n%s\n", patch.Name, diff)
-			}
+		log.V(2).Info("Updating Workload status", "workload", klog.KObj(e.Obj), "inadmissibleMsg", e.inadmissibleMsg, "reservationIsChanged", reservationIsChanged, "resourceRequestsIsChanged", resourceRequestsIsChanged)
+		if reservationIsChanged || resourceRequestsIsChanged {
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
+				if apierrors.IsConflict(err) {
+					e.requeueReason = queue.RequeueReasonResourceVersionConflict
+				}
 			}
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))

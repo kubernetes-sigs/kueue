@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/google/go-cmp/cmp"
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -642,7 +641,7 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 		match := true
 		for idx := range w.Status.ResourceRequests {
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!cmp.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!maps.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
 				match = false
 				break
 			}

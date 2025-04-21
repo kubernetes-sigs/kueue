@@ -40,11 +40,11 @@ import (
 type RequeueReason string
 
 const (
-	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
-	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
-	RequeueReasonNoReservation         RequeueReason = "NoReservation"
-	RequeueReasonGeneric               RequeueReason = ""
-	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+	RequeueReasonFailedAfterNomination   RequeueReason = "FailedAfterNomination"
+	RequeueReasonNamespaceMismatch       RequeueReason = "NamespaceMismatch"
+	RequeueReasonResourceVersionConflict RequeueReason = "ResourceVersionConflict"
+	RequeueReasonGeneric                 RequeueReason = ""
+	RequeueReasonPendingPreemption       RequeueReason = "PendingPreemption"
 )
 
 var (
@@ -175,9 +175,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 // backoffWaitingTimeExpired returns true if the current time is after the requeueAt
 // and Requeued condition not present or equal True.
 func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
-	if apimeta.IsStatusConditionFalse(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued) {
-		return false
+	if cond := apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued); cond != nil {
+		return cond.Status == metav1.ConditionFalse
 	}
+	// if apimeta.IsStatusConditionFalse(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued) {
+	// 	return false
+	// }
 	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
 		return true
 	}
@@ -404,7 +407,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 	if c.queueingStrategy == kueue.StrictFIFO {
 		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
-	return c.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
+	return c.requeueIfNotPresent(wInfo, reason == RequeueReasonResourceVersionConflict || reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
 }
 
 // queueOrderingFunc returns a function used by the clusterQueue heap algorithm
