@@ -42,6 +42,7 @@ type RequeueReason string
 const (
 	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
 	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
+	RequeueReasonNoReservation         RequeueReason = "NoReservation"
 	RequeueReasonGeneric               RequeueReason = ""
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
 )
