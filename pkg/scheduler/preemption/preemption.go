@@ -190,6 +190,10 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
 }
 
+type preemptionAttemptOpts struct {
+	borrowing bool
+}
+
 // classicalPreemptions implements a heuristic to find a minimal set of Workloads
 // to preempt.
 // The heuristic first removes candidates, in the input order, while their
@@ -207,7 +211,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		WorkloadOrdering:  p.workloadOrdering,
 	}
 	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
-	var borrowingOptions []bool
+	var attemptPossibleOpts []preemptionAttemptOpts
 	canBorrowWithinCohort, _ := classical.IsBorrowingWithinCohortAllowed(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
 	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
@@ -226,32 +230,33 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	// previous versions.
 	switch {
 	case !candidatesGenerator.AnyCandidateFromOtherQueues || (!canBorrowWithinCohort && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
-		borrowingOptions = []bool{true}
+		attemptPossibleOpts = []preemptionAttemptOpts{{true}}
 	case !canBorrowWithinCohort && !candidatesGenerator.AnyCandidateForHierarchicalReclaim:
-		borrowingOptions = []bool{false, true}
+		attemptPossibleOpts = []preemptionAttemptOpts{{false}, {true}}
 	default:
-		borrowingOptions = []bool{true, false}
+		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}
 	}
-	var targets []*Target
-	fits := false
-	for _, allowBorrowing := range borrowingOptions {
+
+	for _, attemptOpts := range attemptPossibleOpts {
+		var targets []*Target
+		var fits bool
 		candidatesGenerator.Reset()
-		for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
+		for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
 			preemptionCtx.snapshot.RemoveWorkload(candidate)
 			targets = append(targets, &Target{
 				WorkloadInfo: candidate,
 				Reason:       reason,
 			})
-			if workloadFits(preemptionCtx, allowBorrowing) {
+			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
 				fits = true
 				break
 			}
 		}
 		if !fits {
 			restoreSnapshot(preemptionCtx.snapshot, targets)
-			targets = []*Target{}
+			//targets = []*Target{}
 		} else {
-			targets = fillBackWorkloads(preemptionCtx, targets, allowBorrowing)
+			targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
 			restoreSnapshot(preemptionCtx.snapshot, targets)
 			return targets
 		}
