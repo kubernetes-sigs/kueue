@@ -211,7 +211,7 @@ func QuantitiesFitInQuota(node hierarchicalResourceNode, requests resources.Flav
 		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
 			fits = false
 		}
-		remainingRequests[fr] = v - LocalAvailable(node, fr)
+		remainingRequests[fr] = max(0, v-LocalAvailable(node, fr))
 	}
 	return fits, remainingRequests
 }
