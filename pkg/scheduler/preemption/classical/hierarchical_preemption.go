@@ -65,12 +65,12 @@ type HierarchicalPreemptionCtx struct {
 	WorkloadOrdering  workload.Ordering
 }
 
-func IsBorrowingWithinCohortAllowed(cq *cache.ClusterQueueSnapshot) (bool, *int32) {
+func IsBorrowingWithinCohortForbidden(cq *cache.ClusterQueueSnapshot) (bool, *int32) {
 	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
 	if borrowWithinCohort == nil || borrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyNever {
-		return false, nil
+		return true, nil
 	}
-	return true, borrowWithinCohort.MaxPriorityThreshold
+	return false, borrowWithinCohort.MaxPriorityThreshold
 }
 
 // classifyPreemptionVariant evaluates, based on config and priorities, the
@@ -81,7 +81,7 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	}
 	incomingPriority := priority.Priority(ctx.Wl)
 	candidatePriority := priority.Priority(wl.Obj)
-	if priorityTooHighToPreempt(ctx, wl, incomingPriority, candidatePriority) {
+	if !satisfiesPreemptionPolicy(ctx, wl, incomingPriority, candidatePriority) {
 		return Never
 	}
 	if wl.ClusterQueue == ctx.Cq.Name {
@@ -90,8 +90,8 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if haveHierarchicalAdvantage {
 		return HiearchicalReclaim
 	}
-	borrowWithinCohortAllowed, borrowWithinCohortThreshold := IsBorrowingWithinCohortAllowed(ctx.Cq)
-	if !borrowWithinCohortAllowed {
+	borrowWithinCohortForbidden, borrowWithinCohortThreshold := IsBorrowingWithinCohortForbidden(ctx.Cq)
+	if borrowWithinCohortForbidden {
 		return ReclaimWithoutBorrowing
 	}
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold) {
@@ -100,7 +100,7 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	return ReclaimWhileBorrowing
 }
 
-func priorityTooHighToPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
+func satisfiesPreemptionPolicy(ctx *HierarchicalPreemptionCtx, wl *workload.Info, incomingPriority, candidatePriority int32) bool {
 	var preemptionPolicy kueue.PreemptionPolicy
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
@@ -109,14 +109,14 @@ func priorityTooHighToPreempt(ctx *HierarchicalPreemptionCtx, wl *workload.Info,
 	}
 	lowerPriority := incomingPriority > candidatePriority
 	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority {
-		return !lowerPriority
+		return lowerPriority
 	}
 	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
 		preemptorTS := ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl)
 		newerEqualPriority := (incomingPriority == candidatePriority) && preemptorTS.Before(ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
-		return !(lowerPriority || newerEqualPriority)
+		return (lowerPriority || newerEqualPriority)
 	}
-	return preemptionPolicy != kueue.PreemptionPolicyAny
+	return preemptionPolicy == kueue.PreemptionPolicyAny
 }
 
 func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrowWithinCohortThreshold *int32) bool {

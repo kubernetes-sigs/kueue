@@ -212,7 +212,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	}
 	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
-	canBorrowWithinCohort, _ := classical.IsBorrowingWithinCohortAllowed(preemptionCtx.preemptorCQ)
+	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
 	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
 	// 	  hierarchical advantage (it is closer to the quota used by the candidate).
@@ -229,9 +229,9 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	// in which we try allowBorrowing=false before true is to keep compatibility with
 	// previous versions.
 	switch {
-	case !candidatesGenerator.AnyCandidateFromOtherQueues || (!canBorrowWithinCohort && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
+	case candidatesGenerator.NoCandidateFromOtherQueues || (borrowWithinCohortForbidden && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}}
-	case !canBorrowWithinCohort && !candidatesGenerator.AnyCandidateForHierarchicalReclaim:
+	case borrowWithinCohortForbidden && candidatesGenerator.NoCandidateForHierarchicalReclaim:
 		attemptPossibleOpts = []preemptionAttemptOpts{{false}, {true}}
 	default:
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}

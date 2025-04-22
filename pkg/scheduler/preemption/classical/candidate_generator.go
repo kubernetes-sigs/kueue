@@ -31,13 +31,13 @@ import (
 )
 
 type candidateIterator struct {
-	candidates                         []*candidateElem
-	runIndex                           int
-	frsNeedPreemption                  sets.Set[resources.FlavorResource]
-	snapshot                           *cache.Snapshot
-	AnyCandidateFromOtherQueues        bool
-	AnyCandidateForHierarchicalReclaim bool
-	hierarchicalReclaimCtx             *HierarchicalPreemptionCtx
+	candidates                        []*candidateElem
+	runIndex                          int
+	frsNeedPreemption                 sets.Set[resources.FlavorResource]
+	snapshot                          *cache.Snapshot
+	NoCandidateFromOtherQueues        bool
+	NoCandidateForHierarchicalReclaim bool
+	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
 }
 
 type candidateElem struct {
@@ -103,13 +103,13 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 	allCandidates = append(allCandidates, nonEvictedSTCandidates...)
 	allCandidates = append(allCandidates, nonEvictedSameQueueCandidates...)
 	return &candidateIterator{
-		runIndex:                           0,
-		frsNeedPreemption:                  frsNeedPreemption,
-		snapshot:                           snapshot,
-		candidates:                         allCandidates,
-		AnyCandidateFromOtherQueues:        len(hierarchyCandidates) > 0 || len(priorityCandidates) > 0,
-		AnyCandidateForHierarchicalReclaim: len(hierarchyCandidates) > 0,
-		hierarchicalReclaimCtx:             hierarchicalReclaimCtx,
+		runIndex:                          0,
+		frsNeedPreemption:                 frsNeedPreemption,
+		snapshot:                          snapshot,
+		candidates:                        allCandidates,
+		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
+		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
+		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
 	}
 }
 
