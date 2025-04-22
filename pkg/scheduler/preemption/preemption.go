@@ -254,7 +254,6 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		}
 		if !fits {
 			restoreSnapshot(preemptionCtx.snapshot, targets)
-			//targets = []*Target{}
 		} else {
 			targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
 			restoreSnapshot(preemptionCtx.snapshot, targets)
