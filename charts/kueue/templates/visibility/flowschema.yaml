@@ -1,4 +1,3 @@
-{{- if .Values.enableVisibilityAPF }}
 apiVersion: flowcontrol.apiserver.k8s.io/v1
 kind: FlowSchema
 metadata:
@@ -30,4 +29,3 @@ spec:
         - group:
             name: system:authenticated
           kind: Group
-{{- end }}

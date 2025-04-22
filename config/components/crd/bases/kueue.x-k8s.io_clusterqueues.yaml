@@ -65,6 +65,8 @@ spec:
                   admissionChecks lists the AdmissionChecks required by this ClusterQueue.
                   Cannot be used along with AdmissionCheckStrategy.
                 items:
+                  description: AdmissionCheckReference is the name of an AdmissionCheck.
+                  maxLength: 316
                   type: string
                 type: array
               admissionChecksStrategy:
@@ -80,6 +82,7 @@ spec:
                       properties:
                         name:
                           description: name is an AdmissionCheck's name.
+                          maxLength: 316
                           type: string
                         onFlavors:
                           description: |-

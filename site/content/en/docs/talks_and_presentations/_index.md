@@ -9,6 +9,18 @@ description: >
   Talks and presentations showcasing Kueue
 ---
 
+# 2025
+
+* KubeCon EU, April, London<br>
+  Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue<br>
+  Michał Woźniak, Google & Yuki Iwai, CyberAgent, Inc.<br>
+  [talk details](https://sched.co/1u5fo) | [video](https://youtu.be/F55pFM1M1bU)<br>
+
+* KubeCon EU, April, London<br>
+  Tutorial: Build, Operate, and Use a Multi-Tenant AI Cluster Based Entirely on Open Source<br>
+  Claudia Misale, Olivier Tardieu, & David Grove, IBM Research<br>
+  [talk details](https://sched.co/1tx6h) | [video](https://youtu.be/Ab7mRoJYsMo) | [tutorial materials](https://github.com/project-codeflare/mlbatch/tree/main/setup.KubeConEU25)<br>
+
 # 2024
 
 * KubeCon NA, November, Salt Lake City<br>

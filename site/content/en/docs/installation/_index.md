@@ -28,7 +28,7 @@ description: >
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster with version 1.25 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+- A Kubernetes cluster with version 1.29 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The `SuspendJob` [feature gate][feature_gate] is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
 - (Optional) The `JobMutableNodeSchedulingDirectives` [feature gate][feature_gate] (available in Kubernetes 1.22 or newer) is enabled.
   In Kubernetes 1.23 or newer, the feature gate is enabled by default.
@@ -294,7 +294,6 @@ spec:
 |---------------------------------------|---------|------------|-------|-------|
 | `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
-| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   |       |
 | `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
 | `MultiplePreemptions`                 | `true`  | Beta       | 0.9   | 0.9   |
 | `MultiplePreemptions`                 | `true`  | GA         | 0.10  |       |

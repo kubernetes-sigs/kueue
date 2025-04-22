@@ -107,7 +107,7 @@ type Cache struct {
 	assumedWorkloads    map[string]kueue.ClusterQueueReference
 	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking   bool
-	admissionChecks     map[string]AdmissionCheck
+	admissionChecks     map[kueue.AdmissionCheckReference]AdmissionCheck
 	workloadInfoOptions []workload.InfoOption
 	fairSharingEnabled  bool
 
@@ -125,7 +125,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		client:              client,
 		assumedWorkloads:    make(map[string]kueue.ClusterQueueReference),
 		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:     make(map[string]AdmissionCheck),
+		admissionChecks:     make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		podsReadyTracking:   options.podsReadyTracking,
 		workloadInfoOptions: options.workloadInfoOptions,
 		fairSharingEnabled:  options.fairSharingEnabled,
@@ -286,11 +286,7 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kue
 		Active:     apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
 		Controller: ac.Spec.ControllerName,
 	}
-	if ac.Spec.ControllerName == kueue.MultiKueueControllerName {
-		newAC.SingleInstanceInClusterQueue = true
-		newAC.FlavorIndependent = true
-	}
-	c.admissionChecks[ac.Name] = newAC
+	c.admissionChecks[kueue.AdmissionCheckReference(ac.Name)] = newAC
 
 	return c.updateClusterQueues()
 }
@@ -298,7 +294,7 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kue
 func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
-	delete(c.admissionChecks, ac.Name)
+	delete(c.admissionChecks, kueue.AdmissionCheckReference(ac.Name))
 	return c.updateClusterQueues()
 }
 
@@ -919,7 +915,7 @@ func (c *Cache) ClusterQueuesUsingTopology(tName kueue.TopologyReference) []kueu
 	return cqs
 }
 
-func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []kueue.ClusterQueueReference {
+func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
 	var cqs []kueue.ClusterQueueReference

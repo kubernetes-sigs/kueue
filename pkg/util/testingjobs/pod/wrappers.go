@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // PodWrapper wraps a Pod.
@@ -255,17 +256,7 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	p.ObjectMeta.OwnerReferences = append(
-		p.ObjectMeta.OwnerReferences,
-		metav1.OwnerReference{
-			APIVersion: ownerGVK.GroupVersion().String(),
-			Kind:       ownerGVK.Kind,
-			Name:       ownerName,
-			UID:        types.UID(ownerName),
-			Controller: ptr.To(true),
-		},
-	)
-
+	testing.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return p
 }
 

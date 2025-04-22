@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queuename
+package customconfigse2e
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -33,6 +34,8 @@ import (
 
 var (
 	k8sClient       client.WithWatch
+	cfg             *rest.Config
+	restClient      *rest.RESTClient
 	ctx             context.Context
 	defaultKueueCfg *v1beta1.Configuration
 )
@@ -51,14 +54,19 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	k8sClient, _ = util.CreateClientUsingCluster("")
+	k8sClient, cfg = util.CreateClientUsingCluster("")
+	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue, JobSet and AppWrapper operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in the cluster",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 })
 

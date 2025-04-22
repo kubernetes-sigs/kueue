@@ -28,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a Job.
@@ -73,6 +74,16 @@ func (j *JobWrapper) Clone() *JobWrapper {
 
 func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	j.Spec.BackoffLimit = ptr.To(limit)
+	return j
+}
+
+func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
+	j.Spec.BackoffLimitPerIndex = ptr.To(limit)
+	return j
+}
+
+func (j *JobWrapper) CompletionMode(mode batchv1.CompletionMode) *JobWrapper {
+	j.Spec.CompletionMode = &mode
 	return j
 }
 
@@ -199,15 +210,7 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
-		{
-			APIVersion: ownerGVK.GroupVersion().String(),
-			Kind:       ownerGVK.Kind,
-			Name:       ownerName,
-			UID:        types.UID(ownerName),
-			Controller: ptr.To(true),
-		},
-	}
+	testing.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
 

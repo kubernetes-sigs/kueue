@@ -386,12 +386,15 @@ type RequeueState struct {
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
 
+// AdmissionCheckReference is the name of an AdmissionCheck.
+// +kubebuilder:validation:MaxLength=316
+type AdmissionCheckReference string
+
 type AdmissionCheckState struct {
 	// name identifies the admission check.
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=316
-	Name string `json:"name"`
+	Name AdmissionCheckReference `json:"name"`
 	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
 	// +required
 	// +kubebuilder:validation:Required
@@ -556,13 +559,6 @@ const (
 	// WorkloadEvictedByLocalQueueStopped indicates that the workload was evicted
 	// because the LocalQueue is Stopped.
 	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
-
-	// WorkloadEvictedByDeactivation indicates that the workload was evicted
-	// because spec.active is set to false.
-	// Deprecated: The reason is not set any longer, it is only kept temporarily to ensure
-	// pre-existing deactivated workloads remain deactivated after upgrade from version
-	// prior to 0.10. The reason declaration can be removed in 0.11.
-	WorkloadEvictedByDeactivation = "InactiveWorkload"
 
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
