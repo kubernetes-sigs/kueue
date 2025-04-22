@@ -73,10 +73,10 @@ func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 	return false
 }
 
-// assume a prefix of the elements has predicate = true
-func splitEvicted(workloads []*candidateElem, predicate func(*candidateElem) bool) ([]*candidateElem, []*candidateElem) {
+// assume a prefix of the elements has condition WorkloadEvicted = true
+func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateElem) {
 	firstFalse := sort.Search(len(workloads), func(i int) bool {
-		return !predicate(workloads[i])
+		return !meta.IsStatusConditionTrue(workloads[i].wl.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	})
 	return workloads[:firstFalse], workloads[firstFalse:]
 }
@@ -92,12 +92,9 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 	sort.Slice(sameQueueCandidates, candidateElemsOrdering(sameQueueCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
 	sort.Slice(priorityCandidates, candidateElemsOrdering(priorityCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
 	sort.Slice(hierarchyCandidates, candidateElemsOrdering(hierarchyCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
-	isEvicted := func(candidate *candidateElem) bool {
-		return meta.IsStatusConditionTrue(candidate.wl.Obj.Status.Conditions, kueue.WorkloadEvicted)
-	}
-	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates, isEvicted)
-	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates, isEvicted)
-	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates, isEvicted)
+	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
+	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates)
+	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates)
 	allCandidates := make([]*candidateElem, 0, len(hierarchyCandidates)+len(priorityCandidates)+len(sameQueueCandidates))
 	allCandidates = append(allCandidates, evictedHierarchicalReclaimCandidates...)
 	allCandidates = append(allCandidates, evictedSTCandidates...)

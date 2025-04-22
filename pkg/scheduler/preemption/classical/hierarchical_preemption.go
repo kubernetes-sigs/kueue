@@ -130,9 +130,8 @@ func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrow
 }
 
 func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {
-	var sameQueueCandidates []*candidateElem
 	if ctx.Cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
-		return sameQueueCandidates
+		return []*candidateElem{}
 	}
 	return getCandidatesFromCQ(ctx.Cq, nil, ctx, false)
 }
@@ -220,12 +219,12 @@ func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resourc
 		return 0, c.HasParent()
 	}
 	remaining := val - cache.LocalAvailable(c, fr)
-	var trackingNode *cache.CohortSnapshot
-	for trackingNode = range c.PathParentToRoot() {
+	for trackingNode := range c.PathParentToRoot() {
 		if !trackingNode.BorrowingWith(fr, remaining) {
 			return getNodeHeight(trackingNode), trackingNode.HasParent()
 		}
 		remaining -= cache.LocalAvailable(trackingNode, fr)
 	}
-	return getNodeHeight(trackingNode), trackingNode.HasParent()
+	// no fit found
+	return getNodeHeight(c.Parent().Root()), false
 }

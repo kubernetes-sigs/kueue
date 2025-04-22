@@ -239,7 +239,6 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 
 	for _, attemptOpts := range attemptPossibleOpts {
 		var targets []*Target
-		var fits bool
 		candidatesGenerator.Reset()
 		for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
 			preemptionCtx.snapshot.RemoveWorkload(candidate)
@@ -248,17 +247,12 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 				Reason:       reason,
 			})
 			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
-				fits = true
-				break
+				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
+				restoreSnapshot(preemptionCtx.snapshot, targets)
+				return targets
 			}
 		}
-		if !fits {
-			restoreSnapshot(preemptionCtx.snapshot, targets)
-		} else {
-			targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
-			restoreSnapshot(preemptionCtx.snapshot, targets)
-			return targets
-		}
+		restoreSnapshot(preemptionCtx.snapshot, targets)
 	}
 	return nil
 }
