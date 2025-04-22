@@ -713,7 +713,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// Check if preemption is possible
 	mode := noFit
-	//for single-level hierarchies, mayReclaimInHierarchy = true iff val <= rQuota.Nominal
+	// For single-level hierarchies, mayReclaimInHierarchy = true iff val <= rQuota.Nominal
 	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
 		if a.oracle.IsReclaimPossible(log, a.cq, *a.wl, fr, val) {
