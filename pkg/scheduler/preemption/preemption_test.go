@@ -4020,6 +4020,10 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				lock.Unlock()
 				return nil
 			}
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			// make a working copy of the snapshotWorkingCopy than preemption can temporarily modify
 			snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
 			if err != nil {
@@ -4034,6 +4038,9 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
