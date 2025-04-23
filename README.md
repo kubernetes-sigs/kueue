@@ -36,11 +36,16 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - ✔️ Test Coverage:
   - ✔️ Unit Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
   - ✔️ Integration Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-main)
+  - ✔️ Integration MultiKueue Tests [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main)
   - ✔️ E2E Tests for Kubernetes
     [1.30](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-30),
     [1.31](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-31),
     [1.32](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-32),
     on Kind.
+  - ✔️ E2E TAS Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-main)
+  - ✔️ E2E Custom Configs Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-customconfigs-main)
+  - ✔️ E2E Cert Manager Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main)
+  - ✔️ Performance Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main)
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
