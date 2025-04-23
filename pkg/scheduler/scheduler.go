@@ -647,16 +647,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
-
-	// requeue after updating object status locally
-	// manager will requeue latest API version which will be stale otherwise
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		patch := workload.BaseSSAWorkload(e.Obj)
-		workload.AdmissionStatusPatch(e.Obj, patch, true)
-		workload.AdmissionChecksStatusPatch(e.Obj, patch, s.clock)
+		patch := workload.PrepareWorkloadPatch(e.Obj, true, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {

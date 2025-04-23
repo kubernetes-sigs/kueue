@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -30,10 +29,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"k8s.io/utils/clock"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -59,7 +56,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		_ = features.SetEnable(features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
-		ns = util.CreateNamespaceWithLog(ctx, k8sClient, "repro")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 
@@ -83,24 +79,22 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {
 		var (
-			admissionCheck1             *kueue.AdmissionCheck
-			admissionCheck2             *kueue.AdmissionCheck
-			prodClusterQ                *kueue.ClusterQueue
-			devClusterQ                 *kueue.ClusterQueue
-			podsCountClusterQ           *kueue.ClusterQueue
-			podsCountOnlyClusterQ       *kueue.ClusterQueue
-			preemptionClusterQ          *kueue.ClusterQueue
-			admissionCheckClusterQ      *kueue.ClusterQueue
-			admissionPreemptionClusterQ *kueue.ClusterQueue
-			prodQueue                   *kueue.LocalQueue
-			devQueue                    *kueue.LocalQueue
-			podsCountQueue              *kueue.LocalQueue
-			podsCountOnlyQueue          *kueue.LocalQueue
-			preemptionQueue             *kueue.LocalQueue
-			admissionCheckQueue         *kueue.LocalQueue
-			admissionPreemptionQueue    *kueue.LocalQueue
-			cqsStopPolicy               *kueue.StopPolicy
-			lqsStopPolicy               *kueue.StopPolicy
+			admissionCheck1        *kueue.AdmissionCheck
+			admissionCheck2        *kueue.AdmissionCheck
+			prodClusterQ           *kueue.ClusterQueue
+			devClusterQ            *kueue.ClusterQueue
+			podsCountClusterQ      *kueue.ClusterQueue
+			podsCountOnlyClusterQ  *kueue.ClusterQueue
+			preemptionClusterQ     *kueue.ClusterQueue
+			admissionCheckClusterQ *kueue.ClusterQueue
+			prodQueue              *kueue.LocalQueue
+			devQueue               *kueue.LocalQueue
+			podsCountQueue         *kueue.LocalQueue
+			podsCountOnlyQueue     *kueue.LocalQueue
+			preemptionQueue        *kueue.LocalQueue
+			admissionCheckQueue    *kueue.LocalQueue
+			cqsStopPolicy          *kueue.StopPolicy
+			lqsStopPolicy          *kueue.StopPolicy
 		)
 
 		ginkgo.JustBeforeEach(func() {
@@ -173,25 +167,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
-				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck1.Name), kueue.AdmissionCheckReference(admissionCheck2.Name)).
-				Cohort("admission").
+				AdmissionChecks("check1", "check2").
 				StopPolicy(cqsStopPolicy).
 				Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheckClusterQ)
-
-			admissionPreemptionClusterQ = testing.MakeClusterQueue("admission-preemption-cq").
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
-				).
-				Preemption(kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-				}).
-				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck1.Name), kueue.AdmissionCheckReference(admissionCheck2.Name)).
-				Cohort("admission").
-				StopPolicy(cqsStopPolicy).
-				Obj()
-			util.MustCreate(ctx, k8sClient, admissionPreemptionClusterQ)
 
 			prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).
 				StopPolicy(lqsStopPolicy).
@@ -228,12 +207,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				StopPolicy(lqsStopPolicy).
 				Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheckQueue)
-
-			admissionPreemptionQueue = testing.MakeLocalQueue("admission-preemption-queue", ns.Name).
-				ClusterQueue(admissionPreemptionClusterQ.Name).
-				StopPolicy(lqsStopPolicy).
-				Obj()
-			util.MustCreate(ctx, k8sClient, admissionPreemptionQueue)
 		})
 
 		ginkgo.JustAfterEach(func() {
@@ -244,7 +217,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, podsCountOnlyClusterQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionClusterQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheckClusterQ, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionPreemptionClusterQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
@@ -508,108 +480,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(admissionCheckClusterQ, 0)
 			})
-		})
-
-		ginkgo.It("Should unreserve quota on skipped workload", func() {
-			// util.SetQueueingStrategyStrictFIFO(ctx, k8sClient, admissionCheckClusterQ)
-			// util.SetQueueingStrategyStrictFIFO(ctx, k8sClient, admissionPreemptionClusterQ)
-
-			wl1 := testing.MakeWorkload("admission-check-wl1", ns.Name).
-				Queue(admissionPreemptionQueue.Name).
-				Request(corev1.ResourceCPU, "10").
-				Priority(3).
-				Obj()
-
-			wl2 := testing.MakeWorkload("admission-check-wl2", ns.Name).
-				Queue(admissionCheckQueue.Name).
-				Request(corev1.ResourceCPU, "10").
-				Priority(2).
-				Obj()
-
-			wl3 := testing.MakeWorkload("admission-check-wl3", ns.Name).
-				Queue(admissionPreemptionQueue.Name).
-				Request(corev1.ResourceCPU, "10").
-				Priority(3).
-				Obj()
-
-			var clk clock.RealClock
-
-			applyAdmissionStatus := func(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, owner string) error {
-				wlCopy := workload.BaseSSAWorkload(w)
-				workload.AdmissionStatusPatch(w, wlCopy, strict)
-				workload.AdmissionChecksStatusPatch(w, wlCopy, clk)
-				return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(owner), client.ForceOwnership)
-			}
-
-			applyDualFieldOwner := func(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock) {
-				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: metav1.NewTime(clk.Now()),
-				}, clk)
-				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: metav1.NewTime(clk.Now()),
-				}, clk)
-				gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, constants.AdmissionName)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-					State:              kueue.CheckStateReady,
-					LastTransitionTime: metav1.NewTime(clk.Now()),
-				}, clk)
-				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-					State:              kueue.CheckStateReady,
-					LastTransitionTime: metav1.NewTime(clk.Now()),
-				}, clk)
-				gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, "dupe")).To(gomega.Succeed())
-			}
-
-			util.MustCreate(ctx, k8sClient, wl1)
-			applyDualFieldOwner(ctx, k8sClient, wl1, clk)
-			// time.Sleep(time.Second * 15)
-
-			expectWl1Admission := testing.MakeAdmission(admissionPreemptionClusterQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectWl1Admission)
-
-			util.MustCreate(ctx, k8sClient, wl2)
-			applyDualFieldOwner(ctx, k8sClient, wl2, clk)
-			// time.Sleep(time.Second * 8)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-
-			util.MustCreate(ctx, k8sClient, wl3)
-			applyDualFieldOwner(ctx, k8sClient, wl3, clk)
-			// time.Sleep(time.Second * 8)
-			// util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, expectWl1Admission)
-
-			// util.FinishWorkloads(ctx, k8sClient, wl1)
-
-			// util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionPreemptionClusterQ.Name, wl3)
-			// time.Sleep(time.Second * 20)
-
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3, wl2)
-			// util.HoldAndDrainClusterQueue(ctx, k8sClient, admissionCheckClusterQ)
-			// time.Sleep(time.Second * 8)
-			// util.UnholdClusterQueue(ctx, k8sClient, admissionCheckClusterQ)
-			// time.Sleep(time.Second * 8)
-
-			// ginkgo.By("wl2 should be admitted", func() {
-			// 	// time.Sleep(time.Second * 5)
-			// 	// util.FinishWorkloads(ctx, k8sClient, wl1)
-			// 	// util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-			// 	time.Sleep(time.Second * 15)
-			// 	util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionCheckClusterQ.Name, wl2)
-			// })
-			// ginkgo.By("wl3 should be pending", func() {
-			// 	util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
-			// })
-
-			// ginkgo.By("wl3 should be admitted", func() {
-			// 	time.Sleep(time.Second * 15)
-			// 	util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionPreemptionClusterQ.Name, wl3)
-			// 	util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-			// })
 		})
 
 		ginkgo.When("Hold ClusterQueue at startup", func() {
