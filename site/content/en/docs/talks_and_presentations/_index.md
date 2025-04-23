@@ -21,6 +21,11 @@ description: >
   Claudia Misale, Olivier Tardieu, & David Grove, IBM Research<br>
   [talk details](https://sched.co/1tx6h) | [video](https://youtu.be/Ab7mRoJYsMo) | [tutorial materials](https://github.com/project-codeflare/mlbatch/tree/main/setup.KubeConEU25)<br>
 
+* KubeCon EU, April, London<br>
+  Kueue: Save Some QPS for the Rest of Us! How To Manage 100k Updates Per Second<br>
+  Patryk Bundyra, Google<br>
+  [talk details](https://sched.co/1txCn) | [video](https://youtu.be/njNXlZNT3dw)<br>
+
 # 2024
 
 * KubeCon NA, November, Salt Lake City<br>
