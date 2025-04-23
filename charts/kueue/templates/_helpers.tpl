@@ -52,6 +52,14 @@ control-plane: controller-manager
 {{- end }}
 
 {{/*
+Labels for metrics service
+*/}}
+{{- define "kueue.metricsService.labels" -}}
+{{ include "kueue.labels" . }}
+app.kubernetes.io/component: metrics
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "kueue.serviceAccountName" -}}
