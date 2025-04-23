@@ -47,11 +47,6 @@ INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
-# Integration filters
-INTEGRATION_RUN_ALL?=true
-ifneq ($(INTEGRATION_RUN_ALL),true) 
-	INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
-endif
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -99,6 +94,14 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
+.PHONY: test-integration-required
+test-integration-required: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-integration-required: test-integration ## Run required integration tests for singlecluster suites.
+
+.PHONY: test-integration-slow-and-redundant
+test-integration-slow-and-redundant: INTEGRATION_FILTERS= --label-filter="slow || redundant"
+test-integration-slow-and-redundant: test-integration ## Run slow and redundant integration tests for singlecluster suites.
+
 .PHONY: test-multikueue-integration
 test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
@@ -108,6 +111,14 @@ test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top #
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
+
+.PHONY: test-multikueue-integration-required
+test-multikueue-integration-required: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-multikueue-integration-required: test-multikueue-integration ## Run required integration tests for multikueue suites.
+
+.PHONY: test-multikueue-integration-slow-and-redundant
+test-multikueue-integration-slow-and-redundant: INTEGRATION_FILTERS= --label-filter="slow || redundant"
+test-multikueue-integration-slow-and-redundant: test-multikueue-integration ## Run slow and redundant integration tests for multikueue suite.
 
 CREATE_KIND_CLUSTER ?= true
 
