@@ -1,0 +1,112 @@
+package yamlproc
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+func SplitYAMLDocuments(data []byte) ([][]byte, error) {
+	var result [][]byte
+
+	reader := bytes.NewReader(data)
+	dec := yaml.NewDecoder(reader)
+	for {
+		var node yaml.Node
+		err := dec.Decode(&node)
+		if errors.Is(err, io.EOF) {
+			return result, nil
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		doc, err := yaml.Marshal(&node)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, []byte(doc))
+	}
+}
+
+func JoinYAMLDocuments(docs [][]byte) []byte {
+	var stringDocs []string
+	for _, doc := range docs {
+		stringDocs = append(stringDocs, string(doc))
+	}
+
+	return []byte(strings.Join(stringDocs, "\n---\n"))
+}
+
+// Sanitize processes the given YAML data and ensures it is valid by replacing invalid lines
+// with dummy key-value pairs. This allows tools like YQ to operate on the file without errors.
+// - Multiline blocks are preserved.
+// - Invalid lines are replaced with "dummy: placeholder" to maintain structure.
+func Sanitize(yamlData []byte) []byte {
+	var inMultilineBlock, inInvalidBlock bool
+	var currentIndentation, invalidBlockIndent string
+	var validYAML strings.Builder
+
+	lines := strings.SplitSeq(string(yamlData), "\n")
+	for line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if inMultilineBlock {
+			if isPartOfMultilineBlock(line, currentIndentation, trimmed) {
+				validYAML.WriteString(line + "\n")
+				continue
+			}
+			inMultilineBlock = false
+			currentIndentation = ""
+		}
+
+		if startsMultilineBlock(trimmed) {
+			inMultilineBlock = true
+			currentIndentation = line[:len(line)-len(trimmed)]
+			validYAML.WriteString(line + "\n")
+			continue
+		}
+
+		if isValidYAMLLine(trimmed) {
+			if inInvalidBlock {
+				inInvalidBlock = false
+				invalidBlockIndent = ""
+			}
+			validYAML.WriteString(line + "\n")
+		} else {
+			if !inInvalidBlock {
+				inInvalidBlock = true
+				invalidBlockIndent = line[:len(line)-len(trimmed)]
+			}
+			validYAML.WriteString(invalidBlockIndent + "dummy: placeholder\n")
+		}
+	}
+
+	return []byte(validYAML.String())
+}
+
+func isPartOfMultilineBlock(line, currentIndentation, trimmed string) bool {
+	return len(line) > len(currentIndentation) && strings.HasPrefix(line, currentIndentation) || line == currentIndentation || trimmed == ""
+}
+
+func startsMultilineBlock(trimmed string) bool {
+	return strings.HasSuffix(trimmed, "|") || strings.HasSuffix(trimmed, "|-")
+}
+
+func isValidYAMLLine(line string) bool {
+	if line == "" || strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "---" {
+		return false
+	}
+
+	var parsed interface{}
+	err := yaml.Unmarshal([]byte(line), &parsed)
+	return err == nil
+}
+
+func isMultiDocumentYAML(data []byte) bool {
+	return strings.Contains(string(data), "---\n")
+}

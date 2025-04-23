@@ -122,8 +122,8 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
 
 .PHONY: update-helm
-update-helm: manifests yq
-	SED=$(SED) ./hack/update-helm.sh
+update-helm: manifests yq yaml-processor
+	$(PROJECT_DIR)/bin/yaml-processor hack/processing-plan.yaml
 
 .PHONY: generate
 generate: gomod-download controller-gen generate-apiref generate-kueuectl-docs ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -245,6 +245,11 @@ helm-chart-push: yq helm
 kind-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
 kind-image-build: kind image-build
+
+.PHONY: yaml-processor
+yaml-processor:
+	cd $(PROJECT_DIR)/hack/internal/tools/yaml-processor && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/yaml-processor
 
 ##@ Deployment
 
