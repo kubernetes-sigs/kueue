@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		_ = features.SetEnable(features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = util.CreateNamespaceWithLog(ctx, k8sClient, "repro")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 
@@ -162,8 +163,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "3").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				StopPolicy(cqsStopPolicy).
 				Obj()
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				}).
 				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck1.Name), kueue.AdmissionCheckReference(admissionCheck2.Name)).
@@ -511,75 +511,105 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should unreserve quota on skipped workload", func() {
+			// util.SetQueueingStrategyStrictFIFO(ctx, k8sClient, admissionCheckClusterQ)
+			// util.SetQueueingStrategyStrictFIFO(ctx, k8sClient, admissionPreemptionClusterQ)
+
 			wl1 := testing.MakeWorkload("admission-check-wl1", ns.Name).
-				Queue(admissionCheckQueue.Name).
-				Request(corev1.ResourceCPU, "9001m"). // will fit in first scheduling loop
+				Queue(admissionPreemptionQueue.Name).
+				Request(corev1.ResourceCPU, "10").
 				Priority(3).
 				Obj()
 
 			wl2 := testing.MakeWorkload("admission-check-wl2", ns.Name).
 				Queue(admissionCheckQueue.Name).
-				Request(corev1.ResourceCPU, "9001m"). // will be pending
-				Priority(1).
+				Request(corev1.ResourceCPU, "10").
+				Priority(2).
 				Obj()
 
 			wl3 := testing.MakeWorkload("admission-check-wl3", ns.Name).
 				Queue(admissionPreemptionQueue.Name).
-				Request(corev1.ResourceCPU, "9001m"). // will be evaluated in first scheduling loop but not nominated.
-				Priority(2).
+				Request(corev1.ResourceCPU, "10").
+				Priority(3).
 				Obj()
 
 			var clk clock.RealClock
 
-			ginkgo.By("creating all workloads", func() {
-				util.MustCreate(ctx, k8sClient, wl1)
-				util.MustCreate(ctx, k8sClient, wl2)
-				util.MustCreate(ctx, k8sClient, wl3)
+			applyAdmissionStatus := func(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, owner string) error {
+				wlCopy := workload.BaseSSAWorkload(w)
+				workload.AdmissionStatusPatch(w, wlCopy, strict)
+				workload.AdmissionChecksStatusPatch(w, wlCopy, clk)
+				return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(owner), client.ForceOwnership)
+			}
 
-				applyAdmissionStatus := func(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, owner string) error {
-					wlCopy := workload.BaseSSAWorkload(w)
-					workload.AdmissionStatusPatch(w, wlCopy, strict)
-					workload.AdmissionChecksStatusPatch(w, wlCopy, clk)
-					return c.Status().Patch(ctx, wlCopy, client.Apply, client.FieldOwner(owner), client.ForceOwnership)
-				}
+			applyDualFieldOwner := func(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock) {
+				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: metav1.NewTime(clk.Now()),
+				}, clk)
+				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: metav1.NewTime(clk.Now()),
+				}, clk)
+				gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, constants.AdmissionName)).To(gomega.Succeed())
+				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: metav1.NewTime(clk.Now()),
+				}, clk)
+				workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: metav1.NewTime(clk.Now()),
+				}, clk)
+				gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, "dupe")).To(gomega.Succeed())
+			}
 
-				applyDualFieldOwner := func(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock) {
-					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(clk.Now()),
-					}, clk)
-					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(clk.Now()),
-					}, clk)
-					gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, constants.AdmissionName)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:               kueue.AdmissionCheckReference(admissionCheck1.Name),
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(clk.Now()),
-					}, clk)
-					workload.SetAdmissionCheckState(&w.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:               kueue.AdmissionCheckReference(admissionCheck2.Name),
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(clk.Now()),
-					}, clk)
-					gomega.Expect(applyAdmissionStatus(ctx, k8sClient, w, false, clk, "dupe")).To(gomega.Succeed())
-				}
+			util.MustCreate(ctx, k8sClient, wl1)
+			applyDualFieldOwner(ctx, k8sClient, wl1, clk)
+			// time.Sleep(time.Second * 15)
 
-				applyDualFieldOwner(ctx, k8sClient, wl1, clk)
-				applyDualFieldOwner(ctx, k8sClient, wl2, clk)
-				applyDualFieldOwner(ctx, k8sClient, wl3, clk)
-			})
+			expectWl1Admission := testing.MakeAdmission(admissionPreemptionClusterQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectWl1Admission)
 
-			ginkgo.By("wl2 should be pending", func() {
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-			})
-			ginkgo.By("wl3 should be pending", func() {
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
-			})
+			util.MustCreate(ctx, k8sClient, wl2)
+			applyDualFieldOwner(ctx, k8sClient, wl2, clk)
+			// time.Sleep(time.Second * 8)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 
+			util.MustCreate(ctx, k8sClient, wl3)
+			applyDualFieldOwner(ctx, k8sClient, wl3, clk)
+			// time.Sleep(time.Second * 8)
+			// util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, expectWl1Admission)
+
+			// util.FinishWorkloads(ctx, k8sClient, wl1)
+
+			// util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionPreemptionClusterQ.Name, wl3)
+			// time.Sleep(time.Second * 20)
+
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3, wl2)
+			// util.HoldAndDrainClusterQueue(ctx, k8sClient, admissionCheckClusterQ)
+			// time.Sleep(time.Second * 8)
+			// util.UnholdClusterQueue(ctx, k8sClient, admissionCheckClusterQ)
+			// time.Sleep(time.Second * 8)
+
+			// ginkgo.By("wl2 should be admitted", func() {
+			// 	// time.Sleep(time.Second * 5)
+			// 	// util.FinishWorkloads(ctx, k8sClient, wl1)
+			// 	// util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			// 	time.Sleep(time.Second * 15)
+			// 	util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionCheckClusterQ.Name, wl2)
+			// })
+			// ginkgo.By("wl3 should be pending", func() {
+			// 	util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+			// })
+
+			// ginkgo.By("wl3 should be admitted", func() {
+			// 	time.Sleep(time.Second * 15)
+			// 	util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, admissionPreemptionClusterQ.Name, wl3)
+			// 	util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			// })
 		})
 
 		ginkgo.When("Hold ClusterQueue at startup", func() {
