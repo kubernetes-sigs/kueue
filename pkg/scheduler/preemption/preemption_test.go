@@ -3811,7 +3811,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//           q10  q9   q8  q7
 		//	quotas:
 		//	4: c11, c12, c21, c22, c23, c32, c31
-		//	0: c31, q1, q2, q3, q4, q5, q6, q7, q8
+		//	0: q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
 		"reclaim in complex hierarchy": {
 			cohorts: []*kueuealpha.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
@@ -3924,43 +3924,49 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 			},
 			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing_1", "").
+					Priority(6).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuota(utiltesting.MakeAdmission("q1").
+						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_2", "").
+					Priority(4).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("q1").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_3", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("q1").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
 				*utiltesting.MakeWorkload("admitted_nominal", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q4").
 						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("admitted_borrowing_1", "").
-					Priority(10).
-					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q6").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
-					Obj(),
-				*utiltesting.MakeWorkload("admitted_borrowing_2", "").
-					Priority(11).
-					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q6").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
-					Obj(),
-				*utiltesting.MakeWorkload("admitted_borrowing_3", "").
-					Priority(5).
-					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltesting.MakeAdmission("q1").
-						Assignment(corev1.ResourceCPU, "default", "5").Obj()).
-					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_4", "").
-					Priority(6).
-					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltesting.MakeAdmission("q1").
-						Assignment(corev1.ResourceCPU, "default", "5").Obj()).
+					Priority(-4).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("q6").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_5", "").
+					Priority(-3).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("q6").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_6", "").
 					Priority(4).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q8").
 						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("admitted_borrowing_6", "").
+				*utiltesting.MakeWorkload("admitted_borrowing_7", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuota(utiltesting.MakeAdmission("q8").
@@ -3969,7 +3975,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
 				Priority(-2).
-				Request(corev1.ResourceCPU, "9").
+				Request(corev1.ResourceCPU, "7").
 				Obj(),
 			targetCQ: "q10",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -3978,8 +3984,11 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
+			// only one of workloads from q6 will be preempted because
+			// after preempting the first one, the usage of cohort
+			// c22 will be back within nominal quota
 			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing_3", kueue.InCohortReclamationReason),
+				targetKeyReason("/admitted_borrowing_2", kueue.InCohortReclamationReason),
 				targetKeyReason("/admitted_borrowing_4", kueue.InCohortReclamationReason)),
 		},
 	}
