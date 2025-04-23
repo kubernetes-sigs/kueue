@@ -1292,7 +1292,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 *kueue.Workload
 				)
 				customLabelKey := "custom-label-key-1"
-				customLabelValue := "value-1"
+				customLabelCorrectValue := "value-1"
+				customLabelWrongValue := "value-2"
 
 				ginkgo.By("creating a node missing the required label", func() {
 					nodes = []corev1.Node{
@@ -1316,7 +1317,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					wl1 = testing.MakeWorkload("wl-needs-label", ns.Name).
 						Queue(localQueue.Name).
 						PodSets(*testing.MakePodSet("main", 1).
-							NodeSelector(map[string]string{customLabelKey: customLabelValue}).
+							NodeSelector(map[string]string{customLabelKey: customLabelCorrectValue}).
 							Request(corev1.ResourceCPU, "1").
 							Obj()).
 						Obj()
@@ -1328,77 +1329,26 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				ginkgo.By("Add the required label to the node", func() {
+				ginkgo.By("Add a label to the node with correct key but wrong value", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, nodeToUpdate)).Should(gomega.Succeed())
-					if nodeToUpdate.Labels == nil {
-						nodeToUpdate.Labels = make(map[string]string)
-					}
-					nodeToUpdate.Labels[customLabelKey] = customLabelValue
+					nodeToUpdate.Labels[customLabelKey] = customLabelWrongValue
 					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
-					nodes[0] = *nodeToUpdate
 				})
 
-				ginkgo.By("verify the workload gets admitted after label is added", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
-					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-				})
-			})
-
-			ginkgo.It("should admit workload when node label value is corrected", func() {
-				var (
-					wl1 *kueue.Workload
-				)
-				customLabelKey := "custom-label-key-2"
-				wrongValue := "wrong-value"
-				correctValue := "correct-value"
-
-				ginkgo.By("creating a node with the wrong label value", func() {
-					nodes = []corev1.Node{
-						*testingnode.MakeNode("node-wrong-label-value").
-							Label("node-group", "tas").
-							Label(customLabelKey, wrongValue).
-							Label(testing.DefaultBlockTopologyLevel, "b1").
-							Label(testing.DefaultRackTopologyLevel, "r1").
-							Label(corev1.LabelHostname, "node-wrong-label-value").
-							StatusAllocatable(corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-								corev1.ResourcePods:   resource.MustParse("10"),
-							}).
-							Ready().
-							Obj(),
-					}
-					util.CreateNodesWithStatus(ctx, k8sClient, nodes)
-				})
-
-				ginkgo.By("creating a workload requiring the correct label value via NodeSelector", func() {
-					wl1 = testing.MakeWorkload("wl-needs-correct-label", ns.Name).
-						Queue(localQueue.Name).
-						PodSets(*testing.MakePodSet("main", 1).
-							NodeSelector(map[string]string{customLabelKey: correctValue}).
-							Request(corev1.ResourceCPU, "1").
-							Obj()).
-						Obj()
-					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("verify the workload is inadmissible due to wrong label value", func() {
+				ginkgo.By("verify the workload is inadmissible due to wrong value in the label", func() {
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 				})
 
-				ginkgo.By("Correct the label value on the node", func() {
+				ginkgo.By("Add the correct label to the node", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, nodeToUpdate)).Should(gomega.Succeed())
-					gomega.Expect(nodeToUpdate.Labels).Should(gomega.HaveKeyWithValue(customLabelKey, wrongValue))
-					nodeToUpdate.Labels[customLabelKey] = correctValue
+					nodeToUpdate.Labels[customLabelKey] = customLabelCorrectValue
 					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
-					nodes[0] = *nodeToUpdate
 				})
 
-				ginkgo.By("verify the workload gets admitted after label is corrected", func() {
+				ginkgo.By("verify the workload gets admitted after label is added", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
