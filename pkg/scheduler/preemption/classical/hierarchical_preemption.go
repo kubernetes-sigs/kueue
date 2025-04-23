@@ -171,6 +171,10 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 		}
 		collectCandidatesInSubtree(ctx, currentSubtreeRoot, currentSubtreeRoot, previousSubtreeRoot, hasHierarchicalAdvantage, candidateList)
 		fits, remainingRequests = cache.QuantitiesFitInQuota(currentSubtreeRoot, remainingRequests)
+		// Once we find a subtree sT that fits the requests, we will look for workloads that use quota
+		// of that subtree. The preemptor will have hierarchical advantage over all such workloads
+		// because it belongs to subtree sT. For that reason variable hasHierarchicalAdvantage
+		// remains true in subsequent iterations of the loop.
 		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
 		previousSubtreeRoot = currentSubtreeRoot
 	}
