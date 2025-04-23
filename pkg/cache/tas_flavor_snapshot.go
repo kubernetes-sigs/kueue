@@ -318,16 +318,23 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if !found {
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
+	var selector labels.Selector
+	if s.isLowestLevelNode() {
+		sel, err := labels.ValidatedSelectorFromSet(podSetNodeSelectors)
+		if err != nil {
+			return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", podSetNodeSelectors, err)
+		}
+		selector = sel
+	} else {
+		selector = labels.Everything()
+	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	err := s.fillInCounts(
+	s.fillInCounts(
 		requests,
 		assumedUsage,
 		append(podSetTolerations, s.tolerations...),
-		podSetNodeSelectors,
+		selector,
 	)
-	if err != nil {
-		return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", podSetNodeSelectors, err)
-	}
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
@@ -480,15 +487,11 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain) []*domain {
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	tolerations []corev1.Toleration,
-	nodeSelectors map[string]string) error {
+	selector labels.Selector) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
 		domain.state = 0
-	}
-	selector, err := labels.ValidatedSelectorFromSet(nodeSelectors)
-	if err != nil {
-		return err
 	}
 	for _, leaf := range s.leaves {
 		// 1. Check Tolerations against Node Taints
@@ -520,7 +523,6 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	for _, root := range s.roots {
 		root.state = s.fillInCountsHelper(root)
 	}
-	return nil
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain) int32 {
