@@ -100,7 +100,7 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-multikueue-integration
-test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for Multikueue suite.
+test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
