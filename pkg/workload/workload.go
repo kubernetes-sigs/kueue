@@ -698,10 +698,15 @@ func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+	wlCopy := PrepareWorkloadPatch(w, strict)
+	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+}
+
+func PrepareWorkloadPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	AdmissionStatusPatch(w, wlCopy, strict)
 	AdmissionChecksStatusPatch(w, wlCopy)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	return wlCopy
 }
 
 // ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
