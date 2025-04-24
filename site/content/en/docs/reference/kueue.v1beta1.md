@@ -2541,6 +2541,49 @@ domain indicated by the values field.</p>
 
 
 
+## `WaitForPodsReadyRequeue`     {#kueue-x-k8s-io-v1beta1-WaitForPodsReadyRequeue}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>reason</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WaitForPodsReadyRequeueReason"><code>WaitForPodsReadyRequeueReason</code></a>
+</td>
+<td>
+   <p>reason of the requeue, one of StartupTimeout, RecoveryTimeout.</p>
+</td>
+</tr>
+<tr><td><code>count</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count records the number of times a workload has been re-queued</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WaitForPodsReadyRequeueReason`     {#kueue-x-k8s-io-v1beta1-WaitForPodsReadyRequeueReason}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WaitForPodsReadyRequeue](#kueue-x-k8s-io-v1beta1-WaitForPodsReadyRequeue)
+
+
+
+
+
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     
 
@@ -2712,6 +2755,13 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>waitForPodsReadyRequeuesByReason</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WaitForPodsReadyRequeue"><code>[]WaitForPodsReadyRequeue</code></a>
+</td>
+<td>
+   <p>waitForPodsReadyRequeuesByReason holds the re-queue state for WaitForPodsReady.</p>
 </td>
 </tr>
 </tbody>

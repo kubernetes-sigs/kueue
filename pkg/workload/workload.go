@@ -691,6 +691,7 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+	wlCopy.Status.WaitForPodsReadyRequeuesByReason = append(wlCopy.Status.WaitForPodsReadyRequeuesByReason, w.Status.WaitForPodsReadyRequeuesByReason...)
 }
 
 func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -905,4 +906,26 @@ func References(wls []*Info) []klog.ObjectRef {
 		keys[i] = klog.KObj(wl.Obj)
 	}
 	return keys
+}
+
+func FindWaitForPodsReadyRequeue(wl *kueue.Workload, reason kueue.WaitForPodsReadyRequeueReason) *kueue.WaitForPodsReadyRequeue {
+	for i := range wl.Status.WaitForPodsReadyRequeuesByReason {
+		if wl.Status.WaitForPodsReadyRequeuesByReason[i].Reason == reason {
+			return &wl.Status.WaitForPodsReadyRequeuesByReason[i]
+		}
+	}
+	return nil
+}
+
+func SetWaitForPodsReadyRequeue(wl *kueue.Workload, newRequeue kueue.WaitForPodsReadyRequeue) bool {
+	requeue := FindWaitForPodsReadyRequeue(wl, newRequeue.Reason)
+	if requeue == nil {
+		wl.Status.WaitForPodsReadyRequeuesByReason = append(wl.Status.WaitForPodsReadyRequeuesByReason, newRequeue)
+		return true
+	}
+	if requeue.Count != newRequeue.Count {
+		requeue.Count = newRequeue.Count
+		return true
+	}
+	return false
 }

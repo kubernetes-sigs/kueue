@@ -563,6 +563,11 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectWaitForPodsReadyWorkloadEvictionTotalMetric(namespace string, reason kueue.WaitForPodsReadyRequeueReason, v int) {
+	metric := metrics.WaitForPodsReadyWorkloadEvictionTotal.WithLabelValues(namespace, string(reason))
+	expectCounterMetric(metric, v)
+}
+
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
 	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
 	expectCounterMetric(metric, v)

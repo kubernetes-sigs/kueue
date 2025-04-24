@@ -48,10 +48,10 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	testCases := map[string]struct {
-		workload                   kueue.Workload
-		waitForPodsReady           *waitForPodsReadyConfig
-		wantCountingTowardsTimeout bool
-		wantRecheckAfter           time.Duration
+		workload         kueue.Workload
+		waitForPodsReady *waitForPodsReadyConfig
+		wantReason       kueue.WaitForPodsReadyRequeueReason
+		wantRecheckAfter time.Duration
 	}{
 		"workload without Admitted condition; not counting": {
 			workload: kueue.Workload{},
@@ -69,9 +69,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantReason:       kueue.StartupTimeoutReason,
+			wantRecheckAfter: 4 * time.Minute,
 		},
 		"workload with Admitted=True, no PodsReady, but no timeout configured; not counting": {
 			workload: kueue.Workload{
@@ -100,9 +100,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           0,
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantReason:       kueue.StartupTimeoutReason,
+			wantRecheckAfter: 0,
 		},
 		"with reason WorkloadWaitForPodsReadyStart; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
@@ -123,9 +123,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantReason:       kueue.StartupTimeoutReason,
+			wantRecheckAfter: 4 * time.Minute,
 		},
 		"with reason PodsReady; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
@@ -146,9 +146,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantReason:       kueue.StartupTimeoutReason,
+			wantRecheckAfter: 4 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
 			workload: kueue.Workload{
@@ -169,9 +169,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           3 * time.Minute,
+			waitForPodsReady: &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			wantReason:       kueue.RecoveryTimeoutReason,
+			wantRecheckAfter: 3 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery, recoveryTimeout not configured": {
 			workload: kueue.Workload{
@@ -192,8 +192,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: nil},
-			wantCountingTowardsTimeout: false,
+			waitForPodsReady: &waitForPodsReadyConfig{recoveryTimeout: nil},
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
@@ -250,13 +249,13 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
-			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
+			reason, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
 
-			if tc.wantCountingTowardsTimeout != countingTowardsTimeout {
-				t.Errorf("Unexpected countingTowardsTimeout, want=%v, got=%v", tc.wantCountingTowardsTimeout, countingTowardsTimeout)
-			}
 			if tc.wantRecheckAfter != recheckAfter {
 				t.Errorf("Unexpected recheckAfter, want=%v, got=%v", tc.wantRecheckAfter, recheckAfter)
+			}
+			if tc.wantReason != reason {
+				t.Errorf("Unexpected reason, want=%v, got=%v", tc.wantReason, reason)
 			}
 		})
 	}
@@ -767,6 +766,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				// 10s * 2^(4-1) = 80s
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
+				WaitForPodsReadyRequeue(kueue.WaitForPodsReadyRequeue{Reason: kueue.StartupTimeoutReason, Count: 1}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -843,6 +843,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Admitted(true).
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				WaitForPodsReadyRequeue(kueue.WaitForPodsReadyRequeue{Reason: kueue.StartupTimeoutReason, Count: 1}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -862,6 +863,77 @@ func TestReconcile(t *testing.T) {
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
+				WaitForPodsReadyRequeue(kueue.WaitForPodsReadyRequeue{Reason: kueue.StartupTimeoutReason, Count: 2}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"recovery time should be limited to recoveryTimeout": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     5 * time.Minute,
+					recoveryTimeout:             ptr.To(3 * time.Second),
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-3 * time.Minute)),
+					Reason:             kueue.WorkloadWaitForRecovery,
+					Message:            "At least one pod has failed, waiting for recovery",
+				}).
+				Admitted(true).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(testStartTime),
+					Reason:             kueue.WorkloadWaitForRecovery,
+					Message:            "At least one pod has failed, waiting for recovery",
+				}).
+				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
+				WaitForPodsReadyRequeue(kueue.WaitForPodsReadyRequeue{Reason: kueue.RecoveryTimeoutReason, Count: 1}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{

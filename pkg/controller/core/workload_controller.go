@@ -551,8 +551,8 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
 		return 0, nil
 	}
-	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl)
-	if !countingTowardsTimeout {
+	reason, recheckAfter := r.admittedNotReadyWorkload(wl)
+	if reason == "" {
 		return 0, nil
 	}
 	if recheckAfter > 0 {
@@ -566,12 +566,34 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
+	reportWaitForPodsReadyEvicted := r.waitForPodsReadyRequeueInc(wl, reason)
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
+		if reportWaitForPodsReadyEvicted {
+			metrics.ReportWaitForPodsReadyEvictedWorkload(wl.Namespace, reason)
+		}
 	}
 	return 0, client.IgnoreNotFound(err)
+}
+
+func (r *WorkloadReconciler) waitForPodsReadyRequeueInc(wl *kueue.Workload, reason kueue.WaitForPodsReadyRequeueReason) bool {
+	requeue := workload.FindWaitForPodsReadyRequeue(wl, reason)
+	if requeue == nil {
+		requeue = &kueue.WaitForPodsReadyRequeue{Reason: reason}
+	}
+
+	var report bool
+	if requeue.Count == 0 {
+		report = true
+	}
+
+	requeue.Count++
+
+	workload.SetWaitForPodsReadyRequeue(wl, *requeue)
+
+	return report
 }
 
 // triggerDeactivationOrBackoffRequeue trigger deactivation of workload
@@ -802,37 +824,42 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// admittedNotReadyWorkload returns as a pair of values. The first boolean determines
-// if the workload is currently counting towards the timeout for PodsReady, i.e.
-// it has the Admitted condition True and the PodsReady condition not equal
-// True (False or not set). The second value is the remaining time to exceed the
-// specified timeout counted since max of the LastTransitionTime's for the
-// Admitted and PodsReady conditions.
-func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool, time.Duration) {
+// admittedNotReadyWorkload checks if a workload counts toward the PodsReady timeout
+// and calculates the remaining timeout duration.
+//
+// It returns two values:
+//  1. A kueue.WaitForPodsReadyRequeueReason indicating the reason for requeuing
+//     (e.g., StartupTimeoutReason, RecoveryTimeoutReason, or empty if not applicable).
+//  2. The remaining time (in seconds) until the timeout is exceeded, based on
+//     the maximum of the LastTransitionTime for the Admitted and PodsReady conditions.
+//
+// If the workload is not admitted, PodsReady is true, or no timeout is configured,
+// it returns an empty reason and zero duration.
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.WaitForPodsReadyRequeueReason, time.Duration) {
 	if r.waitForPodsReady == nil {
 		// the timeout is not configured for the workload controller
-		return false, 0
+		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
 		// the workload is not admitted so there is no need to time it out
-		return false, 0
+		return "", 0
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
-		return false, 0
+		return "", 0
 	}
 
-	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
+	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == kueue.WorkloadPodsReady {
 		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-		return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
+		return kueue.StartupTimeoutReason, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return true, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return kueue.RecoveryTimeoutReason, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 	}
-	return false, 0
+	return "", 0
 }
 
 type resourceUpdatesHandler struct {

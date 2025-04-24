@@ -373,6 +373,11 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) WaitForPodsReadyRequeue(requeue kueue.WaitForPodsReadyRequeue) *WorkloadWrapper {
+	w.Status.WaitForPodsReadyRequeuesByReason = append(w.Status.WaitForPodsReadyRequeuesByReason, requeue)
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {

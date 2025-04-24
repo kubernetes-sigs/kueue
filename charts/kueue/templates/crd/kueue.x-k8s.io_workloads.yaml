@@ -8847,6 +8847,31 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              waitForPodsReadyRequeuesByReason:
+                description: waitForPodsReadyRequeuesByReason holds the re-queue state
+                  for WaitForPodsReady.
+                items:
+                  properties:
+                    count:
+                      description: count records the number of times a workload has
+                        been re-queued
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason of the requeue, one of StartupTimeout, RecoveryTimeout.
+                      enum:
+                      - StartupTimeout
+                      - RecoveryTimeout
+                      type: string
+                  required:
+                  - count
+                  - reason
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - reason
+                x-kubernetes-list-type: map
             type: object
         type: object
         x-kubernetes-validations:

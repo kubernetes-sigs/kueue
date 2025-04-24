@@ -63,6 +63,14 @@ var (
 
 	// Metrics tied to the scheduler
 
+	WaitForPodsReadyWorkloadEvictionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "wait_for_pods_ready_workload_eviction_total",
+			Help:      "The number of workloads evicted due to hitting one of the WaitForPodsReady timeouts at least once",
+		}, []string{"namespace", "reason"}, // StartupTimeout, RecoveryTimeout
+	)
+
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -387,6 +395,10 @@ func generateExponentialBuckets(count int) []float64 {
 	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
 }
 
+func ReportWaitForPodsReadyEvictedWorkload(namespace string, reason kueue.WaitForPodsReadyRequeueReason) {
+	WaitForPodsReadyWorkloadEvictionTotal.WithLabelValues(namespace, string(reason)).Inc()
+}
+
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	AdmissionAttemptsTotal.WithLabelValues(string(result)).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
@@ -613,6 +625,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
+		WaitForPodsReadyWorkloadEvictionTotal,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
