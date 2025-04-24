@@ -47,11 +47,6 @@ INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
-# Integration filters
-INTEGRATION_RUN_ALL?=true
-ifneq ($(INTEGRATION_RUN_ALL),true) 
-	INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
-endif
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -97,6 +92,14 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
+
+.PHONY: test-integration-baseline
+test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-integration-baseline: test-integration ## Run baseline integration tests for singlecluster suites.
+
+.PHONY: test-integration-extended
+test-integration-extended: INTEGRATION_FILTERS= --label-filter="slow || redundant"
+test-integration-extended: test-integration ## Run extended integration tests for singlecluster suites.
 
 .PHONY: test-multikueue-integration
 test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for Multikueue suite.
