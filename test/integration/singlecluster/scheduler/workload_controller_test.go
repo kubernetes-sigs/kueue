@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					g.Expect(workload.HasQuotaReservation(&updatedWl)).Should(gomega.BeTrue(), "should have quota reservation")
 
 					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
-					g.Expect(checks).Should(gomega.ConsistOf("check1", "check2"))
+					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check2")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse())
 			})
@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).To(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
-					g.Expect(checks).Should(gomega.ConsistOf("check1", "check3"))
+					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check3")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
