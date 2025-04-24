@@ -43,8 +43,10 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=bitnami/kuberay-operator:${KUBERAY_VERSION/#v}
-    export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
-    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
+    export KUBERAY_RAY_IMAGE=rayproject/ray:${RAY_VERSION}
+    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:${RAY_VERSION}-aarch64
+    export KUBERAY_RAYMINI_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAYMINI_VERSION}
+    export KUBERAY_RAYMINI_IMAGE_ARM=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAYMINI_VERSION}-aarch64
     export KUBERAY_CRDS=${ROOT_DIR}/dep-crds/ray-operator/crd/bases
 fi
 
@@ -97,14 +99,17 @@ function prepare_docker_images {
     if [[ -n ${KUBERAY_VERSION:-} ]]; then
         docker pull "${KUBERAY_IMAGE}"
 
-        # Extra e2e images required for Kuberay
-        unamestr=$(uname)
-        if [[ "$unamestr" == 'Linux' ]]; then
-            docker pull "${KUBERAY_RAY_IMAGE}"
-        elif [[ "$unamestr" == 'Darwin' ]]; then
-            docker pull "${KUBERAY_RAY_IMAGE_ARM}"
+        if [[ ${JOB_TYPE:-} == "periodic" ]]; then
+            # Extra e2e images required for Kuberay, not required in presubmit
+            unamestr=$(uname)
+            if [[ "$unamestr" == 'Linux' ]]; then
+                docker pull "${KUBERAY_RAY_IMAGE}"
+            elif [[ "$unamestr" == 'Darwin' ]]; then
+                docker pull "${KUBERAY_RAY_IMAGE_ARM}"
+            fi
         fi
     fi
+
 }
 
 # $1 cluster
@@ -163,13 +168,30 @@ function install_mpi {
 #$1 - cluster name
 function install_kuberay {
     # Extra e2e images required for Kuberay
-    unamestr=$(uname)
-    if [[ "$unamestr" == 'Linux' ]]; then
-        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
-    elif [[ "$unamestr" == 'Darwin' ]]; then
-        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE_ARM}"
-    fi 
+    local unamestr=""
+    local ray_image_to_load=""
 
+    unamestr=$(uname)
+    if [[ "${JOB_TYPE:-}" == "periodic" ]]; then
+        if [[ "$unamestr" == "Linux" ]]; then
+            ray_image_to_load="${KUBERAY_RAY_IMAGE}"
+        elif [[ "$unamestr" == "Darwin" ]]; then
+            ray_image_to_load="${KUBERAY_RAY_IMAGE_ARM}"
+        fi
+    else
+        if [[ "$unamestr" == "Linux" ]]; then
+            ray_image_to_load="${KUBERAY_RAYMINI_IMAGE}"
+        elif [[ "$unamestr" == "Darwin" ]]; then
+            ray_image_to_load="${KUBERAY_RAYMINI_IMAGE_ARM}"
+        fi
+    fi
+
+    if [[ -z "$ray_image_to_load" ]]; then
+        echo "Error: Unable to determine the ray image to load. Check JOB_TYPE and OS." >&2
+        return 1
+    fi
+
+    cluster_kind_load_image "${1}" "${ray_image_to_load}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
     kubectl config use-context "kind-${1}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504

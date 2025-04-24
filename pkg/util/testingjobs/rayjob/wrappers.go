@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a RayJob.
@@ -40,6 +41,7 @@ func MakeJob(name, ns string) *JobWrapper {
 		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
 			RayClusterSpec: &rayv1.RayClusterSpec{
+				RayVersion: testing.TestRayVersion(),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{"p1": "v1"},
 					Template: corev1.PodTemplateSpec{

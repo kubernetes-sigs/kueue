@@ -38,6 +38,7 @@ IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
 RAY_VERSION := 2.41.0
+RAYMINI_VERSION ?= 0.0.1
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -353,7 +354,7 @@ generate-kueuectl-docs: kueuectl-docs
 .PHONY: ray-project-mini-image-build
 ray-project-mini-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAY_VERSION)$(RAY_ARCHITECTURE) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION)$(RAY_ARCHITECTURE) \
 		--platform=$(PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
