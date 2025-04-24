@@ -49,7 +49,7 @@ default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/
 readonly default_image_repo
 
 # Update the image repo, tag and policy
-${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${chart_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${app_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 # Update the KueueViz images in values.yaml
 ${YQ} e ".KueueViz.backend.image = \"${image_repository}/kueueviz-backend:${app_version}\" | .KueueViz.frontend.image = \"${image_repository}/kueueviz-frontend:${app_version}\"" -i charts/kueue/values.yaml
