@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -293,6 +294,15 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
+			os.Exit(1)
+		}
+
+		waitForPopulatingTasCache(ctx, mgr, cCache)
+	}
+
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 		os.Exit(1)
@@ -329,13 +339,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 			multikueue.WithAdapters(adapters),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
-			os.Exit(1)
-		}
-	}
-
-	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
-			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
 			os.Exit(1)
 		}
 	}
@@ -463,4 +466,24 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 	return options, cfg, nil
+}
+
+func waitForPopulatingTasCache(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache) {
+	var flvs kueue.ResourceFlavorList
+	if err := mgr.GetClient().List(ctx, &flvs); err != nil {
+		setupLog.Error(err, "Unable to list resource flavors")
+		os.Exit(1)
+	}
+	for _, flv := range flvs.Items {
+		if flv.Spec.TopologyName != nil {
+			var isCachePopulated bool
+			for !isCachePopulated {
+				if cCache.TASCache().Get(kueue.ResourceFlavorReference(flv.Name)) == nil {
+					time.Sleep(1 * time.Second)
+				} else {
+					isCachePopulated = true
+				}
+			}
+		}
+	}
 }
