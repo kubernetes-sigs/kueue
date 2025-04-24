@@ -6,6 +6,7 @@ Changes since `v0.11.3`:
 
 ### Bug or Regression
 
+- TAS: Add support for Node Selectors. (#4989, @mwysokin)
 - Add support for Node Selectors in TAS Workloads. (#5079, @mwysokin)
 - Allow one to disable cohorts via a HiearachialCohort feature gate (#4913, @sohankunkerkar)
 - Fix LocalQueue's status message to reference LocalQueue, rather than ClusterQueue, when its status is Ready (#4956, @PBundyra)
