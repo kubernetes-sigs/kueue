@@ -1,3 +1,31 @@
+## v0.10.5
+
+Changes since `v0.10.4`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- TAS: Add support for Node Selectors. (#5087, @mwysokin)
+- Fix LocalQueue's status message to reference LocalQueue, rather than ClusterQueue, when its status is Ready (#4957, @PBundyra)
+- Fix RBAC configuration for the Topology API to allow reading and editing by the service accounts using the Kueue Batch Admin role. (#4865, @KPostOffice)
+- Fix a bug which caused Kueue's Scheduler to build invalid SSA patch in some scenarios when  using
+  admission checks. This patch would be rejected with the following error message:
+  Workload.kueue.x-k8s.io "job-xxxxxx" is invalid: [admissionChecks[0].lastTransitionTime: Required value (#5088, @alexeldeib)
+- Fix bug which resulted in under-utilization of the resources in a Cohort.
+  Now, when a ClusterQueue is configured with `preemption.reclaimWithinCohort: Any`,
+  its resources can be lent out more freely, as we are certain that we can reclaim
+  them later. Please see PR #4813 for detailed description of scenario. (#4823, @gabesaba)
+- Fixed bug that allow to create Topology without levels. (#5018, @mbobrovskyi)
+- Helm: fix ServiceMonitor selecting the wrong service. This previously led to missing Kueue metrics, even with `enablePrometheus` set to `true`. (#5084, @j-vizcaino)
+- PodSetTopologyRequests are now configured only when TopologyAwareScheduling feature gate is enabled. (#4840, @mykysha)
+- Revert making ClusterQueue.Preemption.BorrowWithinCohort as no-op when used with FairSharing, by reverting
+  https://github.com/kubernetes-sigs/kueue/pull/4165, which was done to prevent infinite-preemption loops as
+  described in https://github.com/kubernetes-sigs/kueue/issues/3779. However, it causes issues with upgrading for
+  users who use that combination. This configuration remains deprecated and can be removed without any notice
+  in future releases, so please consider alternatives. (#4819, @mimowo)
+- TAS: Fix bug where scheduling panics when the workload using TopologyAwareScheduling has container request value specified as zero. (#4976, @qti-haeyoon)
+
 ## v0.10.4
 
 Changes since `v0.10.3`:
