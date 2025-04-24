@@ -967,6 +967,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
@@ -1033,6 +1034,75 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("verify the workload gets admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+				})
+			})
+
+			ginkgo.It("should admit workload when node gets required label added", func() {
+				var (
+					wl1 *kueue.Workload
+				)
+				customLabelKey := "custom-label-key-1"
+				customLabelCorrectValue := "value-1"
+				customLabelWrongValue := "value-2"
+
+				ginkgo.By("creating a node missing the required label", func() {
+					nodes = []corev1.Node{
+						*testingnode.MakeNode("node-missing-label").
+							Label("node-group", "tas").
+							Label(testing.DefaultBlockTopologyLevel, "b1").
+							Label(testing.DefaultRackTopologyLevel, "r1").
+							Label(corev1.LabelHostname, "node-missing-label").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							Ready().
+							Obj(),
+					}
+					util.CreateNodes(ctx, k8sClient, nodes)
+				})
+
+				ginkgo.By("creating a workload requiring the missing label via NodeSelector", func() {
+					wl1 = testing.MakeWorkload("wl-needs-label", ns.Name).
+						Queue(localQueue.Name).
+						PodSets(*testing.MakePodSet("main", 1).
+							NodeSelector(map[string]string{customLabelKey: customLabelCorrectValue}).
+							RequiredTopologyRequest(testing.DefaultRackTopologyLevel).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible due to missing label", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("Add a label to the node with correct key but wrong value", func() {
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, nodeToUpdate)).Should(gomega.Succeed())
+					nodeToUpdate.Labels[customLabelKey] = customLabelWrongValue
+					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload is inadmissible due to wrong value in the label", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("Add the correct label to the node", func() {
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, nodeToUpdate)).Should(gomega.Succeed())
+					nodeToUpdate.Labels[customLabelKey] = customLabelCorrectValue
+					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload gets admitted after label is added", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
