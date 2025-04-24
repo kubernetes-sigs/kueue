@@ -6,6 +6,7 @@ Changes since `v0.10.4`:
 
 ### Bug or Regression
 
+- Add support for Node Selectors in TAS Workloads. (#5087, @mwysokin)
 - Fix LocalQueue's status message to reference LocalQueue, rather than ClusterQueue, when its status is Ready (#4957, @PBundyra)
 - Fix RBAC configuration for the Topology API to allow reading and editing by the service accounts using the Kueue Batch Admin role. (#4865, @KPostOffice)
 - Fix a bug which caused Kueue's Scheduler to build invalid SSA patch in some scenarios when  using
