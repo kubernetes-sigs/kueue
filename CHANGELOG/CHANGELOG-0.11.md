@@ -1,3 +1,29 @@
+## v0.11.4
+
+Changes since `v0.11.3`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Add support for Node Selectors in TAS Workloads. (#5079, @mwysokin)
+- Allow one to disable cohorts via a HiearachialCohort feature gate (#4913, @sohankunkerkar)
+- Fix LocalQueue's status message to reference LocalQueue, rather than ClusterQueue, when its status is Ready (#4956, @PBundyra)
+- Fix a bug which caused Kueue's Scheduler to build invalid SSA patch in some scenarios when  using
+  admission checks. This patch would be rejected with the following error message:
+  Workload.kueue.x-k8s.io "job-xxxxxx" is invalid: [admissionChecks[0].lastTransitionTime: Required value (#5086, @alexeldeib)
+- Fix bug where Cohorts with FairWeight set to 0 could have workloads running within Nominal Quota preempted (#4980, @gabesaba)
+- Fix bug where update to Cohort.FairSharing didn't trigger a reconcile. This bug resulted in the new weight not being used until the Cohort was modified in another way. (#4965, @gabesaba)
+- Fix bug which prevented using LeaderWorkerSet with manageJobsWithoutQueueName enabled. In particular, Kueue would create redundant workloads for each Pod, resulting in worker Pods suspended, while the leader Pods could bypass quota checks. (#4936, @mbobrovskyi)
+- Helm: Fix the default configuration for the metrics service. (#4905, @kannon92)
+- Fix the support for pod groups in MutliKueue. (#4909, @mszadkow)
+- Fixed a bug that caused Kueue to create redundant workloads for each Job when manageJobsWithoutQueueName was enabled, JobSet integration was disabled, and AppWrapper was used for JobSet. (#4924, @mbobrovskyi)
+- Fixed a bug that prevented Kueue from retaining the LeaderWorkerSet workload in deactivation status.
+  Fixed a bug that prevented Kueue from automatically deleting the workload when the LeaderWorkerSet was deleted. (#5015, @mbobrovskyi)
+- Fixed bug that allow to create Topology without levels. (#5016, @mbobrovskyi)
+- Helm: fix ServiceMonitor selecting the wrong service. This previously led to missing Kueue metrics, even with `enablePrometheus` set to `true`. (#5082, @j-vizcaino)
+- TAS: Fix bug where scheduling panics when the workload using TopologyAwareScheduling has container request value specified as zero. (#4973, @qti-haeyoon)
+
 ## v0.11.3
 
 Changes since `v0.11.2`:
