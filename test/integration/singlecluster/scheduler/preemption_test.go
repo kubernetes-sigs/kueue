@@ -28,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -907,6 +908,83 @@ var _ = ginkgo.Describe("Preemption", func() {
 				util.FinishEvictionForWorkloads(ctx, k8sClient, aWl)
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, aWl)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, b2Wl)
+			})
+		})
+	})
+	ginkgo.Context("In a multi-level cohort", func() {
+		var rootCohort, guaranteedCohort *kueuealpha.Cohort
+		var bestEffortCQ, guaranteedCQ *kueue.ClusterQueue
+		var defaultFlavor *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			defaultFlavor = testing.MakeResourceFlavor("default").Obj()
+			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
+
+			rootCohort = testing.MakeCohort("root").Obj()
+			gomega.Expect(k8sClient.Create(ctx, rootCohort)).To(gomega.Succeed())
+			guaranteedCohort = testing.MakeCohort("guaranteed").Parent("root").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, guaranteedCohort)).To(gomega.Succeed())
+			bestEffortCQ = testing.MakeClusterQueue("best-effort").
+				Cohort("root").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bestEffortCQ)).To(gomega.Succeed())
+			guaranteedCQ = testing.MakeClusterQueue("guaranteed").
+				Cohort("guaranteed").ResourceGroup(
+				*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+			).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, guaranteedCQ)).To(gomega.Succeed())
+		})
+		ginkgo.It("workloads in guaranteed cq should have preferential access to the resources", func() {
+			var bestEffortLQ *kueue.LocalQueue
+			var guaranteedLQ *kueue.LocalQueue
+			var bestEffortWl, guaranteedWl *kueue.Workload
+
+			ginkgo.By("Create local queues", func() {
+				bestEffortLQ = testing.MakeLocalQueue("best-effort-lq", ns.Name).ClusterQueue(bestEffortCQ.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, bestEffortLQ)).Should(gomega.Succeed())
+				guaranteedLQ = testing.MakeLocalQueue("guaranteed-lq", ns.Name).ClusterQueue(guaranteedCQ.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, guaranteedLQ)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Create a workload in bestEffortCQ and await for admission", func() {
+				bestEffortWl = testing.MakeWorkload("best-effort-wl", ns.Name).
+					Queue(bestEffortLQ.Name).
+					Priority(highPriority).
+					Request(corev1.ResourceCPU, "3").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, bestEffortWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, bestEffortWl)
+			})
+
+			ginkgo.By("Create a workload in guaranteedCQ", func() {
+				guaranteedWl = testing.MakeWorkload("guaranteed-wl", ns.Name).
+					Queue(guaranteedLQ.Name).
+					Priority(midPriority).
+					Request(corev1.ResourceCPU, "3").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, guaranteedWl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Await for preemption of the workload in bestEffortCQ and admission of guaranteedWL", func() {
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, bestEffortWl)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, bestEffortWl)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, bestEffortWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, guaranteedWl)
 			})
 		})
 	})
