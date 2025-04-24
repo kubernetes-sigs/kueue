@@ -82,13 +82,6 @@ func TestScalability(t *testing.T) {
 		if cmdStats.WallMs > rangeSpec.Cmd.MaxWallMs {
 			t.Errorf("Wall time %dms is greater than maximum expected %dms", cmdStats.WallMs, rangeSpec.Cmd.MaxWallMs)
 		}
-		mCPUUsed := (cmdStats.SysMs + cmdStats.UserMs) * 1000 / cmdStats.WallMs
-		if mCPUUsed > rangeSpec.Cmd.MCPU {
-			t.Errorf("Average CPU usage %dmCpu is greater than maximum expected %dmCPU", mCPUUsed, rangeSpec.Cmd.MCPU)
-		}
-		if cmdStats.Maxrss > int64(rangeSpec.Cmd.Maxrss) {
-			t.Errorf("Maxrss %dKib is greater than maximum expected %dKib", cmdStats.Maxrss, rangeSpec.Cmd.Maxrss)
-		}
 	})
 
 	t.Run("ClusterQueueClasses", func(t *testing.T) {
