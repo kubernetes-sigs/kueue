@@ -118,10 +118,10 @@ CREATE_KIND_CLUSTER ?= true
 test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
-test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e
-test-tas-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -156,7 +156,8 @@ run-test-multikueue-e2e-%: FORCE
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) KUBERAY_VERSION=$(KUBERAY_VERSION) \
+		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/multikueue-e2e-test.sh
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
@@ -169,7 +170,7 @@ run-test-tas-e2e-%: FORCE
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) \
 		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/e2e-test.sh
