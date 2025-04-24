@@ -35,9 +35,7 @@ var (
 
 type RangeSpec struct {
 	Cmd struct {
-		MaxWallMs int64  `json:"maxWallMs"`
-		MCPU      int64  `json:"mCPU"`
-		Maxrss    uint64 `json:"maxrss"`
+		MaxWallMs int64 `json:"maxWallMs"`
 	} `json:"cmd"`
 	ClusterQueueClassesMinUsage      map[string]float64 `json:"clusterQueueClassesMinUsage"`
 	WlClassesMaxAvgTimeToAdmissionMs map[string]int64   `json:"wlClassesMaxAvgTimeToAdmissionMs"`
