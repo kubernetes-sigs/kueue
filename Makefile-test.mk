@@ -112,14 +112,6 @@ test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top #
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
-.PHONY: test-multikueue-integration-required
-test-multikueue-integration-required: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
-test-multikueue-integration-required: test-multikueue-integration ## Run required integration tests for multikueue suites.
-
-.PHONY: test-multikueue-integration-slow-and-redundant
-test-multikueue-integration-slow-and-redundant: INTEGRATION_FILTERS= --label-filter="slow || redundant"
-test-multikueue-integration-slow-and-redundant: test-multikueue-integration ## Run slow and redundant integration tests for multikueue suite.
-
 CREATE_KIND_CLUSTER ?= true
 
 
