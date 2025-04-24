@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/utils/ptr"
 
@@ -83,6 +84,10 @@ type leafDomain struct {
 	// nodeTaints contains the list of taints for the node, only applies for
 	// lowest level of topology, if the lowest level is node
 	nodeTaints []corev1.Taint
+
+	// nodeLabels contains the list of labels on the node, only applies for
+	// lowest level of topology, if the lowest level is node
+	nodeLabels map[string]string
 }
 
 type domainByID map[utiltas.TopologyDomainID]*domain
@@ -150,6 +155,7 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 		}
 		if s.isLowestLevelNode() {
 			leafDomain.nodeTaints = slices.Clone(node.Spec.Taints)
+			leafDomain.nodeLabels = node.GetLabels()
 		}
 		s.leaves[domainID] = &leafDomain
 	}
@@ -410,6 +416,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	requests := tasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
+	podSetNodeSelectors := tasPodSetRequests.PodSet.Template.Spec.NodeSelector
 	count := tasPodSetRequests.Count
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	key := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
@@ -421,8 +428,24 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if !found {
 		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
+	var selector labels.Selector
+	if s.isLowestLevelNode() {
+		sel, err := labels.ValidatedSelectorFromSet(podSetNodeSelectors)
+		if err != nil {
+			return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", podSetNodeSelectors, err)
+		}
+		selector = sel
+	} else {
+		selector = labels.Everything()
+	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
-	s.fillInCounts(requests, assumedUsage, simulateEmpty, append(podSetTolerations, s.tolerations...))
+	s.fillInCounts(
+		requests,
+		assumedUsage,
+		simulateEmpty,
+		append(podSetTolerations, s.tolerations...),
+		selector,
+	)
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
@@ -647,18 +670,31 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool,
-	tolerations []corev1.Toleration) {
+	tolerations []corev1.Toleration,
+	selector labels.Selector) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
 		domain.state = 0
 	}
 	for _, leaf := range s.leaves {
+		// 1. Check Tolerations against Node Taints
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(leaf.nodeTaints, tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
 			s.log.V(2).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+			continue
+		}
+		// 2. Check Node Labels against Compiled Selector
+		var nodeLabelSet labels.Set
+		if leaf.nodeLabels != nil {
+			nodeLabelSet = leaf.nodeLabels
+		}
+		// isLowestLevelNode() is necessary because we gather node level information only when
+		// node is the lowest level of the topology
+		if s.isLowestLevelNode() && !selector.Matches(nodeLabelSet) {
+			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
