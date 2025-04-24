@@ -94,13 +94,13 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
-.PHONY: test-integration-required
-test-integration-required: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
-test-integration-required: test-integration ## Run required integration tests for singlecluster suites.
+.PHONY: test-integration-baseline
+test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-integration-baseline: test-integration ## Run baseline integration tests for singlecluster suites.
 
-.PHONY: test-integration-slow-and-redundant
-test-integration-slow-and-redundant: INTEGRATION_FILTERS= --label-filter="slow || redundant"
-test-integration-slow-and-redundant: test-integration ## Run slow and redundant integration tests for singlecluster suites.
+.PHONY: test-integration-extended
+test-integration-extended: INTEGRATION_FILTERS= --label-filter="slow || redundant"
+test-integration-extended: test-integration ## Run extended integration tests for singlecluster suites.
 
 .PHONY: test-multikueue-integration
 test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
