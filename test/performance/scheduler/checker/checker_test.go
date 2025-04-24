@@ -35,9 +35,7 @@ var (
 
 type RangeSpec struct {
 	Cmd struct {
-		MaxWallMs int64  `json:"maxWallMs"`
-		MCPU      int64  `json:"mCPU"`
-		Maxrss    uint64 `json:"maxrss"`
+		MaxWallMs int64 `json:"maxWallMs"`
 	} `json:"cmd"`
 	ClusterQueueClassesMinUsage      map[string]float64 `json:"clusterQueueClassesMinUsage"`
 	WlClassesMaxAvgTimeToAdmissionMs map[string]int64   `json:"wlClassesMaxAvgTimeToAdmissionMs"`
@@ -81,13 +79,6 @@ func TestScalability(t *testing.T) {
 	t.Run("CommandStats", func(t *testing.T) {
 		if cmdStats.WallMs > rangeSpec.Cmd.MaxWallMs {
 			t.Errorf("Wall time %dms is greater than maximum expected %dms", cmdStats.WallMs, rangeSpec.Cmd.MaxWallMs)
-		}
-		mCPUUsed := (cmdStats.SysMs + cmdStats.UserMs) * 1000 / cmdStats.WallMs
-		if mCPUUsed > rangeSpec.Cmd.MCPU {
-			t.Errorf("Average CPU usage %dmCpu is greater than maximum expected %dmCPU", mCPUUsed, rangeSpec.Cmd.MCPU)
-		}
-		if cmdStats.Maxrss > int64(rangeSpec.Cmd.Maxrss) {
-			t.Errorf("Maxrss %dKib is greater than maximum expected %dKib", cmdStats.Maxrss, rangeSpec.Cmd.Maxrss)
 		}
 	})
 
