@@ -120,10 +120,10 @@ CREATE_KIND_CLUSTER ?= true
 test-e2e: setup-e2e-env kueuectl run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
-test-multikueue-e2e: setup-e2e-env run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e
-test-tas-e2e: setup-e2e-env run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -151,7 +151,8 @@ run-test-multikueue-e2e-%:
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) KUBERAY_VERSION=$(KUBERAY_VERSION) \
+		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/multikueue-e2e-test.sh
@@ -164,7 +165,7 @@ run-test-tas-e2e-%:
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) \
 		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
