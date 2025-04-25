@@ -56,6 +56,7 @@ E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
 E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
+E2E_RUN_ONLY_ENV ?= false
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -142,8 +143,8 @@ run-test-e2e-singlecluster-%: FORCE
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
 run-test-multikueue-e2e-%: FORCE
@@ -154,8 +155,8 @@ run-test-multikueue-e2e-%: FORCE
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
 		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) KUBERAY_VERSION=$(KUBERAY_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/multikueue-e2e-test.sh
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
 run-test-tas-e2e-%: FORCE
@@ -168,8 +169,8 @@ run-test-tas-e2e-%: FORCE
 		KUBERAY_VERSION=$(KUBERAY_VERSION) \
 		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
 run-test-e2e-customconfigs-%: FORCE
@@ -180,8 +181,8 @@ run-test-e2e-customconfigs-%: FORCE
 		JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
 run-test-e2e-certmanager-%: FORCE
@@ -191,8 +192,8 @@ run-test-e2e-certmanager-%: FORCE
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="certmanager" \
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
