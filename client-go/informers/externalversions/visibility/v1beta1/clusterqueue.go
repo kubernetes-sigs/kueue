@@ -60,13 +60,25 @@ func NewFilteredClusterQueueInformer(client versioned.Interface, resyncPeriod ti
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VisibilityV1beta1().ClusterQueues().List(context.TODO(), options)
+				return client.VisibilityV1beta1().ClusterQueues().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VisibilityV1beta1().ClusterQueues().Watch(context.TODO(), options)
+				return client.VisibilityV1beta1().ClusterQueues().Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.VisibilityV1beta1().ClusterQueues().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.VisibilityV1beta1().ClusterQueues().Watch(ctx, options)
 			},
 		},
 		&apisvisibilityv1beta1.ClusterQueue{},

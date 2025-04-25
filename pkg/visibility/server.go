@@ -30,8 +30,8 @@ import (
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
-	"k8s.io/client-go/pkg/version"
-	utilversion "k8s.io/component-base/version"
+	"k8s.io/component-base/compatibility"
+	"k8s.io/component-base/version"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
@@ -102,7 +102,7 @@ func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
 	// enable OpenAPI schemas
-	c.EffectiveVersion = utilversion.NewEffectiveVersion(version)
+	c.EffectiveVersion = compatibility.NewEffectiveVersionFromString(version, "", "")
 	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
 	c.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
 	c.OpenAPIConfig.Info.Title = "Kueue visibility-server"

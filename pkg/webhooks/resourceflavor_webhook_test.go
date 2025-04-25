@@ -53,7 +53,8 @@ func TestValidateResourceFlavor(t *testing.T) {
 			name: "invalid label name",
 			rf:   utiltesting.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
+				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
+					WithOrigin("labelKey"),
 			},
 		},
 		{
