@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -297,32 +296,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 }
 
 func GetKuberayTestImage() string {
-	var (
-		kuberayTestImage string
-		found            bool
-	)
-
-	kuberayEnvs := map[string]string{
-		"arm64-periodic":  "KUBERAY_RAY_IMAGE_ARM",
-		"amd64-periodic":  "KUBERAY_RAY_IMAGE",
-		"arm64-presubmit": "KUBERAY_RAYMINI_IMAGE_ARM",
-		"amd64-presubmit": "KUBERAY_RAYMINI_IMAGE",
-		// fallback for local e2e tests that does not have JOB_TYPE env
-		"arm64-local": "KUBERAY_RAYMINI_IMAGE_ARM",
-		"amd64-local": "KUBERAY_RAYMINI_IMAGE",
-	}
-
-	arch := runtime.GOARCH
-	jobType := os.Getenv("JOB_TYPE")
-	if jobType == "" {
-		jobType = "local"
-	}
-	envKey := arch + "-" + jobType
-
-	envVar, found := kuberayEnvs[envKey]
-	gomega.Expect(found).To(gomega.BeTrue())
-
-	kuberayTestImage, found = os.LookupEnv(envVar)
+	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
 }
