@@ -151,7 +151,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 		case "finished":
 			statuses.Insert(workloadStatusFinished)
 		default:
-			return nil, fmt.Errorf(`Invalid status value (%v). Must be "all", "pending", "admitted" or "finished".`, status)
+			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "admitted" or "finished"`, status)
 		}
 	}
 
@@ -477,7 +477,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 func (o *WorkloadOptions) apiResources(list *v1beta1.WorkloadList) (map[string]*metav1.APIResourceList, error) {
 	apiResourceLists := make(map[string]*metav1.APIResourceList)
 	for _, wl := range list.Items {
-		for _, ref := range wl.ObjectMeta.OwnerReferences {
+		for _, ref := range wl.OwnerReferences {
 			if _, ok := apiResourceLists[ref.APIVersion]; !ok {
 				rl, err := o.ClientSet.Discovery().ServerResourcesForGroupVersion(ref.APIVersion)
 				if client.IgnoreNotFound(err) != nil {

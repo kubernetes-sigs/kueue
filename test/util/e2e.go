@@ -93,8 +93,8 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	cfg.APIPath = "/api"
-	cfg.ContentConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
-	cfg.ContentConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+	cfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+	cfg.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
 
 	err = awv1beta2.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())

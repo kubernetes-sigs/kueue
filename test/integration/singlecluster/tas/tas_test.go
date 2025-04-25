@@ -1562,7 +1562,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 			ginkgo.Entry("succeed to update topology",
 				testing.MakeDefaultOneLevelTopology("valid"),
 				func(topology *kueuealpha.Topology) {
-					topology.ObjectMeta.Labels = map[string]string{
+					topology.Labels = map[string]string{
 						"alpha": "beta",
 					}
 				},

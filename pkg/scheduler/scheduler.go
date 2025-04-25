@@ -370,7 +370,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()
-			e.Info.LastAssignment = &e.assignment.LastState
+			e.LastAssignment = &e.assignment.LastState
 		}
 		entries = append(entries, e)
 	}

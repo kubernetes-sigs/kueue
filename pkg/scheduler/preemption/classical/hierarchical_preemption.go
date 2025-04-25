@@ -219,7 +219,7 @@ func getNodeHeight(node *cache.CohortSnapshot) int {
 // height the whole cohort hierarchy. Note that height of a trivial subtree
 // with only one node is 0. It also returns if the returned subtree is smaller than the whole cohort tree.
 func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
-	if !(c.BorrowingWith(fr, val) && c.HasParent()) {
+	if !c.BorrowingWith(fr, val) || !c.HasParent() {
 		return 0, c.HasParent()
 	}
 	remaining := val - cache.LocalAvailable(c, fr)

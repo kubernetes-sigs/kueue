@@ -137,8 +137,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
-			r.cache.DeleteCohort(v1beta1.CohortReference(req.NamespacedName.Name))
-			r.qManager.DeleteCohort(v1beta1.CohortReference(req.NamespacedName.Name))
+			r.cache.DeleteCohort(v1beta1.CohortReference(req.Name))
+			r.qManager.DeleteCohort(v1beta1.CohortReference(req.Name))
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}

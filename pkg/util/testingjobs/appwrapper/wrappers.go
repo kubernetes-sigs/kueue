@@ -124,7 +124,7 @@ func (aw *AppWrapperWrapper) Component(component Component) *AppWrapperWrapper {
 				Raw: []byte(patchedData),
 			},
 		}
-		aw.AppWrapper.Spec.Components = append(aw.AppWrapper.Spec.Components, awc)
+		aw.Spec.Components = append(aw.Spec.Components, awc)
 	}
 	return aw
 }
@@ -143,12 +143,12 @@ func (aw *AppWrapperWrapper) SetCondition(condition metav1.Condition) *AppWrappe
 
 // SetPhase sets the status phase of the AppWrapeer.
 func (aw *AppWrapperWrapper) SetPhase(phase awv1beta2.AppWrapperPhase) *AppWrapperWrapper {
-	aw.AppWrapper.Status.Phase = phase
+	aw.Status.Phase = phase
 	return aw
 }
 
 // ManagedBy adds a managedby.
 func (aw *AppWrapperWrapper) ManagedBy(c string) *AppWrapperWrapper {
-	aw.AppWrapper.Spec.ManagedBy = &c
+	aw.Spec.ManagedBy = &c
 	return aw
 }

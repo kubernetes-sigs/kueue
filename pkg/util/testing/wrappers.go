@@ -692,7 +692,7 @@ func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 // GeneratedName sets the prefix for the server to generate unique name.
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (q *LocalQueueWrapper) GeneratedName(name string) *LocalQueueWrapper {
-	q.ObjectMeta.GenerateName = name
+	q.GenerateName = name
 	return q
 }
 
@@ -713,7 +713,7 @@ func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
 }
 
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
-	c.Cohort.Spec.Parent = parentName
+	c.Spec.Parent = parentName
 	return c
 }
 
@@ -774,7 +774,7 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 // GeneratedName sets the prefix for the server to generate unique name.
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
-	c.ObjectMeta.GenerateName = name
+	c.GenerateName = name
 	return c
 }
 
@@ -992,16 +992,16 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 
 // TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.ResourceFlavor.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
+	rf.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
 	return rf
 }
 
 // Label sets the label on the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
-	if rf.ObjectMeta.Labels == nil {
-		rf.ObjectMeta.Labels = map[string]string{}
+	if rf.Labels == nil {
+		rf.Labels = map[string]string{}
 	}
-	rf.ObjectMeta.Labels[k] = v
+	rf.Labels[k] = v
 	return rf
 }
 
@@ -1331,27 +1331,27 @@ func (c *ContainerWrapper) Name(name string) *ContainerWrapper {
 
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
-	requests := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Requests, corev1.ResourceList{
+	requests := utilResource.MergeResourceListKeepFirst(c.Resources.Requests, corev1.ResourceList{
 		resourceName: resource.MustParse(quantity),
 	})
-	c.Container.Resources.Requests = requests
+	c.Resources.Requests = requests
 
 	return c
 }
 
 // WithResourceLimit appends a resource limit to the container.
 func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
-	limits := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Limits, corev1.ResourceList{
+	limits := utilResource.MergeResourceListKeepFirst(c.Resources.Limits, corev1.ResourceList{
 		resourceName: resource.MustParse(quantity),
 	})
-	c.Container.Resources.Limits = limits
+	c.Resources.Limits = limits
 
 	return c
 }
 
 // AsSidecar makes the container a sidecar when used as an Init Container.
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
-	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
+	c.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 
 	return c
 }
@@ -1470,10 +1470,10 @@ func (w *PodTemplateWrapper) Clone() *PodTemplateWrapper {
 }
 
 func (w *PodTemplateWrapper) Label(k, v string) *PodTemplateWrapper {
-	if w.ObjectMeta.Labels == nil {
-		w.ObjectMeta.Labels = make(map[string]string)
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
 	}
-	w.ObjectMeta.Labels[k] = v
+	w.Labels[k] = v
 	return w
 }
 
@@ -1528,10 +1528,10 @@ func (w *NamespaceWrapper) GenerateName(generateName string) *NamespaceWrapper {
 }
 
 func (w *NamespaceWrapper) Label(k, v string) *NamespaceWrapper {
-	if w.ObjectMeta.Labels == nil {
-		w.ObjectMeta.Labels = make(map[string]string)
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
 	}
-	w.ObjectMeta.Labels[k] = v
+	w.Labels[k] = v
 	return w
 }
 

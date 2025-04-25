@@ -701,7 +701,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		if !simulateEmpty {
 			remainingCapacity.Sub(leaf.tasUsage)
 		}
-		if leafAssumedUsage, found := assumedUsage[leaf.domain.id]; found {
+		if leafAssumedUsage, found := assumedUsage[leaf.id]; found {
 			remainingCapacity.Sub(leafAssumedUsage)
 		}
 		leaf.state = requests.CountIn(remainingCapacity)

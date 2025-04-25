@@ -73,9 +73,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			check1            *kueue.AdmissionCheck
 			check2            *kueue.AdmissionCheck
 			check3            *kueue.AdmissionCheck
-			reservationFlavor string = "reservation"
+			reservationFlavor = "reservation"
 			updatedWl         kueue.Workload
-			flavorOnDemand    string              = "on-demand"
+			flavorOnDemand                        = "on-demand"
 			resourceGPU       corev1.ResourceName = "example.com/gpu"
 		)
 

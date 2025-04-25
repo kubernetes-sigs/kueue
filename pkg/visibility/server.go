@@ -101,13 +101,13 @@ func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
 	// enable OpenAPI schemas
-	c.Config.EffectiveVersion = utilversion.NewEffectiveVersion(version)
-	c.Config.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
-	c.Config.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
-	c.Config.OpenAPIConfig.Info.Title = "Kueue visibility-server"
-	c.Config.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
-	c.Config.OpenAPIConfig.Info.Version = version
-	c.Config.OpenAPIV3Config.Info.Version = version
+	c.EffectiveVersion = utilversion.NewEffectiveVersion(version)
+	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
+	c.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
+	c.OpenAPIConfig.Info.Title = "Kueue visibility-server"
+	c.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
+	c.OpenAPIConfig.Info.Version = version
+	c.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
 
