@@ -139,7 +139,7 @@ func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object 
 	}
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
 
-	if len(w.ObjectMeta.OwnerReferences) == 0 {
+	if len(w.OwnerReferences) == 0 {
 		return
 	}
 	log.V(5).Info("Queueing reconcile for parent pods")

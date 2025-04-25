@@ -310,7 +310,7 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 	seenKeys := make(sets.Set[corev1.ResourceName])
 	for idx, transform := range res.Transformations {
 		strategy := ptr.Deref(transform.Strategy, "")
-		if !(strategy == configapi.Retain || strategy == configapi.Replace) {
+		if strategy != configapi.Retain && strategy != configapi.Replace {
 			allErrs = append(allErrs, field.NotSupported(resourceTransformationPath.Index(idx).Child("strategy"),
 				transform.Strategy, []configapi.ResourceTransformationStrategy{configapi.Retain, configapi.Replace}))
 		}
@@ -371,10 +371,10 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		}
 	}
 	if enabledProfilesCount > 1 {
-		return errors.New("Cannot use more than one TAS profiles")
+		return errors.New("cannot use more than one TAS profiles")
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
-		return errors.New("Cannot use a TAS profile with TAS disabled")
+		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
 
 	return nil

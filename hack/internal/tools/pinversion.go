@@ -24,7 +24,7 @@ import (
 	// we need to reference individual dependencies used by it
 	_ "github.com/gohugoio/hugo/common"
 	_ "github.com/gohugoio/hugo/docshelper"
-	_ "github.com/golangci/golangci-lint/pkg/exitcodes"
+	_ "github.com/golangci/golangci-lint/v2/pkg/exitcodes"
 	_ "github.com/mikefarah/yq/v4/cmd"
 	_ "github.com/onsi/ginkgo/v2/ginkgo/command"
 	_ "github.com/onsi/ginkgo/v2/ginkgo/run"

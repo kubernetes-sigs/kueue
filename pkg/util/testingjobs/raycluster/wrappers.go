@@ -202,9 +202,10 @@ func (j *ClusterWrapper) ManagedBy(c string) *ClusterWrapper {
 
 // Request adds a resource request to the default container.
 func (j *ClusterWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ClusterWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
 	}
 	return j
@@ -212,9 +213,10 @@ func (j *ClusterWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceNam
 
 // Limit adds a resource limit to the default container.
 func (j *ClusterWrapper) Limit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ClusterWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	}
 	return j
@@ -226,10 +228,11 @@ func (j *ClusterWrapper) RequestAndLimit(rayType rayv1.RayNodeType, r corev1.Res
 }
 
 func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []string) *ClusterWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
 		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
 		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
 	}

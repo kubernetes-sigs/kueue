@@ -1,77 +1,18 @@
 # golangci-lint configuration file
 # see: https://golangci-lint.run/usage/configuration/
 
-# Settings of specific linters
-linters-settings:
-  gocritic:
-    enabled-checks:
-      - dupImport
-      - stringsCompare
-    disabled-checks:
-      - appendAssign
-      - exitAfterDefer
-  goheader:
-    template: |-
-      Copyright The Kubernetes Authors.
-
-      Licensed under the Apache License, Version 2.0 (the "License");
-      you may not use this file except in compliance with the License.
-      You may obtain a copy of the License at
-
-          http://www.apache.org/licenses/LICENSE-2.0
-
-      Unless required by applicable law or agreed to in writing, software
-      distributed under the License is distributed on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-      See the License for the specific language governing permissions and
-      limitations under the License.
-    # We can't use the template-path option because it requires text without `/*` and `*/` comments.
-    # We can't remove the comments `/*` and `*/` because the controller-gen requires them.
-    # template-path: ./hack/boilerplate.go.txt
-  govet:
-    enable:
-      - nilness
-  gci:
-    sections:
-      - standard # Standard section: captures all standard packages.
-      - default # Default section: contains all imports that could not be matched to another section type.
-      - prefix(sigs.k8s.io/kueue) # Custom section: groups all imports with the specified Prefix.
-      - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
-      - dot # Dot section: contains all dot imports.
-    skip-generated: true # Skip generated files.
-  nolintlint:
-    # Require nolint directives to mention the specific linter being suppressed.
-    require-specific: true
-    # Require an explanation after each nolint directive.
-    require-explanation: true
-  perfsprint:
-    int-conversion: false
-    errorf: true
-    sprintf1: false
-    strconcat: false
-  revive:
-    enable-all-rules: false
-    rules:
-      - name: context-as-argument
-      - name: empty-lines
-      - name: increment-decrement
-      - name: var-naming
-      - name: redundant-import-alias
-      - name: use-any
-
-# Settings for enabling and disabling linters
+version: "2"
 linters:
   enable:
     - copyloopvar
     - dupword
     - durationcheck
     - fatcontext
-    - gci
     - ginkgolinter
     - gocritic
     - goheader
-    - govet
     - loggercheck
+    - makezero
     - misspell
     - nilerr
     - nilnesserr
@@ -79,30 +20,102 @@ linters:
     - perfsprint
     - revive
     - unconvert
-    - makezero
+  settings:
+    gocritic:
+      enabled-checks:
+        - dupImport
+        - stringsCompare
+      disabled-checks:
+        - appendAssign
+        - exitAfterDefer
+    goheader:
+      template: |-
+        Copyright The Kubernetes Authors.
 
-# Settings related to issues
+        Licensed under the Apache License, Version 2.0 (the "License");
+        you may not use this file except in compliance with the License.
+        You may obtain a copy of the License at
+
+            http://www.apache.org/licenses/LICENSE-2.0
+
+        Unless required by applicable law or agreed to in writing, software
+        distributed under the License is distributed on an "AS IS" BASIS,
+        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        See the License for the specific language governing permissions and
+        limitations under the License.
+      # We can't use the template-path option because it requires text without `/*` and `*/` comments.
+      # We can't remove the comments `/*` and `*/` because the controller-gen requires them.
+      # template-path: ./hack/boilerplate.go.txt
+    govet:
+      enable:
+        - nilness
+    nolintlint:
+      # Require an explanation after each nolint directive.
+      require-explanation: true
+      # Require nolint directives to mention the specific linter being suppressed.
+      require-specific: true
+    perfsprint:
+      int-conversion: false
+      errorf: true
+      sprintf1: false
+      strconcat: false
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: context-as-argument
+        - name: empty-lines
+        - name: increment-decrement
+        - name: var-naming
+        - name: redundant-import-alias
+        - name: use-any
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - staticcheck
+        # TODO(#768): Drop when incrementing the API version.
+        text: 'SA1019: constants.QueueAnnotation is deprecated'
+      - linters:
+          - staticcheck
+        text: 'SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.'
+      - linters:
+          - staticcheck
+        text: 'SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.'
+      - linters:
+          - fatcontext
+        path: ^test/*
+    paths:
+      - bin
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # Which dirs to exclude: issues from them won't be reported
-  exclude-dirs:
-    - bin
-    - vendor
-  # Excluding configuration per-path, per-linter, per-text and per-source
-  exclude-rules:
-    - linters:
-      - staticcheck
-      # TODO(#768): Drop when incrementing the API version.
-      text: "SA1019: constants.QueueAnnotation is deprecated"
-    - linters:
-        - staticcheck
-      text: "SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field."
-    - linters:
-        - staticcheck
-      text: "SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field."
-    - linters:
-        - fatcontext
-      path: "^test/*"
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text
   max-same-issues: 0
+formatters:
+  enable:
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard # Standard section: captures all standard packages.
+        - default # Default section: contains all imports that could not be matched to another section type.
+        - prefix(sigs.k8s.io/kueue) # Custom section: groups all imports with the specified Prefix.
+        - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
+        - dot # Dot section: contains all dot imports.
+  exclusions:
+    generated: lax
+    paths:
+      - bin
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
