@@ -84,7 +84,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg)
+	failedCtrl, err = tas.SetupControllers(ctx, mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
