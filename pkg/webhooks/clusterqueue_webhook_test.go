@@ -190,7 +190,8 @@ func TestValidateClusterQueue(t *testing.T) {
 				MatchLabels: map[string]string{"nospecialchars^=@": "bar"},
 			}).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specPath.Child("namespaceSelector", "matchLabels"), "nospecialchars^=@", ""),
+				field.Invalid(specPath.Child("namespaceSelector", "matchLabels"), "nospecialchars^=@", "").
+					WithOrigin("labelKey"),
 			},
 		},
 		{
