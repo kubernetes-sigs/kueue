@@ -38,5 +38,10 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
+
+	nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
+	if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
+		return ctrlName, err
+	}
 	return "", nil
 }

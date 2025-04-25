@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -106,6 +107,7 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 	if !isOldNode || !isNewNode {
 		return
 	}
+	fmt.Printf("Updating node %v\n", newNode.Name)
 	h.queueReconcileForNode(oldNode, q)
 	h.queueReconcileForNode(newNode, q)
 }
@@ -125,6 +127,7 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 	// trigger reconcile for TAS flavors affected by the node being created or updated
 	for name, flavor := range h.tasCache.Clone() {
 		if nodeBelongsToFlavor(node, flavor.NodeLabels, flavor.Levels) {
+			fmt.Printf("Queueing reconcile for node %v\n", node.Name)
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
 			}}, constants.UpdatesBatchPeriod)
