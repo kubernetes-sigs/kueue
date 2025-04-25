@@ -15,5 +15,5 @@ spec:
     tlsConfig: {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}
   selector:
     matchLabels:
-    {{- include "kueue.labels" . | nindent 6 }}
+    {{- include "kueue.metricsService.labels" . | nindent 6 }}
 {{- end }}

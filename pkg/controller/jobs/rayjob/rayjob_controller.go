@@ -93,7 +93,7 @@ func (j *RayJob) IsSuspended() bool {
 
 func (j *RayJob) IsActive() bool {
 	// When the status is Suspended or New there should be no running Pods, and so the Job is not active.
-	return !(j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusSuspended || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusNew)
+	return j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended && j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusNew
 }
 
 func (j *RayJob) Suspend() {

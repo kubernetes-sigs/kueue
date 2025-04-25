@@ -77,7 +77,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	configuration := &config.Configuration{FairSharing: fairSharing}
-	configuration.ControllerManager.Metrics.EnableClusterQueueResources = true
+	configuration.Metrics.EnableClusterQueueResources = true
 	mgr.GetScheme().Default(configuration)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)

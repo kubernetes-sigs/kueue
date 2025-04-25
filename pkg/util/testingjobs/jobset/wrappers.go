@@ -70,7 +70,7 @@ func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 
 // Clone returns a DeepCopy of j.
 func (j *JobSetWrapper) Clone() *JobSetWrapper {
-	return &JobSetWrapper{JobSet: *j.JobSet.DeepCopy()}
+	return &JobSetWrapper{JobSet: *j.DeepCopy()}
 }
 
 // ReplicatedJobs sets a new set of ReplicatedJobs in the inner JobSet.

@@ -47,12 +47,6 @@ INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
-# Integration filters
-INTEGRATION_RUN_ALL?=false
-ifneq ($(INTEGRATION_RUN_ALL),true) 
-#INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
-	INTEGRATION_FILTERS=--focus=".*NodeFailure Controller.*"
-endif
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -100,6 +94,14 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
+.PHONY: test-integration-baseline
+test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-integration-baseline: test-integration ## Run baseline integration tests for singlecluster suites.
+
+.PHONY: test-integration-extended
+test-integration-extended: INTEGRATION_FILTERS= --label-filter="slow || redundant"
+test-integration-extended: test-integration ## Run extended integration tests for singlecluster suites.
+
 .PHONY: test-multikueue-integration
 test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
@@ -114,24 +116,22 @@ CREATE_KIND_CLUSTER ?= true
 
 
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: setup-e2e-env kueuectl run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
-test-multikueue-e2e: kustomize ginkgo yq gomod-download dep-crds ginkgo-top run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e: setup-e2e-env run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e
-test-tas-e2e: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e: setup-e2e-env run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-customconfigs
-test-e2e-customconfigs: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-certmanager
-test-e2e-certmanager: kustomize ginkgo yq gomod-download dep-crds kueuectl ginkgo-top run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
-
-FORCE:
+test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
-run-test-e2e-singlecluster-%: FORCE
+run-test-e2e-singlecluster-%:
 	@echo Running e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -144,7 +144,7 @@ run-test-e2e-singlecluster-%: FORCE
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
-run-test-multikueue-e2e-%: FORCE
+run-test-multikueue-e2e-%:
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -156,7 +156,7 @@ run-test-multikueue-e2e-%: FORCE
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
-run-test-tas-e2e-%: FORCE
+run-test-tas-e2e-%:
 	@echo Running tas e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -170,7 +170,7 @@ run-test-tas-e2e-%: FORCE
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
-run-test-e2e-customconfigs-%: FORCE
+run-test-e2e-customconfigs-%:
 	@echo Running customconfigs e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -182,7 +182,7 @@ run-test-e2e-customconfigs-%: FORCE
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
 run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
-run-test-e2e-certmanager-%: FORCE
+run-test-e2e-certmanager-%:
 	@echo Running certmanager e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
@@ -260,17 +260,17 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq gomod-download dep-crds kueuectl kind ## Setup environment for e2e tests without running tests.
+setup-e2e-env: kustomize yq gomod-download dep-crds kind ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
 test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/e2e-kueueviz-local.sh
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-	KIND_CLUSTER_FILE="kind-cluster-viz.yaml" \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh

@@ -4,7 +4,7 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager-metrics-service
   namespace: '{{ .Release.Namespace }}'
   labels:
-  {{- include "kueue.labels" . | nindent 4 }}
+  {{- include "kueue.metricsService.labels" . | nindent 4 }}
   {{- if .Values.metricsService.annotations }}
   annotations:
   {{- toYaml .Values.metricsService.annotations | nindent 4 }}

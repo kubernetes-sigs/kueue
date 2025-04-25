@@ -145,6 +145,7 @@ function cluster_kind_load_image {
     # filter out 'control-plane' node, use only worker nodes to load image
     worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
     if [[ -n "$worker_nodes" ]]; then
+        echo "kind load docker-image '$2' --name '$1' --nodes '$worker_nodes'"
         $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
     fi
 }

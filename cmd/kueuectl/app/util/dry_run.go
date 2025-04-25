@@ -68,7 +68,7 @@ func GetDryRunStrategy(cmd *cobra.Command) (DryRunStrategy, error) {
 	case "none":
 		return DryRunNone, nil
 	default:
-		return DryRunNone, fmt.Errorf(`Invalid dry-run value (%v). Must be "none", "server", or "client".`, dryRunFlag)
+		return DryRunNone, fmt.Errorf(`invalid dry-run value (%v). Must be "none", "server", or "client"`, dryRunFlag)
 	}
 }
 

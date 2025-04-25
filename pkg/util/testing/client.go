@@ -64,7 +64,7 @@ type builderIndexer struct {
 }
 
 func (b *builderIndexer) IndexField(_ context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
-	b.ClientBuilder = b.ClientBuilder.WithIndex(obj, field, extractValue)
+	b.ClientBuilder = b.WithIndex(obj, field, extractValue)
 	return nil
 }
 

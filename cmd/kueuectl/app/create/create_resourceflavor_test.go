@@ -244,7 +244,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		"shouldn't create resource flavor with invalid dry-run client": {
 			rfName:  "rf",
 			args:    []string{"--dry-run", "invalid"},
-			wantErr: "Invalid dry-run value (invalid). Must be \"none\", \"server\", or \"client\".",
+			wantErr: "invalid dry-run value (invalid). Must be \"none\", \"server\", or \"client\"",
 		},
 		"shouldn't create resource flavor with dry-run client": {
 			rfName:  "rf",

@@ -150,7 +150,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
+	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
 	}
 
@@ -174,7 +174,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
 				var requeueAfter time.Duration
 				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-					requeueAfter = wl.Status.RequeueState.RequeueAt.Time.Sub(r.clock.Now())
+					requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
 				}
 				if requeueAfter > 0 {
 					return reconcile.Result{RequeueAfter: requeueAfter}, nil
@@ -562,7 +562,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
 		return 0, client.IgnoreNotFound(err)
 	}
-	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String())
+	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
