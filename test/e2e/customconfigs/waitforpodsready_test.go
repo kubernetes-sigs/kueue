@@ -31,7 +31,6 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -102,7 +101,6 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("waiting for the workload to be created and verifying it is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-
 					g.Expect(wl.Status.Admission).To(gomega.BeNil())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -110,22 +108,8 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("waiting for the workload to be evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-
-					g.Expect(
-						workload.HasConditionWithTypeAndReason(&wl, &metav1.Condition{
-							Type:   kueue.WorkloadPodsReady,
-							Status: metav1.ConditionFalse,
-							Reason: kueue.WorkloadWaitForStart,
-						}),
-					).To(gomega.BeTrue())
-
-					g.Expect(
-						workload.HasConditionWithTypeAndReason(&wl, &metav1.Condition{
-							Type:   kueue.WorkloadEvicted,
-							Status: metav1.ConditionTrue,
-							Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
-						}),
-					).To(gomega.BeTrue())
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -203,20 +187,10 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("verifying that the workload is requeued", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-
 					g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
 					g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
-
-					g.Expect(
-						workload.HasConditionWithTypeAndReason(&wl, &metav1.Condition{
-							Type:   kueue.WorkloadPodsReady,
-							Status: metav1.ConditionTrue,
-							Reason: kueue.WorkloadStarted,
-						}),
-					).To(gomega.BeTrue())
-
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadEvicted))
-
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -273,13 +247,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("verifying the pod is recovered before recoveryTimeout", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-					g.Expect(
-						workload.HasConditionWithTypeAndReason(&wl, &metav1.Condition{
-							Type:   kueue.WorkloadPodsReady,
-							Status: metav1.ConditionTrue,
-							Reason: kueue.WorkloadRecovered,
-						}),
-					).To(gomega.BeTrue())
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
