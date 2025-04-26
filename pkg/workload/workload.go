@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -652,7 +653,7 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 		match := true
 		for idx := range w.Status.ResourceRequests {
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!maps.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
 				match = false
 				break
 			}
