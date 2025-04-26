@@ -71,7 +71,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 
 	namespace := genericapirequest.NamespaceValue(ctx)
 	lqName := kueue.LocalQueueName(name)
-	cqName, ok := m.queueMgr.ClusterQueueFromLocalQueue(kueue.NewLocalQueueReference(namespace, lqName))
+	cqName, ok := m.queueMgr.ClusterQueueFromLocalQueue(queue.NewLocalQueueReference(namespace, lqName))
 	if !ok {
 		return nil, errors.NewNotFound(visibility.Resource("localqueue"), name)
 	}

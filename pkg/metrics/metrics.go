@@ -450,14 +450,6 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func LQRefFromLocalQueueKey(ref kueue.LocalQueueReference) LocalQueueReference {
-	namespace, lqName := kueue.MustParseLocalQueueReference(ref)
-	return LocalQueueReference{
-		Name:      lqName,
-		Namespace: namespace,
-	}
-}
-
 func ClearClusterQueueMetrics(cqName string) {
 	AdmissionCyclePreemptionSkips.DeleteLabelValues(cqName)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)

@@ -17,9 +17,6 @@ limitations under the License.
 package v1beta1
 
 import (
-	"fmt"
-	"strings"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,29 +28,6 @@ import (
 // +kubebuilder:validation:MaxLength=253
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type LocalQueueName string
-
-// LocalQueueReference is the full reference to LocalQueue formed as <namespace>/< LocalQueueName >.
-type LocalQueueReference string
-
-func NewLocalQueueReference(namespace string, name LocalQueueName) LocalQueueReference {
-	return LocalQueueReference(namespace + "/" + string(name))
-}
-
-func ParseLocalQueueReference(ref LocalQueueReference) (string, LocalQueueName, error) {
-	parts := strings.Split(string(ref), "/")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid LocalQueueReference %s", ref)
-	}
-	return parts[0], LocalQueueName(parts[1]), nil
-}
-
-func MustParseLocalQueueReference(ref LocalQueueReference) (string, LocalQueueName) {
-	namespace, name, err := ParseLocalQueueReference(ref)
-	if err != nil {
-		panic(err)
-	}
-	return namespace, name
-}
 
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {

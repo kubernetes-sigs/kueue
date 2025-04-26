@@ -102,7 +102,7 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *queue.Manager, cache *cach
 			if !found {
 				return
 			}
-			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(kueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
+			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(queue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
 			if !ok {
 				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
 				return

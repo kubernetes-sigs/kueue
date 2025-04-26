@@ -363,10 +363,6 @@ func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
-func QueueKey(w *kueue.Workload) kueue.LocalQueueReference {
-	return kueue.NewLocalQueueReference(w.Namespace, w.Spec.QueueName)
-}
-
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
