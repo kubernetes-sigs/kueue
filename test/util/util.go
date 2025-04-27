@@ -470,6 +470,20 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectWorkloadToBeRequeued(ctx context.Context, k8sClient client.Client, wl *kueue.Workload) {
+	var updatedWorkload kueue.Workload
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+
+		_, isEvictedByAC := workload.IsEvictedByAdmissionCheck(&updatedWorkload)
+		g.Expect(isEvictedByAC).To(gomega.BeTrue())
+
+		requeuedCondition := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadRequeued)
+		g.Expect(requeuedCondition).ToNot(gomega.BeNil(), "requeued condition was not set")
+		g.Expect(requeuedCondition.Status).To(gomega.Equal(metav1.ConditionTrue))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 var attemptStatuses = []metrics.AdmissionResult{metrics.AdmissionResultInadmissible, metrics.AdmissionResultSuccess}
 
 func ExpectAdmissionAttemptsMetric(pending, admitted int) {
@@ -1040,6 +1054,22 @@ func GetListOptsFromLabel(label string) *client.ListOptions {
 func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	ginkgo.GinkgoHelper()
 	gomega.ExpectWithOffset(1, c.Create(ctx, obj)).Should(gomega.Succeed())
+}
+
+func MustSetAdmissionCheckState(ctx context.Context, c client.Client, wl *kueue.Workload, state kueue.CheckState, admissionChecks ...*kueue.AdmissionCheck) {
+	ginkgo.GinkgoHelper()
+	wlPatch := workload.BaseSSAWorkload(wl)
+
+	for _, ac := range admissionChecks {
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+			Name:               kueue.AdmissionCheckReference(ac.Name),
+			State:              state,
+			LastTransitionTime: metav1.Now(),
+			Message:            "test",
+		}, clock.RealClock{})
+	}
+
+	gomega.ExpectWithOffset(1, c.Status().Patch(ctx, wlPatch, client.Merge)).Should(gomega.Succeed())
 }
 
 func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {

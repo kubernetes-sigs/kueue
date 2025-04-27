@@ -474,7 +474,35 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, nil)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, string(admissionCheckQueue.Spec.ClusterQueue), wl1)
+				util.MustSetAdmissionCheckState(ctx, k8sClient, wl1, kueue.CheckStateReady, admissionCheck1, admissionCheck2)
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1,
+					testing.MakeAdmission(string(admissionCheckQueue.Spec.ClusterQueue)).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj(),
+				)
+				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
+				util.ExpectReservingActiveWorkloadsMetric(admissionCheckClusterQ, 1)
+				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(admissionCheckClusterQ, 0)
+			})
+		})
+
+		ginkgo.It("Should admit workloads after admission check retry", func() {
+			wl1 := testing.MakeWorkload("admission-check-wl1", ns.Name).
+				Queue(admissionCheckQueue.Name).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
+				util.MustCreate(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, string(admissionCheckQueue.Spec.ClusterQueue), wl1)
+				util.MustSetAdmissionCheckState(ctx, k8sClient, wl1, kueue.CheckStateRetry, admissionCheck1)
+				util.ExpectWorkloadToBeRequeued(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, string(admissionCheckQueue.Spec.ClusterQueue), wl1)
+				util.MustSetAdmissionCheckState(ctx, k8sClient, wl1, kueue.CheckStateReady, admissionCheck1, admissionCheck2)
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1,
+					testing.MakeAdmission(string(admissionCheckQueue.Spec.ClusterQueue)).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj(),
+				)
+
 				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(admissionCheckClusterQ, 1)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
@@ -2456,7 +2484,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wls []*kueue.Workload
 		)
 
-		var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+		createQueue := func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
 			util.MustCreate(ctx, k8sClient, cq)
 			cqs = append(cqs, cq)
 
@@ -2466,7 +2494,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			return cq
 		}
 
-		var createWorkloadWithPriority = func(queue string, cpuRequests string, priority int32) *kueue.Workload {
+		createWorkloadWithPriority := func(queue string, cpuRequests string, priority int32) *kueue.Workload {
 			wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
 				Priority(priority).
 				Queue(queue).
