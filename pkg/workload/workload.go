@@ -571,12 +571,12 @@ func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status boo
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
 
-func QueuedWaitTime(wl *kueue.Workload) time.Duration {
+func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	queuedTime := wl.CreationTimestamp.Time
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
 		queuedTime = c.LastTransitionTime.Time
 	}
-	return time.Since(queuedTime)
+	return clock.Since(queuedTime)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -846,12 +846,13 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
-func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {
 	return metav1.Condition{
-		Type:    kueue.WorkloadPodsReady,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
+		Type:               kueue.WorkloadPodsReady,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 		// ObservedGeneration is added via workload.UpdateStatus
 	}
 }

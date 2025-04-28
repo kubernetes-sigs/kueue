@@ -290,6 +290,14 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("verifying that the metric is updated", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_ready_wait_time_seconds_count", cq.Name},
+					{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name},
+					{"kueue_local_queue_ready_wait_time_seconds", ns.Name, lq.Name},
+					{"kueue_local_queue_admitted_until_ready_wait_time_seconds", ns.Name, lq.Name}})
+			})
+
 			ginkgo.By("simulating pod failure", func() {
 				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 1)
 			})
