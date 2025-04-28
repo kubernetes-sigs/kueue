@@ -1,4 +1,4 @@
-title: Optional garbage collection of Kueue-managed resources
+title: Optional garbage collection of finished and deactivated Workloads
 kep-number: 1618
 authors:
   - "@mwysokin"
@@ -10,6 +10,7 @@ reviewers:
   - "@mimowo"
   - "@PBundyra"
   - "@tenzen-y"
+  - "@mbobrovskyi"
 approvers:
   - "@mimowo"
   - "@tenzen-y"

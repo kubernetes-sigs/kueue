@@ -1,4 +1,4 @@
-# KEP-1618: Optional garbage collection of finished Workloads
+# KEP-1618: Optional garbage collection of finished and deactivated Workloads
 
 <!-- toc -->
 - [Summary](#summary)
@@ -7,7 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1 - Configurable retention for finished Workloads](#story-1---configurable-retention-for-finished-workloads)
+    - [Story 1 - Configurable retention for finished and deactivated Workloads](#story-1---configurable-retention-for-finished-and-deactivated-workloads)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -16,6 +16,7 @@
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -23,20 +24,20 @@
 
 ## Summary
 
-This KEP proposes a mechanism for garbage collection of finished Workloads in Kueue. 
+This KEP proposes a mechanism for garbage collection of finished and deactivated Workloads in Kueue. 
 Currently, Kueue does not delete its own Kubernetes objects, leading to potential accumulation 
 and unnecessary resource consumption. The proposed solution involves adding a new 
 API section called `objectRetentionPolicies` to allow users to specify retention 
-policies for finished Workloads. This can be set to a specific duration or 
+policies for finished and deactivated Workloads. This can be set to a specific duration or 
 disabled entirely to maintain backward compatibility.
 
 Benefits of implementing this KEP include the deletion of superfluous information, 
 decreased memory footprint for Kueue, and freeing up etcd storage. The proposed changes 
 are designed to be explicitly enabled and configured by users, ensuring backward compatibility. 
-While the primary focus is on finished Workloads, the API section can be extended to include 
+While the primary focus is on Workloads, the API section can be extended to include 
 other Kueue-authored objects in the future. The implementation involves incorporating the 
 deletion logic into the reconciliation loop and includes considerations for 
-potential risks, such as handling a large number of existing finished Workloads. 
+potential risks, such as handling a large number of existing Workloads. 
 Overall, this KEP aims to enhance Kueue's resource management and provide users with 
 more control over object retention.
 
@@ -51,18 +52,18 @@ like finished Workloads, do not contain any useful information that could be use
 That's why, based on user feedback in [#1618](https://github.com/kubernetes-sigs/kueue/issues/1618), a mechanism for garbage collection of finished Workloads 
 is being proposed.
 
-With this mechanism in place, deleting finished Workloads has several benefits:
+With this mechanism in place, deleting finished and deactivated Workloads has several benefits:
 - **Deletion of superfluous information**: Finished Workloads do not store any useful runtime-related information 
 (which is stored by Jobs), nor are they useful for debugging. They could possibly be useful for auditing purposes, 
 but this is not a primary concern.
-- **Decreasing Kueue memory footprint**: Finished Workloads are loaded during Kueue's initialization and kept in memory, 
+- **Decreasing Kueue memory footprint**: Finished and deactivated Workloads are loaded during Kueue's initialization and kept in memory, 
 consuming resources unnecessarily.
-- **Freeing up etcd storage**: Finished Workloads are stored in etcd memory until Kubernetes' built-in GC mechanism 
+- **Freeing up etcd storage**: Finished and deactivated Workloads are stored in etcd memory until Kubernetes' built-in GC mechanism 
 collects them, but by default, Custom Resources are stored indefinitely.
 
 ### Goals
 
-- Support the deletion of finished Workload objects.
+- Support the deletion of finished and deactivated Workload objects.
 - Introduce configuration of global retention policies for Kueue-authored Kubernetes objects, 
 - Maintain backward compatibility (the feature must be explicitly enabled and configured).
 
@@ -73,20 +74,20 @@ collects them, but by default, Custom Resources are stored indefinitely.
 ## Proposal
 
 Add a new field called `objectRetentionPolicies` to the Kueue Configuration API, 
-which will enable specifying a retention policy for finished Workloads first under an option 
-called `FinishedWorkloadRetention`. This API section would be extended in the future 
+which will enable specifying a retention policy for finished and deactivated Workloads first under a
+`WorkloadRetentionPolicy` section. This API would be extended in the future 
 with options for other Kueue-managed objects.
 
 
 ### User Stories
 
-#### Story 1 - Configurable retention for finished Workloads
+#### Story 1 - Configurable retention for finished and deactivated Workloads
 
 As a Kueue administrator, I want to control the retention of 
-finished Workloads to minimize the memory footprint and optimize 
+finished and deactivated Workloads to minimize the memory footprint and optimize 
 storage usage in my Kubernetes cluster. I want the flexibility to 
 configure a retention period to automatically delete Workloads after a 
-specified duration or to immediately delete them upon completion.
+specified duration or to immediately delete them upon completion or deactivation.
 
 **Note:** Immediate deletion can be configured by setting the retention period to 0 seconds.
 
@@ -104,20 +105,20 @@ finalizer when the Workload state transitions to finished. If that behavior ever
 changes, or if there is an external source of a finalizer being attached 
 to the Workload, it will be marked for deletion by the Kubernetes client 
 but will not actually be deleted until the finalizer is removed.
-- If the retention policy for finished Workloads is misconfigured 
+- If the retention policy is misconfigured 
 (the provided value is not a valid time.Duration), Kueue will fail to start 
 during configuration parsing.
 - In the default scenario, where the object retention policy section 
-is not configured or finished Workloads retention is either not configured 
+is not configured or Workload retention is either not configured 
 or set to null, the existing behavior is maintained for backward compatibility. 
 This means that Workload objects will not be deleted by Kueue, 
 aligning with the behavior before the introduction of this feature.
 
 ### Risks and Mitigations
 
-- **R**: In clusters with a large number of existing finished Workloads 
+- **R**: In clusters with a large number of existing finished and deactivated Workloads 
 (thousands, tens of thousands, etc.), it may take a significant amount of time
-to delete all previously finished Workloads that qualify for deletion. Since the 
+to delete all Workloads that qualify for deletion. Since the 
 reconciliation loop is effectively synchronous, this may impact the reconciliation 
 of new jobs. From the user's perspective, it may seem like Kueue's initialization 
 time is very long for that initial run until all expired objects are deleted.\
@@ -127,7 +128,7 @@ outside the reconciliation loop, or to delete expired objects in batches so that
 a batch of deletions is completed, any remaining expired objects would be skipped until 
 the next run of the loop. However, this would go against the synchronous nature of the reconciliation loop.
 Another currently available option would be to limit client qps and burst when the feature is enabled,
-allowing mitigate the burst kube-apiserver load.
+allowing to mitigate the burst kube-apiserver load.
 
 ## Design Details
 
@@ -159,20 +160,27 @@ type WorkloadRetentionPolicy struct {
     // Represented using metav1.Duration (e.g. "10m", "1h30m").
     // +optional
     AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
+    // AfterDeactivated is the duration to wait after a Workload has been deactivated
+    // before deleting it.
+    // A duration of 0 will delete immediately.
+    // A nil value disables automatic deletion.
+    // Represented using metav1.Duration (e.g. "10m", "1h30m").
+    // +optional
+    AfterDeactivated *metav1.Duration `json:"afterDeactivated,omitempty"`
 }
 ```
 
 ### Behavior
 The new behavior is as follows:
 
-1. During Kueue's initial reconciliation loop, all previously finished Workloads
+1. During Kueue's initial reconciliation loop, all previously finished and deactivated Workloads
    will be evaluated against the Workload retention policy. They will either be
    deleted immediately if they are already expired or requeued for reconciliation
    after their retention period has expired.
 
 2. During subsequent reconciliation loops, each Workload will be evaluated
    using the same approach as in step 1. However, the evaluation will occur
-   during the next reconciliation loop after the Workload was declared finished.
+   during the next reconciliation loop after the Workload was declared finished or deactivated.
    Based on the evaluation result against the retention policy, the Workload will
    either be requeued for later reconciliation or deleted.
 
