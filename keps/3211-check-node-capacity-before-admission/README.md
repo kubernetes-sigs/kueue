@@ -298,7 +298,7 @@ milestones with these graduation criteria:
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
 
-The feature starts at the alpha level, with a feature gate.
+The feature starts at the alpha level, under the `experimental` directory.
 
 In Alpha version RFA will support:
 
