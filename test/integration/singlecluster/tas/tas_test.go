@@ -636,7 +636,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								Type:    kueue.ClusterQueueActive,
 								Status:  metav1.ConditionFalse,
 								Reason:  "FlavorNotFound",
-								Message: `Can't admit new workloads: references missing ResourceFlavor(s): [tas-flavor].`,
+								Message: `Can't admit new workloads: references missing ResourceFlavor(s): tas-flavor.`,
 							},
 						}, util.IgnoreConditionTimestampsAndObservedGeneration))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
