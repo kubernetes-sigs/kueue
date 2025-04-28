@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, localQueue)
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(localQueue.Name).
+				Queue(v1beta1.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(v1beta1.LocalQueueName(localQueue.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
@@ -411,7 +411,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1)
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
@@ -449,7 +449,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload2)
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
-				Queue(localQueue2.Name).
+				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
@@ -469,14 +469,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
 			util.MustCreate(ctx, k8sClient, higherJob1)
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
-				Queue(localQueue2.Name).
+				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()

@@ -806,7 +806,8 @@ and are newer than the pending workload.</li>
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 
-<p>ClusterQueueReference is the name of the ClusterQueue.</p>
+<p>ClusterQueueReference is the name of the ClusterQueue.
+It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 
 
 
@@ -1355,6 +1356,21 @@ feature gate.</p>
 </tr>
 </tbody>
 </table>
+
+## `LocalQueueName`     {#kueue-x-k8s-io-v1beta1-LocalQueueName}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta1-WorkloadSpec)
+
+
+<p>LocalQueueName is the name of the LocalQueue.
+It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
+
+
+
 
 ## `LocalQueueResourceUsage`     {#kueue-x-k8s-io-v1beta1-LocalQueueResourceUsage}
     
@@ -2552,7 +2568,7 @@ podSets cannot be changed.</p>
 </td>
 </tr>
 <tr><td><code>queueName</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-LocalQueueName"><code>LocalQueueName</code></a>
 </td>
 <td>
    <p>queueName is the name of the LocalQueue the Workload is associated with.

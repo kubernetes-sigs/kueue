@@ -40,10 +40,10 @@ import (
 )
 
 const (
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	jobQueueName      = "test-queue"
+	instanceKey                            = "cloud.provider.com/instance"
+	priorityClassName                      = "test-priority-class"
+	priorityValue                          = 10
+	jobQueueName      kueue.LocalQueueName = "test-queue"
 )
 
 type PodsReadyTestSpec struct {
@@ -83,14 +83,14 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	ginkgo.By("checking the workload is created without queue assigned")
 	createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob.Object())
 	util.VerifyWorkloadPriority(createdWorkload, priorityClassName, priorityValue)
-	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 
 	ginkgo.By("checking the workload is created with priority and priorityName")
 	gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
 	gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 
 	ginkgo.By("checking the workload is updated with queue name when the job does")
-	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})
+	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
 	gomega.Expect(k8sClient.Update(ctx, createdJob.Object())).Should(gomega.Succeed())
 	util.AwaitAndVerifyWorkloadQueueName(ctx, k8sClient, createdWorkload, wlLookupKey, jobQueueName)
 
@@ -222,7 +222,7 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
 	ginkgo.By("Create a job")
-	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})
+	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
 	util.MustCreate(ctx, k8sClient, job.Object())
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())

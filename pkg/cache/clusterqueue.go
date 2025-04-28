@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -68,7 +69,7 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                        map[string]*LocalQueue
+	localQueues                        map[queue.LocalQueueReference]*LocalQueue
 	podsReadyTracking                  bool
 	missingFlavors                     []kueue.ResourceFlavorReference
 	missingAdmissionChecks             []kueue.AdmissionCheckReference
@@ -445,9 +446,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 }
 
 func (q *LocalQueue) reportActiveWorkloads() {
-	qKeySlice := strings.Split(q.key, "/")
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+	namespace, name := queue.MustParseLocalQueueReference(q.key)
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.reservingWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -479,7 +480,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, m)
 		c.admittedWorkloadsCount += int(m)
 	}
-	qKey := workload.QueueKey(wi.Obj)
+	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
 		updateFlavorUsage(frUsage, lq.totalReserved, m)
 		lq.reservingWorkloads += int(m)
@@ -543,7 +544,11 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
+		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
+		metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
+			Name:      lqName,
+			Namespace: namespace,
+		})
 	}
 	delete(c.localQueues, qKey)
 }
@@ -574,7 +579,7 @@ func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.Fl
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
-	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
+	return wl.Namespace == q.Namespace && string(wl.Spec.QueueName) == q.Name
 }
 
 // Implements dominantResourceShareNode interface.

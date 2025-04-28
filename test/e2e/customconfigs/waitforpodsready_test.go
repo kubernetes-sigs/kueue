@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 		ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
 			ginkgo.By("creating a suspended job so its pods never report Ready", func() {
 				job = testingjob.MakeJob("job-timeout", ns.Name).
-					Queue(lq.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
 					Parallelism(1).
 					Obj()
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("creating a job", func() {
 				job = testingjob.MakeJob("job-recovery-timeout", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Queue(lq.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
 					Parallelism(1).
 					BackoffLimitPerIndex(2).
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", func() {
 			ginkgo.By("creating a job", func() {
 				job = testingjob.MakeJob("job-recovery-timeout", ns.Name).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					Queue(lq.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "2").
 					Parallelism(1).
 					BackoffLimitPerIndex(2).

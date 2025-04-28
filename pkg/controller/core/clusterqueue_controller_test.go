@@ -43,8 +43,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	lqName := "test-lq"
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("alpha", "").Queue(lqName).Obj(),
-			*utiltesting.MakeWorkload("beta", "").Queue(lqName).Obj(),
+			*utiltesting.MakeWorkload("alpha", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			*utiltesting.MakeWorkload("beta", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 		},
 	}
 
@@ -167,7 +167,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Message: "Can admit new workloads",
 				}},
 			},
-			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(lqName).Obj(),
+			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
@@ -525,8 +525,8 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 	const lowPrio, highPrio = 0, 100
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("one", "").Queue(lqName).Priority(highPrio).Obj(),
-			*utiltesting.MakeWorkload("two", "").Queue(lqName).Priority(lowPrio).Obj(),
+			*utiltesting.MakeWorkload("one", "").Queue(kueue.LocalQueueName(lqName)).Priority(highPrio).Obj(),
+			*utiltesting.MakeWorkload("two", "").Queue(kueue.LocalQueueName(lqName)).Priority(lowPrio).Obj(),
 		},
 	}
 	testCases := map[string]struct {

@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+			gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 			gomega.Expect(metav1.IsControlledBy(createdWorkload, createdJobSet)).To(gomega.BeTrue(), "The Workload should be owned by the JobSet")
 
 			ginkgo.By("checking the workload is created with priority and priorityName")
@@ -152,8 +152,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(priorityValue))
 
 			ginkgo.By("checking the workload is updated with queue name when the JobSet does")
-			jobSetQueueName := "test-queue"
-			createdJobSet.Annotations = map[string]string{constants.QueueLabel: jobSetQueueName}
+			var jobSetQueueName kueue.LocalQueueName = "test-queue"
+			createdJobSet.Annotations = map[string]string{constants.QueueLabel: string(jobSetQueueName)}
 			gomega.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())

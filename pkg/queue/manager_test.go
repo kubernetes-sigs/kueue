@@ -672,7 +672,7 @@ func TestUpdateWorkload(t *testing.T) {
 		update           func(*kueue.Workload)
 		wantUpdated      bool
 		wantQueueOrder   map[kueue.ClusterQueueReference][]string
-		wantQueueMembers map[string]sets.Set[string]
+		wantQueueMembers map[LocalQueueReference]sets.Set[string]
 		wantErr          error
 	}{
 		"in queue": {
@@ -693,7 +693,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[kueue.ClusterQueueReference][]string{
 				"cq": {"/b", "/a"},
 			},
-			wantQueueMembers: map[string]sets.Set[string]{
+			wantQueueMembers: map[LocalQueueReference]sets.Set[string]{
 				"/foo": sets.New("/a", "/b"),
 			},
 		},
@@ -715,7 +715,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[kueue.ClusterQueueReference][]string{
 				"cq": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.Set[string]{
+			wantQueueMembers: map[LocalQueueReference]sets.Set[string]{
 				"/foo": nil,
 				"/bar": sets.New("/a"),
 			},
@@ -740,7 +740,7 @@ func TestUpdateWorkload(t *testing.T) {
 				"cq1": nil,
 				"cq2": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.Set[string]{
+			wantQueueMembers: map[LocalQueueReference]sets.Set[string]{
 				"/foo": nil,
 				"/bar": sets.New("/a"),
 			},
@@ -761,7 +761,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[kueue.ClusterQueueReference][]string{
 				"cq": nil,
 			},
-			wantQueueMembers: map[string]sets.Set[string]{
+			wantQueueMembers: map[LocalQueueReference]sets.Set[string]{
 				"/foo": nil,
 			},
 			wantErr: ErrLocalQueueDoesNotExistOrInactive,
@@ -783,7 +783,7 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[kueue.ClusterQueueReference][]string{
 				"cq": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.Set[string]{
+			wantQueueMembers: map[LocalQueueReference]sets.Set[string]{
 				"/foo": sets.New("/a"),
 			},
 		},
@@ -811,7 +811,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
-			q := manager.localQueues[workload.QueueKey(wl)]
+			q := manager.localQueues[KeyFromWorkload(wl)]
 			if q != nil {
 				key := workload.Key(wl)
 				item := q.items[key]
@@ -837,7 +837,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {
 				t.Errorf("Elements popped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
 			}
-			queueMembers := make(map[string]sets.Set[string])
+			queueMembers := make(map[LocalQueueReference]sets.Set[string])
 			for name, q := range manager.localQueues {
 				queueMembers[name] = workloadNamesFromLQ(q)
 			}

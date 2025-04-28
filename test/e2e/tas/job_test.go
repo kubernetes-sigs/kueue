@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 
 		ginkgo.It("Should not admit a Job if Rack required", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 
 		ginkgo.It("should admit a Job to TAS Block if Rack preferred", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 
 		ginkgo.It("Should admit a Job to TAS Block if Block required", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 
 		ginkgo.It("Should allow to run a Job with parallelism < completions", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(2).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Indexed(true).

@@ -17,11 +17,12 @@ limitations under the License.
 package cache
 
 import (
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type LocalQueue struct {
-	key                string
+	key                queue.LocalQueueReference
 	reservingWorkloads int
 	admittedWorkloads  int
 	totalReserved      resources.FlavorResourceQuantities

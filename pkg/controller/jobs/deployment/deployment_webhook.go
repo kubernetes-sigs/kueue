@@ -85,7 +85,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		deployment.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if queueName != "" {
-			deployment.Spec.Template.Labels[controllerconstants.QueueLabel] = queueName
+			deployment.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(deployment.Object()); priorityClass != "" {
 			deployment.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass

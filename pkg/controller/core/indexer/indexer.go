@@ -53,7 +53,7 @@ func IndexWorkloadQueue(obj client.Object) []string {
 	if !ok {
 		return nil
 	}
-	return []string{wl.Spec.QueueName}
+	return []string{string(wl.Spec.QueueName)}
 }
 
 func IndexWorkloadClusterQueue(obj client.Object) []string {

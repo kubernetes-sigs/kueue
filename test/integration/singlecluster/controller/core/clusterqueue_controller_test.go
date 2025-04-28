@@ -148,17 +148,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", framework.SlowSpec, func() {
 			workloads := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
-				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("four", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 				testing.MakeWorkload("five", ns.Name).Queue("other").
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("six", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("six", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			}
 
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status and report metrics when a pending workload is deleted", func() {
-			workload := testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
+			workload := testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "5").Obj()
 
 			ginkgo.By("Creating a workload", func() {
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			wl := testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*testing.MakePodSet("driver", 2).
 						Request(corev1.ResourceCPU, "1").
@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.MustCreate(ctx, k8sClient, cq)
 			lq = testing.MakeLocalQueue("bar-lq", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
-			wl = testing.MakeWorkload("bar-wl", ns.Name).Queue(lq.Name).Obj()
+			wl = testing.MakeWorkload("bar-wl", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 		})
 
@@ -889,7 +889,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
 
 			ginkgo.By("Admit workload")
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
@@ -924,7 +924,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
 
 			ginkgo.By("Setting quota reservation")
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
 
@@ -986,9 +986,9 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", framework.SlowSpec, func() {
 			const lowPrio, midLowerPrio, midHigherPrio, highPrio = 0, 10, 20, 100
 			workloadsFirstBatch := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).
+				testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(highPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).Priority(midHigherPrio).
+				testing.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(midHigherPrio).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 
@@ -1024,9 +1024,9 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 
 			ginkgo.By("Creating new workloads to so that the number of workloads exceeds the MaxCount")
 			workloadsSecondBatch := []*kueue.Workload{
-				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Priority(midLowerPrio).
+				testing.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(midLowerPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).Priority(lowPrio).
+				testing.MakeWorkload("four", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(lowPrio).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 			for _, w := range workloadsSecondBatch {
