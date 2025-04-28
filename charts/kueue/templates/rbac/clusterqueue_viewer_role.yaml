@@ -6,6 +6,7 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
     rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
   - apiGroups:
       - kueue.x-k8s.io
