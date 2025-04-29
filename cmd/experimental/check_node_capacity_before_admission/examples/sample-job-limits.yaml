@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 3
+  completions: 3
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: ubuntu:latest
+        command:
+          - sleep
+        args: ["30s"]
+        resources:
+          requests:
+            cpu: 1
+            memory: "500Mi"
+          limits:
+            cpu: 1
+            memory: "500Mi"
+
+      restartPolicy: Never
