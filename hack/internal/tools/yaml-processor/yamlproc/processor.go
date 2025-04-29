@@ -151,7 +151,7 @@ func (fp *FileProcessor) ProcessFile(fileOps FileOperations) error {
 	}
 
 	outputPath := filepath.Join(fileOps.OutputDir, filepath.Base(fileOps.Path))
-	if err := os.WriteFile(outputPath, []byte(data), 0644); err != nil {
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
 		logger.Error("Failed to write file", zap.String("outputPath", outputPath), zap.Error(err))
 		return err
 	}

@@ -29,7 +29,7 @@ func SplitYAMLDocuments(data []byte) ([][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, []byte(doc))
+		result = append(result, doc)
 	}
 }
 
