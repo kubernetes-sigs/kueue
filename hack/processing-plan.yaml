@@ -1,9 +1,9 @@
 files:
   - path: ./config/components/crd/bases/*.yaml
-    output_dir: ./charts/kueue/templates/crd/
+    outputDir: ./charts/kueue/templates/crd/
     excludes:
       - kustomization.yaml
-    continue_on_error: true
+    continueOnError: true
     operations:
       - type: INSERT_OBJECT
         key: .spec
@@ -18,7 +18,7 @@ files:
                     path: /convert
                 conversionReviewVersions:
                   - v1
-    post_operations:
+    postOperations:
       - type: INSERT_TEXT
         key: .metadata.annotations
         value: |
@@ -33,10 +33,10 @@ files:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
   - path: ./config/components/rbac/*.yaml
-    output_dir: ./charts/kueue/templates/rbac
+    outputDir: ./charts/kueue/templates/rbac
     excludes:
       - kustomization.yaml
-    continue_on_error: true
+    continueOnError: true
     operations:
       - type: APPEND
         key: .metadata.name
@@ -53,33 +53,33 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
-    post_operations:
+    postOperations:
       - type: INSERT_TEXT
         key: .metadata.labels
         value: |
           {{- include "kueue.labels" . | nindent 4 }}
-        on_file_condition: '.metadata.labels != null'
+        onFileCondition: '.metadata.labels != null'
       - type: INSERT_TEXT
         key: .metadata
         value: |
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
-        on_file_condition: '.metadata.labels == null'
+        onFileCondition: '.metadata.labels == null'
   - path: ./config/components/visibility/*.yaml
-    output_dir: ./charts/kueue/templates/visibility
+    outputDir: ./charts/kueue/templates/visibility
     excludes:
       - kustomization.yaml
-    continue_on_error: true
+    continueOnError: true
     operations:
       - type: APPEND
         key: .metadata.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
-        on_file_condition: '.metadata.name != "v1beta*"'
+        onFileCondition: '.metadata.name != "v1beta*"'
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-        on_file_condition: '.metadata.namespace != "kube-system"'
+        onFileCondition: '.metadata.namespace != "kube-system"'
       - type: APPEND
         key: .spec.service.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
@@ -89,7 +89,7 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
-    post_operations:
+    postOperations:
       - type: INSERT_TEXT
         key: .metadata
         value: |
@@ -102,10 +102,10 @@ files:
           selector:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
         indentation: 2
-        on_file_condition: '.kind == "Service"'
+        onFileCondition: '.kind == "Service"'
   - path: ./config/components/webhook/service.yaml
-    output_dir: ./charts/kueue/templates/webhook
-    continue_on_error: true
+    outputDir: ./charts/kueue/templates/webhook
+    continueOnError: true
     operations:
       - type: APPEND
         key: .metadata.name
@@ -116,10 +116,10 @@ files:
       - type: INSERT_OBJECT
         key: .spec.type
         value: '"{{ .Values.webhookService.type }}"'
-        add_key_if_missing: true
+        addKeyIfMissing: true
       - type: DELETE
         key: .spec.ports
-    post_operations:
+    postOperations:
       - type: INSERT_TEXT
         key: .metadata
         value: |
@@ -138,8 +138,8 @@ files:
           ports:
           {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
   - path: ./config/components/webhook/manifests.yaml
-    output_dir: ./charts/kueue/templates/webhook/
-    continue_on_error: true
+    outputDir: ./charts/kueue/templates/webhook/
+    continueOnError: true
     operations:
       - type: APPEND
         key: .metadata.name
@@ -152,29 +152,29 @@ files:
         value: '"{{ .Release.Namespace }}"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
       - type: DELETE
         key: .webhooks.[].failurePolicy
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
-    post_operations:
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+    postOperations:
       - type: INSERT_TEXT
         position: START
         value: |
           {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
           {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
-        on_file_condition: '.kind == "MutatingWebhookConfiguration"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
       - type: INSERT_TEXT
         key: .metadata
         value: |
@@ -208,8 +208,8 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "MutatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
@@ -229,8 +229,8 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "ValidatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
@@ -250,8 +250,8 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "MutatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
@@ -271,8 +271,8 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "ValidatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
@@ -292,8 +292,8 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "MutatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
@@ -313,44 +313,44 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
-        on_file_condition: '.kind == "ValidatingWebhookConfiguration"'
-        on_item_condition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
   - path: ./config/components/kueueviz/*.yaml
-    output_dir: ./charts/kueue/templates/kueueviz
+    outputDir: ./charts/kueue/templates/kueueviz
     excludes:
       - kustomization.yaml
-    continue_on_error: true
+    continueOnError: true
     operations:
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.backend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main\" }}"'
-        on_file_condition: '.metadata.name == "kueueviz-backend"'
+        onFileCondition: '.metadata.name == "kueueviz-backend"'
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.frontend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main\" }}"'
-        on_file_condition: '.metadata.name == "kueueviz-frontend"'
+        onFileCondition: '.metadata.name == "kueueviz-frontend"'
       - type: APPEND
         key: .metadata.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
       - type: APPEND
         key: .spec.rules.[].http.paths.[].backend.service.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
-        on_file_condition: '.kind == "Ingress"'
+        onFileCondition: '.kind == "Ingress"'
       - type: APPEND
         key: .spec.tls.[].secretName
         value: '"{{ include \"kueue.fullname\" . }}-"'
-        on_file_condition: '.kind == "Ingress"'
+        onFileCondition: '.kind == "Ingress"'
       - type: APPEND
         key: .roleRef.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
-        on_file_condition: '.kind == "ClusterRoleBinding"'
+        onFileCondition: '.kind == "ClusterRoleBinding"'
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-    post_operations:
+    postOperations:
       - type: INSERT_TEXT
         position: START
         value: |

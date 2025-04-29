@@ -18,9 +18,9 @@ type FileOperations struct {
 	Path            string      `yaml:"path"`
 	Excludes        []string    `yaml:"excludes,omitempty"`
 	Operations      []Operation `yaml:"operations"`
-	PostOperations  []Operation `yaml:"post_operations,omitempty"`
-	OutputDir       string      `yaml:"output_dir,omitempty"`
-	ContinueOnError bool        `yaml:"continue_on_error,omitempty"`
+	PostOperations  []Operation `yaml:"postOperations,omitempty"`
+	OutputDir       string      `yaml:"outputDir,omitempty"`
+	ContinueOnError bool        `yaml:"continueOnError,omitempty"`
 }
 
 type Operation struct {
@@ -28,10 +28,10 @@ type Operation struct {
 	Key             string `yaml:"key,omitempty"` // Key is optional for INSERT_TEXT
 	Value           string `yaml:"value"`
 	Indentation     int    `yaml:"indentation,omitempty"`
-	AddKeyIfMissing bool   `yaml:"add_key_if_missing,omitempty"`
+	AddKeyIfMissing bool   `yaml:"addKeyIfMissing,omitempty"`
 	Position        string `yaml:"position,omitempty"` // Position is valid only for INSERT_TEXT
-	OnFileCondition string `yaml:"on_file_condition,omitempty"`
-	OnItemCondition string `yaml:"on_item_condition,omitempty"`
+	OnFileCondition string `yaml:"onFileCondition,omitempty"`
+	OnItemCondition string `yaml:"onItemCondition,omitempty"`
 }
 
 const (
