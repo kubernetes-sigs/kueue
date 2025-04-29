@@ -39,7 +39,7 @@ func JoinYAMLDocuments(docs [][]byte) []byte {
 		stringDocs = append(stringDocs, string(doc))
 	}
 
-	return []byte(strings.Join(stringDocs, "\n---\n"))
+	return []byte(strings.Join(stringDocs, "---\n"))
 }
 
 // Sanitize processes the given YAML data and ensures it is valid by replacing invalid lines
