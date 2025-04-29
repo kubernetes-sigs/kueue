@@ -119,7 +119,7 @@ kind_load
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
-  read -r "Press Enter to cleanup."
+  read -rp "Press Enter to cleanup."
 else
   # shellcheck disable=SC2086
   $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
