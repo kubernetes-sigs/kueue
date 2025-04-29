@@ -150,28 +150,48 @@ function cluster_kind_load_image {
     fi
 }
 
-# Wait until all cert-manager deployments are available.
-function wait_for_cert_manager_ready() {
-    echo "Waiting for cert-manager components to be ready..."
-    local deployments=(cert-manager cert-manager-cainjector cert-manager-webhook)
-    for dep in "${deployments[@]}"; do
-        echo "Waiting for deployment '$dep'..."
-        if ! kubectl wait --for=condition=Available deployment/"$dep" -n cert-manager --timeout=300s; then
-            echo "Timeout waiting for deployment '$dep' to become available."
-            exit 1
-        fi
-    done
-    echo "All cert-manager components are ready."
+function deploy_with_certmanager() {
+    local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
+    local default_kust="${ROOT_DIR}/config/default/kustomization.yaml"
+    local crd_backup
+    crd_backup="$(<"$crd_kust")"
+    local default_backup
+    default_backup="$(<"$default_kust")"
+    
+    (
+        cd "${ROOT_DIR}/config/components/crd" || exit
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
+    )
+
+    (
+        cd "${ROOT_DIR}/config/default" || exit
+        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
+        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
+        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
+        
+        $KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager" | \
+            kubectl apply --server-side -f -
+    )
+
+    printf "%s\n" "$crd_backup" > "$crd_kust"
+    printf "%s\n" "$default_backup" > "$default_kust"
 }
 
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
+    
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-       wait_for_cert_manager_ready
-       kubectl apply --server-side -k test/e2e/config/certmanager
+        kubectl -n cert-manager wait --for condition=ready pod \
+            -l app.kubernetes.io/instance=cert-manager \
+            --timeout=5m
+        
+        deploy_with_certmanager
     else
-       kubectl apply --server-side -k test/e2e/config/default  
+        kubectl apply --server-side -k test/e2e/config/default
     fi
 }
 
