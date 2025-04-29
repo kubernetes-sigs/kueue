@@ -79,7 +79,6 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 
 func indexPodNodeName(o client.Object) []string {
 	p := o.(*corev1.Pod)
-	fmt.Printf("Indexing node name %v for pod %v", p.Spec.NodeName, p.Name)
 	if p.Spec.NodeName == "" {
 		return nil
 	}

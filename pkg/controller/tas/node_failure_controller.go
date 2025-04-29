@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -17,9 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
@@ -56,7 +55,6 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fmt.Printf("Reconciling node %s\n", req.Name)
 	log := ctrl.LoggerFrom(ctx).WithValues("node", req.Name)
 	ctx = ctrl.LoggerInto(ctx, log)
 
@@ -95,35 +93,33 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, nodeName string, nodeFailedOrDeleted bool) error {
 	log := ctrl.LoggerFrom(ctx)
 	var podList corev1.PodList
-	var allPods corev1.PodList
-	// Use the indexer configured for the manager for efficient lookup
-	r.client.List(ctx, &allPods)
-	fmt.Printf("All pods %v\n", allPods.Items)
-
+	// Use the indexer for efficient lookup
 	if err := r.client.List(ctx, &podList, client.MatchingFields{indexer.PodNodeNameIndexKey: nodeName}); err != nil {
 		log.Error(err, "Failed to list pods on node", "nodeName", nodeName)
 		return err
 	}
-	log.V(3).Info("Found", "pods", strconv.Itoa(len(podList.Items)), "on node ", nodeName)
-	// Use a map to update each workload only once per reconciliation cycle
+
 	workloadsToPatch := make(map[types.NamespacedName]*kueue.Workload)
 	workloadStatusChanged := make(map[types.NamespacedName]bool)
 	var workloadPatchErrors []error
 
-	// First pass: Identify workloads and determine if their status needs changing
+	// Identify workloads for pods running on the node and
+	// verify if their status needs changing
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		// Skip pods not managed by Kueue or already finished/terminating
-		if v, ok := pod.GetLabels()[constants.ManagedByKueueLabelKey]; !ok || v != constants.ManagedByKueueLabelValue || utilpod.IsTerminated(pod) {
+		if _, found := pod.GetLabels()[v1alpha1.TASLabel]; !found {
+			//skip non Kueue TAS pods
 			continue
 		}
+		if utilpod.IsTerminated(pod) {
+			continue
+		}
+
 		wlName, found := pod.Annotations[kueuealpha.WorkloadAnnotation]
 		if !found {
 			continue
 		}
 		wlKey := types.NamespacedName{Name: wlName, Namespace: pod.Namespace}
-
-		// If we haven't fetched this workload yet in this cycle
 		if _, exists := workloadsToPatch[wlKey]; !exists {
 			var wl kueue.Workload
 			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
@@ -131,41 +127,35 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 					log.V(4).Info("Workload not found for pod, skipping", "workload", wlKey, "pod", klog.KObj(pod))
 				} else {
 					log.Error(err, "Failed to get workload for pod", "workload", wlKey, "pod", klog.KObj(pod))
-					workloadPatchErrors = append(workloadPatchErrors, err) // Collect error
+					workloadPatchErrors = append(workloadPatchErrors, err)
 				}
-				continue // Skip this pod/workload
+				continue
 			}
-			workloadsToPatch[wlKey] = &wl // Store fetched workload
+			workloadsToPatch[wlKey] = &wl
 		}
-
-		// Determine if the status needs an update based on this node's state
 		wl := workloadsToPatch[wlKey]
 		currentStatusFailed := slices.Contains(wl.Status.FailedNodes, nodeName)
 
 		if nodeFailedOrDeleted && !currentStatusFailed {
-			workloadStatusChanged[wlKey] = true // Mark for update: need to add node
+			workloadStatusChanged[wlKey] = true
 		} else if !nodeFailedOrDeleted && currentStatusFailed {
-			workloadStatusChanged[wlKey] = true // Mark for update: need to remove node
+			workloadStatusChanged[wlKey] = true
 		}
 	}
 
-	// Second pass: Patch workloads that require status changes
+	// Patch workloads that require status changes
 	for wlKey, wl := range workloadsToPatch {
 		if !workloadStatusChanged[wlKey] {
-			continue // Skip if no change needed for this workload based on this node
+			continue
 		}
-
-		originalStatus := wl.Status.DeepCopy() // Use the status from the fetched object
-
+		originalStatus := wl.Status.DeepCopy()
 		if nodeFailedOrDeleted {
-			// Add nodeName if it's not already present (double-check, though logic above should handle)
 			if !slices.Contains(wl.Status.FailedNodes, nodeName) {
 				wl.Status.FailedNodes = append(wl.Status.FailedNodes, nodeName)
-				slices.Sort(wl.Status.FailedNodes) // Keep sorted
+				slices.Sort(wl.Status.FailedNodes)
 				log.V(3).Info("Adding node to workload failed list", "workload", wlKey, "nodeName", nodeName)
 			}
 		} else {
-			// Remove nodeName if it is present
 			if idx := slices.Index(wl.Status.FailedNodes, nodeName); idx != -1 {
 				wl.Status.FailedNodes = slices.Delete(wl.Status.FailedNodes, idx, idx+1)
 				log.V(3).Info("Removing node from workload failed list", "workload", wlKey, "nodeName", nodeName)
@@ -174,9 +164,9 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 
 		// Patch only if the slice content actually changed
 		if !slices.Equal(originalStatus.FailedNodes, wl.Status.FailedNodes) {
-			if err := r.client.Status().Patch(ctx, wl, client.Apply, client.FieldOwner(constants.KueueName)); err != nil {
+			if err := r.client.Status().Update(ctx, wl); err != nil {
 				log.Error(err, "Failed to patch workload status", "workload", wlKey)
-				workloadPatchErrors = append(workloadPatchErrors, err) // Collect error
+				workloadPatchErrors = append(workloadPatchErrors, err)
 			} else {
 				log.V(2).Info("Successfully patched workload status", "workload", wlKey, "failedNodes", wl.Status.FailedNodes)
 				if nodeFailedOrDeleted {
@@ -188,7 +178,7 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 		}
 	}
 
-	// If any errors occurred during workload Get or Patch, return the first one to trigger requeue
+	// If any errors occurred during workload Get or Patch, return the first one
 	if len(workloadPatchErrors) > 0 {
 		return fmt.Errorf("encountered %d errors updating workloads for node %s: %w", len(workloadPatchErrors), nodeName, workloadPatchErrors[0])
 	}
@@ -212,28 +202,3 @@ func (r *nodeFailureReconciler) isNodeFailed(node *corev1.Node) bool {
 	r.log.V(3).Info("NodeReady condition not found, assuming node is failed", "nodeName", node.Name)
 	return true
 }
-
-/*var _ handler.EventHandler = (*nodeHandler)(nil)
-
-type nodeHandler struct{}
-
-func (h *resourceFlavorHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *resourceFlavorHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *resourceFlavorHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *resourceFlavorHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	resourceFlavor, isResourceFlavor := e.Object.(*kueue.ResourceFlavor)
-	if !isResourceFlavor || resourceFlavor.Spec.TopologyName == nil {
-		return
-	}
-	q.AddAfter(reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name: string(*resourceFlavor.Spec.TopologyName),
-		},
-	}, constants.UpdatesBatchPeriod)
-}*/
