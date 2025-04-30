@@ -195,12 +195,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Finalizers).NotTo(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
-					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   kueue.WorkloadFinished,
-							Status: metav1.ConditionTrue,
-							Reason: kueue.WorkloadFinishedReasonFailed,
-						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration)))
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonFailed))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
