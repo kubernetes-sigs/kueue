@@ -229,15 +229,15 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 		if len(c.missingFlavors) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorNotFound)
-			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", c.missingFlavors))
+			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", stringsutils.Join(c.missingFlavors, ",")))
 		}
 		if len(c.missingAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckNotFound)
-			messages = append(messages, fmt.Sprintf("references missing AdmissionCheck(s): %v", c.missingAdmissionChecks))
+			messages = append(messages, fmt.Sprintf("references missing AdmissionCheck(s): %v", stringsutils.Join(c.missingAdmissionChecks, ",")))
 		}
 		if len(c.inactiveAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckInactive)
-			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
+			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", stringsutils.Join(c.inactiveAdmissionChecks, ",")))
 		}
 
 		if len(c.multiKueueAdmissionChecks) > 1 {
@@ -271,7 +271,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			return kueue.ClusterQueueActiveReasonUnknown, "Can't admit new workloads."
 		}
 
-		return reasons[0], api.TruncateConditionMessage(strings.Join([]string{"Can't admit new workloads: ", strings.Join(messages, ", "), "."}, ""))
+		return reasons[0], api.TruncateConditionMessage(fmt.Sprintf("Can't admit new workloads: %v.", strings.Join(messages, ", ")))
 	}
 	return kueue.ClusterQueueActiveReasonReady, "Can admit new workloads"
 }

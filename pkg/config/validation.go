@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -40,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
+	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
 const (
@@ -272,9 +272,7 @@ var (
 	validStrategySetsStr = func() []string {
 		var ss []string
 		for _, s := range validStrategySets {
-			// Casting because strings.Join requires a slice of strings
-			strategies := *(*[]string)(unsafe.Pointer(&s))
-			ss = append(ss, strings.Join(strategies, ","))
+			ss = append(ss, stringsutils.Join(s, ","))
 		}
 		return ss
 	}()
