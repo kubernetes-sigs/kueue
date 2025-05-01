@@ -63,6 +63,8 @@ type ResourceFlavorSpec struct {
 	// have.
 	// Workloads' podsets must have tolerations for these nodeTaints in order to
 	// get assigned this ResourceFlavor during admission.
+	// When this ResourceFlavor has also set the matching tolerations (in .spec.tolerations),
+	// then the nodeTaints are not considered during admission.
 	// Only the 'NoSchedule' and 'NoExecute' taint effects are evaluated,
 	// while 'PreferNoSchedule' is ignored.
 	//
