@@ -652,6 +652,8 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 		enableDRAGate         bool
 		resourceClaimTemplate []dra.ResourceClaimTemplate
 		resourceClaim         []dra.ResourceClaim
+		localQueue            *kueue.LocalQueue
+		clusterQueue          *kueue.ClusterQueue
 		wantWl                *kueue.Workload
 	}{
 		"dra feature gate off; ignore devices": {
@@ -674,7 +676,10 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					},
 				},
 			},
+			localQueue:   utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-cq").Obj(),
 			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
@@ -690,6 +695,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
@@ -727,7 +733,18 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					},
 				},
 			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
 			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
@@ -743,11 +760,12 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
-						Request("gpu.example.com", "2").
+						Request("single-gpu", "2").
 						Claim(corev1.ResourceClaim{
 							Name: "gpu",
 						}).
@@ -781,7 +799,18 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					},
 				},
 			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
 			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
@@ -804,11 +833,12 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
-						Request("gpu.example.com", "2").
+						Request("single-gpu", "2").
 						Claim(corev1.ResourceClaim{
 							Name: "gpu-0",
 						}).
@@ -857,7 +887,19 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					},
 				},
 			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("gpu-0", []string{"gpu-0.example.com"}, "10").
+							DRAResource("gpu-1", []string{"gpu-1.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
 			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
@@ -873,12 +915,13 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
-						Request("gpu-0.example.com", "1").
-						Request("gpu-1.example.com", "1").
+						Request("gpu-0", "1").
+						Request("gpu-1", "1").
 						Claim(corev1.ResourceClaim{
 							Name: "multiple-gpus",
 						}).
@@ -914,7 +957,18 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 					},
 				},
 			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
 			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Containers(
@@ -941,6 +995,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Containers(
@@ -948,7 +1003,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 								Name("first-container").
 								WithResourceLimit(corev1.ResourceCPU, "2").
 								WithResourceReq(corev1.ResourceCPU, "1").
-								WithResourceReq("gpu.example.com", "1").
+								WithResourceReq("single-gpu", "1").
 								WithClaimReq([]corev1.ResourceClaim{{
 									Name: "single-gpu",
 								}}).
@@ -974,6 +1029,9 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&dra.ResourceClaimTemplateList{Items: tc.resourceClaimTemplate},
+			).WithObjects(
+				tc.localQueue,
+				tc.clusterQueue,
 			).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)

@@ -19,7 +19,7 @@ package workload
 import (
 	"context"
 	"fmt"
-
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	dra "k8s.io/api/resource/v1beta1"
@@ -203,7 +203,14 @@ func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, 
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	resourceList, errors := handleResourceClaimTemplate(ctx, cl, AddResourceClaimsToResourceList(wl), wl.Namespace)
+
+	deviceClassMap, err := getDeviceClassToNameMap(ctx, cl, wl)
+	if err != nil {
+		log.Error(err, "error getting device class to resource name map")
+		return
+	}
+
+	resourceList, errors := handleResourceClaimTemplate(ctx, cl, AddResourceClaimsToResourceList(wl), wl.Namespace, deviceClassMap)
 	for key, val := range resourceList {
 		log.Info("ResourceList", "key", key, "val", val)
 	}
@@ -215,6 +222,50 @@ func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, 
 	}
 }
 
+func getDeviceClassToNameMap(ctx context.Context, cl client.Client, wl *kueue.Workload) (map[corev1.ResourceName]corev1.ResourceName, error) {
+	log := ctrl.LoggerFrom(ctx)
+	log.WithValues("workloadName", wl.Name, "workloadNamespace", wl.Namespace)
+	queueName := wl.Spec.QueueName
+	if queueName == "" {
+		log.Error(fmt.Errorf("queue name is empty"), "empty queue name")
+		return nil, fmt.Errorf("queue name is empty")
+	}
+
+	lq := &kueue.LocalQueue{}
+	err := cl.Get(ctx, client.ObjectKey{Namespace: wl.Namespace, Name: string(queueName)}, lq)
+	if err != nil {
+		log.Error(err, "error getting local queue")
+		return nil, err
+	}
+
+	cq := &kueue.ClusterQueue{}
+	err = cl.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, cq)
+	if err != nil {
+		log.Error(err, "error getting cluster queue")
+		return nil, err
+	}
+
+	return deviceClassMapFromCQ(log, cq), nil
+}
+
+func deviceClassMapFromCQ(log logr.Logger, cq *kueue.ClusterQueue) map[corev1.ResourceName]corev1.ResourceName {
+	deviceClassMap := make(map[corev1.ResourceName]corev1.ResourceName)
+	for _, resourceGroup := range cq.Spec.ResourceGroups {
+		for _, flavor := range resourceGroup.Flavors {
+			for _, res := range flavor.Resources {
+				if res.Kind != nil && *res.Kind == "DeviceClass" {
+					for _, dc := range res.DeviceClassNames {
+						deviceClassMap[dc] = res.Name
+					}
+				}
+			}
+		}
+	}
+	// TODO: change the logging verbosity below
+	log.V(2).Info("deviceClassMapFromCQ", "cq", cq.Name, "deviceClassMap", deviceClassMap)
+	return deviceClassMap
+}
+
 func resourceClaimsToContainerRequests(podSpec *corev1.PodSpec, resourceList corev1.ResourceList) {
 	for i := range podSpec.Containers {
 		res := &podSpec.Containers[i].Resources
@@ -224,7 +275,7 @@ func resourceClaimsToContainerRequests(podSpec *corev1.PodSpec, resourceList cor
 	}
 }
 
-func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []PodSetResources, namespace string) (corev1.ResourceList, []error) {
+func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []PodSetResources, namespace string, deviceClassMap map[corev1.ResourceName]corev1.ResourceName) (corev1.ResourceList, []error) {
 	var errors []error
 	updateResourceList := corev1.ResourceList{}
 	for _, singlePsr := range psr {
@@ -240,7 +291,12 @@ func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []Po
 			// TODO: 3. need to change with partitionable devices
 			for _, val := range draDeviceClass.Spec.Spec.Devices.Requests {
 				if val.AllocationMode == dra.DeviceAllocationModeExactCount {
-					updateResourceList[corev1.ResourceName(val.DeviceClassName)] = *k8sresource.NewQuantity(request*val.Count, k8sresource.DecimalSI)
+					resName, ok := deviceClassMap[corev1.ResourceName(val.DeviceClassName)]
+					if !ok {
+						errors = append(errors, fmt.Errorf("resource name for device class %s is empty in deviceClassMap", val.DeviceClassName))
+						continue
+					}
+					updateResourceList[resName] = *k8sresource.NewQuantity(request*val.Count, k8sresource.DecimalSI)
 				} else if val.AllocationMode == dra.DeviceAllocationModeAll {
 					// TODO: implement me
 				}

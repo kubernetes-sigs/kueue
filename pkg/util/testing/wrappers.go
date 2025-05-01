@@ -951,6 +951,41 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 	return resourceWrapper.Append()
 }
 
+// DRAResource creates a ResourceQuota for a device class resource.
+// It sets the Kind field to "DeviceClass" and populates DeviceClassNames with the provided list.
+// If deviceClassNames is empty, it uses the resource name as the only device class name.
+// The first quantity parameter is used for NominalQuota (required), followed by optional BorrowingLimit and LendingLimit.
+func (f *FlavorQuotasWrapper) DRAResource(name corev1.ResourceName, deviceClassNames []string, qs ...string) *FlavorQuotasWrapper {
+	resourceWrapper := f.ResourceQuotaWrapper(name)
+	resourceWrapper.ResourceQuota.Kind = ptr.To("DeviceClass")
+
+	// If deviceClassNames is empty, use the resource name as the only device class
+	if len(deviceClassNames) == 0 {
+		resourceWrapper.ResourceQuota.DeviceClassNames = []corev1.ResourceName{name}
+	} else {
+		// Convert string slice to ResourceName slice
+		resourceNames := make([]corev1.ResourceName, 0, len(deviceClassNames))
+		for _, className := range deviceClassNames {
+			resourceNames = append(resourceNames, corev1.ResourceName(className))
+		}
+		resourceWrapper.ResourceQuota.DeviceClassNames = resourceNames
+	}
+
+	if len(qs) > 0 {
+		resourceWrapper.NominalQuota(qs[0])
+	}
+	if len(qs) > 1 && len(qs[1]) > 0 {
+		resourceWrapper.BorrowingLimit(qs[1])
+	}
+	if len(qs) > 2 && len(qs[2]) > 0 {
+		resourceWrapper.LendingLimit(qs[2])
+	}
+	if len(qs) > 3 {
+		panic("Must have at most 3 quantities for nominalQuota, borrowingLimit and lendingLimit")
+	}
+	return resourceWrapper.Append()
+}
+
 // ResourceQuotaWrapper allows creation the creation of a Resource in a type-safe manner.
 func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *ResourceQuotaWrapper {
 	rq := kueue.ResourceQuota{
