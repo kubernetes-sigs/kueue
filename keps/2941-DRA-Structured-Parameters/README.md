@@ -23,13 +23,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [DRA Example](#dra-example)
     - [Workload Example](#workload-example)
     - [Example Driver Cluster Resources](#example-driver-cluster-resources)
-      - [Resource slices](#resource-slices)
-      - [Device classes](#device-classes)
+      - [ResourceSlices](#resourceslices)
+      - [DeviceClasses](#deviceclasses)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -46,6 +47,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Resource Claim By Count](#resource-claim-by-count)
+  - [Using devices in ResourceSlice to Count](#using-devices-in-resourceslice-to-count)
 <!-- /toc -->
 
 ## Summary

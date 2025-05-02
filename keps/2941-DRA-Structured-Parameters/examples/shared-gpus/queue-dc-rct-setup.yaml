@@ -1,0 +1,96 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "shared-gpus-cluster-queue"
+spec:
+  namespaceSelector: { } # match all.
+  resourceGroups:
+    - coveredResources: [ "cpu", "memory", "shared-gpus" ]
+      flavors:
+        - name: "default-flavor"
+          resources:
+            - name: "cpu"
+              nominalQuota: 9
+            - name: "memory"
+              nominalQuota: "1200Mi"
+            - name: 'shared-gpus'
+              kind: "DeviceClass"
+              deviceClassNames:
+                - "ts-shared-gpu.example.com"
+                - "sp-shared-gpu.example.com"
+              nominalQuota: 2
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "gpu-test2"
+  name: "shared-gpus-user-queue"
+spec:
+  clusterQueue: "shared-gpus-cluster-queue"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-flavor"
+---
+apiVersion: resource.k8s.io/v1beta1
+kind: DeviceClass
+metadata:
+  name: ts-shared-gpu.example.com
+spec:
+  config:
+    - opaque:
+        driver: gpu.example.com
+        parameters:
+          apiVersion: gpu.resource.example.com/v1alpha1
+          kind: GpuConfig
+          sharing:
+            strategy: TimeSlicing
+            timeSlicingConfig:
+              interval: Long
+  selectors:
+    - cel:
+        expression: device.driver == 'gpu.example.com'
+---
+apiVersion: resource.k8s.io/v1beta1
+kind: DeviceClass
+metadata:
+  name: sp-shared-gpu.example.com
+spec:
+  config:
+    - opaque:
+        driver: gpu.example.com
+        parameters:
+          apiVersion: gpu.resource.example.com/v1alpha1
+          kind: GpuConfig
+          sharing:
+            strategy: SpacePartitioning
+            spacePartitioningConfig:
+              partitionCount: 10
+  selectors:
+    - cel:
+        expression: device.driver == 'gpu.example.com'
+---
+apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaimTemplate
+metadata:
+  namespace: gpu-test2
+  name: ts-shared-gpu
+spec:
+  spec:
+    devices:
+      requests:
+        - name: ts-shared-gpu
+          deviceClassName: ts-shared-gpu.example.com
+---
+apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaimTemplate
+metadata:
+  namespace: gpu-test2
+  name: sp-shared-gpu
+spec:
+  spec:
+    devices:
+      requests:
+        - name: sp-shared-gpu
+          deviceClassName: sp-shared-gpu.example.com

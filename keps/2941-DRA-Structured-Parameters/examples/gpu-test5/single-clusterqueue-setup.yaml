@@ -1,9 +1,0 @@
-
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  namespace: "gpu-test5"
-  name: "user-queue-gpu-test5"
-spec:
-  clusterQueue: "cluster-queue"
-
