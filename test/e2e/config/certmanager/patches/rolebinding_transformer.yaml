@@ -1,0 +1,8 @@
+apiVersion: builtin
+kind: PatchTransformer
+metadata:
+  name: fix-visibility-role-binding-namespace
+patch: '[{"op": "replace", "path": "/metadata/namespace", "value": "kube-system"}]'
+target:
+  kind: RoleBinding
+  name: visibility-server-auth-reader

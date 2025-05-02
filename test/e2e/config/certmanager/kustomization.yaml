@@ -4,49 +4,23 @@ kind: Kustomization
 namespace: kueue-system
 
 resources:
-  - ../../../../config/components/certmanager
-  - ../../../../config/dev
-
-# Delete the secret created by internalCertManagement workflow.
-patchesStrategicMerge:
-  - |-
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: kueue-webhook-server-cert
-      namespace: kueue-system
-    $patch: delete
+- ../../../../config/components/certmanager
+- ../../../../config/dev
 
 transformers:
-  - |
-    apiVersion: builtin
-    kind: PatchTransformer
-    metadata:
-      name: fix-visibility-role-binding-namespace
-    patch: '[{"op": "replace", "path": "/metadata/namespace", "value": "kube-system"}]'
-    target:
-      kind: RoleBinding
-      name: visibility-server-auth-reader
+- patches/rolebinding_transformer.yaml
+
 patches:
-  - path: mutating_webhookcainjection_patch.yaml
-    target:
-      group: admissionregistration.k8s.io
-      version: v1
-      kind: MutatingWebhookConfiguration
-      name: mutating-webhook-configuration
-  - path: validating_webhookcainjection_patch.yaml
-    target:
-      group: admissionregistration.k8s.io
-      version: v1
-      kind: ValidatingWebhookConfiguration
-      name: validating-webhook-configuration
-  - path: cert_metrics_manager_patch.yaml
-    target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: kueue-controller-manager
-      namespace: kueue-system
+- path: patches/secret-deletion.yaml
+  target:
+    kind: Secret
+    name: kueue-webhook-server-cert
+    namespace: kueue-system
+- path: image_pull_policy.yaml
+  target:
+    kind: Deployment
+    name: controller-manager
+    namespace: kueue-system
 
 configMapGenerator:
 - behavior: merge
@@ -56,41 +30,44 @@ configMapGenerator:
   namespace: kueue-system
 
 vars:
-- name: METRICS_SERVICE_NAME
+- fieldref: {}
+  name: METRICS_SERVICE_NAME
   objref:
     kind: Service
-    version: v1
     name: controller-manager-metrics-service
-- name: METRICS_SERVICE_NAMESPACE
+    version: v1
+- fieldref:
+    fieldPath: metadata.namespace
+  name: METRICS_SERVICE_NAMESPACE
   objref:
     kind: Service
-    version: v1
     name: controller-manager-metrics-service
-  fieldref:
-    fieldpath: metadata.namespace
-- name: SERVICE_NAMESPACE
+    version: v1
+- fieldref:
+    fieldPath: metadata.namespace
+  name: SERVICE_NAMESPACE
   objref:
     kind: Service
-    version: v1
     name: webhook-service
-  fieldref:
-    fieldpath: metadata.namespace
-- name: SERVICE_NAME
+    version: v1
+- fieldref: {}
+  name: SERVICE_NAME
   objref:
     kind: Service
-    version: v1
     name: webhook-service
-- name: CERTIFICATE_NAMESPACE
-  objref:
-    kind: Certificate
-    group: cert-manager.io
     version: v1
-    name: serving-cert
-  fieldref:
-    fieldpath: metadata.namespace
-- name: CERTIFICATE_NAME
+- fieldref:
+    fieldPath: metadata.namespace
+  name: CERTIFICATE_NAMESPACE
   objref:
-    kind: Certificate
     group: cert-manager.io
-    version: v1
+    kind: Certificate
     name: serving-cert
+    version: v1
+- fieldref: {}
+  name: CERTIFICATE_NAME
+  objref:
+    group: cert-manager.io
+    kind: Certificate
+    name: serving-cert
+    version: v1
