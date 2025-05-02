@@ -37,6 +37,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+
+	kueue_constants "sigs.k8s.io/kueue/pkg/constants"
 )
 
 var (
@@ -119,6 +121,9 @@ func (w *RayClusterWebhook) applyDefaultQueueForWorkerGroup(job *RayCluster, que
 		if labels[constants.QueueLabel] == "" {
 			labels[constants.QueueLabel] = queueName
 		}
+
+		// Setting this to asks the reconciler to create a Workload object for this k8s pod. This is will because the Skip() method of the associated kueue Pod will return False
+		labels[kueue_constants.ManagedByKueueLabelKey] = kueue_constants.ManagedByKueueLabelValue
 
 		wg.Template.ObjectMeta.SetLabels(labels)
 	}
