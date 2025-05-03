@@ -957,19 +957,14 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 // The first quantity parameter is used for NominalQuota (required), followed by optional BorrowingLimit and LendingLimit.
 func (f *FlavorQuotasWrapper) DRAResource(name corev1.ResourceName, deviceClassNames []string, qs ...string) *FlavorQuotasWrapper {
 	resourceWrapper := f.ResourceQuotaWrapper(name)
-	resourceWrapper.ResourceQuota.Kind = ptr.To("DeviceClass")
+	resourceWrapper.Kind = ptr.To("DeviceClass")
 
-	// If deviceClassNames is empty, use the resource name as the only device class
-	if len(deviceClassNames) == 0 {
-		resourceWrapper.ResourceQuota.DeviceClassNames = []corev1.ResourceName{name}
-	} else {
-		// Convert string slice to ResourceName slice
-		resourceNames := make([]corev1.ResourceName, 0, len(deviceClassNames))
-		for _, className := range deviceClassNames {
-			resourceNames = append(resourceNames, corev1.ResourceName(className))
-		}
-		resourceWrapper.ResourceQuota.DeviceClassNames = resourceNames
+	// Convert string slice to ResourceName slice
+	resourceNames := make([]corev1.ResourceName, 0, len(deviceClassNames))
+	for _, className := range deviceClassNames {
+		resourceNames = append(resourceNames, corev1.ResourceName(className))
 	}
+	resourceWrapper.DeviceClassNames = resourceNames
 
 	if len(qs) > 0 {
 		resourceWrapper.NominalQuota(qs[0])
@@ -1402,7 +1397,7 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 
 // WithClaimReq appends a claim request to the container
 func (c *ContainerWrapper) WithClaimReq(claims []corev1.ResourceClaim) *ContainerWrapper {
-	c.Container.Resources.Claims = claims
+	c.Resources.Claims = claims
 	return c
 }
 

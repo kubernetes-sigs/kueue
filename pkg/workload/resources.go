@@ -18,7 +18,9 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -227,8 +229,9 @@ func getDeviceClassToNameMap(ctx context.Context, cl client.Client, wl *kueue.Wo
 	log.WithValues("workloadName", wl.Name, "workloadNamespace", wl.Namespace)
 	queueName := wl.Spec.QueueName
 	if queueName == "" {
-		log.Error(fmt.Errorf("queue name is empty"), "empty queue name")
-		return nil, fmt.Errorf("queue name is empty")
+		err := errors.New("queue name is empty")
+		log.Error(err, "empty queue name")
+		return nil, err
 	}
 
 	lq := &kueue.LocalQueue{}
@@ -297,9 +300,9 @@ func handleResourceClaimTemplate(ctx context.Context, cl client.Client, psr []Po
 						continue
 					}
 					updateResourceList[resName] = *k8sresource.NewQuantity(request*val.Count, k8sresource.DecimalSI)
-				} else if val.AllocationMode == dra.DeviceAllocationModeAll {
+				} /* else if val.AllocationMode == dra.DeviceAllocationModeAll {
 					// TODO: implement me
-				}
+				}*/
 			}
 		}
 	}
