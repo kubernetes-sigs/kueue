@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -185,15 +184,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 }
 
 func GetKuberayTestImage() string {
-	var (
-		kuberayTestImage string
-		found            bool
-	)
-	if runtime.GOARCH == "arm64" {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
-	} else {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
-	}
+	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
 }
