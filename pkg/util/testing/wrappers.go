@@ -373,8 +373,8 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) FailedNodes(failedNodes []string) *WorkloadWrapper {
-	w.Status.FailedNodes = failedNodes
+func (w *WorkloadWrapper) NodesToReplace(nodesToReplace []string) *WorkloadWrapper {
+	w.Status.NodesToReplace = nodesToReplace
 	return w
 }
 

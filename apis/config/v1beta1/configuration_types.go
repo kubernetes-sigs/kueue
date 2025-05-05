@@ -243,16 +243,6 @@ type WaitForPodsReady struct {
 	// If not set, there is no timeout.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
-
-	// RecoveryTimeout defines an opt-in timeout, measured since the
-	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
-	// Such a transition may happen when a Pod failed and the replacement Pod
-	// is awaited to be scheduled.
-	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
-	// +optional
-	InfrastructureRecoveryTimeout *metav1.Duration `json:"infrarstructureRecoveryTimeout,omitempty"`
 }
 
 type MultiKueue struct {

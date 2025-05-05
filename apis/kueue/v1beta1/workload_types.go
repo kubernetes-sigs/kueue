@@ -366,12 +366,12 @@ type WorkloadStatus struct {
 	// +optional
 	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 
-	// failedNodes lists the names of failed nodes running pods
+	// nodesToReplace lists the names of failed nodes running pods
 	// associated with this workload.
 	// This field is populated by the node failure controller.
 	// +optional
 	// +listType=set
-	FailedNodes []string `json:"failedNodes,omitempty"`
+	NodesToReplace []string `json:"failedNodes,omitempty"`
 }
 
 type RequeueState struct {

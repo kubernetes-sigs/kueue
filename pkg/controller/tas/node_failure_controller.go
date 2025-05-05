@@ -13,7 +13,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -46,7 +48,15 @@ func newNodeFailureReconciler(client client.Client) *nodeFailureReconciler {
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
 	return NodeFailureControllerName, builder.ControllerManagedBy(mgr).
 		Named(NodeFailureControllerName).
-		For(&corev1.Node{}).
+		For(&corev1.Node{}, builder.WithPredicates(predicate.Funcs{
+			CreateFunc: func(e event.CreateEvent) bool {
+				// Ignore create events
+				return false
+			},
+			UpdateFunc:  func(e event.UpdateEvent) bool { return true },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return true },
+			GenericFunc: func(e event.GenericEvent) bool { return true },
+		})).
 		Complete(r)
 }
 
@@ -125,7 +135,7 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 			workloadsToPatch[wlKey] = &wl
 		}
 		wl := workloadsToPatch[wlKey]
-		currentStatusFailed := slices.Contains(wl.Status.FailedNodes, nodeName)
+		currentStatusFailed := slices.Contains(wl.Status.NodesToReplace, nodeName)
 
 		if nodeFailedOrDeleted && !currentStatusFailed {
 			workloadStatusChanged[wlKey] = true
@@ -141,25 +151,25 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 		}
 		originalStatus := wl.Status.DeepCopy()
 		if nodeFailedOrDeleted {
-			if !slices.Contains(wl.Status.FailedNodes, nodeName) {
-				wl.Status.FailedNodes = append(wl.Status.FailedNodes, nodeName)
-				slices.Sort(wl.Status.FailedNodes)
+			if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
+				wl.Status.NodesToReplace = append(wl.Status.NodesToReplace, nodeName)
+				slices.Sort(wl.Status.NodesToReplace)
 				log.V(4).Info("Adding node to workload failed list", "workload", wlKey, "nodeName", nodeName)
 			}
 		} else {
-			if idx := slices.Index(wl.Status.FailedNodes, nodeName); idx != -1 {
-				wl.Status.FailedNodes = slices.Delete(wl.Status.FailedNodes, idx, idx+1)
+			if idx := slices.Index(wl.Status.NodesToReplace, nodeName); idx != -1 {
+				wl.Status.NodesToReplace = slices.Delete(wl.Status.NodesToReplace, idx, idx+1)
 				log.V(4).Info("Removing node from workload failed list", "workload", wlKey, "nodeName", nodeName)
 			}
 		}
 
 		// Patch only if the slice content actually changed
-		if !slices.Equal(originalStatus.FailedNodes, wl.Status.FailedNodes) {
+		if !slices.Equal(originalStatus.NodesToReplace, wl.Status.NodesToReplace) {
 			if err := r.client.Status().Update(ctx, wl); err != nil {
 				log.Error(err, "Failed to patch workload status", "workload", wlKey)
 				workloadPatchErrors = append(workloadPatchErrors, err)
 			} else {
-				log.V(3).Info("Successfully patched workload status", "workload", wlKey, "failedNodes", wl.Status.FailedNodes)
+				log.V(3).Info("Successfully patched workload status", "workload", wlKey, "failedNodes", wl.Status.NodesToReplace)
 				if nodeFailedOrDeleted {
 					log.V(3).Info("Pod(s) running on failed node", "workloadName", wl.Name, "nodeName", nodeName)
 				} else {

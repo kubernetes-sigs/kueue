@@ -154,7 +154,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
-					FailedNodes([]string{nodeNameUnhealthy}).
+					NodesToReplace([]string{nodeNameUnhealthy}).
 					Obj(),
 				basePod.DeepCopy(),
 			},
@@ -178,7 +178,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			if err := cl.Get(ctx, wlKey, wl); err != nil {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
-			if diff := cmp.Diff(tt.wantFailedNodes, wl.Status.FailedNodes); diff != "" {
+			if diff := cmp.Diff(tt.wantFailedNodes, wl.Status.NodesToReplace); diff != "" {
 				t.Errorf("Unexpected FailedNodes (-want/+got):\n%s", diff)
 			}
 		})
@@ -224,8 +224,8 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	if err := cl.Get(ctx, wlKey, wl); err != nil {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
-	if len(wl.Status.FailedNodes) != 0 {
-		t.Errorf("Expected FailedNodes to be empty, got %v", wl.Status.FailedNodes)
+	if len(wl.Status.NodesToReplace) != 0 {
+		t.Errorf("Expected FailedNodes to be empty, got %v", wl.Status.NodesToReplace)
 	}
 
 	// 3. Simulate Node becoming NotReady
@@ -241,8 +241,8 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	if err := cl.Get(ctx, wlKey, wl); err != nil {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
-	if !slices.Contains(wl.Status.FailedNodes, nodeName) {
-		t.Errorf("Expected node %q to be in FailedNodes, got %v", nodeName, wl.Status.FailedNodes)
+	if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
+		t.Errorf("Expected node %q to be in FailedNodes, got %v", nodeName, wl.Status.NodesToReplace)
 	}
 
 	// 5. Simulate Node recovering
@@ -258,10 +258,10 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	if err := cl.Get(ctx, wlKey, wl); err != nil {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
-	if slices.Contains(wl.Status.FailedNodes, nodeName) {
-		t.Errorf("Expected node %q to be removed from FailedNodes, got %v", nodeName, wl.Status.FailedNodes)
+	if slices.Contains(wl.Status.NodesToReplace, nodeName) {
+		t.Errorf("Expected node %q to be removed from FailedNodes, got %v", nodeName, wl.Status.NodesToReplace)
 	}
-	if len(wl.Status.FailedNodes) != 0 {
-		t.Errorf("Expected FailedNodes to be empty after recovery, got %v", wl.Status.FailedNodes)
+	if len(wl.Status.NodesToReplace) != 0 {
+		t.Errorf("Expected FailedNodes to be empty after recovery, got %v", wl.Status.NodesToReplace)
 	}
 }

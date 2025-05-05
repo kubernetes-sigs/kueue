@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(int32(numPods)).
 				Completions(int32(numPods)).
 				Indexed(true).
@@ -152,8 +152,8 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)
-					gomega.Expect(wl.Status.FailedNodes).Should(gomega.HaveLen(1))
-					gomega.Expect(wl.Status.FailedNodes[0]).Should(gomega.Equal(chosenPod.Spec.NodeName))
+					gomega.Expect(wl.Status.NodesToReplace).Should(gomega.HaveLen(1))
+					gomega.Expect(wl.Status.NodesToReplace[0]).Should(gomega.Equal(chosenPod.Spec.NodeName))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)
-					gomega.Expect(wl.Status.FailedNodes).Should(gomega.HaveLen(0))
+					gomega.Expect(wl.Status.NodesToReplace).Should(gomega.HaveLen(0))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

@@ -1722,8 +1722,8 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 		*out = new(int32)
 		**out = **in
 	}
-	if in.FailedNodes != nil {
-		in, out := &in.FailedNodes, &out.FailedNodes
+	if in.NodesToReplace != nil {
+		in, out := &in.NodesToReplace, &out.NodesToReplace
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
