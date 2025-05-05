@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -297,15 +296,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 }
 
 func GetKuberayTestImage() string {
-	var (
-		kuberayTestImage string
-		found            bool
-	)
-	if runtime.GOARCH == "arm64" {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
-	} else {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
-	}
+	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
 }
