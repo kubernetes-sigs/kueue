@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export HELM="$ROOT_DIR"/bin/helm
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
@@ -185,7 +186,17 @@ function cluster_kueue_deploy {
         
         deploy_with_certmanager
     else
-        kubectl apply --server-side -k test/e2e/config/default
+        if [ "$E2E_USE_HELM" == 'true' ]; then
+            $HELM install \
+              -f "${ROOT_DIR}/test/e2e/config/default/values.yaml" \
+              --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
+              --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
+              --create-namespace \
+              --namespace kueue-system \
+              kueue "${ROOT_DIR}/charts/kueue"
+        else
+            kubectl apply --server-side -k "${ROOT_DIR}/test/e2e/config/default"
+        fi
     fi
 }
 
