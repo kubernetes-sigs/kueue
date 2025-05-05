@@ -22,6 +22,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// LocalQueueName is the name of the LocalQueue.
+// It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
+//
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type LocalQueueName string
+
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
@@ -42,11 +49,6 @@ type LocalQueueSpec struct {
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 }
-
-// ClusterQueueReference is the name of the ClusterQueue.
-// +kubebuilder:validation:MaxLength=253
-// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-type ClusterQueueReference string
 
 type LocalQueueFlavorStatus struct {
 	// name of the flavor.

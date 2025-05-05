@@ -107,12 +107,12 @@ For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visua
 and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind clanter (see [here](#attaching-e2e-tests-to-an-existing-kind-cluster) for the instructions).
 
 ## Attaching e2e tests to an existing kind cluster
-You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode, attaching them to the existing cluster.  For example, suppose you want to test some of the multikueue-e2e tests. Comment the last line of the `hack/multikueue-e2e-test.sh` and add `read -p "run your tests now"` instead:
-```shell
-#$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
-read -p "run your tests now"
-```
-Then, run `make kind-image-build test-multikueue-e2e` and wait for the `"run your tests now"` to appear.  The cluster is ready, and now you can run tests from another terminal:
+You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
+attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
+
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Press Enter to cleanup.` to appear.
+
+The cluster is ready, and now you can run tests from another terminal:
 ```shell
 <your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
 ```

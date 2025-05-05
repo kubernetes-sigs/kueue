@@ -85,5 +85,11 @@ trap cleanup EXIT
 startup
 kind_load
 kueue_deploy
-# shellcheck disable=SC2086
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
+
+if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
+  read -rp "Press Enter to cleanup."
+else
+  # shellcheck disable=SC2086
+  $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
+  "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+fi

@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(localQueue.Name).
+				Queue(v1beta1.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).

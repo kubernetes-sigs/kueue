@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
-					Queue(localQueueA.Name).
+					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
-					Queue(localQueueA.Name).
+					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				}
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
-						Queue(jobCase.LocalQueueName).
+						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         localQueueA.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
-					Queue(localQueueA.Name).
+					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
@@ -325,7 +325,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				}
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
-						Queue(jobCase.LocalQueueName).
+						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
@@ -344,7 +344,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         localQueueA.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				}
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
-						Queue(jobCase.LocalQueueName).
+						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         localQueueA.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -457,7 +457,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         localQueueB.Name,
+						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {

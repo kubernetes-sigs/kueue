@@ -134,7 +134,7 @@ func (w *WorkloadWrapper) RequestAndLimit(r corev1.ResourceName, q string) *Work
 	return w.Request(r, q).Limit(r, q)
 }
 
-func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
+func (w *WorkloadWrapper) Queue(q kueue.LocalQueueName) *WorkloadWrapper {
 	w.Spec.QueueName = q
 	return w
 }

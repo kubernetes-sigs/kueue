@@ -124,14 +124,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

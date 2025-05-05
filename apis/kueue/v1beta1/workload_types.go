@@ -39,9 +39,7 @@ type WorkloadSpec struct {
 
 	// queueName is the name of the LocalQueue the Workload is associated with.
 	// queueName cannot be changed while .status.admission is not null.
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	QueueName string `json:"queueName,omitempty"`
+	QueueName LocalQueueName `json:"queueName,omitempty"`
 
 	// If specified, indicates the workload's priority.
 	// "system-node-critical" and "system-cluster-critical" are two special

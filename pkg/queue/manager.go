@@ -89,7 +89,7 @@ type Manager struct {
 
 	client        client.Client
 	statusChecker StatusChecker
-	localQueues   map[string]*LocalQueue
+	localQueues   map[LocalQueueReference]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
 	snapshots      map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload
@@ -111,7 +111,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 	m := &Manager{
 		client:         client,
 		statusChecker:  checker,
-		localQueues:    make(map[string]*LocalQueue),
+		localQueues:    make(map[LocalQueueReference]*LocalQueue),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
 		workloadOrdering: workload.Ordering{
@@ -319,7 +319,11 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ClearLocalQueueMetrics(metrics.LQRefFromLocalQueueKey(key))
+		namespace, lqName := MustParseLocalQueueReference(key)
+		metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
+			Name:      lqName,
+			Namespace: namespace,
+		})
 	}
 	delete(m.localQueues, key)
 }
@@ -351,7 +355,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 	m.RLock()
 	defer m.RUnlock()
-	_, ok := m.localQueues[workload.QueueKey(wl)]
+	_, ok := m.localQueues[KeyFromWorkload(wl)]
 	return ok
 }
 
@@ -361,7 +365,7 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	q, ok := m.localQueues[workload.QueueKey(wl)]
+	q, ok := m.localQueues[KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
 	}
@@ -378,7 +382,7 @@ func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
-	qKey := workload.QueueKey(w)
+	qKey := KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
@@ -413,7 +417,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	q := m.localQueues[workload.QueueKey(&w)]
+	q := m.localQueues[KeyFromWorkload(&w)]
 	if q == nil {
 		return false
 	}
@@ -437,11 +441,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Lock()
-	m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(w))
+	m.deleteWorkloadFromQueueAndClusterQueue(w, KeyFromWorkload(w))
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey string) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey LocalQueueReference) {
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
@@ -470,7 +474,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		action()
 	}
 
-	q := m.localQueues[workload.QueueKey(w)]
+	q := m.localQueues[KeyFromWorkload(w)]
 	if q == nil {
 		return
 	}
@@ -568,7 +572,7 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(w, KeyFromWorkload(oldW))
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
@@ -617,7 +621,7 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
-		q := m.localQueues[workload.QueueKey(wl.Obj)]
+		q := m.localQueues[KeyFromWorkload(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
 		if features.Enabled(features.LocalQueueMetrics) {
 			m.reportLQPendingWorkloads(q)
@@ -637,7 +641,11 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportLocalQueuePendingWorkloads(metrics.LQRefFromLocalQueueKey(lq.Key), active, inadmissible)
+	namespace, lqName := MustParseLocalQueueReference(lq.Key)
+	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
+		Name:      lqName,
+		Namespace: namespace,
+	}, active, inadmissible)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
@@ -677,17 +685,13 @@ func (m *Manager) PendingWorkloadsInfo(cqName kueue.ClusterQueueReference) []*wo
 
 // ClusterQueueFromLocalQueue returns ClusterQueue name and whether it's found,
 // given a QueueKey(namespace/localQueueName) as the parameter
-func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey LocalQueueReference) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if lq, ok := m.localQueues[localQueueKey]; ok {
 		return lq.ClusterQueue, true
 	}
 	return "", false
-}
-
-func QueueKey(namespace, name string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the

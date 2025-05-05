@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
@@ -261,7 +261,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should use the range defined default requests, if provided", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
@@ -355,7 +355,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should not use the range defined requests, if provided by the workload", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -414,7 +414,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("The limits should be used as request values", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Limit(corev1.ResourceCPU, "1").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				util.MustCreate(ctx, k8sClient, localQueue)
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "1").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -508,7 +508,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("Create a pending workload and validate its resourceRequests", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "2").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl2)
@@ -574,7 +574,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Create inadmissable workload", func() {
 				util.MustCreate(ctx, k8sClient, localQueue)
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "1").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -624,7 +624,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should sync the resource requests with the new overhead", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
@@ -640,7 +640,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
@@ -713,7 +713,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should sync the resource requests with the limit", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
@@ -727,7 +727,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl2)
 
@@ -817,7 +817,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				var wl *kueue.Workload
 				ginkgo.By("Create the workload", func() {
 					wl = testing.MakeWorkload("one", ns.Name).
-						Queue(localQueue.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl)
@@ -840,7 +840,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				var wl *kueue.Workload
 				ginkgo.By("Create the workload", func() {
 					wl = testing.MakeWorkload("one", ns.Name).
-						Queue(localQueue.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "7").
 						Obj()
 					util.MustCreate(ctx, k8sClient, wl)

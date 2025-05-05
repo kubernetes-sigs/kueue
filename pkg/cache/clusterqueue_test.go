@@ -257,7 +257,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckNotFound",
-			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with not found AC",
@@ -275,7 +275,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckNotFound",
-			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue updated with inactive AC",
@@ -297,7 +297,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckInactive",
-			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
@@ -319,7 +319,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckInactive",
-			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller",

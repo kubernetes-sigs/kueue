@@ -88,22 +88,22 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
 			ginkgo.By("Creating initial Workloads with different priorities")
 			lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			lowWl2 := testing.MakeWorkload("low-wl-2", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			midWl := testing.MakeWorkload("mid-wl", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			highWl1 := testing.MakeWorkload("high-wl-1", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating a low priority Workload")
 			lowWl3 := testing.MakeWorkload("low-wl-3", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating a high priority Workload")
 			highWl2 := testing.MakeWorkload("high-wl-2", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
@@ -143,17 +143,17 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
 			ginkgo.By("Creating initial Workloads")
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			wl3 := testing.MakeWorkload("wl-3", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.WaitForNextSecondAfterCreation(wl3)
 			ginkgo.By("Creating a new Workload")
 			wl4 := testing.MakeWorkload("wl-4", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should include job UID in preemption condition when the label is set", func() {
 			ginkgo.By("Creating a low priority Workload")
 			lowWl := testing.MakeWorkload("low", ns.Name).
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating a high priority Workload with JobUID label")
 			highWl := testing.MakeWorkload("high", ns.Name).
 				Label(constants.JobUIDLabel, "job-uid").
-				Queue(q.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
@@ -260,20 +260,20 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 
 			alphaLowWl := testing.MakeWorkload("alpha-low", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, alphaLowWl)
 
 			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
-				Queue(betaLQ.Name).
+				Queue(kueue.LocalQueueName(betaLQ.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, betaMidWl)
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
-				Queue(betaLQ.Name).
+				Queue(kueue.LocalQueueName(betaLQ.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating workload in alpha-cq to preempt workloads in both ClusterQueues")
 			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
@@ -337,13 +337,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 
 			alphaHighWl1 := testing.MakeWorkload("alpha-high-1", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 			util.MustCreate(ctx, k8sClient, alphaHighWl1)
 			betaLowWl := testing.MakeWorkload("beta-low", ns.Name).
-				Queue(betaLQ.Name).
+				Queue(kueue.LocalQueueName(betaLQ.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
@@ -354,7 +354,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating high priority workload in alpha-cq that doesn't fit without borrowing")
 			alphaHighWl2 := testing.MakeWorkload("alpha-high-2", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
@@ -370,13 +370,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 
 			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
-				Queue(betaLQ.Name).
+				Queue(kueue.LocalQueueName(betaLQ.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
 			util.MustCreate(ctx, k8sClient, betaMidWl)
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
-				Queue(betaLQ.Name).
+				Queue(kueue.LocalQueueName(betaLQ.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
@@ -386,13 +386,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating workload in alpha-cq and gamma-cq that need to preempt")
 			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 
 			gammaMidWl := testing.MakeWorkload("gamma-mid", ns.Name).
-				Queue(gammaLQ.Name).
+				Queue(kueue.LocalQueueName(gammaLQ.Name)).
 				Priority(midPriority).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			var betaWls []*kueue.Workload
 			for i := 0; i < 3; i++ {
 				wl := testing.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
-					Queue(betaLQ.Name).
+					Queue(kueue.LocalQueueName(betaLQ.Name)).
 					Request(corev1.ResourceCPU, "2").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
@@ -432,13 +432,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating preempting pods")
 
 			alphaWl := testing.MakeWorkload("alpha", ns.Name).
-				Queue(alphaLQ.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 			util.MustCreate(ctx, k8sClient, alphaWl)
 
 			gammaWl := testing.MakeWorkload("gamma", ns.Name).
-				Queue(gammaLQ.Name).
+				Queue(kueue.LocalQueueName(gammaLQ.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 			util.MustCreate(ctx, k8sClient, gammaWl)
@@ -664,7 +664,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("should allow preempting workloads while borrowing", func() {
 			ginkgo.By("Create a low priority workload which requires borrowing")
 			aBestEffortLowWl := testing.MakeWorkload("a-best-effort-low", ns.Name).
-				Queue(aBestEffortLQ.Name).
+				Queue(kueue.LocalQueueName(aBestEffortLQ.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "5").
 				Obj()
@@ -677,7 +677,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a low priority workload which is not borrowing")
 			bBestEffortLowWl := testing.MakeWorkload("b-best-effort-low", ns.Name).
-				Queue(bBestEffortLQ.Name).
+				Queue(kueue.LocalQueueName(bBestEffortLQ.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -690,7 +690,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a high priority workload (above MaxPriorityThreshold) which requires borrowing")
 			bStandardWl := testing.MakeWorkload("b-standard-high", ns.Name).
-				Queue(bStandardLQ.Name).
+				Queue(kueue.LocalQueueName(bStandardLQ.Name)).
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "5").
 				Obj()
@@ -703,7 +703,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create the a-standard-very-high workload")
 			aStandardVeryHighWl := testing.MakeWorkload("a-standard-very-high", ns.Name).
-				Queue(aStandardLQ.Name).
+				Queue(kueue.LocalQueueName(aStandardLQ.Name)).
 				Priority(veryHighPriority).
 				Request(corev1.ResourceCPU, "7").
 				Obj()
@@ -777,14 +777,14 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, devQueue)
 
 			ginkgo.By("Creating two workloads")
-			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(devQueue.Name).Request(corev1.ResourceCPU, "4").Obj()
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 			util.MustCreate(ctx, k8sClient, wl1)
 			util.MustCreate(ctx, k8sClient, wl2)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 
 			ginkgo.By("Creating another workload")
-			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "4").Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
 			util.MustCreate(ctx, k8sClient, wl3)
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
 
@@ -877,7 +877,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a mid priority workload in aCQ and await for admission", func() {
 				aWl = testing.MakeWorkload("a-low", ns.Name).
-					Queue(aLQ.Name).
+					Queue(kueue.LocalQueueName(aLQ.Name)).
 					Priority(midPriority).
 					Request(corev1.ResourceCPU, "4").
 					Obj()
@@ -887,7 +887,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a high priority workload b1 in bCQ and await for admission", func() {
 				b1Wl = testing.MakeWorkload("b1-high", ns.Name).
-					Queue(bLQ.Name).
+					Queue(kueue.LocalQueueName(bLQ.Name)).
 					Priority(highPriority).
 					Request(corev1.ResourceCPU, "4").
 					Obj()
@@ -897,7 +897,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a high priority workload b2 in bCQ", func() {
 				b2Wl = testing.MakeWorkload("b2-high", ns.Name).
-					Queue(bLQ.Name).
+					Queue(kueue.LocalQueueName(bLQ.Name)).
 					Priority(highPriority).
 					Request(corev1.ResourceCPU, "4").
 					Obj()
@@ -963,7 +963,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a workload in bestEffortCQ and await for admission", func() {
 				bestEffortWl = testing.MakeWorkload("best-effort-wl", ns.Name).
-					Queue(bestEffortLQ.Name).
+					Queue(kueue.LocalQueueName(bestEffortLQ.Name)).
 					Priority(highPriority).
 					Request(corev1.ResourceCPU, "3").
 					Obj()
@@ -973,7 +973,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Create a workload in guaranteedCQ", func() {
 				guaranteedWl = testing.MakeWorkload("guaranteed-wl", ns.Name).
-					Queue(guaranteedLQ.Name).
+					Queue(kueue.LocalQueueName(guaranteedLQ.Name)).
 					Priority(midPriority).
 					Request(corev1.ResourceCPU, "3").
 					Obj()

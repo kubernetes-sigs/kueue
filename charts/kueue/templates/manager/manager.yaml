@@ -67,6 +67,8 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
+        - mountPath: /visibility
+          name: visibility
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
@@ -95,6 +97,8 @@ spec:
       - name: manager-config
         configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
+      - name: visibility
+        emptyDir: {}
       {{- if .Values.enableCertManager }}
       - name: metrics-certs
         secret:

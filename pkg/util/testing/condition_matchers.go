@@ -26,30 +26,45 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func HaveConditionStatus(conditionType string, status metav1.ConditionStatus) types.GomegaMatcher {
+func HaveConditionStatusAndReason(conditionType string, status metav1.ConditionStatus, reason string) types.GomegaMatcher {
+	if conditionType == "" {
+		panic("conditionType is empty")
+	}
 	return &conditionMatcher{
 		conditionType: conditionType,
 		status:        status,
+		reason:        reason,
 	}
 }
 
+func HaveConditionStatus(conditionType string, status metav1.ConditionStatus) types.GomegaMatcher {
+	return HaveConditionStatusAndReason(conditionType, status, "")
+}
+
 func HaveCondition(conditionType string) types.GomegaMatcher {
-	return &conditionMatcher{
-		conditionType: conditionType,
-	}
+	return HaveConditionStatusAndReason(conditionType, "", "")
 }
 
 func HaveConditionStatusTrue(conditionType string) types.GomegaMatcher {
 	return HaveConditionStatus(conditionType, metav1.ConditionTrue)
 }
 
+func HaveConditionStatusTrueAndReason(conditionType, reason string) types.GomegaMatcher {
+	return HaveConditionStatusAndReason(conditionType, metav1.ConditionTrue, reason)
+}
+
 func HaveConditionStatusFalse(conditionType string) types.GomegaMatcher {
 	return HaveConditionStatus(conditionType, metav1.ConditionFalse)
+}
+
+func HaveConditionStatusFalseAndReason(conditionType string, reason string) types.GomegaMatcher {
+	return HaveConditionStatusAndReason(conditionType, metav1.ConditionFalse, reason)
 }
 
 type conditionMatcher struct {
 	conditionType string
 	status        metav1.ConditionStatus
+	reason        string
 }
 
 func (matcher *conditionMatcher) Match(actual any) (bool, error) {
@@ -63,11 +78,15 @@ func (matcher *conditionMatcher) Match(actual any) (bool, error) {
 		return false, nil
 	}
 
-	if matcher.status == "" {
-		return true, nil
+	if matcher.status != "" && found.Status != matcher.status {
+		return false, nil
 	}
 
-	return found.Status == matcher.status, nil
+	if matcher.reason != "" && found.Reason != matcher.reason {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (matcher *conditionMatcher) FailureMessage(actual any) string {
@@ -82,15 +101,24 @@ func (matcher *conditionMatcher) buildErrorMessage(actual any, negated bool) str
 	b := strings.Builder{}
 	b.WriteString("Expected\n")
 	b.WriteString(format.Object(actual, 1))
-	b.WriteString("\n")
+	b.WriteByte('\n')
 	if negated {
 		b.WriteString("not ")
 	}
 	b.WriteString("to have condition type ")
 	b.WriteString(matcher.conditionType)
 	if matcher.status != "" {
-		b.WriteString(" and status ")
+		if matcher.reason == "" {
+			b.WriteString(" and")
+		} else {
+			b.WriteByte(',')
+		}
+		b.WriteString(" status ")
 		b.WriteString(string(matcher.status))
+	}
+	if matcher.reason != "" {
+		b.WriteString(" and reason ")
+		b.WriteString(matcher.reason)
 	}
 	return b.String()
 }

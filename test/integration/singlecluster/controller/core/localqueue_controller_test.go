@@ -228,15 +228,15 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakeWorkload("two", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakeWorkload("three", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}
@@ -462,15 +462,15 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakeWorkload("two", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakeWorkload("three", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}

@@ -206,7 +206,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
 	return metrics.LocalQueueReference{
-		Name:      lq.Name,
+		Name:      kueue.LocalQueueName(lq.Name),
 		Namespace: lq.Namespace,
 	}
 }
@@ -256,7 +256,7 @@ func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q wo
 	}
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
-			Name:      w.Spec.QueueName,
+			Name:      string(w.Spec.QueueName),
 			Namespace: w.Namespace,
 		},
 	}
@@ -378,7 +378,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		})
 		if features.Enabled(features.LocalQueueMetrics) {
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
-				Name:      queue.Name,
+				Name:      kueue.LocalQueueName(queue.Name),
 				Namespace: queue.Namespace,
 			}, conditionStatus)
 		}

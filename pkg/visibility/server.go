@@ -52,6 +52,7 @@ var (
 		validatingwebhook.PluginName,
 		mutatingwebhook.PluginName,
 	}
+	certDir = "/visibility"
 )
 
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=prioritylevelconfigurations,verbs=list;watch
@@ -88,7 +89,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) er
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	// The directory where TLS certs will be created
-	o.SecureServing.ServerCert.CertDirectory = "/tmp"
+	o.SecureServing.ServerCert.CertDirectory = certDir
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)

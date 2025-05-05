@@ -172,16 +172,16 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
-func QueueName(job GenericJob) string {
+func QueueName(job GenericJob) kueue.LocalQueueName {
 	return QueueNameForObject(job.Object())
 }
 
-func QueueNameForObject(object client.Object) string {
+func QueueNameForObject(object client.Object) kueue.LocalQueueName {
 	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
-		return queueLabel
+		return kueue.LocalQueueName(queueLabel)
 	}
 	// fallback to the annotation (deprecated)
-	return object.GetAnnotations()[constants.QueueAnnotation]
+	return kueue.LocalQueueName(object.GetAnnotations()[constants.QueueAnnotation])
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {

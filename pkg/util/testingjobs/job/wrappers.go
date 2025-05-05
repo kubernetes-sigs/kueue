@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -132,8 +133,8 @@ func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
 }
 
 // Queue updates the queue name of the job
-func (j *JobWrapper) Queue(queue string) *JobWrapper {
-	return j.Label(constants.QueueLabel, queue)
+func (j *JobWrapper) Queue(queue kueue.LocalQueueName) *JobWrapper {
+	return j.Label(constants.QueueLabel, string(queue))
 }
 
 // Label sets the label key and value

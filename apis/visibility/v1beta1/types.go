@@ -18,6 +18,8 @@ package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // +genclient
@@ -68,7 +70,7 @@ type PendingWorkload struct {
 	Priority int32 `json:"priority"`
 
 	// LocalQueueName indicates the name of the LocalQueue the workload is submitted to
-	LocalQueueName string `json:"localQueueName"`
+	LocalQueueName v1beta1.LocalQueueName `json:"localQueueName"`
 
 	// PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0
 	PositionInClusterQueue int32 `json:"positionInClusterQueue"`

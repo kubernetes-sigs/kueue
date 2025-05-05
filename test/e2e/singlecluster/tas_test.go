@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 
 		ginkgo.It("should admit a Job via TAS", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit("cpu", "700m").
 				RequestAndLimit("memory", "20Mi").
 				Obj()

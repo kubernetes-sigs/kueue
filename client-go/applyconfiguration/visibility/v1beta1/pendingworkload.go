@@ -21,16 +21,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // PendingWorkloadApplyConfiguration represents a declarative configuration of the PendingWorkload type for use
 // with apply.
 type PendingWorkloadApplyConfiguration struct {
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Priority                         *int32  `json:"priority,omitempty"`
-	LocalQueueName                   *string `json:"localQueueName,omitempty"`
-	PositionInClusterQueue           *int32  `json:"positionInClusterQueue,omitempty"`
-	PositionInLocalQueue             *int32  `json:"positionInLocalQueue,omitempty"`
+	Priority                         *int32                       `json:"priority,omitempty"`
+	LocalQueueName                   *kueuev1beta1.LocalQueueName `json:"localQueueName,omitempty"`
+	PositionInClusterQueue           *int32                       `json:"positionInClusterQueue,omitempty"`
+	PositionInLocalQueue             *int32                       `json:"positionInLocalQueue,omitempty"`
 }
 
 // PendingWorkloadApplyConfiguration constructs a declarative configuration of the PendingWorkload type for use with
@@ -192,7 +193,7 @@ func (b *PendingWorkloadApplyConfiguration) WithPriority(value int32) *PendingWo
 // WithLocalQueueName sets the LocalQueueName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the LocalQueueName field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithLocalQueueName(value string) *PendingWorkloadApplyConfiguration {
+func (b *PendingWorkloadApplyConfiguration) WithLocalQueueName(value kueuev1beta1.LocalQueueName) *PendingWorkloadApplyConfiguration {
 	b.LocalQueueName = &value
 	return b
 }

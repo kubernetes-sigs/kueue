@@ -16,13 +16,15 @@ limitations under the License.
 
 package constants
 
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
 const (
 	// QueueLabel is the label key in the workload that holds the queue name.
 	QueueLabel = "kueue.x-k8s.io/queue-name"
 
 	// DefaultLocalQueueName is the name for default LocalQueue that is applied
 	// if the feature LocalQueueDefaulting is enabled and QueueLabel is not specified.
-	DefaultLocalQueueName = "default"
+	DefaultLocalQueueName kueue.LocalQueueName = "default"
 
 	// QueueAnnotation is the annotation key in the workload that holds the queue name.
 	//

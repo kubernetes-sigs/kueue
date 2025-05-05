@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 
 	ginkgo.It("Should create a Job workload, when batch/Job adapter is enabled", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
 

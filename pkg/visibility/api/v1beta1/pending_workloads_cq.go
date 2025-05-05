@@ -74,7 +74,7 @@ func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runt
 		return nil, errors.NewNotFound(visibility.Resource("clusterqueue"), name)
 	}
 
-	localQueuePositions := make(map[string]int32, 0)
+	localQueuePositions := make(map[kueue.LocalQueueName]int32, 0)
 
 	for index := 0; index < int(offset+limit) && index < len(pendingWorkloadsInfo); index++ {
 		// Update positions in LocalQueue
