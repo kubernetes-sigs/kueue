@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/gohugoio/hugo v0.146.7
-	github.com/golangci/golangci-lint/v2 v2.1.5
+	github.com/golangci/golangci-lint/v2 v2.1.6
 	github.com/mikefarah/yq/v4 v4.45.2
 	github.com/onsi/ginkgo/v2 v2.23.4
 	gopkg.in/yaml.v3 v3.0.1
