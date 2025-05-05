@@ -44,7 +44,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "AdmissionCheck", err
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
-		WithFairSharingConfig(cfg.FairSharing))
+		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}

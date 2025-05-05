@@ -292,8 +292,6 @@ func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 			strategies[i] = fairsharing.LessThanOrEqualToFinalShare
 		case config.LessThanInitialShare:
 			strategies[i] = fairsharing.LessThanInitialShare
-		case config.NoPreemption:
-			strategies[i] = fairsharing.NoPreemption
 		}
 	}
 	return strategies

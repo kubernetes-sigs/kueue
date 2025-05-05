@@ -95,6 +95,10 @@ type Configuration struct {
 	// FairSharing controls the Fair Sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
+	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
+	// +optional
+	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
+
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 
@@ -447,7 +451,6 @@ type PreemptionStrategy string
 const (
 	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
-	NoPreemption                PreemptionStrategy = "NoPreemption"
 )
 
 type FairSharing struct {
@@ -470,13 +473,8 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
-	// - NoPreemption: Never preempt a workload.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
-
-	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
-	// +optional
-	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
 }
 
 type AdmissionFairSharing struct {

@@ -210,9 +210,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
 	}
-	if fs := cfg.FairSharing; fs != nil && fs.Enable && fs.AdmissionFairSharing != nil {
-		if fs.AdmissionFairSharing.UsageSamplingInterval.Duration == 0 {
-			fs.AdmissionFairSharing.UsageSamplingInterval = metav1.Duration{Duration: 5 * time.Minute}
+	if afs := cfg.AdmissionFairSharing; afs != nil {
+		if afs.UsageSamplingInterval.Duration == 0 {
+			afs.UsageSamplingInterval = metav1.Duration{Duration: 5 * time.Minute}
 		}
 	}
 

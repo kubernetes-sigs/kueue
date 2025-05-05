@@ -91,7 +91,7 @@ func workloadKey(i *workload.Info) string {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, fsConfig *config.FairSharing) (*ClusterQueue, error) {
+func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, fsConfig *config.AdmissionFairSharing) (*ClusterQueue, error) {
 	enableAdmissionFs, fsResWeights := isAdmissionFsEnabled(cq, fsConfig)
 	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs)
 	err := cqImpl.Update(cq)
@@ -101,12 +101,11 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func isAdmissionFsEnabled(cq *kueue.ClusterQueue, fsConfig *config.FairSharing) (bool, map[corev1.ResourceName]float64) {
+func isAdmissionFsEnabled(cq *kueue.ClusterQueue, fsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if fsConfig != nil && fsConfig.Enable && fsConfig.AdmissionFairSharing != nil &&
-		cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedFairSharing {
+	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedFairSharing {
 		enableAdmissionFs = true
-		fsResWeights = fsConfig.AdmissionFairSharing.ResourceWeights
+		fsResWeights = fsConfig.ResourceWeights
 	}
 	return enableAdmissionFs, fsResWeights
 }

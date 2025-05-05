@@ -71,12 +71,12 @@ type LocalQueueReconcilerOptions struct {
 // LocalQueueReconcilerOption configures the reconciler.
 type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
 
-func WithFairSharingConfig(cfg *config.FairSharing) LocalQueueReconcilerOption {
+func WithAdmissionFairSharingConfig(cfg *config.AdmissionFairSharing) LocalQueueReconcilerOption {
 	return func(o *LocalQueueReconcilerOptions) {
-		if cfg == nil || !cfg.Enable || cfg.AdmissionFairSharing == nil {
-			o.admissionFSConfig = nil
+		if cfg != nil {
+			o.admissionFSConfig = cfg
 		} else {
-			o.admissionFSConfig = cfg.AdmissionFairSharing
+			o.admissionFSConfig = nil
 		}
 	}
 }

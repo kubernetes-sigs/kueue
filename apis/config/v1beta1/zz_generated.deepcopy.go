@@ -142,6 +142,11 @@ func (in *Configuration) DeepCopyInto(out *Configuration) {
 		*out = new(FairSharing)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.AdmissionFairSharing != nil {
+		in, out := &in.AdmissionFairSharing, &out.AdmissionFairSharing
+		*out = new(AdmissionFairSharing)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
 		*out = new(Resources)
@@ -286,11 +291,6 @@ func (in *FairSharing) DeepCopyInto(out *FairSharing) {
 		in, out := &in.PreemptionStrategies, &out.PreemptionStrategies
 		*out = make([]PreemptionStrategy, len(*in))
 		copy(*out, *in)
-	}
-	if in.AdmissionFairSharing != nil {
-		in, out := &in.AdmissionFairSharing, &out.AdmissionFairSharing
-		*out = new(AdmissionFairSharing)
-		(*in).DeepCopyInto(*out)
 	}
 }
 

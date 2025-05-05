@@ -20,7 +20,6 @@ description: Generated API reference documentation for Kueue Configuration.
 
 **Appears in:**
 
-- [FairSharing](#FairSharing)
 
 
 
@@ -231,6 +230,13 @@ instead.</p>
 </td>
 <td>
    <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharing</code><br/>
+<a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+</td>
+<td>
+   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
@@ -522,17 +528,9 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.</li>
-<li>NoPreemption: Never preempt a workload.
+newest start time first.
 The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
 </ul>
-</td>
-</tr>
-<tr><td><code>admissionFairSharing</code><br/>
-<a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
-</td>
-<td>
-   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
 </tbody>

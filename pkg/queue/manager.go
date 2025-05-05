@@ -48,6 +48,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
 	fairSharing                 *config.FairSharing
+	admissionFairSharing        *config.AdmissionFairSharing
 }
 
 // Option configures the manager.
@@ -61,6 +62,12 @@ var defaultOptions = options{
 func WithFairSharing(cfg *config.FairSharing) Option {
 	return func(o *options) {
 		o.fairSharing = cfg
+	}
+}
+
+func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		o.admissionFairSharing = cfg
 	}
 }
 
@@ -110,6 +117,8 @@ type Manager struct {
 	topologyUpdateWatchers []TopologyUpdateWatcher
 
 	fairSharingConfig *config.FairSharing
+
+	admissionFairSharingConfig *config.AdmissionFairSharing
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -129,8 +138,9 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		workloadInfoOptions: options.workloadInfoOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
-		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
-		fairSharingConfig:      options.fairSharing,
+		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
+		fairSharingConfig:          options.fairSharing,
+		admissionFairSharingConfig: options.admissionFairSharing,
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -172,7 +182,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.fairSharingConfig)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig)
 	if err != nil {
 		return err
 	}

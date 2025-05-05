@@ -915,11 +915,11 @@ func TestFsAdmission(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		cq       *kueue.ClusterQueue
-		lqs      []kueue.LocalQueue
-		fsConfig *config.FairSharing
-		wls      []kueue.Workload
-		wantWl   kueue.Workload
+		cq        *kueue.ClusterQueue
+		lqs       []kueue.LocalQueue
+		afsConfig *config.AdmissionFairSharing
+		wls       []kueue.Workload
+		wantWl    kueue.Workload
 	}{
 		"workloads are ordered by LQ usage, instead of priorities": {
 			cq: utiltesting.MakeClusterQueue("cq").
@@ -954,10 +954,7 @@ func TestFsAdmission(t *testing.T) {
 						},
 					).Obj(),
 			},
-			fsConfig: &config.FairSharing{
-				Enable:               true,
-				AdmissionFairSharing: &config.AdmissionFairSharing{},
-			},
+			afsConfig: &config.AdmissionFairSharing{},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 				*utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
@@ -999,13 +996,10 @@ func TestFsAdmission(t *testing.T) {
 						},
 					).Obj(),
 			},
-			fsConfig: &config.FairSharing{
-				Enable: true,
-				AdmissionFairSharing: &config.AdmissionFairSharing{
-					ResourceWeights: map[corev1.ResourceName]float64{
-						corev1.ResourceCPU: 0,
-						resourceGPU:        1,
-					},
+			afsConfig: &config.AdmissionFairSharing{
+				ResourceWeights: map[corev1.ResourceName]float64{
+					corev1.ResourceCPU: 0,
+					resourceGPU:        1,
 				},
 			},
 			wls: []kueue.Workload{
@@ -1047,10 +1041,7 @@ func TestFsAdmission(t *testing.T) {
 						},
 					).Obj(),
 			},
-			fsConfig: &config.FairSharing{
-				Enable:               true,
-				AdmissionFairSharing: &config.AdmissionFairSharing{},
-			},
+			afsConfig: &config.AdmissionFairSharing{},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
 				*utiltesting.MakeWorkload("wlB-low", "default").Queue("lqB").Priority(1).Obj(),
@@ -1076,10 +1067,7 @@ func TestFsAdmission(t *testing.T) {
 						},
 					).Obj(),
 			},
-			fsConfig: &config.FairSharing{
-				Enable:               true,
-				AdmissionFairSharing: &config.AdmissionFairSharing{},
-			},
+			afsConfig: &config.AdmissionFairSharing{},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
@@ -1093,9 +1081,7 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lqA", "default").Obj(),
 			},
-			fsConfig: &config.FairSharing{
-				Enable: true,
-			},
+			afsConfig: &config.AdmissionFairSharing{},
 			wls: []kueue.Workload{
 				*utiltesting.MakeWorkload("wlA-low", "default").Queue("lqA").Priority(1).Obj(),
 				*utiltesting.MakeWorkload("wlA-high", "default").Queue("lqA").Priority(2).Obj(),
@@ -1125,7 +1111,7 @@ func TestFsAdmission(t *testing.T) {
 			client := builder.Build()
 			ctx := context.Background()
 
-			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.fsConfig)
+			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.afsConfig)
 			for _, wl := range tc.wls {
 				cq.PushOrUpdate(workload.NewInfo(&wl))
 			}
