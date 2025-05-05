@@ -123,12 +123,12 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		for key, cache := range c.tasCache.Clone() {
+		for flavor, cache := range c.tasCache.Clone() {
 			s, err := cache.snapshot(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("%w: failed to construct snapshot for TAS flavor: %q", err, key)
+				return nil, fmt.Errorf("%w: failed to construct snapshot for TAS flavor: %q", err, flavor)
 			} else {
-				tasSnapshots[key] = s
+				tasSnapshots[flavor] = s
 			}
 		}
 	}
@@ -150,10 +150,8 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 			}
 		}
 	}
-	for name, rf := range c.resourceFlavors {
-		// Shallow copy is enough
-		snap.ResourceFlavors[name] = rf
-	}
+	// Shallow copy is enough
+	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
 }
 
@@ -184,6 +182,6 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	return &CohortSnapshot{
 		Name:   name,
-		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
+		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot](),
 	}
 }
