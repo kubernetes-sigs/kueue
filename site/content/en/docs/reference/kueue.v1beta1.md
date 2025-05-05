@@ -2702,8 +2702,8 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
 <code>[]string</code>
 </td>
 <td>
-   <p>FailedNodes lists the names of nodes where pods associated with this workload
-were detected running when the node was considered failed.
+   <p>FailedNodes lists the names of failed nodes running pods
+associated with this workload.
 This field is populated by the node failure controller.</p>
 </td>
 </tr>

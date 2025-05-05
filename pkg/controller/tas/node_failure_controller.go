@@ -9,14 +9,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -29,9 +27,8 @@ const (
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
-	client   client.Client
-	log      logr.Logger
-	recorder record.EventRecorder
+	client client.Client
+	log    logr.Logger
 }
 
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
@@ -39,11 +36,10 @@ type nodeFailureReconciler struct {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;patch;update
 
-func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder) *nodeFailureReconciler {
+func newNodeFailureReconciler(client client.Client) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
-		client:   client,
-		log:      ctrl.Log.WithName(NodeFailureControllerName),
-		recorder: recorder,
+		client: client,
+		log:    ctrl.Log.WithName(NodeFailureControllerName),
 	}
 }
 
@@ -80,11 +76,9 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// to handle both failure detection and recovery/deletion cleanup.
 	updateErr := r.updateWorkloadsForNode(ctx, req.Name, nodeFailedOrDeleted)
 	if updateErr != nil {
-		// Requeue if updating workloads failed (e.g., pod list failed)
 		return ctrl.Result{}, updateErr
 	}
 
-	// No need to requeue based on node status alone, as we watch Node objects.
 	return ctrl.Result{}, nil
 }
 
@@ -93,7 +87,6 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, nodeName string, nodeFailedOrDeleted bool) error {
 	log := ctrl.LoggerFrom(ctx)
 	var podList corev1.PodList
-	// Use the indexer for efficient lookup
 	if err := r.client.List(ctx, &podList, client.MatchingFields{indexer.PodNodeNameIndexKey: nodeName}); err != nil {
 		log.Error(err, "Failed to list pods on node", "nodeName", nodeName)
 		return err
@@ -103,11 +96,9 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 	workloadStatusChanged := make(map[types.NamespacedName]bool)
 	var workloadPatchErrors []error
 
-	// Identify workloads for pods running on the node and
-	// verify if their status needs changing
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		if _, found := pod.GetLabels()[v1alpha1.TASLabel]; !found {
+		if _, found := pod.GetLabels()[kueuealpha.TASLabel]; !found {
 			//skip non Kueue TAS pods
 			continue
 		}
@@ -153,12 +144,12 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 			if !slices.Contains(wl.Status.FailedNodes, nodeName) {
 				wl.Status.FailedNodes = append(wl.Status.FailedNodes, nodeName)
 				slices.Sort(wl.Status.FailedNodes)
-				log.V(3).Info("Adding node to workload failed list", "workload", wlKey, "nodeName", nodeName)
+				log.V(4).Info("Adding node to workload failed list", "workload", wlKey, "nodeName", nodeName)
 			}
 		} else {
 			if idx := slices.Index(wl.Status.FailedNodes, nodeName); idx != -1 {
 				wl.Status.FailedNodes = slices.Delete(wl.Status.FailedNodes, idx, idx+1)
-				log.V(3).Info("Removing node from workload failed list", "workload", wlKey, "nodeName", nodeName)
+				log.V(4).Info("Removing node from workload failed list", "workload", wlKey, "nodeName", nodeName)
 			}
 		}
 
@@ -168,17 +159,15 @@ func (r *nodeFailureReconciler) updateWorkloadsForNode(ctx context.Context, node
 				log.Error(err, "Failed to patch workload status", "workload", wlKey)
 				workloadPatchErrors = append(workloadPatchErrors, err)
 			} else {
-				log.V(2).Info("Successfully patched workload status", "workload", wlKey, "failedNodes", wl.Status.FailedNodes)
+				log.V(3).Info("Successfully patched workload status", "workload", wlKey, "failedNodes", wl.Status.FailedNodes)
 				if nodeFailedOrDeleted {
-					r.recorder.Eventf(wl, corev1.EventTypeWarning, "NodeFailed", "Pod(s) running on failed node %s", nodeName)
+					log.V(3).Info("Pod(s) running on failed node", "workloadName", wl.Name, "nodeName", nodeName)
 				} else {
-					r.recorder.Eventf(wl, corev1.EventTypeNormal, "NodeRecovered", "Node %s recovered, removed from failed list", nodeName)
+					log.V(3).Info("Node recovered, removed from failed list", "workloadName", wl.Name, "nodeName", nodeName)
 				}
 			}
 		}
 	}
-
-	// If any errors occurred during workload Get or Patch, return the first one
 	if len(workloadPatchErrors) > 0 {
 		return fmt.Errorf("encountered %d errors updating workloads for node %s: %w", len(workloadPatchErrors), nodeName, workloadPatchErrors[0])
 	}

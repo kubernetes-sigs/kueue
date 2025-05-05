@@ -64,12 +64,13 @@ var (
 )
 
 type waitForPodsReadyConfig struct {
-	timeout                     time.Duration
-	recoveryTimeout             *time.Duration
-	requeuingBackoffLimitCount  *int32
-	requeuingBackoffBaseSeconds int32
-	requeuingBackoffMaxDuration time.Duration
-	requeuingBackoffJitter      float64
+	timeout                       time.Duration
+	recoveryTimeout               *time.Duration
+	infrastructureRecoveryTimeout *time.Duration
+	requeuingBackoffLimitCount    *int32
+	requeuingBackoffBaseSeconds   int32
+	requeuingBackoffMaxDuration   time.Duration
+	requeuingBackoffJitter        float64
 }
 
 type options struct {
@@ -828,8 +829,12 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 		return true, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
 		// A pod has failed and the workload is waiting for recovery
+		recoveryTimeout := *r.waitForPodsReady.recoveryTimeout
+		if r.waitForPodsReady.infrastructureRecoveryTimeout != nil && len(wl.Status.FailedNodes) > 0 {
+			recoveryTimeout = *r.waitForPodsReady.infrastructureRecoveryTimeout
+		}
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return true, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return true, max(recoveryTimeout-elapsedTime, 0)
 	}
 	return false, 0
 }

@@ -39,7 +39,7 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 		return ctrlName, err
 	}
 
-	nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
+	nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient())
 	if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
