@@ -263,6 +263,9 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) error {
+	if lq.Status.FairSharingStatus == nil {
+		lq.Status.FairSharingStatus = &kueue.FairSharingStatus{}
+	}
 	if lq.Status.FairSharingStatus.AdmissionFairSharingStatus == nil {
 		lq.Status.FairSharingStatus.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
 			LastUpdate: metav1.NewTime(r.clock.Now()),
