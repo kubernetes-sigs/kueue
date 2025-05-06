@@ -469,6 +469,22 @@ func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Claim(claim corev1.ResourceClaim) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Claims == nil {
+		p.Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{}
+	}
+	p.Template.Spec.Containers[0].Resources.Claims = append(p.Template.Spec.Containers[0].Resources.Claims, claim)
+	return p
+}
+
+func (p *PodSetWrapper) ResourceClaim(resourceClaim corev1.PodResourceClaim) *PodSetWrapper {
+	if p.Template.Spec.ResourceClaims == nil {
+		p.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{}
+	}
+	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, resourceClaim)
+	return p
+}
+
 func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Image = image
 	return p
@@ -935,6 +951,36 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 	return resourceWrapper.Append()
 }
 
+// DRAResource creates a ResourceQuota for a device class resource.
+// It sets the Kind field to "DeviceClass" and populates DeviceClassNames with the provided list.
+// If deviceClassNames is empty, it uses the resource name as the only device class name.
+// The first quantity parameter is used for NominalQuota (required), followed by optional BorrowingLimit and LendingLimit.
+func (f *FlavorQuotasWrapper) DRAResource(name corev1.ResourceName, deviceClassNames []string, qs ...string) *FlavorQuotasWrapper {
+	resourceWrapper := f.ResourceQuotaWrapper(name)
+	resourceWrapper.Kind = ptr.To("DeviceClass")
+
+	// Convert string slice to ResourceName slice
+	resourceNames := make([]corev1.ResourceName, 0, len(deviceClassNames))
+	for _, className := range deviceClassNames {
+		resourceNames = append(resourceNames, corev1.ResourceName(className))
+	}
+	resourceWrapper.DeviceClassNames = resourceNames
+
+	if len(qs) > 0 {
+		resourceWrapper.NominalQuota(qs[0])
+	}
+	if len(qs) > 1 && len(qs[1]) > 0 {
+		resourceWrapper.BorrowingLimit(qs[1])
+	}
+	if len(qs) > 2 && len(qs[2]) > 0 {
+		resourceWrapper.LendingLimit(qs[2])
+	}
+	if len(qs) > 3 {
+		panic("Must have at most 3 quantities for nominalQuota, borrowingLimit and lendingLimit")
+	}
+	return resourceWrapper.Append()
+}
+
 // ResourceQuotaWrapper allows creation the creation of a Resource in a type-safe manner.
 func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *ResourceQuotaWrapper {
 	rq := kueue.ResourceQuota{
@@ -1346,6 +1392,12 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 	})
 	c.Resources.Limits = limits
 
+	return c
+}
+
+// WithClaimReq appends a claim request to the container
+func (c *ContainerWrapper) WithClaimReq(claims []corev1.ResourceClaim) *ContainerWrapper {
+	c.Resources.Claims = claims
 	return c
 }
 

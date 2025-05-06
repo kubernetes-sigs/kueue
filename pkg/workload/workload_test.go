@@ -1085,3 +1085,63 @@ func TestPropagateResourceRequests(t *testing.T) {
 		})
 	}
 }
+
+func Test_totalRequestsFromPodSets(t *testing.T) {
+	tests := []struct {
+		name string
+		wl   *kueue.Workload
+		info *InfoOptions
+		want []PodSetResources
+	}{
+		{
+			name: "pod with single resource claim shared with multiple containers",
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Containers(
+							*utiltesting.MakeContainer().
+								Name("first-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithResourceReq("gpu.example.com", "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).
+								Obj(),
+							*utiltesting.MakeContainer().
+								Name("second-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).Obj(),
+						).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "single-gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			info: &InfoOptions{},
+			want: []PodSetResources{
+				{
+					Name: "a",
+					Requests: resources.Requests{
+						"cpu":             2000,
+						"gpu.example.com": 1,
+					},
+					Count: 1,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			podSetResources := totalRequestsFromPodSets(tt.wl, tt.info)
+			if diff := cmp.Diff(podSetResources, tt.want); diff != "" {
+				t.Errorf("totalRequestsFromPodSets(_) = (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

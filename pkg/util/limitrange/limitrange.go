@@ -21,6 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
+
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -75,6 +78,97 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		}
 	}
 	return allErrs
+}
+
+// TotalRequests computes the total resource requests of a pod.
+//
+//	total = Max( Max(each InitContainerUse) , Sum(SidecarContainers) + Sum(Containers) ) + pod overhead
+//
+// where:
+//
+//	InitContainerUse(i) = Sum(SidecarContainers with index < i) + InitContainer(i)
+func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
+	sumContainers := calculateMainContainersResources(ps.Containers)
+	maxInitContainers := calculateInitContainersResources(ps.InitContainers)
+	sumSidecarContainers := calculateSidecarContainersResources(ps.InitContainers)
+
+	total := resource.MergeResourceListKeepMax(
+		maxInitContainers,
+		resource.MergeResourceListKeepSum(sumSidecarContainers, sumContainers),
+	)
+	// add the overhead
+	total = resource.MergeResourceListKeepSum(total, ps.Overhead)
+	return total
+}
+
+func calculateMainContainersResources(containers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range containers {
+		total = resource.MergeResourceListKeepSum(total, containers[i].Resources.Requests)
+	}
+	return total
+}
+
+func calculateInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	maxInitContainerUsage := corev1.ResourceList{}
+	sidecarRunningUsage := corev1.ResourceList{}
+	for i := range initContainers {
+		if isSidecarContainer(initContainers[i]) {
+			sidecarRunningUsage = resource.MergeResourceListKeepSum(sidecarRunningUsage, initContainers[i].Resources.Requests)
+		} else {
+			initContainerUse := resource.MergeResourceListKeepSum(initContainers[i].Resources.Requests, sidecarRunningUsage)
+			maxInitContainerUsage = resource.MergeResourceListKeepMax(maxInitContainerUsage, initContainerUse)
+		}
+	}
+	return maxInitContainerUsage
+}
+
+func calculateSidecarContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range initContainers {
+		if isSidecarContainer(initContainers[i]) {
+			total = resource.MergeResourceListKeepSum(total, initContainers[i].Resources.Requests)
+		}
+	}
+	return total
+}
+
+// TotalResourceClaimsFromPodSpec will calculate the number of requests
+// for ResourceClaimTemplates from a single pod spec.
+// We will increment all requests for PodResourceClaims.
+func TotalResourceClaimsFromPodSpec(ps *corev1.PodSpec) corev1.ResourceList {
+	return calculatePodClaims(ps)
+}
+
+func calculatePodClaims(ps *corev1.PodSpec) corev1.ResourceList {
+	totalResourceClaimTemplate := corev1.ResourceList{}
+
+	// Process all claims defined in the pod spec
+	for _, val := range ps.ResourceClaims {
+		keyName := ""
+		switch {
+		case ptr.Deref(val.ResourceClaimName, "") != "":
+			keyName = *val.ResourceClaimName
+		case ptr.Deref(val.ResourceClaimTemplateName, "") != "":
+			keyName = *val.ResourceClaimTemplateName
+		default:
+			continue
+		}
+
+		// Count each claim as 1
+		if count, ok := totalResourceClaimTemplate[corev1.ResourceName(keyName)]; ok {
+			count.Add(*k8sresource.NewQuantity(1, k8sresource.DecimalSI))
+			totalResourceClaimTemplate[corev1.ResourceName(keyName)] = count
+		} else {
+			totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(1, k8sresource.DecimalSI)
+		}
+	}
+
+	return totalResourceClaimTemplate
+}
+
+func isSidecarContainer(container corev1.Container) bool {
+	return container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).

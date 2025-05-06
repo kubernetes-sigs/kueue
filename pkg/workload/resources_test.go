@@ -22,12 +22,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	dra "k8s.io/api/resource/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -638,6 +641,404 @@ func TestValidateLimitRange(t *testing.T) {
 			got := ValidateLimitRange(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
 			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAddDeviceClassesToContainerRequests(t *testing.T) {
+	cases := map[string]struct {
+		wl                    *kueue.Workload
+		enableDRAGate         bool
+		resourceClaimTemplate []dra.ResourceClaimTemplate
+		resourceClaim         []dra.ResourceClaim
+		localQueue            *kueue.LocalQueue
+		clusterQueue          *kueue.ClusterQueue
+		wantWl                *kueue.Workload
+	}{
+		"dra feature gate off; ignore devices": {
+			enableDRAGate: false,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu",
+									DeviceClassName: "gpu.example.com",
+								}},
+							},
+						},
+					},
+				},
+			},
+			localQueue:   utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-cq").Obj(),
+			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single device class request with multiple gpus in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu",
+									DeviceClassName: "gpu.example.com",
+									AllocationMode:  dra.DeviceAllocationModeExactCount,
+									Count:           2,
+								}},
+							},
+						},
+					},
+				},
+			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
+			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("single-gpu", "2").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single device class request with multiple claims in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu-0",
+									DeviceClassName: "gpu.example.com",
+									AllocationMode:  dra.DeviceAllocationModeExactCount,
+									Count:           1,
+								}},
+							},
+						},
+					},
+				},
+			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
+			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-0",
+						}).
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-1",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-0",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-1",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("single-gpu", "2").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-0",
+						}).
+						Claim(corev1.ResourceClaim{
+							Name: "gpu-1",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-0",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu-1",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single resource claim with multiple device class requests in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "multiple-gpus",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{
+									{
+										Name:            "gpu-0",
+										DeviceClassName: "gpu-0.example.com",
+										AllocationMode:  dra.DeviceAllocationModeExactCount,
+										Count:           1,
+									},
+									{
+										Name:            "gpu-1",
+										DeviceClassName: "gpu-1.example.com",
+										AllocationMode:  dra.DeviceAllocationModeExactCount,
+										Count:           1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("gpu-0", []string{"gpu-0.example.com"}, "10").
+							DRAResource("gpu-1", []string{"gpu-1.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
+			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "multiple-gpus",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "multiple-gpus",
+							ResourceClaimTemplateName: ptr.To("multiple-gpus"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("gpu-0", "1").
+						Request("gpu-1", "1").
+						Claim(corev1.ResourceClaim{
+							Name: "multiple-gpus",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "multiple-gpus",
+							ResourceClaimTemplateName: ptr.To("multiple-gpus"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single resource claim with multiple pods sharing gpu": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{
+									{
+										Name:            "gpu",
+										DeviceClassName: "gpu.example.com",
+										AllocationMode:  dra.DeviceAllocationModeExactCount,
+										Count:           1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "").ClusterQueue("test-cq").Obj(),
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltesting.MakeClusterQueue("test-cq").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							DRAResource("single-gpu", []string{"gpu.example.com"}, "10").
+							Obj(),
+					).Obj()
+				return cq
+			}(),
+			wl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Containers(
+							*utiltesting.MakeContainer().
+								Name("first-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).Obj(),
+							*utiltesting.MakeContainer().
+								Name("second-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).Obj(),
+						).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "single-gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				Queue("test-queue").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Containers(
+							*utiltesting.MakeContainer().
+								Name("first-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithResourceReq("single-gpu", "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).
+								Obj(),
+							*utiltesting.MakeContainer().
+								Name("second-container").
+								WithResourceLimit(corev1.ResourceCPU, "2").
+								WithResourceReq(corev1.ResourceCPU, "1").
+								WithClaimReq([]corev1.ResourceClaim{{
+									Name: "single-gpu",
+								}}).Obj(),
+						).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "single-gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().WithLists(
+				&dra.ResourceClaimTemplateList{Items: tc.resourceClaimTemplate},
+			).WithObjects(
+				tc.localQueue,
+				tc.clusterQueue,
+			).
+				Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.DynamicResourceStructuredParameters, tc.enableDRAGate)
+			AddDeviceClassesToContainerRequests(ctx, cl, tc.wl)
+			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
+				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
 			}
 		})
 	}
