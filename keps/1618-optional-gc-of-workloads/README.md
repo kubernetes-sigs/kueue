@@ -7,7 +7,8 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1 - Configurable retention for finished and deactivated Workloads](#story-1---configurable-retention-for-finished-and-deactivated-workloads)
+    - [Story 1 - Configurable retention for finished Workloads](#story-1---configurable-retention-for-finished-workloads)
+    - [Story 2 - Configurable retention for deactivated Workloads](#story-2---configurable-retention-for-deactivated-workloads)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -69,8 +70,6 @@ collects them, but by default, Custom Resources are stored indefinitely.
 
 ### Non-Goals
 
-- Support the deletion/expiration of jobs or other Kubernetes objects not authored by Kueue.
-
 ## Proposal
 
 Add a new field called `objectRetentionPolicies` to the Kueue Configuration API, 
@@ -81,13 +80,22 @@ with options for other Kueue-managed objects.
 
 ### User Stories
 
-#### Story 1 - Configurable retention for finished and deactivated Workloads
+#### Story 1 - Configurable retention for finished Workloads
 
 As a Kueue administrator, I want to control the retention of 
-finished and deactivated Workloads to minimize the memory footprint and optimize 
+finished Workloads to minimize the memory footprint and optimize 
 storage usage in my Kubernetes cluster. I want the flexibility to 
-configure a retention period to automatically delete Workloads after a 
-specified duration or to immediately delete them upon completion or deactivation.
+configure a retention period to automatically delete finished Workloads after a 
+specified duration or to immediately delete them upon completion.
+
+#### Story 2 - Configurable retention for deactivated Workloads
+
+As a Kueue administrator, I want to control the retention of 
+Workloads that have been deactivated due to exceeding 
+the backoff limit to minimize the memory footprint and optimize
+storage usage in my Kubernetes cluster. I want the flexibility to
+configure a retention period to automatically delete failed Workloads after a
+specified duration or to immediately delete them upon exceeding the backoff limit.
 
 **Note:** Immediate deletion can be configured by setting the retention period to 0 seconds.
 
@@ -121,7 +129,7 @@ aligning with the behavior before the introduction of this feature.
 to delete all Workloads that qualify for deletion. Since the 
 reconciliation loop is effectively synchronous, this may impact the reconciliation 
 of new jobs. From the user's perspective, it may seem like Kueue's initialization 
-time is very long for that initial run until all expired objects are deleted.\
+time is very long for that initial run until all expired objects are deleted.
 **M**: Unfortunately, there is no easy way to directly mitigate this without complicating the code.
 A potential improvement would be to have a dedicated internal queue that handles deletion 
 outside the reconciliation loop, or to delete expired objects in batches so that after 
@@ -145,13 +153,13 @@ type Configuration struct {
 
 // ObjectRetentionPolicies holds retention settings for different object types.
 type ObjectRetentionPolicies struct {
-    // Workloads configures retention for finished Workloads.
-    // A nil value disables automatic deletion of finished Workloads.
+    // Workloads configures retention for Workloads.
+    // A nil value disables automatic deletion of Workloads.
     // +optional
     Workloads *WorkloadRetentionPolicy `json:"workloads,omitempty"`
 }
 
-// WorkloadRetentionPolicy defines when finished Workloads should be deleted.
+// WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.
 type WorkloadRetentionPolicy struct {
     // AfterFinished is the duration to wait after a Workload finishes
     // before deleting it.
@@ -160,13 +168,17 @@ type WorkloadRetentionPolicy struct {
     // Represented using metav1.Duration (e.g. "10m", "1h30m").
     // +optional
     AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
-    // AfterDeactivated is the duration to wait after a Workload has been deactivated
-    // before deleting it.
+    // AfterDeactivatedByKueue is the duration to wait after *any* Kueue-managed Workload
+    // (such as a Job, JobSet, or other custom workload types) has been marked
+    // as deactivated by Kueue before automatically deleting it.
+    // Deletion of deactivated workloads may cascade to objects not created by
+    // Kueue, since deleting the parent Workload owner (e.g. JobSet) can trigger
+    // garbage-collection of dependent resources.
     // A duration of 0 will delete immediately.
     // A nil value disables automatic deletion.
     // Represented using metav1.Duration (e.g. "10m", "1h30m").
     // +optional
-    AfterDeactivated *metav1.Duration `json:"afterDeactivated,omitempty"`
+    AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivated,omitempty"`
 }
 ```
 
