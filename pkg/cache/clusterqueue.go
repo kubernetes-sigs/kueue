@@ -92,7 +92,7 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }
 
-// implements hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *clusterQueue) getResourceNode() resourceNode {
 	return c.resourceNode
