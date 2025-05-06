@@ -43,7 +43,7 @@ var (
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
-func TestValidateDefault(t *testing.T) {
+func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayJob
 		newJob               *rayv1.RayJob
@@ -115,7 +115,7 @@ func TestValidateDefault(t *testing.T) {
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
-					t.Fatalf("failed to create default local queue: %s", err)
+					t.Fatalf("failed to create default local queue: %v", err)
 				}
 			}
 			wh := &RayJobWebhook{
@@ -125,7 +125,7 @@ func TestValidateDefault(t *testing.T) {
 			}
 			result := tc.oldJob.DeepCopy()
 			if err := wh.Default(context.Background(), result); err != nil {
-				t.Errorf("unexpected Default() error: %s", err)
+				t.Errorf("unexpected Default() error: %v", err)
 			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
 				t.Errorf("Default() mismatch (-want +got):\n%s", diff)
@@ -139,15 +139,23 @@ func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job       *rayv1.RayJob
-		manageAll bool
-		wantErr   error
+		job                  *rayv1.RayJob
+		manageAll            bool
+		wantErr              error
+		localQueueDefaulting bool
 	}{
 		"invalid unmanaged": {
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
 			wantErr: nil,
+		},
+		"invalid unmanaged - local queue default": {
+			job: testingrayutil.MakeJob("job", "ns").
+				ShutdownAfterJobFinishes(false).
+				Obj(),
+			localQueueDefaulting: true,
+			wantErr:              nil,
 		},
 		"invalid managed - by config": {
 			job: testingrayutil.MakeJob("job", "ns").
@@ -284,6 +292,7 @@ func TestValidateCreate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
+			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			_, result := wh.ValidateCreate(context.Background(), tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
