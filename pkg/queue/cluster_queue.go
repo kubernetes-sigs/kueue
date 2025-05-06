@@ -437,15 +437,17 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 		if enableAdmissionFs {
 			lqAUsage, errA := a.LqUsage(ctx, c, fsResWeights)
 			lqBUsage, errB := b.LqUsage(ctx, c, fsResWeights)
-			log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", a.Obj.Spec.QueueName, "Usage", lqAUsage)
-			log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", b.Obj.Spec.QueueName, "Usage", lqBUsage)
 			switch {
 			case errA != nil:
-				log.Error(errA, "Error fetching LocalQueue from informer")
+				log.V(3).Error(errA, "Error fetching LocalQueue from informer")
 			case errB != nil:
-				log.Error(errB, "Error fetching LocalQueue from informer")
-			case lqAUsage != lqBUsage:
-				return lqAUsage < lqBUsage
+				log.V(3).Error(errB, "Error fetching LocalQueue from informer")
+			default:
+				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", a.Obj.Spec.QueueName, "Usage", lqAUsage)
+				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", b.Obj.Spec.QueueName, "Usage", lqBUsage)
+				if lqAUsage != lqBUsage {
+					return lqAUsage < lqBUsage
+				}
 			}
 		}
 		p1 := utilpriority.Priority(a.Obj)
