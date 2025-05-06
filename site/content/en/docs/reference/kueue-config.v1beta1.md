@@ -33,7 +33,7 @@ description: Generated API reference documentation for Kueue Configuration.
 </td>
 <td>
    <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half
-If set to 0, usage will be reset to 0.</p>
+If set to 0, usage will be reset to 0 immediately.</p>
 </td>
 </tr>
 <tr><td><code>usageSamplingInterval</code> <B>[Required]</B><br/>
@@ -233,7 +233,7 @@ instead.</p>
    <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
 </td>
 </tr>
-<tr><td><code>admissionFairSharing</code><br/>
+<tr><td><code>admissionFairSharing</code> <B>[Required]</B><br/>
 <a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
 </td>
 <td>

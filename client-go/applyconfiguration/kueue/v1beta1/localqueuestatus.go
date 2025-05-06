@@ -31,7 +31,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsReservation,omitempty"`
 	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorUsage,omitempty"`
 	Flavors            []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
-	FairSharingStatus  *FairSharingStatusApplyConfiguration       `json:"fairSharingStatus,omitempty"`
+	FairSharingStatus  *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with

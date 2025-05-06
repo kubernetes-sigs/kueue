@@ -47,7 +47,6 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
-	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
 }
 
@@ -57,12 +56,6 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
-}
-
-func WithFairSharing(cfg *config.FairSharing) Option {
-	return func(o *options) {
-		o.fairSharing = cfg
-	}
 }
 
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
@@ -116,8 +109,6 @@ type Manager struct {
 
 	topologyUpdateWatchers []TopologyUpdateWatcher
 
-	fairSharingConfig *config.FairSharing
-
 	admissionFairSharingConfig *config.AdmissionFairSharing
 }
 
@@ -139,7 +130,6 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
 		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
-		fairSharingConfig:          options.fairSharing,
 		admissionFairSharingConfig: options.admissionFairSharing,
 	}
 	m.cond.L = &m.RWMutex

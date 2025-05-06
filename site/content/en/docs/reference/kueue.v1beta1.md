@@ -1608,7 +1608,7 @@ workloads assigned to this LocalQueue.</p>
    <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
 </td>
 </tr>
-<tr><td><code>fairSharingStatus</code><br/>
+<tr><td><code>fairSharing</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>

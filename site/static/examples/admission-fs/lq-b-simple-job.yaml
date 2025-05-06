@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: alpine/sleep # A very small and lightweight image
+        image: alpine
         command: ["/bin/sleep", "infinity"]
         resources:
           requests:

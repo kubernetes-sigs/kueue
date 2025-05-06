@@ -158,7 +158,7 @@ type LocalQueueStatus struct {
 
 	// FairSharing contains the information about the current status of fair sharing.
 	// +optional
-	FairSharingStatus FairSharingStatus `json:"fairSharingStatus,omitempty"`
+	FairSharingStatus FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
 const (

@@ -96,7 +96,6 @@ type Configuration struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
 	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
-	// +optional
 	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
 
 	// Resources provides additional configuration options for handling the resources.
@@ -479,7 +478,7 @@ type FairSharing struct {
 
 type AdmissionFairSharing struct {
 	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
-	// If set to 0, usage will be reset to 0.
+	// If set to 0, usage will be reset to 0 immediately.
 	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime,omitempty"`
 
 	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus

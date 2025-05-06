@@ -79,5 +79,5 @@ const (
 	UsageBasedAdmissionFairSharing AdmissionMode = "UsageBasedAdmissionFairSharing"
 
 	// AdmissionFairSharing is disabled for this CQ
-	NoAdmissionFairSharing AdmissionMode = "NoFairSharing"
+	NoAdmissionFairSharing AdmissionMode = "NoAdmissionFairSharing"
 )
