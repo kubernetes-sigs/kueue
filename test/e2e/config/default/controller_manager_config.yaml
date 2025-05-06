@@ -33,3 +33,7 @@ integrations:
   - "deployment"
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
+featureGates:
+  MultiKueueBatchJobWithManagedBy: true
+  TopologyAwareScheduling: true
+  LocalQueueMetrics: true
