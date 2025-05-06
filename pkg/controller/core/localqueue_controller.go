@@ -75,8 +75,6 @@ func WithAdmissionFairSharingConfig(cfg *config.AdmissionFairSharing) LocalQueue
 	return func(o *LocalQueueReconcilerOptions) {
 		if cfg != nil {
 			o.admissionFSConfig = cfg
-		} else {
-			o.admissionFSConfig = nil
 		}
 	}
 }

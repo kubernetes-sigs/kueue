@@ -217,7 +217,10 @@ func main() {
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
-		queueOptions = append(queueOptions, queue.WithFairSharing(cfg.FairSharing), queue.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+		queueOptions = append(queueOptions, queue.WithFairSharing(cfg.FairSharing))
+	}
+	if cfg.AdmissionFairSharing != nil {
+		queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
