@@ -103,7 +103,7 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 
 func isAdmissionFsEnabled(cq *kueue.ClusterQueue, fsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedFairSharing {
+	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
 		enableAdmissionFs = true
 		fsResWeights = fsConfig.ResourceWeights
 	}

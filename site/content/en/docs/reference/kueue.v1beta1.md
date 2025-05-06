@@ -1531,8 +1531,8 @@ no new reservation being made.</p>
 </td>
 <td>
    <p>fairSharing defines the properties of the LocalQueue when
-participating in FairSharing.  The values are only relevant
-if FairSharing is enabled in the Kueue configuration.</p>
+participating in AdmissionFairSharing.  The values are only relevant
+if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 </tbody>

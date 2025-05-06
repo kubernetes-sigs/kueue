@@ -75,8 +75,9 @@ type AdmissionScope struct {
 type AdmissionMode string
 
 const (
-	// FairSharing based on usage, with QueuingStrategy as defined in CQ.
-	UsageBasedFairSharing AdmissionMode = "UsageBasedFairSharing"
+	// AdmissionFairSharing based on usage, with QueuingStrategy as defined in CQ.
+	UsageBasedAdmissionFairSharing AdmissionMode = "UsageBasedAdmissionFairSharing"
 
-	NoFairSharing AdmissionMode = "NoFairSharing"
+	// AdmissionFairSharing is disabled for this CQ
+	NoAdmissionFairSharing AdmissionMode = "NoFairSharing"
 )

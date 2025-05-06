@@ -50,8 +50,8 @@ type LocalQueueSpec struct {
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 
 	// fairSharing defines the properties of the LocalQueue when
-	// participating in FairSharing.  The values are only relevant
-	// if FairSharing is enabled in the Kueue configuration.
+	// participating in AdmissionFairSharing.  The values are only relevant
+	// if AdmissionFairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }

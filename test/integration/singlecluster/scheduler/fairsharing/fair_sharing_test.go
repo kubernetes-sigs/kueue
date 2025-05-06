@@ -407,7 +407,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				ResourceGroup(*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "32").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyNever}).
 				QueueingStrategy(kueue.StrictFIFO).
-				AdmissionMode(kueue.UsageBasedFairSharing).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj()
 			cqs = append(cqs, cq)
 			util.MustCreate(ctx, k8sClient, cq)

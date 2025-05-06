@@ -40,7 +40,8 @@ If set to 0, usage will be reset to 0.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus</p>
+   <p>usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+Defaults to 5min.</p>
 </td>
 </tr>
 <tr><td><code>resourceWeights</code> <B>[Required]</B><br/>

@@ -290,12 +290,11 @@ func (i *Info) LqUsage(ctx context.Context, c client.Client, resWeights map[core
 	}
 	usage := 0.0
 	for resName, resVal := range lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources {
-		if weight, found := resWeights[resName]; found {
-			usage += weight * resVal.AsApproximateFloat64()
-		} else {
-			// if no weight for resource was defined, use default weight of 1
-			usage += resVal.AsApproximateFloat64()
+		weight, found := resWeights[resName]
+		if !found {
+			weight = 1
 		}
+		usage += weight * resVal.AsApproximateFloat64()
 	}
 	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
 		// if no weight for lq was defined, use default weight of 1

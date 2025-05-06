@@ -143,8 +143,8 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/finalizers,verbs=update
 
 func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var lq kueue.LocalQueue
-	if err := r.client.Get(ctx, req.NamespacedName, &lq); err != nil {
+	var queueObj kueue.LocalQueue
+	if err := r.client.Get(ctx, req.NamespacedName, &queueObj); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -152,40 +152,40 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LocalQueue")
 
-	if ptr.Deref(lq.Spec.StopPolicy, kueue.None) != kueue.None {
-		err := r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
+	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
+		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	var cq kueue.ClusterQueue
-	if err := r.client.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, &cq); err != nil {
+	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
-		if err := r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue"); err != nil {
+		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue"); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	} else {
-		if err := r.UpdateStatusIfChanged(ctx, &lq, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg); err != nil {
+		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
 
 	if r.admissionFSConfig != nil {
-		if err := r.initializeAdmissionFsStatus(ctx, &lq); err != nil {
+		if err := r.initializeAdmissionFsStatus(ctx, &queueObj); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		recheckAfter := r.clock.Now().Sub(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time)
-		if recheckAfter < r.admissionFSConfig.UsageSamplingInterval.Duration {
-			return ctrl.Result{RequeueAfter: recheckAfter}, nil
+		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time)
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; sinceLastUpdate < interval {
+			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
-		if err := r.reconcileConsumedUsage(ctx, &lq, lq.Spec.ClusterQueue); err != nil {
+		if err := r.reconcileConsumedUsage(ctx, &queueObj, queueObj.Spec.ClusterQueue); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		if err := r.queues.HeapifyClusterQueue(&cq, lq.Name); err != nil {
+		if err := r.queues.HeapifyClusterQueue(&cq, queueObj.Name); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
