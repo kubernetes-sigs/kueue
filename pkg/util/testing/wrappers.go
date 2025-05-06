@@ -707,7 +707,7 @@ func (q *LocalQueueWrapper) Active(status metav1.ConditionStatus) *LocalQueueWra
 
 // AdmittedWorkloads updates the admittedWorkloads in status.
 func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.FairSharingStatus) *LocalQueueWrapper {
-	q.Status.FairSharingStatus = status
+	q.Status.FairSharing = status
 	return q
 }
 

@@ -440,10 +440,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Checking that LQ's resource usage is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).Should(gomega.Succeed())
-					g.Expect(lqA.Status.FairSharingStatus).ShouldNot(gomega.BeNil())
-					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
-					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
-					g.Expect(lqA.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]).
+					g.Expect(lqA.Status.FairSharing).ShouldNot(gomega.BeNil())
+					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]).
 						To(gomega.Equal(resource.MustParse("32")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

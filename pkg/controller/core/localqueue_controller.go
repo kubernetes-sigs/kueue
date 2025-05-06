@@ -178,7 +178,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.initializeAdmissionFsStatus(ctx, &queueObj); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time)
+		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
 		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; sinceLastUpdate < interval {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
@@ -263,11 +263,11 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) error {
-	if lq.Status.FairSharingStatus == nil {
-		lq.Status.FairSharingStatus = &kueue.FairSharingStatus{}
+	if lq.Status.FairSharing == nil {
+		lq.Status.FairSharing = &kueue.FairSharingStatus{}
 	}
-	if lq.Status.FairSharingStatus.AdmissionFairSharingStatus == nil {
-		lq.Status.FairSharingStatus.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
+	if lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
+		lq.Status.FairSharing.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
 			LastUpdate: metav1.NewTime(r.clock.Now()),
 		}
 		return r.client.Status().Update(ctx, lq)
@@ -287,9 +287,9 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		return err
 	}
 	// calculate alpha rate
-	oldUsage := lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources
+	oldUsage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
 	newUsage := cacheLq.GetAdmittedUsage()
-	timeSinceLastUpdate := r.clock.Now().Sub(lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate.Time).Seconds()
+	timeSinceLastUpdate := r.clock.Now().Sub(lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time).Seconds()
 	alpha := 1.0 - math.Pow(0.5, timeSinceLastUpdate/halfLifeTime)
 	// calculate weighted average of old and new usage
 	scaledNewUsage := resource.MulByFloat(newUsage, alpha)
@@ -300,8 +300,8 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 }
 
 func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList) error {
-	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources = consumedResources
-	lq.Status.FairSharingStatus.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
+	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
+	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
 	return r.client.Status().Update(ctx, lq)
 }
 

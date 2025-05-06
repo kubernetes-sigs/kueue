@@ -289,7 +289,7 @@ func (i *Info) LqUsage(ctx context.Context, c client.Client, resWeights map[core
 		return 0, err
 	}
 	usage := 0.0
-	for resName, resVal := range lq.Status.FairSharingStatus.AdmissionFairSharingStatus.ConsumedResources {
+	for resName, resVal := range lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources {
 		weight, found := resWeights[resName]
 		if !found {
 			weight = 1
