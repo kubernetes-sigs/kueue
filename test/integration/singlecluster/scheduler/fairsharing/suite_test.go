@@ -86,7 +86,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
-	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithFairSharing(fairSharing), queue.WithAdmissionFairSharing(admissionFairSharing))
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithAdmissionFairSharing(admissionFairSharing))
 
 	configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
 	configuration.Metrics.EnableClusterQueueResources = true
