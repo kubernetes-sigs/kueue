@@ -406,7 +406,7 @@ generate-kueuectl-docs: kueuectl-docs
 .PHONY: ray-project-mini-image-build
 ray-project-mini-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION)$(RAY_ARCHITECTURE) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION) \
 		--platform=$(PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
@@ -414,9 +414,6 @@ ray-project-mini-image-build:
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
-kind-ray-project-mini-image-build:
-	@if [ "$(shell uname -m)" = "arm64" ]; then \
-		$(MAKE) PLATFORMS=linux/arm64  RAY_ARCHITECTURE=-aarch64 PUSH=--load  ray-project-mini-image-build; \
-	else \
-		$(MAKE) PLATFORMS=linux/amd64 PUSH=--load ray-project-mini-image-build; \
-	fi
+kind-ray-project-mini-image-build: PLATFORMS=linux/amd64
+kind-ray-project-mini-image-build: PUSH=--load
+kind-ray-project-mini-image-build: ray-project-mini-image-build
