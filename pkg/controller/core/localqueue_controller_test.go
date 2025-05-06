@@ -44,12 +44,13 @@ import (
 func TestLocalQueueReconcile(t *testing.T) {
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
-		clusterQueue   *kueue.ClusterQueue
-		localQueue     *kueue.LocalQueue
-		wantLocalQueue *kueue.LocalQueue
-		wantError      error
-		afsConfig      *config.AdmissionFairSharing
-		runningWls     []kueue.Workload
+		clusterQueue     *kueue.ClusterQueue
+		localQueue       *kueue.LocalQueue
+		wantLocalQueue   *kueue.LocalQueue
+		wantError        error
+		afsConfig        *config.AdmissionFairSharing
+		runningWls       []kueue.Workload
+		wantRequeueAfter *time.Duration
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
@@ -489,7 +490,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantError: nil,
+			wantRequeueAfter: ptr.To(time.Minute),
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
@@ -530,10 +531,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
 
-			_, gotError := reconciler.Reconcile(
+			result, gotError := reconciler.Reconcile(
 				ctx,
 				reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.localQueue)},
 			)
+			if tc.wantRequeueAfter != nil {
+				if diff := cmp.Diff(*tc.wantRequeueAfter, result.RequeueAfter); diff != "" {
+					t.Errorf("unexpected reconcile requeue after (-want/+got):\n%s", diff)
+				}
+			}
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
