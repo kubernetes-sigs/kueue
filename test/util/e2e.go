@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -137,6 +138,9 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 }
 
 func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	// Export logs before the rollout to preserve logs from the previous version.
+	exportKindLogs(ctx)
+
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
 	expectedDeploymentCondition := &appsv1.DeploymentCondition{
@@ -164,6 +168,20 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 		afterUpdateTime := deploymentCondition.LastUpdateTime
 		g.Expect(afterUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+}
+
+func exportKindLogs(ctx context.Context) {
+	// Path to the kind binary
+	kind := os.Getenv("KIND")
+	// Path to the artifacts
+	artifacts := os.Getenv("ARTIFACTS")
+
+	if kind != "" && artifacts != "" {
+		cmd := exec.CommandContext(ctx, kind, "export", "logs", artifacts)
+		cmd.Stdout = ginkgo.GinkgoWriter
+		cmd.Stderr = ginkgo.GinkgoWriter
+		gomega.Expect(cmd.Run()).To(gomega.Succeed())
+	}
 }
 
 func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
