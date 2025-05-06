@@ -83,8 +83,8 @@ spec:
               fairSharing:
                 description: |-
                   fairSharing defines the properties of the LocalQueue when
-                  participating in FairSharing.  The values are only relevant
-                  if FairSharing is enabled in the Kueue configuration.
+                  participating in AdmissionFairSharing.  The values are only relevant
+                  if AdmissionFairSharing is enabled in the Kueue configuration.
                 properties:
                   weight:
                     anyOf:
