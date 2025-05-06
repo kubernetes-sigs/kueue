@@ -96,6 +96,7 @@ CREATE_KIND_CLUSTER ?= true
 
 
 .PHONY: test-e2e
+test-e2e: E2E_USE_HELM=true
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-helm
@@ -103,6 +104,7 @@ test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
 
 .PHONY: test-multikueue-e2e
+test-multikueue-e2e: E2E_USE_HELM=true
 test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-helm
@@ -110,6 +112,7 @@ test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
 .PHONY: test-tas-e2e
+test-tas-e2e: E2E_USE_HELM=true
 test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-helm
@@ -117,6 +120,7 @@ test-tas-e2e-helm: E2E_USE_HELM=true
 test-tas-e2e-helm: test-tas-e2e
 
 .PHONY: test-e2e-customconfigs
+test-e2e-customconfigs: E2E_USE_HELM=true
 test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-customconfigs-helm
