@@ -11,7 +11,7 @@ spec:
   namespaceSelector: {} # match all.
   queueingStrategy: "StrictFIFO"
   admissionScope:
-    admissionMode: "UsageBasedFairSharing"
+    admissionMode: "UsageBasedAdmissionFairSharing"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
