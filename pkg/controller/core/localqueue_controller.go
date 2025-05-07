@@ -173,12 +173,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if r.admissionFSConfig != nil {
-		if err := r.initializeAdmissionFsStatus(ctx, &queueObj); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	if r.admissionFSConfig != nil && features.Enabled(features.AdmissionFairSharing) {
+		updated := r.initializeAdmissionFsStatus(ctx, &queueObj)
 		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
-		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; sinceLastUpdate < interval {
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !updated && sinceLastUpdate < interval {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
 		if err := r.reconcileConsumedUsage(ctx, &queueObj, queueObj.Spec.ClusterQueue); err != nil {
@@ -261,7 +259,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) error {
+func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) bool {
 	if lq.Status.FairSharing == nil {
 		lq.Status.FairSharing = &kueue.FairSharingStatus{}
 	}
@@ -269,9 +267,9 @@ func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, 
 		lq.Status.FairSharing.AdmissionFairSharingStatus = &kueue.AdmissionFairSharingStatus{
 			LastUpdate: metav1.NewTime(r.clock.Now()),
 		}
-		return r.client.Status().Update(ctx, lq)
+		return true
 	}
-	return nil
+	return false
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue, cqName kueue.ClusterQueueReference) error {

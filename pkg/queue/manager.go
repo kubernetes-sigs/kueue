@@ -60,7 +60,9 @@ var defaultOptions = options{
 
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
 	return func(o *options) {
-		o.admissionFairSharing = cfg
+		if features.Enabled(features.AdmissionFairSharing) {
+			o.admissionFairSharing = cfg
+		}
 	}
 }
 
