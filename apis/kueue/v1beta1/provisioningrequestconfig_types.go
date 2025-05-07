@@ -70,6 +70,48 @@ type ProvisioningRequestConfigSpec struct {
 	// +optional
 	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+
+	// podSetUpdates specifies the update of the workload's PodSetUpdates which
+	// are used to target the provisioned nodes.
+	//
+	// +optional
+	PodSetUpdates []ProvisioningRequestPodSetUpdate `json:"podSetUpdates,omitempty"`
+}
+
+// ProvisioningRequestPodSetUpdateType specifies the type of the PodSetUpdate
+// +enum
+type ProvisioningRequestPodSetUpdateType string
+
+const (
+	// This type indicates this is PodSetUpdate for NodeSelector.
+	ProvisioningRequestPodSetUpdateTypeNodeSelector ProvisioningRequestPodSetUpdateType = "NodeSelector"
+
+	// This type indicates this is PodSetUpdate for Annotations.
+	ProvisioningRequestPodSetUpdateTypeAnnotations ProvisioningRequestPodSetUpdateType = "Annotations"
+
+	// This type indicates this is PodSetUpdate for Labels.
+	ProvisioningRequestPodSetUpdateTypeLabels ProvisioningRequestPodSetUpdateType = "Labels"
+)
+
+type ProvisioningRequestPodSetUpdate struct {
+	// podSetUpdates specifies the update of the workload's PodSetUpdates which
+	// are used to target the provisioned nodes.
+	//
+	// +required
+	// +kubebuilder:validation:Enum={NodeSelector,Annotations,Labels}
+	Type ProvisioningRequestPodSetUpdateType `json:"type,omitempty"`
+
+	// key specifies the key or the PodSetUpdate.
+	//
+	// +optional
+	Key *string `json:"key,omitempty"`
+
+	// valueFromDetail specifies the key of the
+	// ProvisioningRequest.status.provisioningClassDetails from which the value
+	// is used for the update.
+	//
+	// +optional
+	ValueFromDetail *string `json:"valueFromDetail,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
