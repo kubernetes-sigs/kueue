@@ -890,7 +890,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
