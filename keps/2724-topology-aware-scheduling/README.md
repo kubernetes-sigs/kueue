@@ -771,17 +771,30 @@ In order to determine if the "second pass" is needed, and thus if
 at the moment of QuotaReservation (first pass).
 
 ```golang
+// DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
+// +enum
+type DelayedTopologyRequestState string
+
+const (
+   // This state indicates the delayed TopologyRequest is waiting for determining.
+   DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
+
+   // This state indicates the delayed TopologyRequest is was requested and completed.
+   DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
+)
+
 type PodSetAssignment struct {
   ...
   // delayedTopologyRequest indicates the topology assignment is delayed.
   // Topology assignment might be delayed in case there is ProvisioningRequest
   // AdmissionCheck used.
   // Kueue schedules the second pass of scheduling for each workload with at
-  // least one PodSet which has delayedTopologyRequest=true and without
-  // topologyAssignment.
+  // least one PodSet which has delayedTopologyRequest=Pending and without
+  // topologyAssignment. Once the TopologyAssignment is determined the state is
+  // set to Ready.
   //
   // +optional
-  DelayedTopologyRequest *bool `json:"delayedTopologyRequest,omitempty"`
+  DelayedTopologyRequest *DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
 }
 ```
 
