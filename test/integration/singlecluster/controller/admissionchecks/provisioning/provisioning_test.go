@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -666,6 +667,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Setting the provisioning request as BookingExpired", func() {
+				time.Sleep(100 * time.Millisecond)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
 					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
