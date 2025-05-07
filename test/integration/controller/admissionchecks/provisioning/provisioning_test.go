@@ -673,6 +673,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Setting the provisioning request as BookingExpired", func() {
+				// wait a bit to make it almost certain that the provisioning controller already sees the workload as admitted.
 				time.Sleep(100 * time.Millisecond)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
