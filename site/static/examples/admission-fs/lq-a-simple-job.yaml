@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: lq-a
+spec:
+  parallelism: 1
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: alpine
+        command: ["/bin/sleep", "infinity"]
+        resources:
+          requests:
+            cpu: 3
+      restartPolicy: Never

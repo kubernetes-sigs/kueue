@@ -95,6 +95,9 @@ type Configuration struct {
 	// FairSharing controls the Fair Sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
+	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
+	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
+
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 
@@ -471,4 +474,19 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+}
+
+type AdmissionFairSharing struct {
+	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
+	// If set to 0, usage will be reset to 0 immediately.
+	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime,omitempty"`
+
+	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+	// Defaults to 5min.
+	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
+
+	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
+	// resource usage and order Workloads.
+	// Defaults to 1.
+	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
 }

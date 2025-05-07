@@ -26,6 +26,7 @@ import (
 type LocalQueueSpecApplyConfiguration struct {
 	ClusterQueue *kueuev1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
 	StopPolicy   *kueuev1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
+	FairSharing  *FairSharingApplyConfiguration      `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueSpecApplyConfiguration constructs a declarative configuration of the LocalQueueSpec type for use with
@@ -47,5 +48,13 @@ func (b *LocalQueueSpecApplyConfiguration) WithClusterQueue(value kueuev1beta1.C
 // If called multiple times, the StopPolicy field is set to the value of the last call.
 func (b *LocalQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.StopPolicy) *LocalQueueSpecApplyConfiguration {
 	b.StopPolicy = &value
+	return b
+}
+
+// WithFairSharing sets the FairSharing field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FairSharing field is set to the value of the last call.
+func (b *LocalQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingApplyConfiguration) *LocalQueueSpecApplyConfiguration {
+	b.FairSharing = value
 	return b
 }

@@ -157,6 +157,12 @@ const (
 	//
 	// Enable hierarchical cohorts
 	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
+	//
+	// Enable admission fair sharing
+	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
 )
 
 func init() {
@@ -243,6 +249,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AdmissionFairSharing: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
