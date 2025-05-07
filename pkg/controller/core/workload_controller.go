@@ -583,16 +583,9 @@ func (r *WorkloadReconciler) waitForPodsReadyRequeueInc(wl *kueue.Workload, reas
 	if requeue == nil {
 		requeue = &kueue.WaitForPodsReadyRequeue{Reason: reason}
 	}
-
-	var report bool
-	if requeue.Count == 0 {
-		report = true
-	}
-
+	report := requeue.Count == 0
 	requeue.Count++
-
 	workload.SetWaitForPodsReadyRequeue(wl, *requeue)
-
 	return report
 }
 
