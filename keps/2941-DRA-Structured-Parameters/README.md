@@ -182,11 +182,11 @@ effective tallying of resources will not be available until after allocation of 
 In order to mitigate this risk, Kueue can take the following approach:
 1. For DRAPrioritizedLists: all the mentioned device classes in the request will be counted against the quota
 2. For DRAAdminAccess: This feature can only be enabled in admin namespace, therefore it should be skipped for being 
-   counted against ClusterQuota. This is a different stance that Kubernetes ResourceQuota because kubernetes ResourceQuota is
-   namespace scoped. As a result, admin users can account for quota independent of user workloads. On contrary, with 
+   counted against ClusterQuota. This is a different stance than Kubernetes ResourceQuota because kubernetes ResourceQuota is
+   namespace scoped. As a result, admin users can account for quota independent of user workloads. On the contrary, with 
    Kueue, since quota is part of ClusterQuota a cluster scoped object, admin workloads using devices in admin namespace
    if counted against quota, will eat up quota meant for user workloads.
-3. For ResourceClaims with allocation mode all: worse case scenario of the max number of devices that could allocated 
+3. For ResourceClaims with allocation mode `All`: worst-case scenario of the max number of devices that could allocated 
    to a single claim will be used against quota.
 
 
@@ -197,20 +197,20 @@ In order to mitigate this risk, Kueue can take the following approach:
 ```golang
 type ResourceQuota struct {
     // kind is used to configure if this is for a DRA Device. Its value will be DeviceClass.
-    // +featureGate=DynamicResourceStructuredParameters
+    // +featureGate=KueueDynamicResourceAllocation
     Kind *string `json:"kind,omitempty"`
     
     // deviceClassNames lists the names of all the device classes that will count against
     // the quota defined in this resource quota object.
     // +listType=atomic
     // +optional
-    // +featureGate=DynamicResourceStructuredParameters
+    // +featureGate=KueueDynamicResourceAllocation
     DeviceClassNames []corev1.ResourceName `json:"deviceClassNames,omitempty"`
 }
 ```
 
 Kind field in ResourceQuota allows Kueue to distinguish between a Core resource and a DeviceClass. When the value of kind
-field is configured to be DeviceField, the `name` becomes a canonical name of the collection of resources that can be 
+field is configured to be DeviceClass, the `name` becomes a canonical name of the collection of resources that can be 
 provisioned for each device class present in `deviceClassNames` field.
 
 
@@ -241,6 +241,7 @@ spec:
         - "ts-shared.gpu.example.com"
         - "sp-shared.gpu.example.com"
         nominalQuota: 2
+        kind: "DeviceClass"
 ```
 
 The above ClusterQueue is an example configuration of a queue, with half quota configured for single allocation of example
@@ -253,13 +254,14 @@ configured in Kueue without any modifications.
 When a user submits a workload and KueueDynamicResourceAllocation feature gate is on, Kueue will do the following:
 
 1. Claims will be read from resources.claims in the PodTemplateSpec.
-2. ResourceClaimSpec will be looked up either by using
-   1. The name of the ResourceClaimTemplate or
-   2. The name of the ResourceClaim
+2. ResourceClaimSpec will be looked up either by using:
+     1. the name of the ResourceClaimTemplate or
+     2. the name of the ResourceClaim
+   
    Both ResourceClaimTemplate or ResourceClaim will be in the same namespace as the workload.
 3. From the ResourceClaimSpec, the deviceClassName will be read.
 4. Every claim, deviceClassName for each request will be looked at 
-   1. For the workload a deviceClassMap will be created, which is map of deviceClass -> cannonical name in cluster queue
+   1. For the workload a deviceClassMap will be created, which is map of deviceClass -> canonical name in cluster queue
    2. for each device class the canonical quota name will be looked up and resource will be counted against it.
 
 ```yaml
@@ -284,13 +286,13 @@ spec:
         args: ["export; sleep 9999"]
         resources:
           claims:
-          - name: gpu. #a) read the claim from resources.claims
+          - name: gpu. #1) read the claim from resources.claims
           requests:
             cpu: 1
             memory: "200Mi"
       resourceClaims:
-      - name: gpu # b) use the name in resources.claim
-        resourceClaimTemplateName: single-gpu # c) the name for resource claim templates 
+      - name: gpu # use the name from read from #1
+        resourceClaimTemplateName: single-gpu # 2.i) the name for resource claim templates 
 ---
 apiVersion: resource.k8s.io/v1alpha3
 kind: ResourceClaimTemplate
@@ -302,7 +304,27 @@ spec:
     devices:
       requests:
       - name: gpu
-        deviceClassName: gpu.example.com # d) the name of the device class
+        deviceClassName: gpu.example.com # 3) the name of the device class
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  resourceGroups:
+    - coveredResources: ["cpu", "memory", "single-gpus"]
+      flavors:
+        - name: "default-flavor"
+          resources:
+            - name: "cpu"
+              nominalQuota: 9
+            - name: "memory"
+              nominalQuota: "200Mi"
+            - name: "single-gpu"    #4.ii) lookup the cannonical name of the collection of deviceClassNames and count quota against it
+              deviceClassNames: ["gpu.example.com"]
+              nominalQuota: 2
+              kind: "DeviceClass"
 ```
 <!--
 This section should contain enough information that the specifics of your
@@ -388,7 +410,7 @@ need to rely on a cluster-scope resource.
 
 DRA drivers publish resources for each node, which could be used as a mechanism for counting resources. However, in DRA
 implementation, ResourceSlices are used for driver/scheduler communication. The only way users can request dynamic 
-resources is via ResourceClaims. ResourceClaims does not have the notion of what devices will be allocated apriori. 
+resources is via ResourceClaims. ResourceClaims does not have the notion of what devices will be allocated a priori. 
 
 Enforcing quota requires two inputs, 1) user request and 2) system usages. With using ResourceSlice, the first requirement 
 is missing.
