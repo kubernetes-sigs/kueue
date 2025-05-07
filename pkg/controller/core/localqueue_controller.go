@@ -73,9 +73,7 @@ type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
 
 func WithAdmissionFairSharingConfig(cfg *config.AdmissionFairSharing) LocalQueueReconcilerOption {
 	return func(o *LocalQueueReconcilerOptions) {
-		if cfg != nil {
-			o.admissionFSConfig = cfg
-		}
+		o.admissionFSConfig = cfg
 	}
 }
 

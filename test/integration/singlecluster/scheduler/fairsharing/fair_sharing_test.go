@@ -452,13 +452,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wlA := createWorkload("lq-a", "32")
 			wlB := createWorkload("lq-b", "32")
 
-			ginkgo.By("Finish the previous workload", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
-					util.FinishWorkloads(ctx, k8sClient, wl)
-					updatedCQ := &kueue.ClusterQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCQ)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			ginkgo.By("Finish the previous workload")
+			util.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("Admitting the workload from LQ-b, which has lower recent usage")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)

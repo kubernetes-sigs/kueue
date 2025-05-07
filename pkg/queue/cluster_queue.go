@@ -33,6 +33,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -91,8 +92,8 @@ func workloadKey(i *workload.Info) string {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, fsConfig *config.AdmissionFairSharing) (*ClusterQueue, error) {
-	enableAdmissionFs, fsResWeights := afsResourceWeights(cq, fsConfig)
+func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing) (*ClusterQueue, error) {
+	enableAdmissionFs, fsResWeights := afsResourceWeights(cq, afsConfig)
 	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs)
 	err := cqImpl.Update(cq)
 	if err != nil {
@@ -101,11 +102,11 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func afsResourceWeights(cq *kueue.ClusterQueue, fsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
+func afsResourceWeights(cq *kueue.ClusterQueue, afsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
+	if afsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing && features.Enabled(features.AdmissionFairSharing) {
 		enableAdmissionFs = true
-		fsResWeights = fsConfig.ResourceWeights
+		fsResWeights = afsConfig.ResourceWeights
 	}
 	return enableAdmissionFs, fsResWeights
 }
@@ -441,9 +442,9 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 			lqBUsage, errB := b.LqUsage(ctx, c, fsResWeights)
 			switch {
 			case errA != nil:
-				log.V(3).Error(errA, "Error fetching LocalQueue from informer")
+				log.V(2).Error(errA, "Error determining LocalQueue usage")
 			case errB != nil:
-				log.V(3).Error(errB, "Error fetching LocalQueue from informer")
+				log.V(2).Error(errB, "Error determining LocalQueue usage")
 			default:
 				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", a.Obj.Spec.QueueName, "Usage", lqAUsage)
 				log.V(3).Info("Resource usage from LocalQueue", "LocalQueue", b.Obj.Spec.QueueName, "Usage", lqBUsage)
