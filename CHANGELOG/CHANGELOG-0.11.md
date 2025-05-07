@@ -44,6 +44,9 @@ Changes since `v0.11.2`:
 
 ## v0.11.2
 
+IMPORTANT: Avoid using this release due to the corrupted [Topology CRD specification](https://github.com/kubernetes-sigs/kueue/issues/4850).
+When upgrading to the newer version please reinstall Kueue. If you are not using TopologyAwareScheduling the upgrading is not urgent.
+
 Changes since `v0.11.1`:
 
 ## Changes by Kind
@@ -58,6 +61,9 @@ Changes since `v0.11.1`:
 
 ## v0.11.1
 
+IMPORTANT: Avoid using this release due to the corrupted [Topology CRD specification](https://github.com/kubernetes-sigs/kueue/issues/4850).
+When upgrading to the newer version please reinstall Kueue. If you are not using TopologyAwareScheduling the upgrading is not urgent.
+
 Changes since `v0.11.0`:
 
 ## Changes by Kind
@@ -68,6 +74,9 @@ Changes since `v0.11.0`:
 - Fixed bug that doesn't allow to use WorkloadPriorityClass on LeaderWorkerSet. (#4725, @mbobrovskyi)
 
 ## v0.11.0
+
+IMPORTANT: Avoid using this release due to the corrupted [Topology CRD specification](https://github.com/kubernetes-sigs/kueue/issues/4850).
+When upgrading to the newer version please reinstall Kueue. If you are not using TopologyAwareScheduling the upgrading is not urgent.
 
 Changes since `0.10.0`:
 
