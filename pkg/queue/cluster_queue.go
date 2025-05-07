@@ -92,7 +92,7 @@ func workloadKey(i *workload.Info) string {
 }
 
 func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, fsConfig *config.AdmissionFairSharing) (*ClusterQueue, error) {
-	enableAdmissionFs, fsResWeights := isAdmissionFsEnabled(cq, fsConfig)
+	enableAdmissionFs, fsResWeights := afsResourceWeights(cq, fsConfig)
 	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs)
 	err := cqImpl.Update(cq)
 	if err != nil {
@@ -101,7 +101,7 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func isAdmissionFsEnabled(cq *kueue.ClusterQueue, fsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
+func afsResourceWeights(cq *kueue.ClusterQueue, fsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
 	if fsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
 		enableAdmissionFs = true
@@ -184,6 +184,8 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 }
 
 func (c *ClusterQueue) Heapify(lqName string) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	for _, wl := range c.heap.List() {
 		if string(wl.Obj.Spec.QueueName) == lqName {
 			c.heap.PushOrUpdate(wl)

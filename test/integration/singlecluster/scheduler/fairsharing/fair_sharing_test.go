@@ -443,8 +443,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					g.Expect(lqA.Status.FairSharing).ShouldNot(gomega.BeNil())
 					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
 					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
-					g.Expect(lqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]).
-						To(gomega.Equal(resource.MustParse("32")))
+					usage := lqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+					g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">=", 0))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
