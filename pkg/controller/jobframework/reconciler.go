@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +77,10 @@ var (
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
 )
 
+type WorkloadRetentionPolicy struct {
+	AfterDeactivatedByKueue *time.Duration
+}
+
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
 	client                       client.Client
@@ -85,6 +90,7 @@ type JobReconciler struct {
 	waitForPodsReady             bool
 	labelKeysToCopy              []string
 	clock                        clock.Clock
+	workloadRetentionPolicy      WorkloadRetentionPolicy
 }
 
 type Options struct {
@@ -100,6 +106,7 @@ type Options struct {
 	Queues                       *queue.Manager
 	Cache                        *cache.Cache
 	Clock                        clock.Clock
+	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 }
 
 // Option configures the reconciler.
@@ -211,6 +218,15 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 	}
 }
 
+// WithObjectRetentionPolicies sets DeactivationRetentionPeriod policy.
+func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Option {
+	return func(o *Options) {
+		if value != nil && value.Workloads != nil && value.Workloads.AfterDeactivatedByKueue != nil {
+			o.WorkloadRetentionPolicy.AfterDeactivatedByKueue = &value.Workloads.AfterDeactivatedByKueue.Duration
+		}
+	}
+}
+
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
@@ -229,6 +245,7 @@ func NewReconciler(
 		waitForPodsReady:             options.WaitForPodsReady,
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
+		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 	}
 }
 
@@ -517,6 +534,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				}
 			}
 		}
+		if features.Enabled(features.ObjectRetentionPolicies) {
+			requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
+			return ctrl.Result{RequeueAfter: requeueAfter}, err
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -572,6 +593,40 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func shouldHandleDeletionOfDeactivatedWorkload(afterDeactivatedByKueue *time.Duration, wl *kueue.Workload) bool {
+	return afterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+}
+
+func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
+	if !shouldHandleDeletionOfDeactivatedWorkload(r.workloadRetentionPolicy.AfterDeactivatedByKueue, wl) {
+		return 0, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+	requeueAfter := evCond.LastTransitionTime.Add(*r.workloadRetentionPolicy.AfterDeactivatedByKueue).Sub(r.clock.Now())
+
+	if requeueAfter <= 0 {
+		object := job.Object()
+		log.V(2).Info(
+			"Deleting job: deactivation retention period expired",
+			"retention", *r.workloadRetentionPolicy.AfterDeactivatedByKueue,
+		)
+		if err := r.client.Delete(ctx, object, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			return 0, client.IgnoreNotFound(err)
+		}
+		r.record.Event(object, corev1.EventTypeNormal, ReasonDeleted,
+			"Deleted job: deactivation retention period expired")
+		if err := r.finalizeJob(ctx, job); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+
+	log.V(3).Info("Requeuing job for deletion", "requeueAfter", requeueAfter)
+	return requeueAfter, nil
 }
 
 func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job GenericJob) {

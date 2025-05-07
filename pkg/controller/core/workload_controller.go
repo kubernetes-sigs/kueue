@@ -687,7 +687,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
-			log.V(2).Info("Workload will not be queued because the workload is not active", "workload", klog.KObj(e.ObjectNew))
+			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(e.ObjectNew)
