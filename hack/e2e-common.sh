@@ -246,27 +246,15 @@ function restore_managers_image {
 
 function determine_kuberay_ray_image {
     local RAY_IMAGE=rayproject/ray:${RAY_VERSION}
-    local RAY_IMAGE_ARM=rayproject/ray:${RAY_VERSION}-aarch64
     local RAYMINI_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAYMINI_VERSION}
-    local RAYMINI_IMAGE_ARM=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAYMINI_VERSION}-aarch64
 
     # Extra e2e images required for Kuberay
-    local unamestr=""
     local ray_image_to_use=""
 
-    unamestr=$(uname)
     if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
-        if [[ "$unamestr" == "Linux" ]]; then
-            ray_image_to_use="${RAY_IMAGE}"
-        elif [[ "$unamestr" == "Darwin" ]]; then
-            ray_image_to_use="${RAY_IMAGE_ARM}"
-        fi
+        ray_image_to_use="${RAY_IMAGE}"
     else
-        if [[ "$unamestr" == "Linux" ]]; then
-            ray_image_to_use="${RAYMINI_IMAGE}"
-        elif [[ "$unamestr" == "Darwin" ]]; then
-            ray_image_to_use="${RAYMINI_IMAGE_ARM}"
-        fi
+        ray_image_to_use="${RAYMINI_IMAGE}"
     fi
 
     if [[ -z "$ray_image_to_use" ]]; then
