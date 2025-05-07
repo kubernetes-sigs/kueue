@@ -169,9 +169,8 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	} else {
-		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if r.admissionFSConfig != nil {

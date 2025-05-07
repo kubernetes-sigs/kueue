@@ -485,7 +485,7 @@ type AdmissionFairSharing struct {
 	// Defaults to 5min.
 	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
 
-	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue/ClusterQueue/Cohort's
+	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
 	// resource usage and order Workloads.
 	// Defaults to 1.
 	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`

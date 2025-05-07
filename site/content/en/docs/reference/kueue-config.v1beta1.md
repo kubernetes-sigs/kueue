@@ -48,7 +48,7 @@ Defaults to 5min.</p>
 <code>map[ResourceName]float64</code>
 </td>
 <td>
-   <p>resourceWeights assigns weights to resources which then are used to calculate LocalQueue/ClusterQueue/Cohort's
+   <p>resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
 resource usage and order Workloads.
 Defaults to 1.</p>
 </td>
