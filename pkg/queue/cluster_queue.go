@@ -435,7 +435,6 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // time.
 func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool) func(a, b *workload.Info) bool {
 	log := ctrl.LoggerFrom(ctx)
-
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
 			lqAUsage, errA := a.LqUsage(ctx, c, fsResWeights)

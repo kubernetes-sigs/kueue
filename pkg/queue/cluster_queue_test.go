@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -1104,6 +1105,7 @@ func TestFsAdmission(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 			builder := utiltesting.NewClientBuilder()
 			for _, lq := range tc.lqs {
 				builder = builder.WithObjects(&lq)
