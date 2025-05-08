@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		worker2Cq = utiltesting.MakeClusterQueue("q1").Obj()
 		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
-		util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker1Cq)
+		util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 		util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
