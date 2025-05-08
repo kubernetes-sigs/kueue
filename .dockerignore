@@ -1,3 +1,11 @@
+# assorted source directories not built with dockerfile
+site
+charts
+keps
+examples
+.github
+.openvex
+
 # Below matches .gitignore
 
 # Binaries for programs and plugins
