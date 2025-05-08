@@ -626,11 +626,6 @@ const (
   // annotation is set when starting the Job, and removed on stopping the Job.
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
-  // PodSetLabel is a label set on the Job's PodTemplate to indicate the name
-  // of the PodSet of the admitted Workload corresponding to the PodTemplate.
-  // The label is set when starting the Job, and removed on stopping the Job.
-  PodSetLabel = "kueue.x-k8s.io/podset"
-
   // TASLabel is a label set on the Job's PodTemplate to indicate that the
   // PodSet is admitted using TopologyAwareScheduling, and all Pods created
   // from the Job's PodTemplate also have the label.
@@ -729,9 +724,13 @@ reconciler which lists all pods for a given TAS PodSet, and ensures that the
 pods in the expected number are un-gated to a given value.
 
 Along with the scheduling gate, to each pod template the
-`kueue.x-k8s.io/workload` and `kueue.x-k8s.io/podset` labels / annotations are
+`kueue.x-k8s.io/workload` label / annotation is
 added to facilitate quick lookup (List request) for all pods corresponding to
 the workload (and more specifically PodSetAssignment) by `TopologyAssigner`.
+
+The `kueue.x-k8s.io/podset` is the label that was extracted and moved to general usage regardless of TAS feature.
+This label serves as a link between the Job's PodTemplate and the name of the PodSet associated with the admitted Workload.
+Also it is indication of the Job in progress as it is added when it starts and it is removed when it's stopped.
 
 The TopologyUngater watches for pod events which trigger the reconciliation
 loop. The reconciliations are batched by 1s periods to make sure multiple

@@ -35,6 +35,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -325,6 +326,8 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				NodeLabel(rayv1.HeadNode, controllerconsts.PodSetLabel, "head").
+				NodeLabel(rayv1.WorkerNode, controllerconsts.PodSetLabel, "workers-group-0").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test", "ns").
@@ -387,6 +390,7 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
+							Labels(map[string]string{controllerconsts.PodSetLabel: "head"}).
 							Obj(),
 						*utiltesting.MakePodSet("workers-group-0", 1).
 							PodSpec(corev1.PodSpec{
@@ -397,6 +401,7 @@ func TestReconciler(t *testing.T) {
 										Obj(),
 								},
 							}).
+							Labels(map[string]string{controllerconsts.PodSetLabel: "workers-group-0"}).
 							Obj(),
 					).
 					ReserveQuota(
@@ -541,6 +546,8 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				WithNumOfHosts("workers-group-0", 2).
+				NodeLabel(rayv1.HeadNode, controllerconsts.PodSetLabel, "head").
+				NodeLabel(rayv1.WorkerNode, controllerconsts.PodSetLabel, "workers-group-0").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test", "ns").
