@@ -17,8 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -43,7 +41,6 @@ import (
 const (
 	serviceAccountName           = "kueue-controller-manager"
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
-	metricsServiceName           = "kueue-controller-manager-metrics-service"
 )
 
 var _ = ginkgo.Describe("Metrics", func() {
@@ -88,14 +85,10 @@ var _ = ginkgo.Describe("Metrics", func() {
 		util.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdPod := &corev1.Pod{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(curlPod), createdPod)).To(gomega.Succeed())
-				g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-
-				curlContainerName = createdPod.Spec.Containers[0].Name
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			util.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
+
+		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.AfterEach(func() {
@@ -179,7 +172,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that default metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -213,7 +206,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, deletedMetrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
 			})
 
 			notDeletedMetrics := [][]string{
@@ -227,7 +220,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, notDeletedMetrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
 			})
 		})
 	})
@@ -316,7 +309,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that admission check metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -326,7 +319,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			})
 
 			ginkgo.By("checking that admission check metrics are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
@@ -536,7 +529,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that eviction and preemption metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("delete the cluster queue", func() {
@@ -551,39 +544,8 @@ var _ = ginkgo.Describe("Metrics", func() {
 			})
 
 			ginkgo.By("checking that eviction and preemption metrics are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
 })
-
-func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, config.DefaultNamespace, curlPodName, curlContainerName,
-		[]string{
-			"/bin/sh", "-c",
-			fmt.Sprintf(
-				"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics ",
-				metricsServiceName, config.DefaultNamespace,
-			),
-		})
-
-	return metricsOutput, err
-}
-
-func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-
-		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
-}
-
-func expectMetricsNotToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-
-		g.Expect(string(metricsOutput)).Should(utiltesting.ExcludeMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
-}
