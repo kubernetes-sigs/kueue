@@ -87,10 +87,10 @@ const (
 	ProvisioningRequestPodSetUpdateTypeNodeSelector ProvisioningRequestPodSetUpdateType = "NodeSelector"
 
 	// This type indicates this is PodSetUpdate for Annotations.
-	ProvisioningRequestPodSetUpdateTypeAnnotations ProvisioningRequestPodSetUpdateType = "Annotations"
+	ProvisioningRequestPodSetUpdateTypeAnnotation ProvisioningRequestPodSetUpdateType = "Annotation"
 
 	// This type indicates this is PodSetUpdate for Labels.
-	ProvisioningRequestPodSetUpdateTypeLabels ProvisioningRequestPodSetUpdateType = "Labels"
+	ProvisioningRequestPodSetUpdateTypeLabel ProvisioningRequestPodSetUpdateType = "Label"
 )
 
 type ProvisioningRequestPodSetUpdate struct {
@@ -98,7 +98,7 @@ type ProvisioningRequestPodSetUpdate struct {
 	// are used to target the provisioned nodes.
 	//
 	// +required
-	// +kubebuilder:validation:Enum={NodeSelector,Annotations,Labels}
+	// +kubebuilder:validation:Enum={NodeSelector,Annotation,Label}
 	Type ProvisioningRequestPodSetUpdateType `json:"type,omitempty"`
 
 	// key specifies the key or the PodSetUpdate.

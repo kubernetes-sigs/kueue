@@ -2143,8 +2143,71 @@ backoffMaxSeconds:  1800 - 30 mins</p>
 set retryStrategy.backoffLimitCount to 0.</p>
 </td>
 </tr>
+<tr><td><code>podSetUpdates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate"><code>[]ProvisioningRequestPodSetUpdate</code></a>
+</td>
+<td>
+   <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
+are used to target the provisioned nodes.</p>
+</td>
+</tr>
 </tbody>
 </table>
+
+## `ProvisioningRequestPodSetUpdate`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>type</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdateType"><code>ProvisioningRequestPodSetUpdateType</code></a>
+</td>
+<td>
+   <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
+are used to target the provisioned nodes.</p>
+</td>
+</tr>
+<tr><td><code>key</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>key specifies the key or the PodSetUpdate.</p>
+</td>
+</tr>
+<tr><td><code>valueFromDetail</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>valueFromDetail specifies the key of the
+ProvisioningRequest.status.provisioningClassDetails from which the value
+is used for the update.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdateType`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdateType}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ProvisioningRequestPodSetUpdate](#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate)
+
+
+<p>ProvisioningRequestPodSetUpdateType specifies the type of the PodSetUpdate</p>
+
+
+
 
 ## `ProvisioningRequestRetryStrategy`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestRetryStrategy}
     

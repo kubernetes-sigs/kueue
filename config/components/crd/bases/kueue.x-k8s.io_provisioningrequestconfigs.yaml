@@ -83,8 +83,8 @@ spec:
                         are used to target the provisioned nodes.
                       enum:
                       - NodeSelector
-                      - Annotations
-                      - Labels
+                      - Annotation
+                      - Label
                       type: string
                     valueFromDetail:
                       description: |-

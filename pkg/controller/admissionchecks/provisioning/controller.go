@@ -643,9 +643,9 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc 
 			key := *prcPsUpdate.Key
 			valueStr := string(value)
 			switch prcPsUpdate.Type {
-			case kueue.ProvisioningRequestPodSetUpdateTypeAnnotations:
+			case kueue.ProvisioningRequestPodSetUpdateTypeAnnotation:
 				podSetUpdate.Annotations[key] = valueStr
-			case kueue.ProvisioningRequestPodSetUpdateTypeLabels:
+			case kueue.ProvisioningRequestPodSetUpdateTypeLabel:
 				podSetUpdate.Labels[key] = valueStr
 			case kueue.ProvisioningRequestPodSetUpdateTypeNodeSelector:
 				podSetUpdate.NodeSelector[key] = valueStr
