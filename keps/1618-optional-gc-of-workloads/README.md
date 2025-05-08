@@ -178,7 +178,7 @@ type WorkloadRetentionPolicy struct {
     // A nil value disables automatic deletion.
     // Represented using metav1.Duration (e.g. "10m", "1h30m").
     // +optional
-    AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivated,omitempty"`
+    AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivatedByKueue,omitempty"`
 }
 ```
 
