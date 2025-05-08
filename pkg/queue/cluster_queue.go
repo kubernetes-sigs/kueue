@@ -437,8 +437,8 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
-			lqAUsage, errA := a.LqUsage(ctx, c, fsResWeights)
-			lqBUsage, errB := b.LqUsage(ctx, c, fsResWeights)
+			lqAUsage, errA := a.LocalQueueUsage(ctx, c, fsResWeights)
+			lqBUsage, errB := b.LocalQueueUsage(ctx, c, fsResWeights)
 			switch {
 			case errA != nil:
 				log.V(2).Error(errA, "Error determining LocalQueue usage")

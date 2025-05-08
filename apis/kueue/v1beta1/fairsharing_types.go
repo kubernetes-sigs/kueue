@@ -55,6 +55,7 @@ type FairSharingStatus struct {
 	WeightedShare int64 `json:"weightedShare"`
 
 	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
+	// +optional
 	AdmissionFairSharingStatus *AdmissionFairSharingStatus `json:"admissionFairSharingStatus,omitempty"`
 }
 
@@ -62,14 +63,22 @@ type AdmissionFairSharingStatus struct {
 	// ConsumedResources represents the aggregated usage of resources over time,
 	// with decaying function applied.
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
-	ConsumedResources corev1.ResourceList `json:"consumedResources,omitempty"`
+	// +required
+	ConsumedResources corev1.ResourceList `json:"consumedResources"`
 
 	// LastUpdate is the time when share and consumed resources were updated.
-	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
+	// +required
+	LastUpdate metav1.Time `json:"lastUpdate"`
 }
 
 type AdmissionScope struct {
-	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
+	// AdmissionMode indicates which mode for AdmissionFairSharing should be used
+	// in the AdmissionScope. Possible values are:
+	// - UsageBasedAdmissionFairSharing
+	// - NoAdmissionFairSharing
+	//
+	// +required
+	AdmissionMode AdmissionMode `json:"admissionMode"`
 }
 
 type AdmissionMode string

@@ -479,10 +479,12 @@ type FairSharing struct {
 type AdmissionFairSharing struct {
 	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
 	// If set to 0, usage will be reset to 0 immediately.
-	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime,omitempty"`
+	// +required
+	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime"`
 
 	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
 	// Defaults to 5min.
+	// +optional
 	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
 
 	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue's

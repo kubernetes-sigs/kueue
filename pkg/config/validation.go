@@ -58,6 +58,7 @@ var (
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                    = field.NewPath("multiKueue")
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath            = field.NewPath("admissionFairSharing", "resourceWeights")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
 	queueVisibilityPath               = field.NewPath("queueVisibility")
 	resourceTransformationPath        = field.NewPath("resources", "transformations")
@@ -70,6 +71,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
+	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
@@ -294,6 +296,30 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		}
 		if !validStrategy {
 			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
+		}
+	}
+	return allErrs
+}
+
+func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
+	afs := c.AdmissionFairSharing
+	if afs == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+
+	if afs.UsageHalfLifeTime.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("usageHalfLifeTime"),
+			afs.UsageHalfLifeTime, apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	if afs.UsageSamplingInterval.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("usageSamplingInterval"),
+			afs.UsageHalfLifeTime, "must be greater than 0"))
+	}
+	for resName, weight := range afs.ResourceWeights {
+		if weight < 0 {
+			allErrs = append(allErrs, field.Invalid(afsResourceWeightsPath.Key(string(resName)),
+				afs.ResourceWeights, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 	}
 	return allErrs
