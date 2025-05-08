@@ -15,7 +15,8 @@ COPY . .
 # Build
 RUN make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
-FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
+# final image, implicitly --platform=${TARGETPLATFORM}
+FROM ${BASE_IMAGE}
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
 USER 65532:65532
