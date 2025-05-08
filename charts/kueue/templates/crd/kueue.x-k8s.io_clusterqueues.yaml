@@ -120,7 +120,14 @@ spec:
                   Admission Fair Sharing
                 properties:
                   admissionMode:
+                    description: |-
+                      AdmissionMode indicates which mode for AdmissionFairSharing should be used
+                      in the AdmissionScope. Possible values are:
+                      - UsageBasedAdmissionFairSharing
+                      - NoAdmissionFairSharing
                     type: string
+                required:
+                - admissionMode
                 type: object
               cohort:
                 description: |-
@@ -618,6 +625,9 @@ spec:
                           resources were updated.
                         format: date-time
                         type: string
+                    required:
+                    - consumedResources
+                    - lastUpdate
                     type: object
                   weightedShare:
                     description: |-
