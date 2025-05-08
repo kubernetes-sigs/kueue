@@ -13,6 +13,9 @@ approvers:
   - "@alculquicondor"
   - "@tenzen-y"
 
+see-also:
+  - "/keps/1136-provisioning-request-support"
+
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
 
