@@ -179,11 +179,11 @@ vet: ## Run go vet against code.
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	$(GOLANGCI_LINT) run --timeout 15m0s
+	find . -path ./site -prune -o -name go.mod -execdir $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml" \;
 
 .PHONY: lint-fix
-lint-fix: golangci-lint
-	$(GOLANGCI_LINT) run --fix --timeout 15m0s
+lint-fix: GOLANGCI_LINT_FIX=--fix
+lint-fix: ci-lint
 
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.

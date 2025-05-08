@@ -109,7 +109,6 @@ func fetchClusterQueues(dynamicClient dynamic.Interface) ([]map[string]any, erro
 
 // Fetch details for a specific cluster queue
 func fetchClusterQueueDetails(dynamicClient dynamic.Interface, clusterQueueName string) (map[string]any, error) {
-
 	// Fetch the specific ClusterQueue
 	clusterQueue, err := dynamicClient.Resource(ClusterQueuesGVR()).Get(context.TODO(), clusterQueueName, metav1.GetOptions{})
 	if err != nil {
