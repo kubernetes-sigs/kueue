@@ -67,7 +67,6 @@ func fetchLocalQueues(dynamicClient dynamic.Interface) (any, error) {
 
 // Fetch details for a specific local queue
 func fetchLocalQueueDetails(dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
-
 	result, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(context.TODO(), queueName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching details for local queue %s: %v", queueName, err)
