@@ -26,6 +26,7 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
+HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
@@ -239,9 +240,9 @@ image-push: image-build
 helm-chart-push: yq helm
 	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
 
-# Build an amd64 image that can be used for Kind E2E tests.
+# Build an image just for the host architecture that can be used for Kind E2E tests.
 .PHONY: kind-image-build
-kind-image-build: PLATFORMS=linux/amd64
+kind-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
 kind-image-build: kind image-build
 
@@ -353,7 +354,7 @@ importer-image-push: importer-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer image
 .PHONY: importer-image
-importer-image: PLATFORMS=linux/amd64
+importer-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
@@ -383,7 +384,7 @@ kueueviz-image-push: kueueviz-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
 .PHONY: kueueviz-image
-kueueviz-image: VIZ_PLATFORMS=linux/amd64
+kueueviz-image: VIZ_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
 
@@ -414,6 +415,6 @@ ray-project-mini-image-build:
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
-kind-ray-project-mini-image-build: PLATFORMS=linux/amd64
+kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
