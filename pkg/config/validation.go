@@ -59,6 +59,7 @@ var (
 	multiKueuePath                    = field.NewPath("multiKueue")
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
 	afsResourceWeightsPath            = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                           = field.NewPath("admissionFairSharing")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
 	queueVisibilityPath               = field.NewPath("queueVisibility")
 	resourceTransformationPath        = field.NewPath("resources", "transformations")
@@ -309,11 +310,11 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
 	if afs.UsageHalfLifeTime.Duration < 0 {
-		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("usageHalfLifeTime"),
+		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageHalfLifeTime"),
 			afs.UsageHalfLifeTime, apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	if afs.UsageSamplingInterval.Duration <= 0 {
-		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("usageSamplingInterval"),
+		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageSamplingInterval"),
 			afs.UsageHalfLifeTime, "must be greater than 0"))
 	}
 	for resName, weight := range afs.ResourceWeights {
