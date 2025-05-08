@@ -18,7 +18,7 @@ RUN make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARG
 # final image, implicitly --platform=${TARGETPLATFORM}
 FROM ${BASE_IMAGE}
 WORKDIR /
-COPY --from=builder /workspace/bin/manager .
+COPY --from=builder /workspace/bin/manager /manager
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
