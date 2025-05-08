@@ -17,6 +17,7 @@
       - [JobSet](#jobset)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
+    - [Provisioning request and required mode](#provisioning-request-and-required-mode)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Non-exclusive use of nodes](#non-exclusive-use-of-nodes)
     - [Node topology changes](#node-topology-changes)
@@ -275,6 +276,23 @@ nodeSelector to match for "block1" on admission. Then, kube-scheduler binds the
 Pods to "rack1" and "rack2". In the meanwhile, there is "workload2" admitted,
 requiring "rack". It gets assigned to "rack1", but cannot be scheduled since the
 nodes of "rack1" are already in use.
+
+#### Provisioning request and required mode
+
+When using [ProvisioningRequest with TAS](#support-for-provisioningrequests)
+the newly provisioned nodes may or may not respect the topology requested in the
+TAS "required" annotations.
+
+For example, a user may request Kueue to schedule Pods on a single rack with the
+"kueue.x-k8s.io/podset-required-topology: rack" annotation, but the cloud
+provider may or may not have support for such "compact placement" provisioning
+of nodes. If the newly created nodes are scattered across racks, then TAS will
+fail to schedule the workload.
+
+However, the workload will not get stuck forever. After a while (10min by default)
+the BookingExpired condition is added by ClusterAutoscaler, which in turn will
+result in releasing quota for the workload and retrying. After a couple of
+retries the workload will get deactivated.
 
 ### Risks and Mitigations
 
@@ -958,6 +976,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
+- add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
 
 #### Stable
 
