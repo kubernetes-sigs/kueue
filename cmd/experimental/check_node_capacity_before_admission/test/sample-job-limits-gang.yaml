@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-gang-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
+        args: ["120s"] # Adjust runtime as needed
+        resources:
+          requests:
+            cpu: 2       # Each pod requests 2 CPUs
+            memory: "1Gi" # Each pod requests 1Gi memory
+          limits:
+            cpu: 2       # Limit the pod to 2 CPUs
+            memory: "1Gi" # Limit the pod to 1Gi memory
+      restartPolicy: Never
