@@ -60,13 +60,25 @@ func NewFilteredTopologyInformer(client versioned.Interface, resyncPeriod time.D
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().Topologies().List(context.TODO(), options)
+				return client.KueueV1alpha1().Topologies().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().Topologies().Watch(context.TODO(), options)
+				return client.KueueV1alpha1().Topologies().Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1alpha1().Topologies().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1alpha1().Topologies().Watch(ctx, options)
 			},
 		},
 		&apiskueuev1alpha1.Topology{},
