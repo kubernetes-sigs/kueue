@@ -46,36 +46,6 @@ function startup {
     fi
 }
 
-function kind_load {
-    prepare_docker_images
-
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
-	      cluster_kind_load "$KIND_CLUSTER_NAME"
-    fi
-
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
-        install_appwrapper "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
-        install_jobset "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
-        install_kubeflow "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
-        install_mpi "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
-        install_lws "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
-        install_kuberay "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-        install_cert_manager "$KIND_CLUSTER_NAME"
-    fi
-}
-
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
     cluster_kueue_deploy "$KIND_CLUSTER_NAME"
@@ -83,7 +53,8 @@ function kueue_deploy {
 
 trap cleanup EXIT
 startup
-kind_load
+prepare_docker_images
+kind_load "$KIND_CLUSTER_NAME"
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then

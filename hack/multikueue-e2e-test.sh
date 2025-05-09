@@ -42,7 +42,6 @@ function cleanup {
     restore_managers_image
 }
 
-
 function startup {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
@@ -66,45 +65,6 @@ function startup {
     fi
 }
 
-function kind_load {
-    prepare_docker_images
-
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
-    then
-        cluster_kind_load "$MANAGER_KIND_CLUSTER_NAME"
-        cluster_kind_load "$WORKER1_KIND_CLUSTER_NAME"
-        cluster_kind_load "$WORKER2_KIND_CLUSTER_NAME"
-    fi
-
-    # JOBSET SETUP
-    install_jobset "$MANAGER_KIND_CLUSTER_NAME"
-    install_jobset "$WORKER1_KIND_CLUSTER_NAME"
-    install_jobset "$WORKER2_KIND_CLUSTER_NAME"
-
-    # APPWRAPPER SETUP
-    install_appwrapper "$MANAGER_KIND_CLUSTER_NAME"
-    install_appwrapper "$WORKER1_KIND_CLUSTER_NAME"
-    install_appwrapper "$WORKER2_KIND_CLUSTER_NAME"
-
-    # KUBEFLOW SETUP
-    # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
-    # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
-    # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
-    install_kubeflow "$MANAGER_KIND_CLUSTER_NAME"
-    install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"
-    install_kubeflow "$WORKER2_KIND_CLUSTER_NAME"
-    
-    ## MPI
-    install_mpi "$MANAGER_KIND_CLUSTER_NAME"
-    install_mpi "$WORKER1_KIND_CLUSTER_NAME"
-    install_mpi "$WORKER2_KIND_CLUSTER_NAME"
-
-    ## KUBERAY
-    install_kuberay "$MANAGER_KIND_CLUSTER_NAME"
-    install_kuberay "$WORKER1_KIND_CLUSTER_NAME"
-    install_kuberay "$WORKER2_KIND_CLUSTER_NAME"
-}
-
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
 
@@ -115,7 +75,11 @@ function kueue_deploy {
 
 trap cleanup EXIT
 startup
-kind_load
+prepare_docker_images
+kind_load "$MANAGER_KIND_CLUSTER_NAME" &
+kind_load "$WORKER1_KIND_CLUSTER_NAME" &
+kind_load "$WORKER2_KIND_CLUSTER_NAME" &
+wait
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then

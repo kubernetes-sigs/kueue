@@ -129,6 +129,38 @@ function cluster_kind_load {
 }
 
 # $1 cluster
+function kind_load {
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
+	      cluster_kind_load "$1"
+    fi
+
+    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+        install_appwrapper "$1"
+    fi
+    if [[ -n ${JOBSET_VERSION:-} ]]; then
+        install_jobset "$1"
+    fi
+    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+        # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
+        # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
+        # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
+        install_kubeflow "$1"
+    fi
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+        install_mpi "$1"
+    fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        install_lws "$1"
+    fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        install_kuberay "$1"
+    fi
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+        install_cert_manager "$1"
+    fi
+}
+
+# $1 cluster
 # $2 image
 function cluster_kind_load_image {
     # check if the command to get worker nodes could succeeded
