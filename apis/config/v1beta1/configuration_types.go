@@ -483,7 +483,7 @@ type AdmissionFairSharing struct {
 
 	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
 	// Defaults to 5min.
-	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval,omitempty"`
+	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval"`
 
 	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
 	// resource usage and order Workloads.
