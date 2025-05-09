@@ -510,7 +510,6 @@ const (
 	WorkloadRequeued = "Requeued"
 
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
-	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
 )
 
