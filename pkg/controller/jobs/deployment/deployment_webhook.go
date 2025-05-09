@@ -126,7 +126,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
 	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldDeployment.Object(), newDeployment.Object())...)
 
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.

@@ -143,10 +143,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	if oldStatefulSet.Status.ReadyReplicas > 0 || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-		oldStatefulSet.Object(),
-		newStatefulSet.Object(),
-	)...)
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
