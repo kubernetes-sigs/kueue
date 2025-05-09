@@ -407,12 +407,9 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:   "workloadPriorityClassName is immutable",
+			name:   "workloadPriorityClassName is mutable",
 			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
 			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			},
 		},
 		{
 			name: "immutable prebuilt workload ",
