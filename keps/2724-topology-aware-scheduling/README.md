@@ -300,11 +300,11 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-A more involving approach would be to recompute the TopologyAdmission, however,
-until now we don't modify the workload's admission while the workload is
-scheduled, so it would require extra investigation and effort. We will consider
-this before graduation to GA based on investigation if feasible and feedback
-from users.
+We also propose to recompute the TopologyAdmission upon node removal and/or 
+failure, to find matching replacements for missing nodes. If such no such 
+replacement exists, the workload has to be evicted and rescheduled again.
+This mechanism requires kueue to keep track of any failed or missing nodes 
+affecting the scheduled TAS workloads. 
 
 #### Race condition when accounting for DaemonSet pods
 
@@ -636,6 +636,18 @@ const (
   // from the Job's PodTemplate also have the label.
   TASLabel = "kueue.x-k8s.io/tas"
 )
+```
+
+```golang
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+  ...
+  // nodesToReplace lists the names of failed nodes running pods associated 
+  // with this workload. This field is populated by the node failure controller.
+  // +optional
+  // +listType=set
+  NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
 ```
 
 The above API does not support [Story 2](#story-2). We will defer the support
