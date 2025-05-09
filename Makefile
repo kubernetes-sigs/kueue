@@ -418,3 +418,5 @@ ray-project-mini-image-build:
 kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
+
+# pushed mal code
