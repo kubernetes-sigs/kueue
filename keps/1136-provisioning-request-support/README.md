@@ -193,6 +193,33 @@ type ProvisioningRequestConfigSpec struct {
 	// +optional
 	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+
+	// podSetUpdates specifies the update of the workload's PodSetUpdates which
+	// are used to target the provisioned nodes.
+	//
+	// +optional
+	PodSetUpdates *ProvisioningRequestPodSetUpdates `json:"podSetUpdates,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdates struct {
+	// nodeSelector specifies the list of updates for the NodeSelector.
+	//
+	// +optional
+	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdatesNodeSelector struct {
+	// key specifies the key for the NodeSelector.
+	//
+	//  +required
+	Key string `json:"key"`
+
+	// ValueFromProvisioningClassDetail specifies the key of the
+	// ProvisioningRequest.status.provisioningClassDetails from which the value
+	// is used for the update.
+	//
+	// +required
+	ValueFromProvisioningClassDetail string `json:"ValueFromProvisioningClassDetail"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
