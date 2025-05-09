@@ -61,15 +61,21 @@ func (a *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
+		if psResult.TopologyAssignment != nil && psAssignment.DelayedTopologyRequest != nil {
+			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
+		}
 	}
-	a.Usage.TAS = a.computeTASUsage()
+	a.Usage.TAS = a.ComputeTASNetUsage(nil)
 }
 
-// TASUsage computes the TAS usage for the assignment
-func (a *Assignment) computeTASUsage() workload.TASUsage {
+// ComputeTASNetUsage computes the net TAS usage for the assignment
+func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
-	for _, psa := range a.PodSets {
+	for i, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
+			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
+				continue
+			}
 			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
 			for _, flv := range psa.Flavors {
 				if _, ok := result[flv.Name]; !ok {
@@ -218,7 +224,8 @@ type PodSetAssignment struct {
 	Requests corev1.ResourceList
 	Count    int32
 
-	TopologyAssignment *kueue.TopologyAssignment
+	TopologyAssignment     *kueue.TopologyAssignment
+	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -267,11 +274,12 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		flavors[res] = flvAssignment.Name
 	}
 	return kueue.PodSetAssignment{
-		Name:               psa.Name,
-		Flavors:            flavors,
-		ResourceUsage:      psa.Requests,
-		Count:              ptr.To(psa.Count),
-		TopologyAssignment: psa.TopologyAssignment.DeepCopy(),
+		Name:                   psa.Name,
+		Flavors:                flavors,
+		ResourceUsage:          psa.Requests,
+		Count:                  ptr.To(psa.Count),
+		TopologyAssignment:     psa.TopologyAssignment.DeepCopy(),
+		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }
 
@@ -412,6 +420,22 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
 			Requests: podSet.Requests.ToResourceList(),
 			Count:    podSet.Count,
+		}
+
+		if features.Enabled(features.TopologyAwareScheduling) {
+			// Respect preexisting assignments.
+			for resName, fName := range podSet.Flavors {
+				psAssignment.Flavors[resName] = &FlavorAssignment{
+					Name: fName,
+					Mode: Fit,
+				}
+			}
+			if podSet.DelayedTopologyRequest != nil {
+				psAssignment.DelayedTopologyRequest = ptr.To(*podSet.DelayedTopologyRequest)
+			}
+			if podSet.TopologyRequest != nil {
+				psAssignment.TopologyAssignment = a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment
+			}
 		}
 
 		for resName := range podSet.Requests {
