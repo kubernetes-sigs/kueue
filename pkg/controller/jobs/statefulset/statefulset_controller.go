@@ -25,6 +25,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -33,7 +34,7 @@ var (
 )
 
 const (
-	FrameworkName = "statefulset"
+	FrameworkName = configapi.StatefulSet
 )
 
 func init() {
@@ -43,8 +44,8 @@ func init() {
 		SetupWebhook:   SetupWebhook,
 		JobType:        &appsv1.StatefulSet{},
 		AddToScheme:    appsv1.AddToScheme,
-		DependencyList: []string{"pod"},
 		GVK:            gvk,
+		DependencyList: []configapi.IntegrationReference{configapi.Pod},
 	}))
 }
 

@@ -537,6 +537,18 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </tbody>
 </table>
 
+## `IntegrationReference`     {#IntegrationReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Integrations](#Integrations)
+
+
+
+
+
 ## `Integrations`     {#Integrations}
     
 
@@ -551,7 +563,7 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
     
   
 <tr><td><code>frameworks</code> <B>[Required]</B><br/>
-<code>[]string</code>
+<a href="#IntegrationReference"><code>[]IntegrationReference</code></a>
 </td>
 <td>
    <p>List of framework names to be enabled.

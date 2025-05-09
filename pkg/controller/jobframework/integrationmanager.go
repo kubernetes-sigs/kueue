@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"sync"
 	"testing"
 
@@ -34,6 +33,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 var (
@@ -80,7 +81,7 @@ type IntegrationCallbacks struct {
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
-	DependencyList []string
+	DependencyList []configapi.IntegrationReference
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -99,18 +100,18 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 }
 
 type integrationManager struct {
-	names                []string
-	integrations         map[string]IntegrationCallbacks
-	enabledIntegrations  set.Set[string]
+	names                []configapi.IntegrationReference
+	integrations         map[configapi.IntegrationReference]IntegrationCallbacks
+	enabledIntegrations  set.Set[configapi.IntegrationReference]
 	externalIntegrations map[string]runtime.Object
 	mu                   sync.RWMutex
 }
 
 var manager integrationManager
 
-func (m *integrationManager) register(name string, cb IntegrationCallbacks) error {
+func (m *integrationManager) register(name configapi.IntegrationReference, cb IntegrationCallbacks) error {
 	if m.integrations == nil {
-		m.integrations = make(map[string]IntegrationCallbacks)
+		m.integrations = make(map[configapi.IntegrationReference]IntegrationCallbacks)
 	}
 	if _, exists := m.integrations[name]; exists {
 		return fmt.Errorf("%w %q", errDuplicateFrameworkName, name)
@@ -156,7 +157,7 @@ func (m *integrationManager) registerExternal(kindArg string) error {
 	return nil
 }
 
-func (m *integrationManager) forEach(f func(name string, cb IntegrationCallbacks) error) error {
+func (m *integrationManager) forEach(f func(name configapi.IntegrationReference, cb IntegrationCallbacks) error) error {
 	for _, name := range m.names {
 		if err := f(name, m.integrations[name]); err != nil {
 			return err
@@ -165,7 +166,7 @@ func (m *integrationManager) forEach(f func(name string, cb IntegrationCallbacks
 	return nil
 }
 
-func (m *integrationManager) get(name string) (IntegrationCallbacks, bool) {
+func (m *integrationManager) get(name configapi.IntegrationReference) (IntegrationCallbacks, bool) {
 	cb, f := m.integrations[name]
 	return cb, f
 }
@@ -175,13 +176,13 @@ func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) 
 	return jt, f
 }
 
-func (m *integrationManager) getEnabledIntegrations() set.Set[string] {
+func (m *integrationManager) getEnabledIntegrations() set.Set[configapi.IntegrationReference] {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.enabledIntegrations.Clone()
 }
 
-func (m *integrationManager) enableIntegration(name string) {
+func (m *integrationManager) enableIntegration(name configapi.IntegrationReference) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.enabledIntegrations == nil {
@@ -191,10 +192,10 @@ func (m *integrationManager) enableIntegration(name string) {
 	}
 }
 
-func (m *integrationManager) getList() []string {
-	ret := make([]string, len(m.names))
+func (m *integrationManager) getList() []configapi.IntegrationReference {
+	ret := make([]configapi.IntegrationReference, len(m.names))
 	copy(ret, m.names)
-	sort.Strings(ret)
+	slices.Sort(ret)
 	return ret
 }
 
@@ -214,7 +215,7 @@ func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference)
 	return nil
 }
 
-func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
+func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[configapi.IntegrationReference]) error {
 	enabled := enabledSet.UnsortedList()
 	slices.Sort(enabled)
 	for _, integration := range enabled {
@@ -250,7 +251,7 @@ func (m *integrationManager) isOwnerIntegrationEnabled(ownerRef *metav1.OwnerRef
 // RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name or if a
 // mandatory callback is missing.
-func RegisterIntegration(name string, cb IntegrationCallbacks) error {
+func RegisterIntegration(name configapi.IntegrationReference, cb IntegrationCallbacks) error {
 	return manager.register(name, cb)
 }
 
@@ -262,18 +263,18 @@ func RegisterExternalJobType(kindArg string) error {
 
 // ForEachIntegration loops through the registered list of frameworks calling f,
 // if at any point f returns an error the loop is stopped and that error is returned.
-func ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) error {
+func ForEachIntegration(f func(name configapi.IntegrationReference, cb IntegrationCallbacks) error) error {
 	return manager.forEach(f)
 }
 
 // EnableIntegration marks the integration identified by name as enabled.
-func EnableIntegration(name string) {
+func EnableIntegration(name configapi.IntegrationReference) {
 	manager.enableIntegration(name)
 }
 
 // EnableIntegrationsForTest - should be used only in tests
 // Mark the frameworks identified by names and return a revert function.
-func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
+func EnableIntegrationsForTest(tb testing.TB, names ...configapi.IntegrationReference) func() {
 	tb.Helper()
 	old := manager.getEnabledIntegrations()
 	for _, name := range names {
@@ -288,7 +289,7 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 
 // GetIntegration looks-up the framework identified by name in the currently registered
 // list of frameworks returning its callbacks and true if found.
-func GetIntegration(name string) (IntegrationCallbacks, bool) {
+func GetIntegration(name configapi.IntegrationReference) (IntegrationCallbacks, bool) {
 	return manager.get(name)
 }
 
@@ -310,7 +311,7 @@ func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.Group
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.
-func GetIntegrationsList() []string {
+func GetIntegrationsList() []configapi.IntegrationReference {
 	return manager.getList()
 }
 
@@ -341,9 +342,9 @@ func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 // GetMultiKueueAdapters returns the map containing the MultiKueue adapters for the
 // registered and enabled integrations.
 // An error is returned if more then one adapter is registers for one object type.
-func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]MultiKueueAdapter, error) {
+func GetMultiKueueAdapters(enabledIntegrations sets.Set[configapi.IntegrationReference]) (map[string]MultiKueueAdapter, error) {
 	ret := map[string]MultiKueueAdapter{}
-	if err := manager.forEach(func(intName string, cb IntegrationCallbacks) error {
+	if err := manager.forEach(func(intName configapi.IntegrationReference, cb IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && enabledIntegrations.Has(intName) {
 			gvk := cb.MultiKueueAdapter.GVK().String()
 			if _, found := ret[gvk]; found {

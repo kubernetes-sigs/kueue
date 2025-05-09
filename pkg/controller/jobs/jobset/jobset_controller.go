@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -40,7 +41,7 @@ import (
 
 var (
 	gvk           = jobsetapi.GroupVersion.WithKind("JobSet")
-	FrameworkName = "jobset.x-k8s.io/jobset"
+	FrameworkName = configapi.JobSet
 )
 
 func init() {

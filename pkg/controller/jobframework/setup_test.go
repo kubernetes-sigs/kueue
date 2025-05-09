@@ -39,13 +39,14 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSetupControllers(t *testing.T) {
-	availableIntegrations := map[string]IntegrationCallbacks{
+	availableIntegrations := map[configapi.IntegrationReference]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
@@ -85,11 +86,11 @@ func TestSetupControllers(t *testing.T) {
 		mapperGVKs              []schema.GroupVersionKind
 		delayedGVKs             []*schema.GroupVersionKind
 		wantError               error
-		wantEnabledIntegrations []string
+		wantEnabledIntegrations []configapi.IntegrationReference
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"}),
 				WithEnabledExternalFrameworks([]string{
 					"Foo.v1.example.com",
 					"Bar.v2.example.com",
@@ -99,20 +100,20 @@ func TestSetupControllers(t *testing.T) {
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 				kfmpi.SchemeGroupVersionKind,
 			},
-			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"},
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 			},
-			wantEnabledIntegrations: []string{"batch/job"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job"},
 		},
 		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
@@ -122,7 +123,7 @@ func TestSetupControllers(t *testing.T) {
 			delayedGVKs: []*schema.GroupVersionKind{
 				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
 			},
-			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			wantEnabledIntegrations: []configapi.IntegrationReference{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
 		},
 	}
 	for name, tc := range cases {
@@ -171,7 +172,7 @@ func TestSetupControllers(t *testing.T) {
 			if len(tc.delayedGVKs) > 0 {
 				simulateDelayedIntegration(mgr, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
-					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
+					testDelayedIntegration(&manager, configapi.IntegrationReference(gvk.Group+"/"+strings.ToLower(gvk.Kind)))
 				}
 			}
 
@@ -205,7 +206,7 @@ func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.Group
 	}
 }
 
-func testDelayedIntegration(manager *integrationManager, crdName string) {
+func testDelayedIntegration(manager *integrationManager, crdName configapi.IntegrationReference) {
 	for {
 		_, ok := manager.getEnabledIntegrations()[crdName]
 		if ok {
@@ -236,7 +237,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job"}),
 			},
 			filter:        client.MatchingFields{GetOwnerKey(batchv1.SchemeGroupVersion.WithKind("Job")): "alpha"},
 			wantWorkloads: []string{"alpha-wl"},
@@ -251,7 +252,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks([]string{"batch/job"}),
+				WithEnabledFrameworks([]configapi.IntegrationReference{"batch/job"}),
 			},
 			filter:                client.MatchingFields{GetOwnerKey(kfmpi.SchemeGroupVersionKind): "alpha"},
 			wantFieldMatcherError: true,

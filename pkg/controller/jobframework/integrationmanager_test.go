@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 type testReconciler struct{}
@@ -83,36 +85,36 @@ var (
 func TestRegister(t *testing.T) {
 	cases := map[string]struct {
 		manager              *integrationManager
-		integrationName      string
+		integrationName      configapi.IntegrationReference
 		integrationCallbacks IntegrationCallbacks
 		wantError            error
-		wantList             []string
+		wantList             []configapi.IntegrationReference
 		wantCallbacks        IntegrationCallbacks
 	}{
 		"successful": {
 			manager: &integrationManager{
-				names: []string{"oldFramework"},
-				integrations: map[string]IntegrationCallbacks{
+				names: []configapi.IntegrationReference{"oldFramework"},
+				integrations: map[configapi.IntegrationReference]IntegrationCallbacks{
 					"oldFramework": testIntegrationCallbacks,
 				},
 			},
 			integrationName:      "newFramework",
 			integrationCallbacks: testIntegrationCallbacks,
 			wantError:            nil,
-			wantList:             []string{"newFramework", "oldFramework"},
+			wantList:             []configapi.IntegrationReference{"newFramework", "oldFramework"},
 			wantCallbacks:        testIntegrationCallbacks,
 		},
 		"duplicate name": {
 			manager: &integrationManager{
-				names: []string{"newFramework"},
-				integrations: map[string]IntegrationCallbacks{
+				names: []configapi.IntegrationReference{"newFramework"},
+				integrations: map[configapi.IntegrationReference]IntegrationCallbacks{
 					"newFramework": testIntegrationCallbacks,
 				},
 			},
 			integrationName:      "newFramework",
 			integrationCallbacks: IntegrationCallbacks{},
 			wantError:            errDuplicateFrameworkName,
-			wantList:             []string{"newFramework"},
+			wantList:             []configapi.IntegrationReference{"newFramework"},
 			wantCallbacks:        testIntegrationCallbacks,
 		},
 		"missing NewReconciler": {
@@ -126,7 +128,7 @@ func TestRegister(t *testing.T) {
 				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: errMissingMandatoryField,
-			wantList:  []string{},
+			wantList:  []configapi.IntegrationReference{},
 		},
 		"missing SetupWebhook": {
 			manager:         &integrationManager{},
@@ -139,7 +141,7 @@ func TestRegister(t *testing.T) {
 				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: errMissingMandatoryField,
-			wantList:  []string{},
+			wantList:  []configapi.IntegrationReference{},
 		},
 		"missing JobType": {
 			manager:         &integrationManager{},
@@ -152,7 +154,7 @@ func TestRegister(t *testing.T) {
 				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: errMissingMandatoryField,
-			wantList:  []string{},
+			wantList:  []configapi.IntegrationReference{},
 		},
 		"missing SetupIndexes": {
 			manager:         &integrationManager{},
@@ -165,7 +167,7 @@ func TestRegister(t *testing.T) {
 				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: nil,
-			wantList:  []string{"newFramework"},
+			wantList:  []configapi.IntegrationReference{"newFramework"},
 			wantCallbacks: IntegrationCallbacks{
 				NewReconciler: testNewReconciler,
 				SetupWebhook:  testSetupWebhook,
@@ -184,7 +186,7 @@ func TestRegister(t *testing.T) {
 				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: nil,
-			wantList:  []string{"newFramework"},
+			wantList:  []configapi.IntegrationReference{"newFramework"},
 			wantCallbacks: IntegrationCallbacks{
 				NewReconciler: testNewReconciler,
 				SetupWebhook:  testSetupWebhook,
@@ -203,7 +205,7 @@ func TestRegister(t *testing.T) {
 				SetupIndexes:  testSetupIndexes,
 			},
 			wantError: nil,
-			wantList:  []string{"newFramework"},
+			wantList:  []configapi.IntegrationReference{"newFramework"},
 			wantCallbacks: IntegrationCallbacks{
 				NewReconciler: testNewReconciler,
 				AddToScheme:   testAddToScheme,
@@ -262,8 +264,8 @@ func TestRegisterExternal(t *testing.T) {
 	}{
 		"successful 1": {
 			manager: &integrationManager{
-				names: []string{"oldFramework"},
-				integrations: map[string]IntegrationCallbacks{
+				names: []configapi.IntegrationReference{"oldFramework"},
+				integrations: map[configapi.IntegrationReference]IntegrationCallbacks{
 					"oldFramework": testIntegrationCallbacks,
 				},
 			},
@@ -308,19 +310,19 @@ func TestRegisterExternal(t *testing.T) {
 func TestForEach(t *testing.T) {
 	foeEachError := errors.New("test error")
 	cases := map[string]struct {
-		registered []string
+		registered []configapi.IntegrationReference
 		errorOn    string
 		wantCalls  []string
 		wantError  error
 	}{
 		"all": {
-			registered: []string{"a", "b", "c", "d", "e"},
+			registered: []configapi.IntegrationReference{"a", "b", "c", "d", "e"},
 			errorOn:    "",
 			wantCalls:  []string{"a", "b", "c", "d", "e"},
 			wantError:  nil,
 		},
 		"partial": {
-			registered: []string{"a", "b", "c", "d", "e"},
+			registered: []configapi.IntegrationReference{"a", "b", "c", "d", "e"},
 			errorOn:    "c",
 			wantCalls:  []string{"a", "b", "c"},
 			wantError:  foeEachError,
@@ -337,9 +339,9 @@ func TestForEach(t *testing.T) {
 			}
 
 			gotCalls := []string{}
-			gotError := manager.forEach(func(name string, cb IntegrationCallbacks) error {
-				gotCalls = append(gotCalls, name)
-				if name == tc.errorOn {
+			gotError := manager.forEach(func(name configapi.IntegrationReference, cb IntegrationCallbacks) error {
+				gotCalls = append(gotCalls, string(name))
+				if name == configapi.IntegrationReference(tc.errorOn) {
 					return foeEachError
 				}
 				return nil
@@ -386,8 +388,8 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	}()
 
 	mgr := integrationManager{
-		names: []string{"manageK1", "dontManage", "manageK2", "disabledK4"},
-		integrations: map[string]IntegrationCallbacks{
+		names: []configapi.IntegrationReference{"manageK1", "dontManage", "manageK2", "disabledK4"},
+		integrations: map[configapi.IntegrationReference]IntegrationCallbacks{
 			"dontManage": dontManage,
 			"manageK1":   manageK1,
 			"manageK2":   manageK2,
@@ -449,45 +451,45 @@ func TestGetJobTypeForOwner(t *testing.T) {
 
 func TestEnabledIntegrationsDependencies(t *testing.T) {
 	cases := map[string]struct {
-		integrationsDependencies map[string][]string
-		enabled                  []string
+		integrationsDependencies map[configapi.IntegrationReference][]configapi.IntegrationReference
+		enabled                  []configapi.IntegrationReference
 		wantError                error
 	}{
 		"empty": {},
 		"not found": {
-			enabled:   []string{"i1"},
+			enabled:   []configapi.IntegrationReference{"i1"},
 			wantError: errIntegrationNotFound,
 		},
 		"dependecncy not enabled": {
-			integrationsDependencies: map[string][]string{
+			integrationsDependencies: map[configapi.IntegrationReference][]configapi.IntegrationReference{
 				"i1": {"i2"},
 			},
-			enabled:   []string{"i1"},
+			enabled:   []configapi.IntegrationReference{"i1"},
 			wantError: errDependencyIntegrationNotEnabled,
 		},
 		"dependecncy not found": {
-			integrationsDependencies: map[string][]string{
+			integrationsDependencies: map[configapi.IntegrationReference][]configapi.IntegrationReference{
 				"i1": {"i2"},
 			},
-			enabled:   []string{"i1", "i2"},
+			enabled:   []configapi.IntegrationReference{"i1", "i2"},
 			wantError: errIntegrationNotFound,
 		},
 		"no error": {
-			integrationsDependencies: map[string][]string{
+			integrationsDependencies: map[configapi.IntegrationReference][]configapi.IntegrationReference{
 				"i1": {"i2", "i3"},
 				"i2": {"i3"},
 				"i3": nil,
 			},
-			enabled: []string{"i1", "i2", "i3"},
+			enabled: []configapi.IntegrationReference{"i1", "i2", "i3"},
 		},
 	}
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
 			manager := integrationManager{
-				integrations: map[string]IntegrationCallbacks{},
+				integrations: map[configapi.IntegrationReference]IntegrationCallbacks{},
 			}
-			for inegration, deps := range tc.integrationsDependencies {
-				manager.integrations[inegration] = IntegrationCallbacks{
+			for integration, deps := range tc.integrationsDependencies {
+				manager.integrations[integration] = IntegrationCallbacks{
 					DependencyList: deps,
 				}
 			}
@@ -524,8 +526,8 @@ func TestOwnerFrameworkEnabledChecks(t *testing.T) {
 	}()
 
 	mgr := integrationManager{
-		names: []string{"dontManage", "manageK1", "disabledK3"},
-		integrations: map[string]IntegrationCallbacks{
+		names: []configapi.IntegrationReference{"manageK1", "dontManage", "manageK2", "disabledK4"},
+		integrations: map[configapi.IntegrationReference]IntegrationCallbacks{
 			"dontManage": dontManage,
 			"manageK1":   manageK1,
 			"disabledK3": disabledK3,
