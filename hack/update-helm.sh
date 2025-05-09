@@ -111,6 +111,7 @@ add_webhook_line=$(
   cat <<'EOF'
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
 {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
+{{- $reinvocationPolicy := .Values.webhook.reinvocationPolicy }}
 EOF
 )
 add_annotations_line=$(
@@ -141,6 +142,7 @@ add_webhook_pod_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_pod_validate=$(
@@ -184,6 +186,7 @@ add_webhook_deployment_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_deployment_validate=$(
@@ -226,6 +229,7 @@ add_webhook_statefulset_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_statefulset_validate=$(
