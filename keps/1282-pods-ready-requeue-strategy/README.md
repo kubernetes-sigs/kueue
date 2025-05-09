@@ -36,7 +36,7 @@
 
 ## Summary
 
-Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being after being evicted due to readiness checks.
+Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being evicted due to readiness checks.
 
 ## Motivation
 
@@ -175,7 +175,7 @@ const (
 
 #### Workload
 
-Add a new field, "requeueState", to the Workload to allow recording the following items: 
+Add a new field, "requeueState", to the WorkloadStatus to allow recording the following items: 
 
 1. the number of times a workload is re-queued
 2. when the workload was re-queued or will be re-queued
@@ -205,6 +205,47 @@ type RequeueState struct {
 	//
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+}
+```
+
+Add a new field `evictionStats` to the WorkloadStatus struct to track the number of evictions by type and reason:
+
+```go
+type WorkloadStatus struct {
+	// evictionStats tracks eviction statistics by type and reason.
+    //
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    // +patchStrategy=merge
+    // +patchMergeKey=type
+    EvictionStats []Eviction `json:"evictionStats,omitempty"`
+}
+
+type Eviction struct {
+    // type identifies the eviction type.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
+    // +kubebuilder:validation:MaxLength=316
+    Type string `json:"type"`
+    
+    // reason specifies the programmatic identifier for the eviction cause.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MaxLength=1024
+    // +kubebuilder:validation:MinLength=1
+    // +kubebuilder:validation:Pattern=`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`
+    Reason string `json:"reason"`
+    
+    // count tracks the number of evictions for this type and reason.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:Minimum=0
+    Count int32 `json:"count"`
 }
 ```
 
