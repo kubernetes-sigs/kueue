@@ -72,3 +72,6 @@ integrations:
 #    outputs:
 #      example.com/accelerator-memory: 5Gi
 #      example.com/accelerator-gpc: 4
+#objectRetentionPolicies:
+#  workloads:
+#    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all

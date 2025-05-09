@@ -358,6 +358,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
+		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 	}
 	if cfg.Integrations.PodOptions != nil {
 		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))

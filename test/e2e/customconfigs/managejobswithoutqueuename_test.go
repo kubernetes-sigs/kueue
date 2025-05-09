@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -92,7 +93,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 			ginkgo.By("setting local queue defulting as false", func() {
 				updateKueueConfiguration(func(cfg *config.Configuration) {
-					cfg.FeatureGates = map[string]bool{"LocalQueueDefaulting": false}
+					cfg.FeatureGates = map[string]bool{string(features.LocalQueueDefaulting): false}
 					cfg.ManageJobsWithoutQueueName = true
 				})
 			})

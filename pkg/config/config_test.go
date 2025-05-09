@@ -328,6 +328,17 @@ webhook:
 		t.Fatal(err)
 	}
 
+	objectRetentionPoliciesConfig := filepath.Join(tmpDir, "objectRetentionPolicies.yaml")
+	if err := os.WriteFile(objectRetentionPoliciesConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+objectRetentionPolicies:
+  workloads: 
+    afterDeactivatedByKueue: 30m
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -930,6 +941,30 @@ webhook:
 				errors.New("unknown field \"invalidField\""),
 				errors.New("unknown field \"namespaces\""),
 			}),
+		},
+		{
+			name:       "objectRetentionPolicies config",
+			configFile: objectRetentionPoliciesConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName:   false,
+				InternalCertManagement:       enableDefaultInternalCertManagement,
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
+					},
+				},
+			},
+			wantOptions: defaultControlOptions,
 		},
 	}
 

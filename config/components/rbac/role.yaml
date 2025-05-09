@@ -111,6 +111,7 @@ rules:
   resources:
   - jobs
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -144,6 +145,7 @@ rules:
   resources:
   - jobsets
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -173,6 +175,7 @@ rules:
   - tfjobs
   - xgboostjobs
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -293,6 +296,7 @@ rules:
   - rayclusters
   - rayjobs
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -328,6 +332,7 @@ rules:
   resources:
   - appwrappers
   verbs:
+  - delete
   - get
   - list
   - patch

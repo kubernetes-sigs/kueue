@@ -257,6 +257,14 @@ with passing the list of features via the command line argument &quot;--feature-
 for the Kueue Deployment.</p>
 </td>
 </tr>
+<tr><td><code>objectRetentionPolicies</code><br/>
+<a href="#ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
+</td>
+<td>
+   <p>ObjectRetentionPolicies provides configuration options for automatic deletion
+of Kueue-managed objects. A nil value disables all automatic deletions.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -702,6 +710,32 @@ if the connection with its reserving worker cluster is lost.</p>
 </tbody>
 </table>
 
+## `ObjectRetentionPolicies`     {#ObjectRetentionPolicies}
+    
+
+**Appears in:**
+
+
+
+<p>ObjectRetentionPolicies holds retention settings for different object types.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>workloads</code><br/>
+<a href="#WorkloadRetentionPolicy"><code>WorkloadRetentionPolicy</code></a>
+</td>
+<td>
+   <p>Workloads configures retention for Workloads.
+A nil value disables automatic deletion of Workloads.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `PodIntegrationOptions`     {#PodIntegrationOptions}
     
 
@@ -1000,6 +1034,40 @@ is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
 If not set, there is no timeout.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WorkloadRetentionPolicy`     {#WorkloadRetentionPolicy}
+    
+
+**Appears in:**
+
+- [ObjectRetentionPolicies](#ObjectRetentionPolicies)
+
+
+<p>WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>afterDeactivatedByKueue</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AfterDeactivatedByKueue is the duration to wait after <em>any</em> Kueue-managed Workload
+(such as a Job, JobSet, or other custom workload types) has been marked
+as deactivated by Kueue before automatically deleting it.
+Deletion of deactivated workloads may cascade to objects not created by
+Kueue, since deleting the parent Workload owner (e.g. JobSet) can trigger
+garbage-collection of dependent resources.
+A duration of 0 will delete immediately.
+A nil value disables automatic deletion.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
 </td>
 </tr>
 </tbody>

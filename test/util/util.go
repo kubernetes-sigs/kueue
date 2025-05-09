@@ -1047,3 +1047,13 @@ func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, 
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 	g.Expect(hasOwnerRef).To(gomega.BeTrue())
 }
+
+func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, wl)).To(gomega.Succeed())
+		wl.Spec.Active = ptr.To(false)
+		g.Expect(c.Update(ctx, wl)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
