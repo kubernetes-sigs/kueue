@@ -211,20 +211,18 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	for iterator.hasNext() {
 		e := iterator.pop()
 
+		cq := snapshot.ClusterQueue(e.ClusterQueue)
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
+		if cq != nil && cq.HasParent() {
+			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
+		}
+		ctx := ctrl.LoggerInto(ctx, log)
 
 		mode := e.assignment.RepresentativeMode()
 		if mode == flavorassigner.NoFit {
 			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 			continue
 		}
-
-		cq := snapshot.ClusterQueue(e.ClusterQueue)
-		if cq != nil && cq.HasParent() {
-			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
-		}
-		ctx := ctrl.LoggerInto(ctx, log)
-
 		log.V(2).Info("Attempting to schedule workload")
 
 		if mode == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
