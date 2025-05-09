@@ -53,13 +53,12 @@ const (
 )
 
 var (
-	annotationsPath               = field.NewPath("metadata", "annotations")
-	labelsPath                    = field.NewPath("metadata", "labels")
-	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	annotationsPath          = field.NewPath("metadata", "annotations")
+	labelsPath               = field.NewPath("metadata", "labels")
+	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath  = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	maxExecTimeLabelPath     = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	queueNameAnnotationsPath = annotationsPath.Key(constants.QueueAnnotation)
 )
 
 func TestValidateCreate(t *testing.T) {

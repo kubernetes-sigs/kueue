@@ -911,7 +911,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					g.Expect(createdUpdatablePriorityWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-
 		})
 	})
 

@@ -38,11 +38,6 @@ import (
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
-var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-)
-
 func TestValidateDefault(t *testing.T) {
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayCluster

@@ -557,7 +557,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// update workload priority if job's label changed
 		if wl.Spec.PriorityClassName != "" && WorkloadPriorityClassName(object) != wl.Spec.PriorityClassName {
 			log.V(2).Info("Job changed priority, updating workload")
-			wl, err = r.updateWorkloadToMatchJob(ctx, job, object, wl)
+			_, err = r.updateWorkloadToMatchJob(ctx, job, object, wl)
 			if err != nil {
 				log.Error(err, "Updating workload priority")
 				return ctrl.Result{}, err

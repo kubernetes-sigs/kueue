@@ -106,7 +106,6 @@ var _ webhook.CustomValidator = &Webhook{}
 var (
 	labelsPath               = field.NewPath("metadata", "labels")
 	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
-	priorityClassNamePath    = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	specPath                 = field.NewPath("spec")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")

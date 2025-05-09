@@ -310,7 +310,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 		})
 
 		ginkgo.It("Should allow updating the workload's priority through the job", func() {
-
 			lowPriority := "low-priority"
 			lowPriorityClass := testing.MakeWorkloadPriorityClass(lowPriority).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
