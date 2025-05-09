@@ -7,7 +7,7 @@ on:
 
 jobs:
     run-sync-hugo-version:
-        if: ${{ github.actor == 'dependabot[bot]' }}
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test') && github.actor == 'dependabot[bot]' }}
         runs-on: ubuntu-latest
 
         # Permission required to edit a PR
