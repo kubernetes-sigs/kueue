@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				util.MustCreate(ctx, k8sClient, lws)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				util.MustCreate(ctx, k8sClient, lws)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				util.MustCreate(ctx, k8sClient, lws)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-				ginkgo.By("Waiting for replicas is ready", func() {
+				ginkgo.By("Waiting for replicas to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("Waiting for replicas is ready", func() {
+				ginkgo.By("Waiting for replicas to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-				ginkgo.By("Waiting for replicas is ready", func() {
+				ginkgo.By("Waiting for replicas to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
@@ -362,7 +362,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("Waiting for replicas is ready", func() {
+				ginkgo.By("Waiting for replicas to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
@@ -527,7 +527,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-				ginkgo.By("Waiting for replicas is ready", func() {
+				ginkgo.By("Waiting for replicas to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
@@ -603,7 +603,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 
 			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
@@ -635,7 +635,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for replicas is ready again", func() {
+			ginkgo.By("Waiting for replicas to be ready again", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
@@ -720,7 +720,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				util.MustCreate(ctx, k8sClient, lowPriorityLWS)
 			})
 
-			ginkgo.By("Waiting for replicas is ready in low priority LeaderWorkerSet", func() {
+			ginkgo.By("Waiting for replicas to be ready in low priority LeaderWorkerSet", func() {
 				createdLowPriorityLWS := &leaderworkersetv1.LeaderWorkerSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityLWS), createdLowPriorityLWS)).To(gomega.Succeed())
