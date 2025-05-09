@@ -578,7 +578,7 @@ func (c *Controller) syncCheckStates(
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					// add the pod podSetUpdates
-					checkState.PodSetUpdates = podSetUpdates(wl, pr)
+					checkState.PodSetUpdates = podSetUpdates(wl, pr, prc)
 					// propagate the message from the provisioning request status into the workload
 					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -616,20 +616,42 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {
+func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
 	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
-		return kueue.PodSetUpdate{
+		podSetUpdate := kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				DeprecatedConsumesAnnotationKey:  pr.Name,
 				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
 				ConsumesAnnotationKey:            pr.Name,
 				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
+			Labels:       make(map[string]string),
+			NodeSelector: make(map[string]string),
 		}
+		for _, prcPsUpdate := range prc.Spec.PodSetUpdates {
+			if prcPsUpdate.ValueFromDetail == nil || prcPsUpdate.Key == nil {
+				continue
+			}
+			value, ok := pr.Status.ProvisioningClassDetails[*prcPsUpdate.ValueFromDetail]
+			if !ok {
+				continue
+			}
+			key := *prcPsUpdate.Key
+			valueStr := string(value)
+			switch prcPsUpdate.Type {
+			case kueue.ProvisioningRequestPodSetUpdateTypeAnnotation:
+				podSetUpdate.Annotations[key] = valueStr
+			case kueue.ProvisioningRequestPodSetUpdateTypeLabel:
+				podSetUpdate.Labels[key] = valueStr
+			case kueue.ProvisioningRequestPodSetUpdateTypeNodeSelector:
+				podSetUpdate.NodeSelector[key] = valueStr
+			}
+		}
+		return podSetUpdate
 	})
 }
 

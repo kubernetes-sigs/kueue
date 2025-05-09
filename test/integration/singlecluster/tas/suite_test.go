@@ -29,6 +29,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -58,6 +59,9 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{
+			util.AutoscalerCrds,
+		},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -88,6 +92,17 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	reconciler, err := provisioning.NewController(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))

@@ -217,7 +217,29 @@ type PodSetAssignment struct {
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
+
+	// delayedTopologyRequest indicates the topology assignment is delayed.
+	// Topology assignment might be delayed in case there is ProvisioningRequest
+	// AdmissionCheck used.
+	// Kueue schedules the second pass of scheduling for each workload with at
+	// least one PodSet which has delayedTopologyRequest=true and without
+	// topologyAssignment.
+	//
+	// +optional
+	DelayedTopologyRequest *DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
 }
+
+// DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
+// +enum
+type DelayedTopologyRequestState string
+
+const (
+	// This state indicates the delayed TopologyRequest is waiting for determining.
+	DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
+
+	// This state indicates the delayed TopologyRequest is was requested and completed.
+	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
+)
 
 type TopologyAssignment struct {
 	// levels is an ordered list of keys denoting the levels of the assigned

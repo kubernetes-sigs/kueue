@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -171,6 +172,9 @@ type PodSetResources struct {
 
 	// TopologyRequest specifies the requests for TAS
 	TopologyRequest *TopologyRequest
+
+	// DelayedTopologyRequest indicates if the state of the delayed TopologyRequest
+	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 
 	// Flavors are populated when the Workload is assigned.
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
@@ -464,6 +468,9 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				})
 			}
 		}
+		if features.Enabled(features.TopologyAwareScheduling) && psa.DelayedTopologyRequest != nil {
+			setRes.DelayedTopologyRequest = ptr.To(*psa.DelayedTopologyRequest)
+		}
 
 		// If countAfterReclaim is lower then the admission count indicates that
 		// additional pods are marked as reclaimable, and the consumption should be scaled down.
@@ -631,6 +638,27 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 	}
 }
 
+func NeedsSecondPass(w *kueue.Workload) bool {
+	return HasQuotaReservation(w) &&
+		HasAllChecksReady(w) &&
+		HasTopologyAssignmentsPending(w) &&
+		!IsAdmitted(w) &&
+		!IsFinished(w) &&
+		!IsEvicted(w)
+}
+
+func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
+	if w.Status.Admission == nil {
+		return false
+	}
+	for _, psa := range w.Status.Admission.PodSetAssignments {
+		if psa.TopologyAssignment == nil &&
+			utilptr.ValEquals(psa.DelayedTopologyRequest, kueue.DelayedTopologyRequestStatePending) {
+			return true
+		}
+	}
+	return false
+}
 func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:    kueue.WorkloadPreempted,

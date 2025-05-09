@@ -56,6 +56,8 @@ type ClusterQueueSnapshot struct {
 
 	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 	tasOnly    bool
+
+	hasProvRequestAdmissionCheck bool
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -222,6 +224,10 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 
 func (c *ClusterQueueSnapshot) IsTASOnly() bool {
 	return c.tasOnly
+}
+
+func (c *ClusterQueueSnapshot) HasProvRequestAdmissionCheck() bool {
+	return c.hasProvRequestAdmissionCheck
 }
 
 // Returns all ancestors starting with parent and ending with root
