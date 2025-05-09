@@ -301,7 +301,7 @@ transition to the `PodsReady=false`, more details in the
 will also be helpful for regular workloads.
 
 We also propose to recompute the TopologyAdmission upon node removal and/or 
-failure, to find matching replacements for missing nodes. If such no such 
+failure, to find matching replacements for missing nodes. If no such 
 replacement exists, the workload has to be evicted and rescheduled again.
 This mechanism requires kueue to keep track of any failed or missing nodes 
 affecting the scheduled TAS workloads. 
@@ -638,22 +638,27 @@ const (
 )
 ```
 
+The above API does not support [Story 2](#story-2). We will defer the support
+for [Beta](#beta). The initial approach for the design is left in the
+[Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
+section.
+
+#### Node failures
+We propose to extend `WorkloadStatus` to keep track if for a running workload, 
+any of the nodes require a replacement.
+
 ```golang
 // WorkloadStatus defines the observed state of Workload
 type WorkloadStatus struct {
   ...
-  // nodesToReplace lists the names of failed nodes running pods associated 
-  // with this workload. This field is populated by the node failure controller.
+  // nodesToReplace lists, for TAS workloads, the names of failed or missing 
+  // nodes running the pods associated with this workload. This field is 
+  // populated by the node failure controller.
   // +optional
   // +listType=set
   NodesToReplace []string `json:"nodesToReplace,omitempty"`
 }
 ```
-
-The above API does not support [Story 2](#story-2). We will defer the support
-for [Beta](#beta). The initial approach for the design is left in the
-[Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
-section.
 
 ### Implicit defaulting of TAS annotations
 
