@@ -797,7 +797,7 @@ const (
    // This state indicates the delayed TopologyRequest is waiting for determining.
    DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
 
-   // This state indicates the delayed TopologyRequest is was requested and completed.
+   // This state indicates the delayed TopologyRequest was requested and completed.
    DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
 

@@ -212,14 +212,14 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// key specifies the key for the NodeSelector.
 	//
 	//  +required
-	Key string `json:"key,omitempty"`
+	Key string `json:"key"`
 
-	// valueFromProvClassDetail specifies the key of the
+	// ValueFromProvisioningClassDetail specifies the key of the
 	// ProvisioningRequest.status.provisioningClassDetails from which the value
 	// is used for the update.
 	//
 	// +required
-	ValueFromProvClassDetail string `json:"valueFromProvClassDetail,omitempty"`
+	ValueFromProvisioningClassDetail string `json:"ValueFromProvisioningClassDetail"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
