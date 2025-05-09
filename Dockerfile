@@ -10,7 +10,7 @@ RUN go mod download
 # copy the rest of the sources and build
 COPY . .
 ARG CGO_ENABLED TARGETARCH
-RUN make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
+RUN make build GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
 
 # final image, implicitly --platform=${TARGETPLATFORM}
 FROM ${BASE_IMAGE}
