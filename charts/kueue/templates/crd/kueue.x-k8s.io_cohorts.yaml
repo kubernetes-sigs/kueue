@@ -273,6 +273,9 @@ spec:
                           resources were updated.
                         format: date-time
                         type: string
+                    required:
+                    - consumedResources
+                    - lastUpdate
                     type: object
                   weightedShare:
                     description: |-

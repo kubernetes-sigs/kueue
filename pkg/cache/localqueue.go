@@ -40,7 +40,7 @@ func (lq *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	return lq.admittedUsage.FlattenFlavors().ToResourceList()
 }
 
-func (lq *LocalQueue) UpdateAdmittedUsage(usage resources.FlavorResourceQuantities, op int64) {
+func (lq *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantities, op int64) {
 	lq.Lock()
 	defer lq.Unlock()
 	updateFlavorUsage(usage, lq.admittedUsage, op)

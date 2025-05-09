@@ -640,7 +640,13 @@ The value is populated if usage consumption functionality is enabled in Kueue co
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionMode"><code>AdmissionMode</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>AdmissionMode indicates which mode for AdmissionFairSharing should be used
+in the AdmissionScope. Possible values are:</p>
+<ul>
+<li>UsageBasedAdmissionFairSharing</li>
+<li>NoAdmissionFairSharing</li>
+</ul>
+</td>
 </tr>
 </tbody>
 </table>
@@ -1189,7 +1195,7 @@ weight of zero and is borrowing, this will return
 9223372036854775807, the maximum possible share value.</p>
 </td>
 </tr>
-<tr><td><code>admissionFairSharingStatus</code> <B>[Required]</B><br/>
+<tr><td><code>admissionFairSharingStatus</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionFairSharingStatus"><code>AdmissionFairSharingStatus</code></a>
 </td>
 <td>
