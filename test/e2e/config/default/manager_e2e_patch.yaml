@@ -3,4 +3,4 @@
   value: IfNotPresent
 - op: add
   path: /spec/template/spec/containers/0/args/-
-  value: --feature-gates=LocalQueueMetrics=true
+  value: --feature-gates=TASFailedNodeReplacement=true
