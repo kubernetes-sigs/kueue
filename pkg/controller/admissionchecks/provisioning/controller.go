@@ -578,7 +578,7 @@ func (c *Controller) syncCheckStates(
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					// add the pod podSetUpdates
-					checkState.PodSetUpdates = podSetUpdates(wl, pr)
+					checkState.PodSetUpdates = podSetUpdates(wl, pr, prc)
 					// propagate the message from the provisioning request status into the workload
 					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -616,20 +616,32 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {
+func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
 	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
-		return kueue.PodSetUpdate{
+		podSetUpdate := kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				DeprecatedConsumesAnnotationKey:  pr.Name,
 				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
 				ConsumesAnnotationKey:            pr.Name,
 				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
+			NodeSelector: make(map[string]string),
 		}
+		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
+			for _, nodeSelector := range psUpdate.NodeSelector {
+				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvClassDetail]
+				if !ok {
+					continue
+				}
+				valueStr := string(value)
+				podSetUpdate.NodeSelector[nodeSelector.Key] = valueStr
+			}
+		}
+		return podSetUpdate
 	})
 }
 

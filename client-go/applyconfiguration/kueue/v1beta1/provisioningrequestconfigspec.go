@@ -29,6 +29,7 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	Parameters            map[string]kueuev1beta1.Parameter                   `json:"parameters,omitempty"`
 	ManagedResources      []v1.ResourceName                                   `json:"managedResources,omitempty"`
 	RetryStrategy         *ProvisioningRequestRetryStrategyApplyConfiguration `json:"retryStrategy,omitempty"`
+	PodSetUpdates         *ProvisioningRequestPodSetUpdatesApplyConfiguration `json:"podSetUpdates,omitempty"`
 }
 
 // ProvisioningRequestConfigSpecApplyConfiguration constructs a declarative configuration of the ProvisioningRequestConfigSpec type for use with
@@ -74,5 +75,13 @@ func (b *ProvisioningRequestConfigSpecApplyConfiguration) WithManagedResources(v
 // If called multiple times, the RetryStrategy field is set to the value of the last call.
 func (b *ProvisioningRequestConfigSpecApplyConfiguration) WithRetryStrategy(value *ProvisioningRequestRetryStrategyApplyConfiguration) *ProvisioningRequestConfigSpecApplyConfiguration {
 	b.RetryStrategy = value
+	return b
+}
+
+// WithPodSetUpdates sets the PodSetUpdates field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetUpdates field is set to the value of the last call.
+func (b *ProvisioningRequestConfigSpecApplyConfiguration) WithPodSetUpdates(value *ProvisioningRequestPodSetUpdatesApplyConfiguration) *ProvisioningRequestConfigSpecApplyConfiguration {
+	b.PodSetUpdates = value
 	return b
 }

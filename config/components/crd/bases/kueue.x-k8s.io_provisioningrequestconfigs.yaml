@@ -68,6 +68,31 @@ spec:
                   require.
                 maxProperties: 100
                 type: object
+              podSetUpdates:
+                description: |-
+                  podSetUpdates specifies the update of the workload's PodSetUpdates which
+                  are used to target the provisioned nodes.
+                properties:
+                  nodeSelector:
+                    description: nodeSelector specifies the list of updates for the
+                      NodeSelector.
+                    items:
+                      properties:
+                        key:
+                          description: key specifies the key for the NodeSelector.
+                          type: string
+                        valueFromDetail:
+                          description: |-
+                            valueFromDetail specifies the key of the
+                            ProvisioningRequest.status.provisioningClassDetails from which the value
+                            is used for the update.
+                          type: string
+                      required:
+                      - key
+                      - valueFromDetail
+                      type: object
+                    type: array
+                type: object
               provisioningClassName:
                 description: |-
                   ProvisioningClassName describes the different modes of provisioning the resources.
