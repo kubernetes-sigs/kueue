@@ -3,6 +3,8 @@ site
 charts
 keps
 examples
+.git
+.gitignore
 .github
 .openvex
 
