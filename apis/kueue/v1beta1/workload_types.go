@@ -365,6 +365,38 @@ type WorkloadStatus struct {
 	//
 	// +optional
 	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+
+	// waitForPodsReadyRequeuesByReason holds the re-queue state for WaitForPodsReady.
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=reason
+	// +patchStrategy=merge
+	// +patchMergeKey=reason
+	WaitForPodsReadyRequeuesByReason []WaitForPodsReadyRequeue `json:"waitForPodsReadyRequeuesByReason,omitempty"`
+}
+
+type WaitForPodsReadyRequeueReason string
+
+const (
+	StartupTimeoutReason  WaitForPodsReadyRequeueReason = "StartupTimeout"
+	RecoveryTimeoutReason WaitForPodsReadyRequeueReason = "RecoveryTimeout"
+)
+
+type WaitForPodsReadyRequeue struct {
+	// reason of the requeue, one of StartupTimeout, RecoveryTimeout.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=StartupTimeout;RecoveryTimeout
+	Reason WaitForPodsReadyRequeueReason `json:"reason"`
+
+	// count records the number of times a workload has been re-queued
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 type RequeueState struct {

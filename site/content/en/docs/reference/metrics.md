@@ -14,10 +14,11 @@ and [LocalQueues](/docs/concepts/local_queue).
 Use the following metrics to monitor the health of the kueue controllers:
 
 
-| Metric name                                | Type      | Description                                                                                                                                   | Labels                                                    |
-| -------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `kueue_admission_attempts_total`           | Counter   | The total number of attempts to [admit](/docs/concepts#admission) workloads. Each admission attempt might try to admit more than one workload. | `result`: possible values are `success` or `inadmissible` |
-| `kueue_admission_attempt_duration_seconds` | Histogram | The latency of an admission attempt.                                                                                                          | `result`: possible values are `success` or `inadmissible` |
+| Metric name                                | Type      | Description                                                                                                                                   | Labels                                                                                                                                         |
+| -------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |------------------------------------------------------------------------------------------------------------------------------------------------|
+| `wait_for_pods_ready_workload_eviction_total` | Counter   | The number of workloads evicted due to hitting one of the WaitForPodsReady timeouts at least once | `namespace`: the namespace that the Workload resides in<br /> `reason`: possible values are `StartupTimeout` or `RecoveryTimeout` |
+| `kueue_admission_attempts_total`           | Counter   | The total number of attempts to [admit](/docs/concepts#admission) workloads. Each admission attempt might try to admit more than one workload. | `result`: possible values are `success` or `inadmissible`                                                                                      |
+| `kueue_admission_attempt_duration_seconds` | Histogram | The latency of an admission attempt.                                                                                                          | `result`: possible values are `success` or `inadmissible`                                                                                      |
 
 ## ClusterQueue status
 
