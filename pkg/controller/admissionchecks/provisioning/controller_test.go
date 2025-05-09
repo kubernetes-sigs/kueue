@@ -231,18 +231,13 @@ func TestReconcile(t *testing.T) {
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
 
-	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdate{
-		Type:            kueue.ProvisioningRequestPodSetUpdateTypeNodeSelector,
-		Key:             ptr.To("node-selector-key"),
-		ValueFromDetail: ptr.To("node-selector-value"),
-	}).PodSetUpdate(kueue.ProvisioningRequestPodSetUpdate{
-		Type:            kueue.ProvisioningRequestPodSetUpdateTypeAnnotation,
-		Key:             ptr.To("annotation-key"),
-		ValueFromDetail: ptr.To("annotation-value"),
-	}).PodSetUpdate(kueue.ProvisioningRequestPodSetUpdate{
-		Type:            kueue.ProvisioningRequestPodSetUpdateTypeLabel,
-		Key:             ptr.To("label-key"),
-		ValueFromDetail: ptr.To("label-value"),
+	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
+		NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{
+			{
+				Key:                      "node-selector-key",
+				ValueFromProvClassDetail: "node-selector-value",
+			},
+		},
 	})
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").

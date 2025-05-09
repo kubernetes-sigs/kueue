@@ -629,26 +629,16 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc 
 				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
 				ConsumesAnnotationKey:            pr.Name,
 				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
-			Labels:       make(map[string]string),
 			NodeSelector: make(map[string]string),
 		}
-		for _, prcPsUpdate := range prc.Spec.PodSetUpdates {
-			if prcPsUpdate.ValueFromDetail == nil || prcPsUpdate.Key == nil {
-				continue
-			}
-			value, ok := pr.Status.ProvisioningClassDetails[*prcPsUpdate.ValueFromDetail]
-			if !ok {
-				continue
-			}
-			key := *prcPsUpdate.Key
-			valueStr := string(value)
-			switch prcPsUpdate.Type {
-			case kueue.ProvisioningRequestPodSetUpdateTypeAnnotation:
-				podSetUpdate.Annotations[key] = valueStr
-			case kueue.ProvisioningRequestPodSetUpdateTypeLabel:
-				podSetUpdate.Labels[key] = valueStr
-			case kueue.ProvisioningRequestPodSetUpdateTypeNodeSelector:
-				podSetUpdate.NodeSelector[key] = valueStr
+		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
+			for _, nodeSelector := range psUpdate.NodeSelector {
+				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvClassDetail]
+				if !ok {
+					continue
+				}
+				valueStr := string(value)
+				podSetUpdate.NodeSelector[nodeSelector.Key] = valueStr
 			}
 		}
 		return podSetUpdate

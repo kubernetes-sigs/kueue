@@ -2144,7 +2144,7 @@ set retryStrategy.backoffLimitCount to 0.</p>
 </td>
 </tr>
 <tr><td><code>podSetUpdates</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate"><code>[]ProvisioningRequestPodSetUpdate</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates"><code>ProvisioningRequestPodSetUpdates</code></a>
 </td>
 <td>
    <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
@@ -2154,7 +2154,7 @@ are used to target the provisioned nodes.</p>
 </tbody>
 </table>
 
-## `ProvisioningRequestPodSetUpdate`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate}
+## `ProvisioningRequestPodSetUpdates`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates}
     
 
 **Appears in:**
@@ -2168,46 +2168,48 @@ are used to target the provisioned nodes.</p>
 <tbody>
     
   
-<tr><td><code>type</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdateType"><code>ProvisioningRequestPodSetUpdateType</code></a>
+<tr><td><code>nodeSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector"><code>[]ProvisioningRequestPodSetUpdatesNodeSelector</code></a>
 </td>
 <td>
-   <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
-are used to target the provisioned nodes.</p>
+   <p>nodeSelector specifies the list of updates for the NodeSelector.</p>
 </td>
 </tr>
-<tr><td><code>key</code><br/>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdatesNodeSelector`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestPodSetUpdates](#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>key</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>key specifies the key or the PodSetUpdate.</p>
+   <p>key specifies the key for the NodeSelector.</p>
 </td>
 </tr>
-<tr><td><code>valueFromDetail</code><br/>
+<tr><td><code>valueFromProvClassDetail</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>valueFromDetail specifies the key of the
+   <p>valueFromProvClassDetail specifies the key of the
 ProvisioningRequest.status.provisioningClassDetails from which the value
 is used for the update.</p>
 </td>
 </tr>
 </tbody>
 </table>
-
-## `ProvisioningRequestPodSetUpdateType`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdateType}
-    
-(Alias of `string`)
-
-**Appears in:**
-
-- [ProvisioningRequestPodSetUpdate](#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdate)
-
-
-<p>ProvisioningRequestPodSetUpdateType specifies the type of the PodSetUpdate</p>
-
-
-
 
 ## `ProvisioningRequestRetryStrategy`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestRetryStrategy}
     

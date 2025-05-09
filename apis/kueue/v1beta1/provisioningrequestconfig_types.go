@@ -75,43 +75,28 @@ type ProvisioningRequestConfigSpec struct {
 	// are used to target the provisioned nodes.
 	//
 	// +optional
-	PodSetUpdates []ProvisioningRequestPodSetUpdate `json:"podSetUpdates,omitempty"`
+	PodSetUpdates *ProvisioningRequestPodSetUpdates `json:"podSetUpdates,omitempty"`
 }
 
-// ProvisioningRequestPodSetUpdateType specifies the type of the PodSetUpdate
-// +enum
-type ProvisioningRequestPodSetUpdateType string
-
-const (
-	// This type indicates this is PodSetUpdate for NodeSelector.
-	ProvisioningRequestPodSetUpdateTypeNodeSelector ProvisioningRequestPodSetUpdateType = "NodeSelector"
-
-	// This type indicates this is PodSetUpdate for Annotations.
-	ProvisioningRequestPodSetUpdateTypeAnnotation ProvisioningRequestPodSetUpdateType = "Annotation"
-
-	// This type indicates this is PodSetUpdate for Labels.
-	ProvisioningRequestPodSetUpdateTypeLabel ProvisioningRequestPodSetUpdateType = "Label"
-)
-
-type ProvisioningRequestPodSetUpdate struct {
-	// podSetUpdates specifies the update of the workload's PodSetUpdates which
-	// are used to target the provisioned nodes.
-	//
-	// +required
-	// +kubebuilder:validation:Enum={NodeSelector,Annotation,Label}
-	Type ProvisioningRequestPodSetUpdateType `json:"type,omitempty"`
-
-	// key specifies the key or the PodSetUpdate.
+type ProvisioningRequestPodSetUpdates struct {
+	// nodeSelector specifies the list of updates for the NodeSelector.
 	//
 	// +optional
-	Key *string `json:"key,omitempty"`
+	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
+}
 
-	// valueFromDetail specifies the key of the
+type ProvisioningRequestPodSetUpdatesNodeSelector struct {
+	// key specifies the key for the NodeSelector.
+	//
+	//  +required
+	Key string `json:"key,omitempty"`
+
+	// valueFromProvClassDetail specifies the key of the
 	// ProvisioningRequest.status.provisioningClassDetails from which the value
 	// is used for the update.
 	//
-	// +optional
-	ValueFromDetail *string `json:"valueFromDetail,omitempty"`
+	// +required
+	ValueFromProvClassDetail string `json:"valueFromProvClassDetail,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {

@@ -1457,8 +1457,8 @@ func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.
 	return prc
 }
 
-func (prc *ProvisioningRequestConfigWrapper) PodSetUpdate(update kueue.ProvisioningRequestPodSetUpdate) *ProvisioningRequestConfigWrapper {
-	prc.Spec.PodSetUpdates = append(prc.Spec.PodSetUpdates, update)
+func (prc *ProvisioningRequestConfigWrapper) PodSetUpdate(update kueue.ProvisioningRequestPodSetUpdates) *ProvisioningRequestConfigWrapper {
+	prc.Spec.PodSetUpdates = &update
 	return prc
 }
 
