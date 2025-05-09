@@ -87,12 +87,10 @@ func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, level
 func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, error) {
 	log := ctrl.LoggerFrom(ctx)
 	nodes := &corev1.NodeList{}
-	requiredLabels := client.MatchingLabels{}
-	for k, v := range c.NodeLabels {
-		requiredLabels[k] = v
-	}
-	requiredLabelKeys := client.HasLabels{}
-	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
+
+	var requiredLabels client.MatchingLabels = maps.Clone(c.NodeLabels)
+	var requiredLabelKeys client.HasLabels = slices.Clone(c.Levels)
+
 	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{
 		indexer.ReadyNode:       "true",
 		indexer.SchedulableNode: "true",

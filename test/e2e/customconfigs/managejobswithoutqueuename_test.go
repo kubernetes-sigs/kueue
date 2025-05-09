@@ -84,6 +84,103 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
+
+	ginkgo.When("manageJobsWithoutQueueName=true and LocalQueueDefaulting=false", func() {
+		ginkgo.It("should suspend a job", func() {
+			var testJob, createdJob *batchv1.Job
+			var jobLookupKey types.NamespacedName
+
+			ginkgo.By("setting local queue defulting as false", func() {
+				updateKueueConfiguration(func(cfg *config.Configuration) {
+					cfg.FeatureGates = map[string]bool{"LocalQueueDefaulting": false}
+					cfg.ManageJobsWithoutQueueName = true
+				})
+			})
+
+			ginkgo.By("creating a default LocalQueue", func() {
+				localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.By("creating an unsuspended job without a queue name", func() {
+				testJob = testingjob.MakeJob("test-job", ns.Name).
+					Suspend(false).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Obj()
+				util.MustCreate(ctx, k8sClient, testJob)
+			})
+
+			ginkgo.By("verifying that the job does get suspended", func() {
+				createdJob = &batchv1.Job{}
+				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying no existence of kueue labels", func() {
+				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("setting feature gates back to its original state", func() {
+				updateKueueConfiguration(func(cfg *config.Configuration) {
+					cfg.ManageJobsWithoutQueueName = true
+				})
+			})
+		})
+	})
+
+	ginkgo.When("manageJobsWithoutQueueName=true and LocalQueueDefaulting=true", func() {
+		ginkgo.It("should not suspend a job", func() {
+			var testJob, createdJob *batchv1.Job
+			var jobLookupKey types.NamespacedName
+
+			ginkgo.By("creating a default LocalQueue", func() {
+				localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.By("creating an unsuspended job without a queue name", func() {
+				testJob = testingjob.MakeJob("test-job", ns.Name).
+					Suspend(false).
+					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Obj()
+				util.MustCreate(ctx, k8sClient, testJob)
+			})
+
+			ginkgo.By("verifying that the job does not get suspended", func() {
+				createdJob = &batchv1.Job{}
+				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying existence of kueue labels", func() {
+				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the job has been admitted", func() {
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(testJob.Name, testJob.UID), Namespace: ns.Name}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		ginkgo.It("should suspend a job", func() {
 			var testJob, createdJob *batchv1.Job

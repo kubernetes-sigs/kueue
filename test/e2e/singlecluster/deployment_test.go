@@ -27,8 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util"
@@ -154,20 +152,17 @@ var _ = ginkgo.Describe("Deployment", func() {
 		pods := &corev1.PodList{}
 		gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 			client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+		gomega.Expect(pods.Items).To(gomega.HaveLen(3))
 
-		createdWorkloads := make([]*kueue.Workload, 0, len(pods.Items))
+		createdWorkloads := &kueue.WorkloadList{}
 		ginkgo.By("Check that workloads are created but not admitted", func() {
-			for _, p := range pods.Items {
-				gomega.Expect(utilpod.HasGate(&p, podconstants.SchedulingGateName)).Should(gomega.BeTrue())
-				createdWorkload := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{
-					Name:      pod.GetWorkloadNameForPod(p.Name, p.UID),
-					Namespace: p.Namespace,
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(3))
+				for _, wl := range createdWorkloads.Items {
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
 				}
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-				createdWorkloads = append(createdWorkloads, createdWorkload)
-			}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Update queue-name on the deployment", func() {
@@ -195,19 +190,20 @@ var _ = ginkgo.Describe("Deployment", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Check that workloads are created and admitted", func() {
-			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-				client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-			for _, p := range pods.Items {
-				createdWorkload := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{
-					Name:      pod.GetWorkloadNameForPod(p.Name, p.UID),
-					Namespace: p.Namespace,
-				}
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-				createdWorkloads = append(createdWorkloads, createdWorkload)
+		ginkgo.By("Check previous workloads are deleted", func() {
+			for _, wl := range createdWorkloads.Items {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, util.LongTimeout)
 			}
+		})
+
+		ginkgo.By("Check that workloads are created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(3))
+				for _, wl := range createdWorkloads.Items {
+					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Delete the deployment", func() {
@@ -215,8 +211,8 @@ var _ = ginkgo.Describe("Deployment", func() {
 		})
 
 		ginkgo.By("Check that workloads are deleted", func() {
-			for _, wl := range createdWorkloads {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, wl, false, util.LongTimeout)
+			for _, wl := range createdWorkloads.Items {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, util.LongTimeout)
 			}
 		})
 	})

@@ -95,8 +95,12 @@ func main() {
 
 	yout := yaml.NewEncoder(os.Stdout)
 	if *maxCount > 0 {
-		yout.Encode(flattenSpecs[:min(int(*maxCount), len(flattenSpecs))])
+		err = yout.Encode(flattenSpecs[:min(int(*maxCount), len(flattenSpecs))])
 	} else {
-		yout.Encode(flattenSpecs)
+		err = yout.Encode(flattenSpecs)
+	}
+
+	if err != nil {
+		panic(err)
 	}
 }

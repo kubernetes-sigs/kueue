@@ -66,7 +66,7 @@ func (c *cohort) getRootUnsafe() *cohort {
 	return c.Parent().getRootUnsafe()
 }
 
-// implements hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *cohort) getResourceNode() resourceNode {
 	return c.resourceNode

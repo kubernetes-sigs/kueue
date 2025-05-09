@@ -178,6 +178,24 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
+	queuedUntilReadyWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "ready_wait_time_seconds",
+			Help:      "The time between a workload was created or requeued until ready, per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"cluster_queue"},
+	)
+
+	admittedUntilReadyWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "admitted_until_ready_wait_time_seconds",
+			Help:      "The time between a workload was admitted until ready, per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"cluster_queue"},
+	)
+
 	localQueueAdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -201,6 +219,24 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admission_checks_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'local_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"name", "namespace"},
+	)
+
+	localQueueQueuedUntilReadyWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_ready_wait_time_seconds",
+			Help:      "The time between a workload was created or requeued until ready, per 'local_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"name", "namespace"},
+	)
+
+	localQueueAdmittedUntilReadyWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_admitted_until_ready_wait_time_seconds",
+			Help:      "The time between a workload was admitted until ready, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
 		}, []string{"name", "namespace"},
 	)
@@ -420,6 +456,22 @@ func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, waitTime time.Dur
 	localQueueAdmissionChecksWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
+func ReadyWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
+	queuedUntilReadyWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+}
+
+func LocalQueueReadyWaitTime(lq LocalQueueReference, waitTime time.Duration) {
+	localQueueQueuedUntilReadyWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+}
+
+func AdmittedUntilReadyWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
+	admittedUntilReadyWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+}
+
+func LocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, waitTime time.Duration) {
+	localQueueAdmittedUntilReadyWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+}
+
 func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int) {
 	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusActive).Set(float64(active))
 	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusInadmissible).Set(float64(inadmissible))
@@ -459,6 +511,8 @@ func ClearClusterQueueMetrics(cqName string) {
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
+	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)
+	admittedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 }
@@ -471,6 +525,8 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	localQueueQueuedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	localQueueAdmittedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
@@ -626,6 +682,8 @@ func Register() {
 		PreemptedWorkloadsTotal,
 		admissionWaitTime,
 		admissionChecksWaitTime,
+		queuedUntilReadyWaitTime,
+		admittedUntilReadyWaitTime,
 		ClusterQueueResourceUsage,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
@@ -650,6 +708,8 @@ func RegisterLQMetrics() {
 		LocalQueueAdmittedWorkloadsTotal,
 		localQueueAdmissionWaitTime,
 		localQueueAdmissionChecksWaitTime,
+		localQueueQueuedUntilReadyWaitTime,
+		localQueueAdmittedUntilReadyWaitTime,
 		LocalQueueEvictedWorkloadsTotal,
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,

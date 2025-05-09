@@ -68,7 +68,10 @@ func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
 		log.Debug("Data marshaled into JSON at took %v", "duration", time.Since(marshalStart))
 
 		// Set write deadline to avoid blocking indefinitely
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			log.Error("Error setting write deadline: %v", "error", err)
+			return
+		}
 
 		// Send the initial data to the WebSocket client immediately
 		writeStart := time.Now()
@@ -106,7 +109,10 @@ func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
 			log.Debug("Data marshaled into JSON took %v", "duration", time.Since(marshalStart))
 
 			// Set write deadline to avoid blocking indefinitely
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				log.Error("Error writing deadline to client: %v", "error", err)
+				continue
+			}
 
 			// Send the JSON data to the WebSocket client
 			writeStart := time.Now()

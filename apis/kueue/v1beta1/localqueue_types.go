@@ -48,6 +48,12 @@ type LocalQueueSpec struct {
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
+
+	// fairSharing defines the properties of the LocalQueue when
+	// participating in AdmissionFairSharing.  The values are only relevant
+	// if AdmissionFairSharing is enabled in the Kueue configuration.
+	// +optional
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
 type LocalQueueFlavorStatus struct {
@@ -149,6 +155,10 @@ type LocalQueueStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
+
+	// FairSharing contains the information about the current status of fair sharing.
+	// +optional
+	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
 const (

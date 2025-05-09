@@ -50,6 +50,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/queue"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -470,13 +471,26 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(log, job, wl)
+		condition := generatePodsReadyCondition(log, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
 			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
+			}
+			// update the metrics only when PodsReady condition status is true
+			if condition.Status == metav1.ConditionTrue {
+				cqName := wl.Status.Admission.ClusterQueue
+				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
+				metrics.ReadyWaitTime(cqName, queuedUntilReadyWaitTime)
+				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+				metrics.AdmittedUntilReadyWaitTime(cqName, admittedUntilReadyWaitTime)
+				if features.Enabled(features.LocalQueueMetrics) {
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), queuedUntilReadyWaitTime)
+					metrics.LocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), admittedUntilReadyWaitTime)
+				}
 			}
 			return ctrl.Result{}, nil
 		} else {
@@ -1183,7 +1197,7 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workload) metav1.Condition {
+func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
 	const (
 		notReadyMsg           = "Not all pods are ready or succeeded"
 		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
@@ -1194,7 +1208,8 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		// or it was admitted in the past but it's evicted/requeued
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForStart,
-			notReadyMsg)
+			notReadyMsg,
+			clock)
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
@@ -1210,30 +1225,35 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 		}
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
 			reason,
-			readyMsg)
+			readyMsg,
+			clock)
 	}
 
 	switch {
 	case podsReadyCond == nil:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForStart,
-			notReadyMsg)
+			notReadyMsg,
+			clock)
 
 	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForRecovery,
-			waitingForRecoveryMsg)
+			waitingForRecoveryMsg,
+			clock)
 
 	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForRecovery,
-			waitingForRecoveryMsg)
+			waitingForRecoveryMsg,
+			clock)
 
 	default:
 		// handles both "WaitForPodsStart" and the old "PodsReady" reasons
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForStart,
-			notReadyMsg)
+			notReadyMsg,
+			clock)
 	}
 }
 

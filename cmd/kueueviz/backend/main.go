@@ -19,13 +19,12 @@ package main
 import (
 	"fmt"
 	"log"
-
-	"kueueviz/handlers"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
+	"kueueviz/handlers"
 
-	"net/http"
 	_ "net/http/pprof"
 )
 
@@ -45,7 +44,10 @@ func main() {
 	}
 	r := gin.New()
 	r.Use(gin.Logger())
-	r.SetTrustedProxies(nil)
+
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("Error setting trusted proxies: %v", err)
+	}
 
 	handlers.InitializeWebSocketRoutes(r, dynamicClient, k8sClient)
 
@@ -53,5 +55,4 @@ func main() {
 	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUEVIZ_PORT"))); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
-
 }

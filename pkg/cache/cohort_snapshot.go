@@ -74,7 +74,7 @@ func (c *CohortSnapshot) DominantResourceShare() int {
 	return share
 }
 
-// The methods below implement hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *CohortSnapshot) getResourceNode() resourceNode {
 	return c.ResourceNode

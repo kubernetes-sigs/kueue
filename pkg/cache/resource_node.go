@@ -69,20 +69,25 @@ func (r resourceNode) guaranteedQuota(fr resources.FlavorResource) int64 {
 	return 0
 }
 
-// hierarchicalResourceNode abstracts over ClusterQueues and Cohorts,
-// by providing access to the contained ResourceNode, with the ability
-// to navigate to the parent node.
+// hierarchicalResourceNode extends flatResourceNode
+// with the ability to navigate to the parent node.
 type hierarchicalResourceNode interface {
-	getResourceNode() resourceNode
+	flatResourceNode
 
 	HasParent() bool
 	parentHRN() hierarchicalResourceNode
 }
 
+// flatResourceNode abstracts over ClusterQueues and Cohorts,
+// by providing access to the contained ResourceNode.
+type flatResourceNode interface {
+	getResourceNode() resourceNode
+}
+
 // LocalAvailable returns, for a given node and resource flavor,
 // how much guaranteed quota in this flavor exceeds usage.
 // This quota is available at this node but is not visible at its parent.
-func LocalAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) int64 {
+func LocalAvailable(node flatResourceNode, fr resources.FlavorResource) int64 {
 	return max(0, node.getResourceNode().guaranteedQuota(fr)-node.getResourceNode().Usage[fr])
 }
 
@@ -191,7 +196,7 @@ func updateCohortResourceNode(cohort *cohort) {
 	}
 }
 
-func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
+func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().guaranteedQuota(fr)
 	}
@@ -204,7 +209,7 @@ func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
 // and the amount of resources that exceed the guaranteed
 // quota on this node. It is assumed that subsequent call
 // to this function will be on nodes parent with remainingRequests
-func QuantitiesFitInQuota(node hierarchicalResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+func QuantitiesFitInQuota(node flatResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
 	fits := true
 	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
@@ -218,7 +223,7 @@ func QuantitiesFitInQuota(node hierarchicalResourceNode, requests resources.Flav
 
 // IsWithinNominalInResources returns whether or not, the node quota usage exceeds its
 // nominal quota in any resource flavor out of a set of resource flavours.
-func IsWithinNominalInResources(node hierarchicalResourceNode, frs sets.Set[resources.FlavorResource]) bool {
+func IsWithinNominalInResources(node flatResourceNode, frs sets.Set[resources.FlavorResource]) bool {
 	for fr := range frs {
 		if node.getResourceNode().Usage[fr] > node.getResourceNode().SubtreeQuota[fr] {
 			return false

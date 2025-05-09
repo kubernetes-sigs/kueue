@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"os"
+
 	corev1 "k8s.io/api/core/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -56,4 +58,15 @@ func MakeNamespace(name string) *corev1.Namespace {
 // MakeNamespaceWithGenerateName creates a default namespace with generate name.
 func MakeNamespaceWithGenerateName(prefix string) *corev1.Namespace {
 	return MakeNamespaceWrapper("").GenerateName(prefix).Obj()
+}
+
+// TestRayVersion retrieves the Ray version from the "RAY_VERSION" environment variable.
+// If the environment variable is not set, it returns the default Ray version ("2.41.0").
+func TestRayVersion() string {
+	const defaultVersion = "2.41.0" // Default Ray version
+	ver, found := os.LookupEnv("RAY_VERSION")
+	if found {
+		return ver
+	}
+	return defaultVersion
 }

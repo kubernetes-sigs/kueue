@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // ClusterWrapper wraps a RayCluster.
@@ -38,6 +39,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: rayv1.RayClusterSpec{
+			RayVersion: testing.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{
 				RayStartParams: map[string]string{},
 				Template: corev1.PodTemplateSpec{

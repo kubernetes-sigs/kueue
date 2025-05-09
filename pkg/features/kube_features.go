@@ -163,6 +163,11 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
+	//
+	// Enable admission fair sharing
+	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
 )
 
 func init() {
@@ -236,6 +241,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASProfileMostFreeCapacity: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
@@ -251,6 +257,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	AdmissionFairSharing: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

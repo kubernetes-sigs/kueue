@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1202,6 +1203,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		wantResults          map[kueue.ClusterQueueReference]result
 		wantAssumedWorkloads map[string]kueue.ClusterQueueReference
 		wantError            string
+		wantLocalQueue       queue.LocalQueueReference
 	}{
 		{
 			name: "add",
@@ -2287,6 +2289,59 @@ func TestLocalQueueUsage(t *testing.T) {
 	}
 }
 
+func TestGetCacheLQ(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("spot").
+				Resource("cpu", "10", "10").
+				Resource("memory", "64Gi", "64Gi").Obj(),
+		).ResourceGroup(
+		*utiltesting.MakeFlavorQuotas("model-a").
+			Resource("example.com/gpu", "10", "10").Obj(),
+	).Obj()
+	lq := utiltesting.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq").Obj()
+	cases := map[string]struct {
+		getLq          *kueue.LocalQueue
+		getCQReference kueue.ClusterQueueReference
+		wantErr        error
+		wantLq         *LocalQueue
+	}{
+		"valid LQ": {
+			getLq:          lq,
+			getCQReference: "cq",
+			wantLq: &LocalQueue{
+				key: "ns/lq-a",
+			}},
+		"LQ doesnt exist": {
+			getLq:          utiltesting.MakeLocalQueue("non-existing-lq", "ns").ClusterQueue("cq").Obj(),
+			getCQReference: "cq",
+			wantErr:        errQNotFound,
+		},
+		"CQ doesnt exist": {
+			getLq:          lq,
+			getCQReference: "non-existing-cq",
+			wantErr:        ErrCqNotFound,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewFakeClient()
+			cache := New(cl)
+			ctx := t.Context()
+			cache.AddClusterQueue(ctx, cq)
+			cache.AddLocalQueue(lq)
+
+			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, tc.getLq)
+			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
+				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCacheQueueOperations(t *testing.T) {
 	cqs := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("foo").
@@ -2736,7 +2791,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					cacheQueues[qKey] = cacheQ
 				}
 			}
-			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 		})

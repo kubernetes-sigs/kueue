@@ -363,6 +363,21 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 		},
+		"skip workload with missing or deleted ClusterQueue (NoFit)": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("missing-cq-workload", "sales").
+					Queue("non-existent-queue").
+					PodSets(*utiltesting.MakePodSet("set", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			// Expect no panics and workload skipped.
+			wantLeft:     nil,
+			wantEvents:   nil,
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+		},
 		"workload fits in single clusterQueue, with check state pending": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").

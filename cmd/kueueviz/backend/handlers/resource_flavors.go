@@ -22,7 +22,7 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +31,6 @@ import (
 
 // ResourceFlavorsWebSocketHandler streams all resource flavors
 func ResourceFlavorsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-
 	return GenericWebSocketHandler(func() (any, error) {
 		return fetchResourceFlavors(dynamicClient)
 	})
@@ -123,7 +122,7 @@ func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName stri
 						"queueName": queueName,
 						"quota":     quotaInfo,
 					})
-					//log.Println(queuesUsingFlavor)
+					// log.Println(queuesUsingFlavor)
 					break // Stop searching this queue once the flavor is found
 				}
 			}
@@ -160,7 +159,6 @@ func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName stri
 
 // getNodesForFlavor retrieves a list of nodes that match a specific resource flavor.
 func getNodesForFlavor(dynamicClient dynamic.Interface, flavorName string) ([]map[string]any, error) {
-
 	flavor, err := dynamicClient.Resource(ResourceFlavorsGVR()).Get(context.TODO(), flavorName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching resource flavor %s: %v", flavorName, err)

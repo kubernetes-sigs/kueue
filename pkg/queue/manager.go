@@ -47,6 +47,7 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	admissionFairSharing        *config.AdmissionFairSharing
 }
 
 // Option configures the manager.
@@ -55,6 +56,14 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+}
+
+func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		if features.Enabled(features.AdmissionFairSharing) {
+			o.admissionFairSharing = cfg
+		}
+	}
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -101,6 +110,8 @@ type Manager struct {
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 
 	topologyUpdateWatchers []TopologyUpdateWatcher
+
+	admissionFairSharingConfig *config.AdmissionFairSharing
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -120,7 +131,8 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		workloadInfoOptions: options.workloadInfoOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
-		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
+		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
+		admissionFairSharingConfig: options.admissionFairSharing,
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -162,7 +174,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	cqImpl, err := newClusterQueue(cq, m.workloadOrdering)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig)
 	if err != nil {
 		return err
 	}
@@ -233,6 +245,17 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		}
 		m.Broadcast()
 	}
+	return nil
+}
+
+func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+	if cqImpl == nil {
+		return ErrClusterQueueDoesNotExist
+	}
+	cqImpl.Heapify(lqName)
 	return nil
 }
 

@@ -186,7 +186,7 @@ func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
 
-// The methods below implement hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *ClusterQueueSnapshot) getResourceNode() resourceNode {
 	return c.ResourceNode
