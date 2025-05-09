@@ -644,8 +644,8 @@ for [Beta](#beta). The initial approach for the design is left in the
 section.
 
 #### Node failures
-We propose to extend `WorkloadStatus` to keep track if for a running workload, 
-any of the nodes require a replacement.
+We propose to extend `WorkloadStatus` to keep track, for a running workload, 
+if any of the nodes require a replacement.
 
 ```golang
 // WorkloadStatus defines the observed state of Workload
