@@ -2716,15 +2716,6 @@ admission.resourceUsage contains the detailed information.</p>
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
 </td>
 </tr>
-<tr><td><code>failedNodes</code><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>nodesToReplace lists the names of failed nodes running pods
-associated with this workload.
-This field is populated by the node failure controller.</p>
-</td>
-</tr>
 </tbody>
 </table>
   

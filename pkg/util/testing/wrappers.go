@@ -373,11 +373,6 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) NodesToReplace(nodesToReplace []string) *WorkloadWrapper {
-	w.Status.NodesToReplace = nodesToReplace
-	return w
-}
-
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {

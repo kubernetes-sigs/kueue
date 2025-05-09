@@ -31,7 +31,6 @@ type WorkloadStatusApplyConfiguration struct {
 	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
 	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
-	NodesToReplace                       []string                                `json:"failedNodes,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -113,15 +112,5 @@ func (b *WorkloadStatusApplyConfiguration) WithResourceRequests(values ...*PodSe
 // If called multiple times, the AccumulatedPastExexcutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeconds(value int32) *WorkloadStatusApplyConfiguration {
 	b.AccumulatedPastExexcutionTimeSeconds = &value
-	return b
-}
-
-// WithNodesToReplace adds the given value to the NodesToReplace field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the NodesToReplace field.
-func (b *WorkloadStatusApplyConfiguration) WithNodesToReplace(values ...string) *WorkloadStatusApplyConfiguration {
-	for i := range values {
-		b.NodesToReplace = append(b.NodesToReplace, values[i])
-	}
 	return b
 }

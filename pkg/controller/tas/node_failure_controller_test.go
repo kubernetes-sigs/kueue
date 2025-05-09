@@ -1,16 +1,36 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package tas
 
 import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/clock"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -22,7 +42,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
-func setupTest(initObjs ...client.Object) (client.Client, *nodeFailureReconciler) {
+func setupTest(clock clock.Clock, initObjs ...client.Object) (client.Client, *nodeFailureReconciler) {
 	s := scheme.Scheme
 	if err := kueue.AddToScheme(s); err != nil {
 		panic(err)
@@ -42,6 +62,7 @@ func setupTest(initObjs ...client.Object) (client.Client, *nodeFailureReconciler
 	}
 	cl := clientBuilder.Build()
 	r := newNodeFailureReconciler(cl)
+	r.clock = clock
 
 	return cl, r
 }
@@ -76,7 +97,7 @@ func newNodeTest(name string, readyStatus corev1.ConditionStatus, conditions ...
 }
 
 // setNodeConditionTest updates the Ready condition of a node in the fake client.
-func setNodeConditionTest(t *testing.T, ctx context.Context, k8sClient client.Client, nodeName string, status corev1.ConditionStatus) {
+func setNodeConditionTest(ctx context.Context, t *testing.T, k8sClient client.Client, clock clock.Clock, nodeName string, status corev1.ConditionStatus) {
 	t.Helper()
 	node := &corev1.Node{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
@@ -88,7 +109,7 @@ func setNodeConditionTest(t *testing.T, ctx context.Context, k8sClient client.Cl
 		if node.Status.Conditions[i].Type == corev1.NodeReady {
 			if node.Status.Conditions[i].Status != status {
 				node.Status.Conditions[i].Status = status
-				node.Status.Conditions[i].LastTransitionTime = metav1.Now()
+				node.Status.Conditions[i].LastTransitionTime = metav1.NewTime(clock.Now())
 				updated = true
 			}
 			break
@@ -106,6 +127,7 @@ func setNodeConditionTest(t *testing.T, ctx context.Context, k8sClient client.Cl
 }
 
 func TestNodeFailureReconciler(t *testing.T) {
+	testStartTime := time.Now()
 	nodeNameUnhealthy := "test-node-unhealthy"
 	wlName := "test-workload"
 	nsName := "default"
@@ -126,39 +148,42 @@ func TestNodeFailureReconciler(t *testing.T) {
 	tests := map[string]struct {
 		initObjs        []client.Object
 		req             reconcile.Request
+		advanceClock    time.Duration // Time to advance clock before reconcile
 		wantFailedNodes []string
+		wantRequeue     time.Duration
 	}{
-		"Node Found and Unhealthy (NotReady)": {
+		"Node Found and Unhealthy (NotReady) - delay not passed": {
 			initObjs: []client.Object{
 				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
 			req:             reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
-			wantFailedNodes: []string{nodeNameUnhealthy},
+			wantFailedNodes: nil,
+			wantRequeue:     NodeFailureDelay,
 		},
-		"Node Found and Unhealthy (Unknown)": {
-
+		"Node Found and Unhealthy (NotReady) - delay passed": {
 			initObjs: []client.Object{
-				newNodeTest(nodeNameUnhealthy, corev1.ConditionUnknown),
+				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
 			req:             reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
+			advanceClock:    NodeFailureDelay + time.Second,
 			wantFailedNodes: []string{nodeNameUnhealthy},
 		},
-		"Node Recovers from Unhealthy": {
+		"Node Found and Healthy": {
 			initObjs: []client.Object{
 				newNodeTest(nodeNameUnhealthy, corev1.ConditionTrue),
 				utiltesting.MakeWorkload(wlName, nsName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
-					NodesToReplace([]string{nodeNameUnhealthy}).
 					Obj(),
 				basePod.DeepCopy(),
 			},
-			req: reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
+			req:             reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
+			wantFailedNodes: nil,
 		},
 	}
 
@@ -167,10 +192,14 @@ func TestNodeFailureReconciler(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			cl, r := setupTest(tt.initObjs...)
+			fakeClock := testingclock.NewFakeClock(testStartTime)
+			cl, r := setupTest(fakeClock, tt.initObjs...)
 
-			_, err := r.Reconcile(ctx, tt.req)
+			if tt.advanceClock > 0 {
+				fakeClock.Step(tt.advanceClock)
+			}
 
+			result, err := r.Reconcile(ctx, tt.req)
 			if err != nil {
 				t.Errorf("Reconcile() error = %v", err)
 			}
@@ -178,8 +207,22 @@ func TestNodeFailureReconciler(t *testing.T) {
 			if err := cl.Get(ctx, wlKey, wl); err != nil {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
-			if diff := cmp.Diff(tt.wantFailedNodes, wl.Status.NodesToReplace); diff != "" {
-				t.Errorf("Unexpected FailedNodes (-want/+got):\n%s", diff)
+
+			var actualFailedNodes []string
+			annotations := wl.GetAnnotations()
+			if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+				actualFailedNodes = strings.Split(ann, ",")
+				slices.Sort(actualFailedNodes)
+			}
+
+			expectedNodes := tt.wantFailedNodes
+			slices.Sort(expectedNodes)
+			if diff := cmp.Diff(expectedNodes, actualFailedNodes); diff != "" {
+				t.Errorf("Unexpected FailedNodes in annotation (-want/+got):\n%s", diff)
+			}
+			if (result.RequeueAfter - tt.wantRequeue).Abs() >= time.Second {
+				diff := cmp.Diff(result.RequeueAfter, tt.wantRequeue)
+				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
 		})
 	}
@@ -187,6 +230,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	nodeName := "node"
+	testStartTime := time.Now()
 	podName := "pod"
 	wlName := "workload"
 	nsName := "default"
@@ -204,19 +248,16 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 		NodeName(nodeName).
 		Obj()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// 1. Initial state: Healthy node, workload running
-	cl, r := setupTest(
+	ctx := t.Context()
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+	cl, r := setupTest(fakeClock,
 		newNodeTest(nodeName, corev1.ConditionTrue),
 		baseWorkload.DeepCopy(),
 		basePod.DeepCopy(),
 	)
 
-	// 2. Reconcile healthy node (no change expected)
 	t.Log("Step 1: Reconciling healthy node")
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
+	result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
 	if err != nil {
 		t.Fatalf("Reconcile healthy node failed: %v", err)
 	}
@@ -224,44 +265,61 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	if err := cl.Get(ctx, wlKey, wl); err != nil {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
-	if len(wl.Status.NodesToReplace) != 0 {
-		t.Errorf("Expected FailedNodes to be empty, got %v", wl.Status.NodesToReplace)
+
+	annotations := wl.GetAnnotations()
+	if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+		actualFailedNodes := strings.Split(ann, ",")
+		if len(actualFailedNodes) > 0 && (len(actualFailedNodes) > 1 || actualFailedNodes[0] != "") {
+			t.Errorf("Expected FailedNodes annotation to be empty or not present, got %v", ann)
+		}
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("Expected no requeue for healthy node, got %v", result.RequeueAfter)
 	}
 
-	// 3. Simulate Node becoming NotReady
 	t.Log("Step 2: Simulating node becoming NotReady")
-	setNodeConditionTest(t, ctx, cl, nodeName, corev1.ConditionFalse)
+	setNodeConditionTest(ctx, t, cl, fakeClock, nodeName, corev1.ConditionFalse)
 
-	// 4. Reconcile unhealthy node
 	t.Log("Step 3: Reconciling unhealthy node")
-	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
+	result, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
+	if err != nil {
+		t.Fatalf("Reconcile unhealthy node (before delay) failed: %v", err)
+	}
+	if err := cl.Get(ctx, wlKey, wl); err != nil {
+		t.Fatalf("Failed to get workload: %v", err)
+	}
+	annotations = wl.GetAnnotations()
+	if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+		actualFailedNodes := strings.Split(ann, ",")
+		if len(actualFailedNodes) > 0 && (len(actualFailedNodes) > 1 || actualFailedNodes[0] != "") {
+			t.Errorf("Expected FailedNodes annotation to be empty or not present before delay, got %v", ann)
+		}
+	}
+	if result.RequeueAfter <= 0 {
+		t.Errorf("Expected requeue after delay, got %v", result.RequeueAfter)
+	}
+
+	t.Log("Step 4: Advancing clock past delay")
+	fakeClock.Step(NodeFailureDelay + time.Second)
+
+	t.Log("Step 5: Reconciling unhealthy node after delay")
+	result, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
 	if err != nil {
 		t.Fatalf("Reconcile unhealthy node failed: %v", err)
 	}
 	if err := cl.Get(ctx, wlKey, wl); err != nil {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
-	if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		t.Errorf("Expected node %q to be in FailedNodes, got %v", nodeName, wl.Status.NodesToReplace)
+	annotations = wl.GetAnnotations()
+	annValue, found := annotations[NodeToReplaceAnnotation]
+	if !found {
+		t.Fatalf("Expected annotation %q to be present", NodeToReplaceAnnotation)
 	}
-
-	// 5. Simulate Node recovering
-	t.Log("Step 4: Simulating node recovery")
-	setNodeConditionTest(t, ctx, cl, nodeName, corev1.ConditionTrue)
-
-	// 6. Reconcile recovered node
-	t.Log("Step 5: Reconciling recovered node")
-	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
-	if err != nil {
-		t.Fatalf("Reconcile recovered node failed: %v", err)
+	actualFailedNodes := strings.Split(annValue, ",")
+	if !slices.Contains(actualFailedNodes, nodeName) {
+		t.Errorf("Expected node %q to be in FailedNodes annotation %v, got %v", nodeName, NodeToReplaceAnnotation, actualFailedNodes)
 	}
-	if err := cl.Get(ctx, wlKey, wl); err != nil {
-		t.Fatalf("Failed to get workload: %v", err)
-	}
-	if slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		t.Errorf("Expected node %q to be removed from FailedNodes, got %v", nodeName, wl.Status.NodesToReplace)
-	}
-	if len(wl.Status.NodesToReplace) != 0 {
-		t.Errorf("Expected FailedNodes to be empty after recovery, got %v", wl.Status.NodesToReplace)
+	if result.RequeueAfter != 0 {
+		t.Errorf("Expected no requeue after marking failed, got %v", result.RequeueAfter)
 	}
 }

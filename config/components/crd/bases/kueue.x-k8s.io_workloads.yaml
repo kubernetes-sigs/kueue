@@ -8381,14 +8381,6 @@ spec:
           status:
             description: WorkloadStatus defines the observed state of Workload
             properties:
-              failedNodes:
-                description: |-
-                  failedNodes is a list of failed nodes that are running pods associated 
-                  with this workload
-                items:
-                  type: string
-                type: array
-                x-kubernetes-list-type: atomic
               accumulatedPastExexcutionTimeSeconds:
                 description: |-
                   accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent

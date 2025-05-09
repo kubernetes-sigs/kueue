@@ -24,12 +24,14 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -82,7 +84,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.It("Should place pods based on the ranks-ordering", func() {
+		ginkgo.It("Should update nodesToReplace at the workload when a node fails", func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -108,7 +110,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](int32(numPods))))
+					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(ptr.To(int32(numPods))))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -140,34 +142,22 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 					}
 				}
 			})
-			ginkgo.By(fmt.Sprintf("Crashing node %s hosting pod %s", node.Name, chosenPod.Name), func() {
+			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
 				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse)
 			})
 
-			// Add a short wait to allow the controller to react
 			ginkgo.By("Waiting for controller to process node failure", func() {
 				time.Sleep(2 * time.Second)
 			})
 			ginkgo.By(fmt.Sprintf("Verify node is added to failure list by checking workload %s status", wlName), func() {
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)
-					gomega.Expect(wl.Status.NodesToReplace).Should(gomega.HaveLen(1))
-					gomega.Expect(wl.Status.NodesToReplace[0]).Should(gomega.Equal(chosenPod.Spec.NodeName))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By(fmt.Sprintf("Recover node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue)
-			})
-			ginkgo.By("Waiting for controller to process node recovery", func() {
-				time.Sleep(2 * time.Second)
-			})
-			ginkgo.By(fmt.Sprintf("Verify node is removed from failure list by checking workload %s status", wlName), func() {
-				wl := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)
-					gomega.Expect(wl.Status.NodesToReplace).Should(gomega.HaveLen(0))
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+					annotations := wl.GetAnnotations()
+					gomega.Expect(annotations).ShouldNot(gomega.BeNil())
+					failedNodesAnnotation, found := annotations[tas.NodeToReplaceAnnotation]
+					gomega.Expect(found).Should(gomega.BeTrue(), "NodesToReplaceAnnotation should be present")
+					gomega.Expect(failedNodesAnnotation).Should(gomega.Equal(chosenPod.Spec.NodeName))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -181,6 +171,8 @@ func setNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 		for i := range updatedNode.Status.Conditions {
 			if updatedNode.Status.Conditions[i].Type == conditionType {
 				updatedNode.Status.Conditions[i].Status = conditionStatus
+				updatedNode.Status.Conditions[i].LastTransitionTime = metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay))
+				break
 			}
 		}
 		g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
