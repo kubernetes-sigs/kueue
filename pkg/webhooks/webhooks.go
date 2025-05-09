@@ -20,9 +20,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+type WebhookConfiguration struct {
+	FairSharingEnabled bool
+}
+
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
-func Setup(mgr ctrl.Manager) (string, error) {
+func Setup(mgr ctrl.Manager, cfg WebhookConfiguration) (string, error) {
 	if err := setupWebhookForWorkload(mgr); err != nil {
 		return "Workload", err
 	}
@@ -31,7 +35,7 @@ func Setup(mgr ctrl.Manager) (string, error) {
 		return "ResourceFlavor", err
 	}
 
-	if err := setupWebhookForClusterQueue(mgr); err != nil {
+	if err := setupWebhookForClusterQueue(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
 
