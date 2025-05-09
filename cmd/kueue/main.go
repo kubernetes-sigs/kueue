@@ -296,6 +296,13 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if failedCtrl, err := tas.SetupControllers(ctx, mgr, queues, cCache, cfg); err != nil {
+			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
+			os.Exit(1)
+		}
+	}
+
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 		os.Exit(1)
@@ -332,13 +339,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 			multikueue.WithAdapters(adapters),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
-			os.Exit(1)
-		}
-	}
-
-	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
-			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
 			os.Exit(1)
 		}
 	}

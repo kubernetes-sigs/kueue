@@ -17,14 +17,19 @@ limitations under the License.
 package tas
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
+func SetupControllers(ctx context.Context, mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
@@ -38,5 +43,30 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
+
+	if err := waitForPopulatingTasCache(ctx, mgr, cache); err != nil {
+		return "waitForPopulatingTasCache", err
+	}
+
 	return "", nil
+}
+
+func waitForPopulatingTasCache(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache) error {
+	var flvs kueue.ResourceFlavorList
+	if err := mgr.GetClient().List(ctx, &flvs); err != nil {
+		return fmt.Errorf("Unable to list resource flavors %s", err)
+	}
+	for _, flv := range flvs.Items {
+		if flv.Spec.TopologyName != nil {
+			var isCachePopulated bool
+			for !isCachePopulated {
+				if cCache.TASCache().Get(kueue.ResourceFlavorReference(flv.Name)) == nil {
+					time.Sleep(1 * time.Second)
+				} else {
+					isCachePopulated = true
+				}
+			}
+		}
+	}
+	return nil
 }
