@@ -300,12 +300,13 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-A more involving approach would be to recompute the TopologyAdmission, however,
-until now we don't modify the workload's admission while the workload is
-scheduled, so it would require extra investigation and effort. We will consider
-this before graduation to GA based on investigation if feasible and feedback
-from users.
-
+We also propose to recompute the TopologyAdmission upon node removal and/or 
+failure, to find matching replacements for missing nodes. If no such 
+replacement exists, the workload has to be evicted and rescheduled again.
+This mechanism requires kueue to keep track of any failed or missing nodes 
+affecting the scheduled TAS workloads. We propose to initially handle only
+a single node failure and extend it to multiple depending on the feedback
+from the users.
 #### Race condition when accounting for DaemonSet pods
 
 There is a risk that workloads are scheduled before the DaemonSet pods are
@@ -643,6 +644,18 @@ for [Beta](#beta). The initial approach for the design is left in the
 [Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
 section.
 
+#### Node failures
+We propose to introduce a new Annotation at a Workload level, to keep track
+if any of the nodes require a replacement.
+
+```golang
+const (
+	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
+	// name of a failed node running at least one pod of this workload.
+	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
+)
+```
+
 ### Implicit defaulting of TAS annotations
 
 Requiring to set the TAS annotations (see [User facing API](#user-facing-api))
@@ -811,6 +824,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   or explicit level added by webhook.
 - introduce configuration for setting TAS profiles/algorithms
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
+- change failed nodes information from Annotation into a field in workload.Status
 
 #### Stable
 
