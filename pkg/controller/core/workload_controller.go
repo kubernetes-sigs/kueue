@@ -197,7 +197,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-			if dtCond != nil {
+			if dtCond != nil && dtCond.Status == metav1.ConditionTrue {
 				reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
@@ -206,7 +206,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			evicted = true
 		}
 		if dtCond != nil {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+			dtCond.Status = metav1.ConditionFalse
+			apimeta.SetStatusCondition(&wl.Status.Conditions, *dtCond)
 		}
 		if wl.Status.RequeueState != nil {
 			wl.Status.RequeueState = nil
