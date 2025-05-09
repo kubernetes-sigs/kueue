@@ -48,21 +48,23 @@ const (
 )
 
 var (
-	integrationsPath                  = field.NewPath("integrations")
-	integrationsFrameworksPath        = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                    = integrationsPath.Child("podOptions")
-	podOptionsNamespaceSelectorPath   = podOptionsPath.Child("namespaceSelector")
-	managedJobsNamespaceSelectorPath  = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath              = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                    = field.NewPath("multiKueue")
-	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath            = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                           = field.NewPath("admissionFairSharing")
-	internalCertManagementPath        = field.NewPath("internalCertManagement")
-	queueVisibilityPath               = field.NewPath("queueVisibility")
-	resourceTransformationPath        = field.NewPath("resources", "transformations")
+	integrationsPath                     = field.NewPath("integrations")
+	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
+	podOptionsPath                       = integrationsPath.Child("podOptions")
+	podOptionsNamespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
+	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                       = field.NewPath("multiKueue")
+	fsPreemptionStrategiesPath           = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                              = field.NewPath("admissionFairSharing")
+	internalCertManagementPath           = field.NewPath("internalCertManagement")
+	queueVisibilityPath                  = field.NewPath("queueVisibility")
+	resourceTransformationPath           = field.NewPath("resources", "transformations")
+	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -76,6 +78,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
+	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	return allErrs
 }
 
@@ -403,4 +406,19 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	}
 
 	return nil
+}
+
+func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+
+	rr := c.ObjectRetentionPolicies
+	if rr != nil {
+		if workloadPolicies := rr.Workloads; workloadPolicies != nil {
+			if workloadPolicies.AfterFinished != nil && workloadPolicies.AfterFinished.Duration < 0 {
+				allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterFinished"),
+					c.ObjectRetentionPolicies.Workloads.AfterFinished, apimachineryvalidation.IsNegativeErrorMsg))
+			}
+		}
+	}
+	return allErrs
 }

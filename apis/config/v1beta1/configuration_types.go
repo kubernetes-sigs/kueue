@@ -106,6 +106,10 @@ type Configuration struct {
 	// with passing the list of features via the command line argument "--feature-gates"
 	// for the Kueue Deployment.
 	FeatureGates map[string]bool `json:"featureGates,omitempty"`
+
+	// ObjectRetentionPolicies provides configuration options for retention of Kueue owned
+	// objects. A nil value will disable automatic deletion for all objects.
+	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
 }
 
 type ControllerManager struct {
@@ -489,4 +493,23 @@ type AdmissionFairSharing struct {
 	// resource usage and order Workloads.
 	// Defaults to 1.
 	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
+}
+
+// ObjectRetentionPolicies holds retention settings for different object types.
+type ObjectRetentionPolicies struct {
+	// Workloads configures retention for finished Workloads.
+	// A nil value disables automatic deletion of finished Workloads.
+	// +optional
+	Workloads *WorkloadRetentionPolicy `json:"workloads,omitempty"`
+}
+
+// WorkloadRetentionPolicy defines when finished Workloads should be deleted.
+type WorkloadRetentionPolicy struct {
+	// AfterFinished is the duration to wait after a Workload finishes
+	// before deleting it.
+	// A duration of 0 will delete immediately.
+	// A nil value disables automatic deletion.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +optional
+	AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
 }
