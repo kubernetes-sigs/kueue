@@ -2328,8 +2328,13 @@ func TestGetCacheLQ(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			cache := New(cl)
 			ctx := t.Context()
-			cache.AddClusterQueue(ctx, cq)
-			cache.AddLocalQueue(lq)
+
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := cache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
 
 			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, tc.getLq)
 			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
