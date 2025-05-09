@@ -296,12 +296,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: priorityClassNamePath.String(),
-				},
-			}.ToAggregate(),
 		},
 		"change image": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

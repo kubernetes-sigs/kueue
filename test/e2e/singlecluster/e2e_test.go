@@ -308,6 +308,101 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should allow updating the workload's priority through the job", func() {
+			lowPriority := "low-priority"
+			lowPriorityClass := testing.MakeWorkloadPriorityClass(lowPriority).PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, lowPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
+			})
+
+			midPriority := "mid-priority"
+			midPriorityClass := testing.MakeWorkloadPriorityClass(midPriority).PriorityValue(200).Obj()
+			util.MustCreate(ctx, k8sClient, midPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, midPriorityClass)).To(gomega.Succeed())
+			})
+
+			highPriority := "high-priority"
+			highPriorityClass := testing.MakeWorkloadPriorityClass(highPriority).PriorityValue(300).Obj()
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Create job-one with mid priority", func() {
+				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
+					WorkloadPriorityClass(midPriority).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					NodeSelector("instance-type", "on-demand").
+					Obj()
+				util.MustCreate(ctx, k8sClient, sampleJob)
+			})
+
+			ginkgo.By("Verify the job-one is running", func() {
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			var sampleJob2 *batchv1.Job
+			ginkgo.By("Create job-two with low priority", func() {
+				sampleJob2 = testingjob.MakeJob("test-job-2", ns.Name).
+					Queue("main").
+					RequestAndLimit("cpu", "1").
+					RequestAndLimit("memory", "20Mi").
+					WorkloadPriorityClass(lowPriority).
+					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					NodeSelector("instance-type", "on-demand").
+					Obj()
+				util.MustCreate(ctx, k8sClient, sampleJob2)
+			})
+
+			ginkgo.By("Verify workload with low priority is not admitted", func() {
+				createdJob := &batchv1.Job{}
+				jobKey = client.ObjectKeyFromObject(sampleJob2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob2.Name, sampleJob2.UID), Namespace: ns.Name}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Increase job-two priority", func() {
+				createdJob := &batchv1.Job{}
+				jobKey = client.ObjectKeyFromObject(sampleJob2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					createdJob.Labels[constants.WorkloadPriorityClassLabel] = highPriority
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workload priority was updated", func() {
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob2.Name, sampleJob2.UID), Namespace: ns.Name}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(createdWorkload.Spec.Priority, -1)).Should(gomega.Equal(highPriorityClass.Value))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify job-two is running", func() {
+				createdJob := &batchv1.Job{}
+				jobKey = client.ObjectKeyFromObject(sampleJob2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Creating a Job In a Twostepadmission Queue", func() {

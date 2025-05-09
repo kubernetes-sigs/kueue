@@ -38,11 +38,6 @@ import (
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
-var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-)
-
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayJob
@@ -379,9 +374,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("queue").
 				WorkloadPriorityClass("test-2").
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			}.ToAggregate(),
 		},
 	}
 

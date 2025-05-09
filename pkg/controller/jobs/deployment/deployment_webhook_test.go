@@ -300,12 +300,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
-				},
-			}.ToAggregate(),
 		},
 	}
 
