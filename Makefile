@@ -180,7 +180,7 @@ vet: ## Run go vet against code.
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	find . -path ./site -prune -false -o -name go.mod -execdir $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml" \;
+	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
 
 .PHONY: lint-fix
 lint-fix: GOLANGCI_LINT_FIX=--fix
