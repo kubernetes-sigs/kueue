@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -295,10 +295,10 @@ func (fp *FileProcessor) validatePostOperation(op Operation, data []byte) error 
 
 	if op.Type == InsertText {
 		if op.Key == "" && op.Position == "" {
-			return fmt.Errorf("either 'key' or 'position' must be specified")
+			return errors.New("either 'key' or 'position' must be specified")
 		}
 		if op.Key != "" && op.Position != "" {
-			return fmt.Errorf("only one of 'key' or 'position' can be specified")
+			return errors.New("only one of 'key' or 'position' can be specified")
 		}
 	}
 

@@ -18,6 +18,7 @@ package yamlproc
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -73,7 +74,11 @@ func (ti *TextInserter) insertBelowKey(yamlData []byte, opts InsertOptions) ([]b
 		buffer.WriteString(line + "\n")
 
 		if slices.Contains(keyLines, i+offset) {
-			baseIndent := line[:strings.Index(line, trimmedLine)]
+			index := strings.Index(line, trimmedLine)
+			if index == -1 {
+				return nil, fmt.Errorf("unable to calculate indentation for %q in line %q (line number: %d)", trimmedLine, line, i)
+			}
+			baseIndent := line[:index]
 			indentedContent := ti.indentContent(opts.Value, baseIndent+strings.Repeat(" ", opts.Indentation))
 			buffer.WriteString(indentedContent)
 			offset += len(strings.Split(indentedContent, "\n"))

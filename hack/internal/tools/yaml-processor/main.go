@@ -22,6 +22,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
 	"sigs.k8s.io/kueue/internal/tools/yaml-processor/yamlproc"
 )
 
@@ -30,7 +31,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() {
+		if err := logger.Sync(); err != nil {
+			log.Printf("Error syncing logger: %v", err)
+		}
+	}()
 	yamlproc.SetLogger(logger)
 
 	if len(os.Args) < 2 {

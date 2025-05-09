@@ -118,7 +118,7 @@ func isValidYAMLLine(line string) bool {
 		return false
 	}
 
-	var parsed interface{}
+	var parsed any
 	err := yaml.Unmarshal([]byte(line), &parsed)
 	return err == nil
 }
