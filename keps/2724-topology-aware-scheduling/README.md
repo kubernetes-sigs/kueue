@@ -304,8 +304,9 @@ We also propose to recompute the TopologyAdmission upon node removal and/or
 failure, to find matching replacements for missing nodes. If no such 
 replacement exists, the workload has to be evicted and rescheduled again.
 This mechanism requires kueue to keep track of any failed or missing nodes 
-affecting the scheduled TAS workloads. 
-
+affecting the scheduled TAS workloads. We propose to initially handle only
+a single node failure and extend it to multiple depending on the feedback
+from the users.
 #### Race condition when accounting for DaemonSet pods
 
 There is a risk that workloads are scheduled before the DaemonSet pods are
@@ -644,20 +645,15 @@ for [Beta](#beta). The initial approach for the design is left in the
 section.
 
 #### Node failures
-We propose to extend `WorkloadStatus` to keep track, for a running workload, 
+We propose to introduce a new Annotation at a Workload level, to keep track
 if any of the nodes require a replacement.
 
 ```golang
-// WorkloadStatus defines the observed state of Workload
-type WorkloadStatus struct {
-  ...
-  // nodesToReplace lists, for TAS workloads, the names of failed or missing 
-  // nodes running the pods associated with this workload. This field is 
-  // populated by the node failure controller.
-  // +optional
-  // +listType=set
-  NodesToReplace []string `json:"nodesToReplace,omitempty"`
-}
+const (
+	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
+	// name of a failed node running at least one pod of this workload.
+	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
+)
 ```
 
 ### Implicit defaulting of TAS annotations
@@ -828,6 +824,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   or explicit level added by webhook.
 - introduce configuration for setting TAS profiles/algorithms
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
+- change failed nodes information from Annotation into a field in workload.Status
 
 #### Stable
 
