@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
 					annotations := wl.GetAnnotations()
 					gomega.Expect(annotations).ShouldNot(gomega.BeNil())
-					failedNodesAnnotation, found := annotations[tas.NodeToReplaceAnnotation]
+					failedNodesAnnotation, found := annotations[kueuealpha.NodeToReplaceAnnotation]
 					gomega.Expect(found).Should(gomega.BeTrue(), "NodesToReplaceAnnotation should be present")
 					gomega.Expect(failedNodesAnnotation).Should(gomega.Equal(chosenPod.Spec.NodeName))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())

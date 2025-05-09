@@ -210,7 +210,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 			var actualFailedNodes []string
 			annotations := wl.GetAnnotations()
-			if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+			if ann, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && ann != "" {
 				actualFailedNodes = strings.Split(ann, ",")
 				slices.Sort(actualFailedNodes)
 			}
@@ -267,7 +267,7 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 	}
 
 	annotations := wl.GetAnnotations()
-	if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+	if ann, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && ann != "" {
 		actualFailedNodes := strings.Split(ann, ",")
 		if len(actualFailedNodes) > 0 && (len(actualFailedNodes) > 1 || actualFailedNodes[0] != "") {
 			t.Errorf("Expected FailedNodes annotation to be empty or not present, got %v", ann)
@@ -289,7 +289,7 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
 	annotations = wl.GetAnnotations()
-	if ann, ok := annotations[NodeToReplaceAnnotation]; ok && ann != "" {
+	if ann, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && ann != "" {
 		actualFailedNodes := strings.Split(ann, ",")
 		if len(actualFailedNodes) > 0 && (len(actualFailedNodes) > 1 || actualFailedNodes[0] != "") {
 			t.Errorf("Expected FailedNodes annotation to be empty or not present before delay, got %v", ann)
@@ -311,13 +311,13 @@ func TestNodeFailureReconciler_Lifecycle(t *testing.T) {
 		t.Fatalf("Failed to get workload: %v", err)
 	}
 	annotations = wl.GetAnnotations()
-	annValue, found := annotations[NodeToReplaceAnnotation]
+	annValue, found := annotations[kueuealpha.NodeToReplaceAnnotation]
 	if !found {
-		t.Fatalf("Expected annotation %q to be present", NodeToReplaceAnnotation)
+		t.Fatalf("Expected annotation %q to be present", kueuealpha.NodeToReplaceAnnotation)
 	}
 	actualFailedNodes := strings.Split(annValue, ",")
 	if !slices.Contains(actualFailedNodes, nodeName) {
-		t.Errorf("Expected node %q to be in FailedNodes annotation %v, got %v", nodeName, NodeToReplaceAnnotation, actualFailedNodes)
+		t.Errorf("Expected node %q to be in FailedNodes annotation %v, got %v", nodeName, kueuealpha.NodeToReplaceAnnotation, actualFailedNodes)
 	}
 	if result.RequeueAfter != 0 {
 		t.Errorf("Expected no requeue after marking failed, got %v", result.RequeueAfter)

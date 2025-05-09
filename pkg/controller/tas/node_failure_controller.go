@@ -19,7 +19,6 @@ package tas
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -46,18 +45,54 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-const (
-	NodeFailureControllerName = "kueue-node-failure-controller"
-	// NodeToReplaceAnnotation is the annotation key on a Workload to store comma-separated list of failed node names.
-	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
-	NodeFailureDelay        = 30 * time.Second
-)
-
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
 	client client.Client
 	clock  clock.Clock
 	log    logr.Logger
+}
+
+func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("node", req.Name)
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	log.V(3).Info("Getting node", "name", req.Name, "namespacename", req.NamespacedName)
+	var node corev1.Node
+	err := r.client.Get(ctx, req.NamespacedName, &node)
+	nodeExists := !apierrors.IsNotFound(err)
+	if err != nil && nodeExists {
+		log.V(2).Error(err, "Failed to get Node")
+		return ctrl.Result{}, err
+	}
+
+	markFailed := false
+	if nodeExists {
+		readyStatus, readyTransitionTime := r.getNodeConditionState(&node)
+		if readyStatus == corev1.ConditionTrue {
+			return ctrl.Result{}, nil
+		}
+		if readyTransitionTime != nil {
+			timeSinceNotReady := r.clock.Now().Sub(readyTransitionTime.Time)
+			if timeSinceNotReady >= NodeFailureDelay {
+				markFailed = true
+			} else {
+				return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
+			}
+		} else { // Node exists, not ready, but no transition time? Treat as failed immediately.
+			markFailed = true
+			log.V(2).Info("Node is not ready and NodeReady condition is missing or has an unexpected status, marking as failed immediately", "nodeName", node.Name)
+		}
+	} else {
+		log.V(3).Info("Node not found, assuming deleted")
+		markFailed = true
+	}
+
+	if markFailed {
+		if patchErr := r.patchWorkloadsForFailedNode(ctx, req.Name); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 var _ reconcile.Reconciler = (*nodeFailureReconciler)(nil)
@@ -96,14 +131,14 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 func newNodeFailureReconciler(client client.Client) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
 		client: client,
-		log:    ctrl.Log.WithName(NodeFailureControllerName),
+		log:    ctrl.Log.WithName(TASNodeFailureController),
 		clock:  clock.RealClock{},
 	}
 }
 
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
-	return NodeFailureControllerName, builder.ControllerManagedBy(mgr).
-		Named(NodeFailureControllerName).
+	return TASNodeFailureController, builder.ControllerManagedBy(mgr).
+		Named(TASNodeFailureController).
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Node{},
@@ -112,51 +147,6 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 		)).
 		For(&corev1.Node{}).
 		Complete(r)
-}
-
-func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("node", req.Name)
-	ctx = ctrl.LoggerInto(ctx, log)
-
-	log.V(3).Info("Getting node", "name", req.Name, "namespacename", req.NamespacedName)
-	var node corev1.Node
-	err := r.client.Get(ctx, req.NamespacedName, &node)
-	nodeExists := !apierrors.IsNotFound(err)
-	if err != nil && nodeExists {
-		log.Error(err, "Failed to get Node")
-		return ctrl.Result{}, err
-	}
-
-	markFailed := false
-	var readyTransitionTime *metav1.Time
-	var readyStatus corev1.ConditionStatus
-	if nodeExists {
-		readyStatus, readyTransitionTime = r.getNodeConditionState(&node)
-		if readyStatus == corev1.ConditionTrue {
-			return ctrl.Result{}, nil
-		}
-		if readyTransitionTime != nil {
-			timeSinceNotReady := r.clock.Now().Sub(readyTransitionTime.Time)
-			if timeSinceNotReady >= NodeFailureDelay {
-				markFailed = true
-			} else {
-				return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
-			}
-		} else { // Node exists, not ready, but no transition time? Treat as failed immediately.
-			markFailed = true
-			log.V(2).Info("Node is not ready and NodeReady condition is missing or has an unexpected status, marking as failed immediately", "nodeName", node.Name)
-		}
-	} else {
-		log.V(3).Info("Node not found, assuming deleted")
-		markFailed = true
-	}
-
-	if markFailed {
-		if patchErr := r.patchWorkloadsForFailedNode(ctx, req.Name); patchErr != nil {
-			return ctrl.Result{}, patchErr
-		}
-	}
-	return ctrl.Result{}, nil
 }
 
 // patchWorkloadsForNode finds workloads with pods on the specified node
@@ -168,9 +158,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context,
 		log.V(2).Error(err, "Failed to list pods on node", "nodeName", nodeName)
 		return err
 	}
-	consideredWorkloads := sets.New[types.NamespacedName]()
-	var workloadPatchErrors []error
-
+	workloadsToProcess := sets.New[types.NamespacedName]()
 	for _, pod := range podList.Items {
 		if _, found := pod.GetLabels()[kueuealpha.TASLabel]; !found {
 			// skip non TAS pods
@@ -183,19 +171,17 @@ func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context,
 		if !found {
 			continue
 		}
-		wlKey := types.NamespacedName{Name: wlName, Namespace: pod.Namespace}
-		if consideredWorkloads.Has(wlKey) {
-			continue
-		}
-		consideredWorkloads.Insert(wlKey)
-
+		workloadsToProcess.Insert(types.NamespacedName{Name: wlName, Namespace: pod.Namespace})
+	}
+	var workloadProcessingErrors []error
+	for _, wlKey := range workloadsToProcess.UnsortedList() {
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(4).Info("Workload not found for pod, skipping", "workload", wlKey, "pod", klog.KObj(&pod))
+				log.V(4).Info("Workload not found, skipping", "workload", wlKey)
 			} else {
-				log.V(2).Error(err, "Failed to get workload for pod", "workload", wlKey, "pod", klog.KObj(&pod))
-				workloadPatchErrors = append(workloadPatchErrors, err)
+				log.V(2).Error(err, "Failed to get workload", "workload", wlKey)
+				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			}
 			continue
 		}
@@ -205,27 +191,23 @@ func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context,
 		if currentAnnotations == nil {
 			currentAnnotations = make(map[string]string)
 		}
-		existingFailedNode, ok := currentAnnotations[NodeToReplaceAnnotation]
-		if ok && existingFailedNode != "" && existingFailedNode != nodeName {
-			// TODO in this case we will start eviction of the workload due to multiple failed nodes
-			return nil
-		}
+		existingFailedNode, ok := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
 		if ok && existingFailedNode == nodeName {
-			// nothing to do
-			return nil
+			// nothing to do for this workload
+			continue
 		}
-		currentAnnotations[NodeToReplaceAnnotation] = nodeName
+		currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 		wl.SetAnnotations(currentAnnotations)
-		log.V(4).Info("Adding node to workload failed list via annotation", "workload", wlKey, "nodeName", nodeName)
+		log.V(4).Info("Adding failed node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 		if err := r.client.Patch(ctx, &wl, client.MergeFrom(originalWl)); err != nil {
 			log.V(2).Error(err, "Failed to patch workload with annotation", "workload", wlKey)
-			workloadPatchErrors = append(workloadPatchErrors, err)
+			workloadProcessingErrors = append(workloadProcessingErrors, err)
 		} else {
-			log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "failedNodesAnnotation", currentAnnotations[NodeToReplaceAnnotation])
+			log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "failedNodesAnnotation", currentAnnotations[kueuealpha.NodeToReplaceAnnotation])
 		}
 	}
-	if len(workloadPatchErrors) > 0 {
-		return errors.Join(workloadPatchErrors...)
+	if len(workloadProcessingErrors) > 0 {
+		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
 }

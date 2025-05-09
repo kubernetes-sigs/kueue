@@ -157,6 +157,12 @@ const (
 	//
 	// Enable hierarchical cohorts
 	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable replacement of failed node in TAS.
+	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
 )
 
 func init() {
@@ -242,6 +248,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASFailedNodeReplacement: {
+		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

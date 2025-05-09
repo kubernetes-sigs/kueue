@@ -78,8 +78,8 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 }
 
 func indexPodNodeName(o client.Object) []string {
-	p := o.(*corev1.Pod)
-	if p.Spec.NodeName == "" {
+	p, ok := o.(*corev1.Pod)
+	if !ok || p.Spec.NodeName == "" {
 		return nil
 	}
 	return []string{p.Spec.NodeName}
