@@ -574,7 +574,7 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 }
 
 func expectCounterMetric(metric prometheus.Counter, count int) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
