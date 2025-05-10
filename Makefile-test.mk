@@ -12,24 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-ARTIFACTS ?= $(PROJECT_DIR)/bin
-
 ifeq ($(shell uname),Darwin)
     GOFLAGS ?= -ldflags=-linkmode=internal
 endif
 
-ifeq (,$(shell go env GOBIN))
-	GOBIN=$(shell go env GOPATH)/bin
-else
-	GOBIN=$(shell go env GOBIN)
-endif
-
-GO_CMD ?= go
 GO_TEST_FLAGS ?= -race
-version_pkg = sigs.k8s.io/kueue/pkg/version
-LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
-LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION ?= 1.32
@@ -62,7 +49,6 @@ E2E_RUN_ONLY_ENV ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
-GIT_TAG ?= $(shell git describe --tags --dirty --always)
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue

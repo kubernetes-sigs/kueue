@@ -25,6 +25,7 @@ GO_FMT ?= gofmt
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
+GIT_COMMIT ?= $(shell git rev-parse HEAD)
 # Image URL to use all building/pushing image targets
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
@@ -76,7 +77,7 @@ endif
 
 version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
-LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
+LD_FLAGS += -X '$(version_pkg).GitCommit=$(GIT_COMMIT)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
@@ -229,6 +230,8 @@ image-build:
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
