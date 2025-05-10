@@ -559,6 +559,19 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	return clusterQueue.addWorkload(w) == nil
 }
 
+func (c *Cache) GetWorkloads() []*workload.Info {
+	c.RLock()
+	defer c.RUnlock()
+
+	workloads := make([]*workload.Info, 0)
+	for _, cq := range c.hm.ClusterQueues() {
+		for _, wl := range cq.Workloads {
+			workloads = append(workloads, wl)
+		}
+	}
+	return workloads
+}
+
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()

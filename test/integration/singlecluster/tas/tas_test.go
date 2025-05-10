@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -378,7 +380,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.It("should admit workload which fits in a required topology domain", func() {
-				var wl1, wl2, wl3, wl4 *kueue.Workload
+				var wl1, wl2, wl3, wl4, wl5, wl6, wl7 *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
@@ -531,6 +533,47 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							},
 						},
 					))
+				})
+
+				ginkgo.By("creating wl5, wl6, wl7 before restart", func() {
+					wl5 = testing.MakeWorkload("wl5", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					wl5.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
+					}
+					wl6 = testing.MakeWorkload("wl6", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					wl6.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
+					}
+					wl7 = testing.MakeWorkload("wl7", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					wl7.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
+					}
+					util.MustCreate(ctx, k8sClient, wl5)
+					util.MustCreate(ctx, k8sClient, wl6)
+					util.MustCreate(ctx, k8sClient, wl7)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl5)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl6)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl7)
+				})
+
+				ginkgo.By("inadmissible wl5,wl6,wl7", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl5, wl6, wl7)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl4)
+				})
+
+				ginkgo.By("restart", func() {
+					fwk.StopManager(ctx)
+					time.Sleep(time.Second * 2)
+					fwk.StartManager(ctx, cfg, managerSetup)
+					time.Sleep(time.Second * 5)
+				})
+
+				ginkgo.By("verify wl5,wl6,wl7 is still pending", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl5, wl6, wl7)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl4)
 				})
 			})
 

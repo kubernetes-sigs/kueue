@@ -177,6 +177,13 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ClusterQueue")
 
+	if features.Enabled(features.TopologyAwareScheduling) && !r.cache.TASCache().SyncedFlavors() {
+		log.V(2).Info("Waiting for TAS cache to be synced")
+		return ctrl.Result{
+			RequeueAfter: 2 * time.Second,
+		}, nil
+	}
+
 	if cqObj.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
@@ -321,6 +328,18 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 
 	log := r.log.WithValues("clusterQueue", klog.KObj(e.Object))
 	log.V(2).Info("ClusterQueue create event")
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		// If we don't wait for the flavors to be synced, AddClusterQueue will
+		// add workloads to the cache without the flavors being present which results
+		// in TAS not accounting correctly for the node usage. This sync period should
+		// not take long.
+		log.V(2).Info("Waiting for TAS cache to be synced")
+		for !r.cache.TASCache().SyncedFlavors() {
+			time.Sleep(1 * time.Second)
+		}
+	}
+
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	if err := r.cache.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")

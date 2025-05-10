@@ -159,6 +159,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if !r.cache.TASCache().SyncedFlavors() {
+			log.V(2).Info("Waiting for TAS cache to be synced")
+			return ctrl.Result{
+				RequeueAfter: 1 * time.Second,
+			}, nil
+		}
+	}
+
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 			wl.Spec.Active = ptr.To(false)
