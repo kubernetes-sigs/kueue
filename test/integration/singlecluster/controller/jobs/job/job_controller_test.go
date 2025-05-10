@@ -18,6 +18,7 @@ package job
 
 import (
 	"fmt"
+	"log"
 	"maps"
 	"time"
 
@@ -2621,6 +2622,11 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 			PodAnnotation(kueuealpha.PodSetUnconstrainedTopologyAnnotation, "true").
 			Request(corev1.ResourceCPU, "1").
 			Obj()
+		job2 := testingjob.MakeJob("job2", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodAnnotation(kueuealpha.PodSetUnconstrainedTopologyAnnotation, "true").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
 		ginkgo.By("creating a job", func() {
 			util.MustCreate(ctx, k8sClient, job)
 		})
@@ -2665,5 +2671,94 @@ var _ = ginkgo.Describe("Job controller when TopologyAwareScheduling enabled", g
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.By("it should not schedule another job", func() {
+			ginkgo.By("creating a job", func() {
+				util.MustCreate(ctx, k8sClient, job2)
+			})
+
+			wl := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+
+			time.Sleep(10 * time.Second)
+			ginkgo.By("verify the workload is not admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			})
+			log.Print("Stopping the manager")
+			fwk.StopManager(ctx)
+			log.Print("Starting the manager")
+			fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
+			log.Print("Started the manager")
+
+			time.Sleep(10 * time.Second)
+			log.Print("Verifying the workload is not admitted after manager restart")
+
+			ginkgo.By("verify the workload is not admitted after reboot", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			})
+		})
+
+		ginkgo.By("Finishing the first job, the workload should be finish", func() {
+			createdJob := batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				now := metav1.Now()
+				createdJob.Status.Succeeded = 1
+				createdJob.Status.StartTime = ptr.To(now)
+				createdJob.Status.CompletionTime = ptr.To(now)
+				createdJob.Status.Conditions = []batchv1.JobCondition{
+					{
+						Type:               batchv1.JobComplete,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+						Reason:             "ByTest",
+						Message:            "Job finished successfully",
+					},
+					{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+						Reason:             "Reached expected number of succeeded pods",
+					},
+				}
+				g.Expect(k8sClient.Status().Update(ctx, &createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking the workload is finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+
+					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElement(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadFinished,
+							Status:  metav1.ConditionTrue,
+							Reason:  kueue.WorkloadFinishedReasonSucceeded,
+							Message: "Job finished successfully",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.By("Second job should be admitted", func() {
+			wl := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+		})
+
 	})
 })

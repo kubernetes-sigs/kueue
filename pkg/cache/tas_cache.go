@@ -27,8 +27,9 @@ import (
 
 type TASCache struct {
 	sync.RWMutex
-	client  client.Client
-	flavors map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client        client.Client
+	flavors       map[kueue.ResourceFlavorReference]*TASFlavorCache
+	syncedFlavors bool
 }
 
 func NewTASCache(client client.Client) TASCache {
@@ -61,4 +62,16 @@ func (t *TASCache) Delete(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.flavors, name)
+}
+
+func (t *TASCache) SetSyncedFlavors(synced bool) {
+	t.Lock()
+	defer t.Unlock()
+	t.syncedFlavors = synced
+}
+
+func (t *TASCache) SyncedFlavors() bool {
+	t.RLock()
+	defer t.RUnlock()
+	return t.syncedFlavors
 }
