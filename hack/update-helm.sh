@@ -98,7 +98,6 @@ replace_service_line=$(
   {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
 EOF
 )
-
 search_webhook_pod_mutate="        path: /mutate--v1-pod"
 search_webhook_pod_validate="        path: /validate--v1-pod"
 search_webhook_deployment_mutate="        path: /mutate-apps-v1-deployment"
@@ -142,7 +141,6 @@ add_webhook_pod_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_pod_validate=$(
@@ -186,7 +184,6 @@ add_webhook_deployment_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_deployment_validate=$(
@@ -229,7 +226,6 @@ add_webhook_statefulset_mutate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
 EOF
 )
 add_webhook_statefulset_validate=$(
@@ -301,12 +297,18 @@ webhook_files=(
 "${DEST_WEBHOOK_DIR}/ValidatingWebhookConfiguration.yml"
 "${DEST_WEBHOOK_DIR}/service.yaml"
 )
+
 for output_file in "${webhook_files[@]}"; do
   if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
   if [ "$(< "$output_file" $YQ '.metadata | has("namespace")')" = "true" ]; then
     $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
+  fi
+  if [[ "$output_file" == "${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml" ]]; then
+    echo "bla"
+    $YQ -N -i '.webhooks.[].reinvocationPolicy = "{{ $reinvocationPolicy }}"' "$output_file"
+    cat ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml
   fi
   $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
