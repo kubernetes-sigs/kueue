@@ -19,6 +19,8 @@ package cache
 import (
 	"maps"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
@@ -67,14 +69,26 @@ func (r resourceNode) guaranteedQuota(fr resources.FlavorResource) int64 {
 	return 0
 }
 
-// hierarchicalResourceNode abstracts over ClusterQueues and Cohorts,
-// by providing access to the contained ResourceNode, with the ability
-// to navigate to the parent node.
+// hierarchicalResourceNode extends flatResourceNode
+// with the ability to navigate to the parent node.
 type hierarchicalResourceNode interface {
-	getResourceNode() resourceNode
+	flatResourceNode
 
 	HasParent() bool
 	parentHRN() hierarchicalResourceNode
+}
+
+// flatResourceNode abstracts over ClusterQueues and Cohorts,
+// by providing access to the contained ResourceNode.
+type flatResourceNode interface {
+	getResourceNode() resourceNode
+}
+
+// LocalAvailable returns, for a given node and resource flavor,
+// how much guaranteed quota in this flavor exceeds usage.
+// This quota is available at this node but is not visible at its parent.
+func LocalAvailable(node flatResourceNode, fr resources.FlavorResource) int64 {
+	return max(0, node.getResourceNode().guaranteedQuota(fr)-node.getResourceNode().Usage[fr])
 }
 
 // available determines how much capacity remains for the current
@@ -91,7 +105,6 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64
 	if !node.HasParent() {
 		return r.SubtreeQuota[fr] - r.Usage[fr]
 	}
-	localAvailable := max(0, r.guaranteedQuota(fr)-r.Usage[fr])
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
@@ -100,7 +113,7 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64
 		withMaxFromParent := storedInParent - usedInParent + *borrowingLimit
 		parentAvailable = min(withMaxFromParent, parentAvailable)
 	}
-	return localAvailable + parentAvailable
+	return LocalAvailable(node, fr) + parentAvailable
 }
 
 // potentialAvailable returns the maximum capacity available to this node,
@@ -122,7 +135,7 @@ func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResour
 // its Cohort when usage exceeds guaranteedQuota.
 func addUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) {
 	r := node.getResourceNode()
-	localAvailable := max(0, r.guaranteedQuota(fr)-r.Usage[fr])
+	localAvailable := LocalAvailable(node, fr)
 	r.Usage[fr] += val
 	if node.HasParent() && val > localAvailable {
 		deltaParentUsage := val - localAvailable
@@ -183,11 +196,38 @@ func updateCohortResourceNode(cohort *cohort) {
 	}
 }
 
-func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
+func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().guaranteedQuota(fr)
 	}
 	for fr, childUsage := range child.getResourceNode().Usage {
 		parent.resourceNode.Usage[fr] += max(0, childUsage-child.getResourceNode().guaranteedQuota(fr))
 	}
+}
+
+// QuantitiesFitInQuota returns if resource requests fit in quota on this node
+// and the amount of resources that exceed the guaranteed
+// quota on this node. It is assumed that subsequent call
+// to this function will be on nodes parent with remainingRequests
+func QuantitiesFitInQuota(node flatResourceNode, requests resources.FlavorResourceQuantities) (bool, resources.FlavorResourceQuantities) {
+	fits := true
+	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
+	for fr, v := range requests {
+		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
+			fits = false
+		}
+		remainingRequests[fr] = max(0, v-LocalAvailable(node, fr))
+	}
+	return fits, remainingRequests
+}
+
+// IsWithinNominalInResources returns whether or not, the node quota usage exceeds its
+// nominal quota in any resource flavor out of a set of resource flavours.
+func IsWithinNominalInResources(node flatResourceNode, frs sets.Set[resources.FlavorResource]) bool {
+	for fr := range frs {
+		if node.getResourceNode().Usage[fr] > node.getResourceNode().SubtreeQuota[fr] {
+			return false
+		}
+	}
+	return true
 }

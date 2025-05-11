@@ -48,7 +48,6 @@ func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]any, error)
 		"workloads":     removeManagedFields(workloads),
 	}
 	return result, nil
-
 }
 
 func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) any {
@@ -103,8 +102,14 @@ func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) any {
 		}
 
 		preemption := map[string]any{"preempted": preempted, "reason": preemptionReason}
-		unstructured.SetNestedField(workload.Object, preemption, "preemption")
-		addPodsToWorkload(&workload, workloadPods)
+		if err := unstructured.SetNestedField(workload.Object, preemption, "preemption"); err != nil {
+			fmt.Printf("error setting nested field %v", err)
+			return nil
+		}
+		if err := addPodsToWorkload(&workload, workloadPods); err != nil {
+			fmt.Printf("error adding pods to workload: %v", err)
+			return nil
+		}
 		workloadsByUID[workloadUID] = workloadName
 		processedWorkloads = append(processedWorkloads, workload)
 	}

@@ -439,7 +439,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
-				Queue(managerLq.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit("cpu", "1").
 				RequestAndLimit("memory", "2G").
 				TerminationGracePeriod(1).
@@ -495,11 +495,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting for the job to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:   kueue.WorkloadFinished,
-						Status: metav1.ConditionTrue,
-						Reason: kueue.WorkloadFinishedReasonSucceeded,
-					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
+					g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -890,7 +886,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -925,13 +921,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
-					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-						metav1.Condition{
-							Type:   kueue.MultiKueueClusterActive,
-							Status: metav1.ConditionFalse,
-							Reason: "ClientConnectionFailed",
-						},
-						util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)))
+					g.Expect(readClient.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.MultiKueueClusterActive, "ClientConnectionFailed"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -37,6 +37,13 @@ const (
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
 
+// ClusterQueueReference is the name of the ClusterQueue.
+// It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
+//
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type ClusterQueueReference string
+
 // CohortReference is the name of the Cohort.
 //
 // Validation of a cohort name is equivalent to that of object names:
@@ -130,6 +137,10 @@ type ClusterQueueSpec struct {
 	// if FairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
+	// +optional
+	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.

@@ -31,6 +31,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsReservation,omitempty"`
 	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorUsage,omitempty"`
 	Flavors            []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
+	FairSharing        *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with
@@ -112,5 +113,13 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavors(values ...*LocalQueueFl
 		}
 		b.Flavors = append(b.Flavors, *values[i])
 	}
+	return b
+}
+
+// WithFairSharing sets the FairSharing field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FairSharing field is set to the value of the last call.
+func (b *LocalQueueStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+	b.FairSharing = value
 	return b
 }

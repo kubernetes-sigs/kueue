@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -39,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1201,6 +1203,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		wantResults          map[kueue.ClusterQueueReference]result
 		wantAssumedWorkloads map[string]kueue.ClusterQueueReference
 		wantError            string
+		wantLocalQueue       queue.LocalQueueReference
 	}{
 		{
 			name: "add",
@@ -2286,6 +2289,64 @@ func TestLocalQueueUsage(t *testing.T) {
 	}
 }
 
+func TestGetCacheLQ(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("spot").
+				Resource("cpu", "10", "10").
+				Resource("memory", "64Gi", "64Gi").Obj(),
+		).ResourceGroup(
+		*utiltesting.MakeFlavorQuotas("model-a").
+			Resource("example.com/gpu", "10", "10").Obj(),
+	).Obj()
+	lq := utiltesting.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq").Obj()
+	cases := map[string]struct {
+		getLq          *kueue.LocalQueue
+		getCQReference kueue.ClusterQueueReference
+		wantErr        error
+		wantLq         *LocalQueue
+	}{
+		"valid LQ": {
+			getLq:          lq,
+			getCQReference: "cq",
+			wantLq: &LocalQueue{
+				key: "ns/lq-a",
+			}},
+		"LQ doesnt exist": {
+			getLq:          utiltesting.MakeLocalQueue("non-existing-lq", "ns").ClusterQueue("cq").Obj(),
+			getCQReference: "cq",
+			wantErr:        errQNotFound,
+		},
+		"CQ doesnt exist": {
+			getLq:          lq,
+			getCQReference: "non-existing-cq",
+			wantErr:        ErrCqNotFound,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewFakeClient()
+			cache := New(cl)
+			ctx := t.Context()
+
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := cache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
+
+			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, tc.getLq)
+			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
+				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCacheQueueOperations(t *testing.T) {
 	cqs := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("foo").
@@ -2386,7 +2447,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cases := map[string]struct {
 		ops             []func(context.Context, client.Client, *Cache) error
-		wantLocalQueues map[string]*LocalQueue
+		wantLocalQueues map[queue.LocalQueueReference]*LocalQueue
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -2394,7 +2455,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2435,14 +2496,14 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllClusterQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*LocalQueue{},
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantLocalQueues: map[string]*LocalQueue{},
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -2450,7 +2511,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllQueues,
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2498,7 +2559,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllClusterQueues,
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2546,7 +2607,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.AssumeWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
@@ -2587,7 +2648,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.ForgetWorkload(wl)
 				},
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2622,7 +2683,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.DeleteWorkload(workloads[0])
 				},
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/alpha": {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
@@ -2668,7 +2729,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns1/gamma": {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
@@ -2690,7 +2751,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantLocalQueues: map[string]*LocalQueue{
+			wantLocalQueues: map[queue.LocalQueueReference]*LocalQueue{
 				"ns2/beta": {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
@@ -2726,7 +2787,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					t.Fatalf("Running op %d: %v", i, err)
 				}
 			}
-			cacheQueues := make(map[string]*LocalQueue)
+			cacheQueues := make(map[queue.LocalQueueReference]*LocalQueue)
 			for _, cacheCQ := range cache.hm.ClusterQueues() {
 				for qKey, cacheQ := range cacheCQ.localQueues {
 					if _, ok := cacheQueues[qKey]; ok {
@@ -2735,7 +2796,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					cacheQueues[qKey] = cacheQ
 				}
 			}
-			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 		})
@@ -3365,7 +3426,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1].",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): flavor1.",
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3373,7 +3434,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "AdmissionCheckNotFound",
-			wantMessage:      "Can't admit new workloads: references missing AdmissionCheck(s): [check1].",
+			wantMessage:      "Can't admit new workloads: references missing AdmissionCheck(s): check1.",
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3382,14 +3443,14 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "AdmissionCheckInactive",
-			wantMessage:      "Can't admit new workloads: references inactive AdmissionCheck(s): [check1].",
+			wantMessage:      "Can't admit new workloads: references inactive AdmissionCheck(s): check1.",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1], references missing AdmissionCheck(s): [check1].",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): flavor1, references missing AdmissionCheck(s): check1.",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},

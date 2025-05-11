@@ -213,7 +213,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		cq := snapshot.ClusterQueue(e.ClusterQueue)
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
-		if cq.HasParent() {
+		if cq != nil && cq.HasParent() {
 			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
 		}
 		ctx := ctrl.LoggerInto(ctx, log)
@@ -370,7 +370,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()
-			e.Info.LastAssignment = &e.assignment.LastState
+			e.LastAssignment = &e.assignment.LastState
 		}
 		entries = append(entries, e)
 	}
@@ -402,7 +402,7 @@ func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources
 	reservedUsage := make(resources.FlavorResourceQuantities)
 	for fr, usage := range e.assignment.Usage.Quota {
 		cqQuota := cq.QuotaFor(fr)
-		if e.assignment.Borrowing {
+		if e.assignment.Borrowing > 0 {
 			if cqQuota.BorrowingLimit == nil {
 				reservedUsage[fr] = usage
 			} else {
@@ -517,7 +517,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
-			waitTime := workload.QueuedWaitTime(newWorkload)
+			waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
 			if features.Enabled(features.LocalQueueMetrics) {
@@ -580,7 +580,7 @@ func (e entryOrdering) Less(i, j int) bool {
 	aBorrows := a.assignment.Borrows()
 	bBorrows := b.assignment.Borrows()
 	if aBorrows != bBorrows {
-		return !aBorrows
+		return aBorrows < bBorrows
 	}
 
 	// 2. Higher priority first if not disabled.
@@ -648,11 +648,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		patch := workload.BaseSSAWorkload(e.Obj)
-		workload.AdmissionStatusPatch(e.Obj, patch, true)
+		patch := workload.PrepareWorkloadPatch(e.Obj, true, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {

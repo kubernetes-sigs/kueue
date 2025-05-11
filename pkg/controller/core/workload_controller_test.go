@@ -556,7 +556,7 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
 						Reason:  "AdmissionCheck",
-						Message: "Admission check(s): [check], were rejected",
+						Message: "Admission check(s): check, were rejected",
 					},
 				).
 				Obj(),
@@ -604,7 +604,7 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
 						Reason:  "AdmissionCheck",
-						Message: "Admission check(s): [check], were rejected",
+						Message: "Admission check(s): check, were rejected",
 					},
 				).
 				Obj(),
@@ -637,7 +637,7 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
-					Message: "Admission check(s): [check-1], were rejected",
+					Message: "Admission check(s): check-1, were rejected",
 				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -662,14 +662,14 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "DeactivatedDueToAdmissionCheck",
-						Message: "The workload is deactivated due to Admission check(s): [check-1], were rejected",
+						Message: "The workload is deactivated due to Admission check(s): check-1, were rejected",
 					},
 					// In a real cluster this condition would be removed but it cant be in the fake cluster
 					metav1.Condition{
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
-						Message: "Admission check(s): [check-1], were rejected",
+						Message: "Admission check(s): check-1, were rejected",
 					},
 				).
 				Obj(),
@@ -678,7 +678,7 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
 					EventType: "Normal",
 					Reason:    "EvictedDueToDeactivatedDueToAdmissionCheck",
-					Message:   "The workload is deactivated due to Admission check(s): [check-1], were rejected",
+					Message:   "The workload is deactivated due to Admission check(s): check-1, were rejected",
 				},
 			},
 		},

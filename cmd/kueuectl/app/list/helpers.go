@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	invalidListRequestLimitError = errors.New("invalid list request limit")
+	errInvalidListRequestLimit = errors.New("invalid list request limit")
 )
 
 func listRequestLimit() (int64, error) {
@@ -45,7 +45,7 @@ func listRequestLimit() (int64, error) {
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
 	if err != nil {
-		return 0, invalidListRequestLimitError
+		return 0, errInvalidListRequestLimit
 	}
 
 	return limit, nil

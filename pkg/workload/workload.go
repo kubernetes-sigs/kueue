@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -281,6 +282,27 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+func (i *Info) LocalQueueUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64) (float64, error) {
+	var lq kueue.LocalQueue
+	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
+	if err := c.Get(ctx, lqKey, &lq); err != nil {
+		return 0, err
+	}
+	var usage float64
+	for resName, resVal := range lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources {
+		weight, found := resWeights[resName]
+		if !found {
+			weight = 1
+		}
+		usage += weight * resVal.AsApproximateFloat64()
+	}
+	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
+		// if no weight for lq was defined, use default weight of 1
+		usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	}
+	return usage, nil
+}
+
 // IsUsingTAS returns information if the workload is using TAS
 func (i *Info) IsUsingTAS() bool {
 	return slices.ContainsFunc(i.TotalRequests,
@@ -361,10 +383,6 @@ func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 
 func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
-}
-
-func QueueKey(w *kueue.Workload) string {
-	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
@@ -553,12 +571,12 @@ func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status boo
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
 
-func QueuedWaitTime(wl *kueue.Workload) time.Duration {
+func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	queuedTime := wl.CreationTimestamp.Time
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
 		queuedTime = c.LastTransitionTime.Time
 	}
-	return time.Since(queuedTime)
+	return clock.Since(queuedTime)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -652,7 +670,7 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 		match := true
 		for idx := range w.Status.ResourceRequests {
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!maps.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
 				match = false
 				break
 			}
@@ -709,10 +727,15 @@ func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
+	wlCopy := PrepareWorkloadPatch(w, strict, clk)
+	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+}
+
+func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	AdmissionStatusPatch(w, wlCopy, strict)
 	AdmissionChecksStatusPatch(w, wlCopy, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	return wlCopy
 }
 
 // ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
@@ -823,12 +846,13 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
-func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {
 	return metav1.Condition{
-		Type:    kueue.WorkloadPodsReady,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
+		Type:               kueue.WorkloadPodsReady,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 		// ObservedGeneration is added via workload.UpdateStatus
 	}
 }

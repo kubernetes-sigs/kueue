@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a RayJob.
@@ -40,7 +41,7 @@ func MakeJob(name, ns string) *JobWrapper {
 		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
 			RayClusterSpec: &rayv1.RayClusterSpec{
-				RayVersion: "2.9.0",
+				RayVersion: testing.TestRayVersion(),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -219,9 +220,10 @@ func (j *JobWrapper) JobStatus(s rayv1.JobStatus) *JobWrapper {
 
 // Request adds a resource request to the default container.
 func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
 	}
 	return j
@@ -229,9 +231,10 @@ func (j *JobWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v
 
 // Limit adds a resource request to the default container.
 func (j *JobWrapper) Limit(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *JobWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	}
 	return j
@@ -243,11 +246,12 @@ func (j *JobWrapper) RequestAndLimit(rayType rayv1.RayNodeType, r corev1.Resourc
 }
 
 func (j *JobWrapper) Image(rayType rayv1.RayNodeType, image string, args ...string) *JobWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image = image
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Args = args
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Image = image
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Args = args
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
@@ -266,12 +270,13 @@ func (j *JobWrapper) RayVersion(rv string) *JobWrapper {
 }
 
 func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrapper {
-	if rayType == rayv1.HeadNode {
+	switch rayType {
+	case rayv1.HeadNode:
 		if j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env == nil {
 			j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
 		}
 		j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
-	} else if rayType == rayv1.WorkerNode {
+	case rayv1.WorkerNode:
 		if j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
 			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
 		}

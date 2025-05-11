@@ -27,6 +27,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -69,7 +70,8 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 	offset := pendingWorkloadOpts.Offset
 
 	namespace := genericapirequest.NamespaceValue(ctx)
-	cqName, ok := m.queueMgr.ClusterQueueFromLocalQueue(queue.QueueKey(namespace, name))
+	lqName := kueue.LocalQueueName(name)
+	cqName, ok := m.queueMgr.ClusterQueueFromLocalQueue(queue.NewLocalQueueReference(namespace, lqName))
 	if !ok {
 		return nil, errors.NewNotFound(visibility.Resource("localqueue"), name)
 	}
@@ -80,7 +82,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 		if len(wls) >= int(limit) {
 			break
 		}
-		if wlInfo.Obj.Spec.QueueName == name {
+		if wlInfo.Obj.Spec.QueueName == lqName {
 			if skippedWls < int(offset) {
 				skippedWls++
 			} else {

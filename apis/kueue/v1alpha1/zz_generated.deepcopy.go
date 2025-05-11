@@ -117,7 +117,7 @@ func (in *CohortStatus) DeepCopyInto(out *CohortStatus) {
 	if in.FairSharing != nil {
 		in, out := &in.FairSharing, &out.FairSharing
 		*out = new(v1beta1.FairSharingStatus)
-		**out = **in
+		(*in).DeepCopyInto(*out)
 	}
 }
 

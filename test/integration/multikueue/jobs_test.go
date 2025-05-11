@@ -169,19 +169,25 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+		util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
 		managerLq = utiltesting.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerLq)
+		util.ExpectLocalQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 		worker1Cq = utiltesting.MakeClusterQueue("q1").Obj()
 		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+		util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 		worker1Lq = utiltesting.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
 		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+		util.ExpectLocalQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 		worker2Cq = utiltesting.MakeClusterQueue("q1").Obj()
 		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+		util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
+		util.ExpectLocalQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -201,7 +207,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run a job on worker if admitted", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
 
@@ -295,7 +301,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
 
@@ -1215,7 +1221,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should remove the worker's workload and job after reconnect when the managers job and workload are deleted", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
 		jobLookupKey := client.ObjectKeyFromObject(job)

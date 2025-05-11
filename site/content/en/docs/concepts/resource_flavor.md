@@ -69,6 +69,8 @@ Taints on the ResourceFlavor work similarly to [Node taints](https://kubernetes.
 but only support the `NoExecute` and `NoSchedule` effects, while `PreferNoSchedule` is ignored.
 
 For Kueue to [admit](/docs/concepts#admission) a Workload to use the ResourceFlavor, the PodSpecs in the Workload should have a toleration for it.
+On the other hand, when the ResourceFlavor has also set the matching tolerations in `.spec.tolerations`, 
+then the taints are not considered during [admission](/docs/concepts#admission).
 As opposed to the behavior for [ResourceFlavor tolerations for automatic scheduling](#ResourceFlavor-tolerations-for-automatic-scheduling), Kueue does not add tolerations for the flavor taints.
 
 A sample ResourceFlavor looks like the following:

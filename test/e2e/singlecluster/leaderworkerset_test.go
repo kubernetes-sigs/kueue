@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -100,14 +99,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -158,14 +150,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -214,14 +199,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -279,14 +257,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:    "Available",
-								Status:  metav1.ConditionTrue,
-								Reason:  "AllGroupsReady",
-								Message: "All replicas are ready",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -308,14 +279,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:    "Available",
-								Status:  metav1.ConditionTrue,
-								Reason:  "AllGroupsReady",
-								Message: "All replicas are ready",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -374,14 +338,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:    "Available",
-								Status:  metav1.ConditionTrue,
-								Reason:  "AllGroupsReady",
-								Message: "All replicas are ready",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -409,14 +366,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:    "Available",
-								Status:  metav1.ConditionTrue,
-								Reason:  "AllGroupsReady",
-								Message: "All replicas are ready",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -472,13 +422,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:   "Available",
-								Status: metav1.ConditionTrue,
-								Reason: "AllGroupsReady",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -508,13 +452,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:   "Available",
-								Status: metav1.ConditionTrue,
-								Reason: "AllGroupsReady",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -593,14 +531,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-							gomega.BeComparableTo(metav1.Condition{
-								Type:    "Available",
-								Status:  metav1.ConditionTrue,
-								Reason:  "AllGroupsReady",
-								Message: "All replicas are ready",
-							}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-						)
+						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -676,14 +607,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -716,14 +640,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    "Available",
-							Status:  metav1.ConditionTrue,
-							Reason:  "AllGroupsReady",
-							Message: "All replicas are ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -808,13 +725,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityLWS), createdLowPriorityLWS)).To(gomega.Succeed())
 					g.Expect(createdLowPriorityLWS.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdLowPriorityLWS.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionTrue,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
-					))
+					g.Expect(createdLowPriorityLWS.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -850,13 +761,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityLWS), createdHighPriorityLWS)).To(gomega.Succeed())
 					g.Expect(createdHighPriorityLWS.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdHighPriorityLWS.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionTrue,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
-					))
+					g.Expect(createdHighPriorityLWS.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -865,18 +770,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityLWS), createdLowPriorityLWS)).To(gomega.Succeed())
 					g.Expect(createdLowPriorityLWS.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-					g.Expect(createdLowPriorityLWS.Status.Conditions).To(gomega.ContainElements(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Progressing",
-							Status: metav1.ConditionTrue,
-							Reason: "GroupsProgressing",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionFalse,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
-					))
+					g.Expect(createdLowPriorityLWS.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Progressing", "GroupsProgressing"))
+					g.Expect(createdLowPriorityLWS.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -925,13 +820,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionTrue,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -960,13 +849,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionFalse,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1007,13 +890,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:   "Available",
-							Status: metav1.ConditionTrue,
-							Reason: "AllGroupsReady",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)),
-					)
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

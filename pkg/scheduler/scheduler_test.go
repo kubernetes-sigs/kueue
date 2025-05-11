@@ -363,6 +363,21 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 		},
+		"skip workload with missing or deleted ClusterQueue (NoFit)": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("missing-cq-workload", "sales").
+					Queue("non-existent-queue").
+					PodSets(*utiltesting.MakePodSet("set", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			// Expect no panics and workload skipped.
+			wantLeft:     nil,
+			wantEvents:   nil,
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+		},
 		"workload fits in single clusterQueue, with check state pending": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
@@ -3043,6 +3058,69 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/a1-admitted": *utiltesting.MakeAdmission("ClusterQueueA").Assignment("gpu", "on-demand", "1").Obj(),
 			},
 		},
+		//
+		// Denote Cohorts in UPPERCASE, and ClusterQueues in lowercase.
+		// quota is at GUARANTEED cohort
+		//
+		//             ROOT
+		//          /        \
+		//    GUARANTEED      best-effort
+		//   /
+		// guaranteed
+		//
+		"in a hierarchical cohort, workload borrowing less is scheduled first": {
+			cohorts: []kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Cohort,
+				utiltesting.MakeCohort("guaranteed").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+					).Parent("root").Cohort,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("guaranteed").
+					Cohort("guaranteed").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					ClusterQueue,
+				utiltesting.MakeClusterQueue("best-effort").
+					Cohort("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					ClusterQueue,
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq-guaranteed", "eng-alpha").ClusterQueue("guaranteed").Obj(),
+				*utiltesting.MakeLocalQueue("lq-best-effort", "eng-alpha").ClusterQueue("best-effort").Obj(),
+			},
+			workloads: []kueue.Workload{
+				utiltesting.MakeWorkload("guaranteed", "eng-alpha").
+					Queue("lq-guaranteed").
+					Priority(0).
+					PodSets(utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						PodSet).
+					Workload,
+				utiltesting.MakeWorkload("best-effort", "eng-alpha").
+					Queue("lq-best-effort").
+					Priority(3).
+					PodSets(utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						PodSet).
+					Workload,
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/guaranteed": *utiltesting.MakeAdmission("guaranteed", "one").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+			},
+			wantScheduled: []string{"eng-alpha/guaranteed"},
+			wantLeft: map[kueue.ClusterQueueReference][]string{
+				"best-effort": {"eng-alpha/best-effort"},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -3219,7 +3297,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3248,7 +3326,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3269,7 +3347,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3292,7 +3370,7 @@ func TestEntryOrdering(t *testing.T) {
 				},
 			},
 			assignment: flavorassigner.Assignment{
-				Borrowing: true,
+				Borrowing: 1,
 			},
 		},
 		{
@@ -3313,6 +3391,19 @@ func TestEntryOrdering(t *testing.T) {
 						},
 					},
 				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "high_pri_borrowing_more",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 2,
 			},
 		},
 	}
@@ -3407,28 +3498,28 @@ func TestEntryOrdering(t *testing.T) {
 			input:            input,
 			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
+			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			input:            input,
 			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
-			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
+			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
 			input:            input,
 			prioritySorting:  false,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
 			input:            input,
 			prioritySorting:  false,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
-			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:            "Some workloads are preempted; Priority sorting is disabled",
@@ -3983,7 +4074,7 @@ var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTr
 func TestRequeueAndUpdate(t *testing.T) {
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	q1 := utiltesting.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
-	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
+	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(kueue.LocalQueueName(q1.Name)).Obj()
 
 	cases := []struct {
 		name              string
@@ -4149,7 +4240,7 @@ func TestResourcesToReserve(t *testing.T) {
 	cases := []struct {
 		name            string
 		assignmentMode  flavorassigner.FlavorAssignmentMode
-		borrowing       bool
+		borrowing       int
 		assignmentUsage resources.FlavorResourceQuantities
 		cqUsage         resources.FlavorResourceQuantities
 		wantReserved    resources.FlavorResourceQuantities
@@ -4229,7 +4320,7 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows",
 			assignmentMode: flavorassigner.Preempt,
-			borrowing:      true,
+			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
@@ -4248,7 +4339,7 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory equal assignment usage, CQ borrowing limit is nil",
 			assignmentMode: flavorassigner.Preempt,
-			borrowing:      true,
+			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,

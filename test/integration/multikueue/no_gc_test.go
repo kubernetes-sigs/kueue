@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 	ginkgo.It("Should remove the worker's workload and job when managers job is deleted", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
 
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
-			Queue(managerLq.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())

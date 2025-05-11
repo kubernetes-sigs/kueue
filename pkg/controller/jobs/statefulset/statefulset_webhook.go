@@ -86,7 +86,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		ss.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 		queueName := jobframework.QueueNameForObject(ss.Object())
 		if queueName != "" {
-			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = queueName
+			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
 			ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
 			ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 			ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue

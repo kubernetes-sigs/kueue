@@ -144,7 +144,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		if client.IgnoreNotFound(err) != nil {
 			return reconcile.Result{}, err
 		}
-		r.tasCache.Delete(kueue.ResourceFlavorReference(req.NamespacedName.Name))
+		r.tasCache.Delete(kueue.ResourceFlavorReference(req.Name))
 	}
 	if flv.Spec.TopologyName != nil {
 		flavorReference := kueue.ResourceFlavorReference(flv.Name)

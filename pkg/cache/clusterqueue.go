@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -68,7 +69,7 @@ type clusterQueue struct {
 
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                        map[string]*LocalQueue
+	localQueues                        map[queue.LocalQueueReference]*LocalQueue
 	podsReadyTracking                  bool
 	missingFlavors                     []kueue.ResourceFlavorReference
 	missingAdmissionChecks             []kueue.AdmissionCheckReference
@@ -91,7 +92,7 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }
 
-// implements hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *clusterQueue) getResourceNode() resourceNode {
 	return c.resourceNode
@@ -228,15 +229,15 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 		if len(c.missingFlavors) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorNotFound)
-			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", c.missingFlavors))
+			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", stringsutils.Join(c.missingFlavors, ",")))
 		}
 		if len(c.missingAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckNotFound)
-			messages = append(messages, fmt.Sprintf("references missing AdmissionCheck(s): %v", c.missingAdmissionChecks))
+			messages = append(messages, fmt.Sprintf("references missing AdmissionCheck(s): %v", stringsutils.Join(c.missingAdmissionChecks, ",")))
 		}
 		if len(c.inactiveAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckInactive)
-			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
+			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", stringsutils.Join(c.inactiveAdmissionChecks, ",")))
 		}
 
 		if len(c.multiKueueAdmissionChecks) > 1 {
@@ -270,7 +271,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			return kueue.ClusterQueueActiveReasonUnknown, "Can't admit new workloads."
 		}
 
-		return reasons[0], api.TruncateConditionMessage(strings.Join([]string{"Can't admit new workloads: ", strings.Join(messages, ", "), "."}, ""))
+		return reasons[0], api.TruncateConditionMessage(fmt.Sprintf("Can't admit new workloads: %v.", strings.Join(messages, ", ")))
 	}
 	return kueue.ClusterQueueActiveReasonReady, "Can admit new workloads"
 }
@@ -445,9 +446,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 }
 
 func (q *LocalQueue) reportActiveWorkloads() {
-	qKeySlice := strings.Split(q.key, "/")
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(qKeySlice[1], qKeySlice[0]).Set(float64(q.reservingWorkloads))
+	namespace, name := queue.MustParseLocalQueueReference(q.key)
+	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.admittedWorkloads))
+	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.reservingWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -479,12 +480,12 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, m)
 		c.admittedWorkloadsCount += int(m)
 	}
-	qKey := workload.QueueKey(wi.Obj)
+	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
 		updateFlavorUsage(frUsage, lq.totalReserved, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
-			updateFlavorUsage(frUsage, lq.admittedUsage, m)
+			lq.updateAdmittedUsage(frUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
@@ -528,7 +529,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			updateFlavorUsage(frq, qImpl.totalReserved, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				updateFlavorUsage(frq, qImpl.admittedUsage, 1)
+				qImpl.updateAdmittedUsage(frq, 1)
 				qImpl.admittedWorkloads++
 			}
 		}
@@ -543,7 +544,11 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(qKey))
+		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
+		metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
+			Name:      lqName,
+			Namespace: namespace,
+		})
 	}
 	delete(c.localQueues, qKey)
 }
@@ -561,6 +566,8 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 
 func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
+	q.Lock()
+	defer q.Unlock()
 	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
@@ -574,7 +581,7 @@ func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.Fl
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
-	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
+	return wl.Namespace == q.Namespace && string(wl.Spec.QueueName) == q.Name
 }
 
 // Implements dominantResourceShareNode interface.

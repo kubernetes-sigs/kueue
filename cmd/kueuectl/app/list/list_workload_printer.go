@@ -171,7 +171,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 func (p *listWorkloadPrinter) crdTypes(wl *v1beta1.Workload) []string {
 	crdTypes := sets.New[string]()
 
-	for _, ref := range wl.ObjectMeta.OwnerReferences {
+	for _, ref := range wl.OwnerReferences {
 		var apiResource *metav1.APIResource
 
 		if resourceList := p.resources.apiResourceLists[ref.APIVersion]; resourceList != nil {
@@ -194,7 +194,7 @@ func (p *listWorkloadPrinter) crdTypes(wl *v1beta1.Workload) []string {
 func (p *listWorkloadPrinter) crdNames(wl *v1beta1.Workload) []string {
 	crdNames := sets.New[string]()
 
-	for _, ref := range wl.ObjectMeta.OwnerReferences {
+	for _, ref := range wl.OwnerReferences {
 		crdNames.Insert(ref.Name)
 	}
 

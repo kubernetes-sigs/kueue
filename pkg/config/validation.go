@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -40,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
+	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
 const (
@@ -58,6 +58,8 @@ var (
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                    = field.NewPath("multiKueue")
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath            = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                           = field.NewPath("admissionFairSharing")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
 	queueVisibilityPath               = field.NewPath("queueVisibility")
 	resourceTransformationPath        = field.NewPath("resources", "transformations")
@@ -70,6 +72,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
+	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
@@ -272,9 +275,7 @@ var (
 	validStrategySetsStr = func() []string {
 		var ss []string
 		for _, s := range validStrategySets {
-			// Casting because strings.Join requires a slice of strings
-			strategies := *(*[]string)(unsafe.Pointer(&s))
-			ss = append(ss, strings.Join(strategies, ","))
+			ss = append(ss, stringsutils.Join(s, ","))
 		}
 		return ss
 	}()
@@ -301,6 +302,30 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
+func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
+	afs := c.AdmissionFairSharing
+	if afs == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+
+	if afs.UsageHalfLifeTime.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageHalfLifeTime"),
+			afs.UsageHalfLifeTime, apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	if afs.UsageSamplingInterval.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageSamplingInterval"),
+			afs.UsageHalfLifeTime, "must be greater than 0"))
+	}
+	for resName, weight := range afs.ResourceWeights {
+		if weight < 0 {
+			allErrs = append(allErrs, field.Invalid(afsResourceWeightsPath.Key(string(resName)),
+				afs.ResourceWeights, apimachineryvalidation.IsNegativeErrorMsg))
+		}
+	}
+	return allErrs
+}
+
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
 	if res == nil {
@@ -310,7 +335,7 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 	seenKeys := make(sets.Set[corev1.ResourceName])
 	for idx, transform := range res.Transformations {
 		strategy := ptr.Deref(transform.Strategy, "")
-		if !(strategy == configapi.Retain || strategy == configapi.Replace) {
+		if strategy != configapi.Retain && strategy != configapi.Replace {
 			allErrs = append(allErrs, field.NotSupported(resourceTransformationPath.Index(idx).Child("strategy"),
 				transform.Strategy, []configapi.ResourceTransformationStrategy{configapi.Retain, configapi.Replace}))
 		}
@@ -371,10 +396,10 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		}
 	}
 	if enabledProfilesCount > 1 {
-		return errors.New("Cannot use more than one TAS profiles")
+		return errors.New("cannot use more than one TAS profiles")
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
-		return errors.New("Cannot use a TAS profile with TAS disabled")
+		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
 
 	return nil

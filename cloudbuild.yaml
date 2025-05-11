@@ -1,7 +1,7 @@
 # See https://cloud.google.com/cloud-build/docs/build-config
 timeout: 3000s
-# A build step specifies an action that you want Prow to perform.
-# For each build step, Prow executes a job.
+# A build step specifies an action that you want cloudbuild to perform.
+# For each build step, cloudbuild executes a docker container.
 steps:
   # see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
   - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240718-5ef92b5c36'

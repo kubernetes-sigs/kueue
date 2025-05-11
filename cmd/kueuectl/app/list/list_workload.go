@@ -151,7 +151,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 		case "finished":
 			statuses.Insert(workloadStatusFinished)
 		default:
-			return nil, fmt.Errorf(`Invalid status value (%v). Must be "all", "pending", "admitted" or "finished".`, status)
+			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "admitted" or "finished"`, status)
 		}
 	}
 
@@ -361,7 +361,7 @@ func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerRefe
 }
 
 func (o *WorkloadOptions) filterByLocalQueue(wl *v1beta1.Workload) bool {
-	return len(o.LocalQueueFilter) == 0 || wl.Spec.QueueName == o.LocalQueueFilter
+	return len(o.LocalQueueFilter) == 0 || string(wl.Spec.QueueName) == o.LocalQueueFilter
 }
 
 func (o *WorkloadOptions) filterByClusterQueue(wl *v1beta1.Workload) bool {
@@ -417,7 +417,7 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.Workloa
 			continue
 		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
-			lq, err := o.ClientSet.KueueV1beta1().LocalQueues(wl.Namespace).Get(ctx, wl.Spec.QueueName, metav1.GetOptions{})
+			lq, err := o.ClientSet.KueueV1beta1().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
@@ -477,7 +477,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 func (o *WorkloadOptions) apiResources(list *v1beta1.WorkloadList) (map[string]*metav1.APIResourceList, error) {
 	apiResourceLists := make(map[string]*metav1.APIResourceList)
 	for _, wl := range list.Items {
-		for _, ref := range wl.ObjectMeta.OwnerReferences {
+		for _, ref := range wl.OwnerReferences {
 			if _, ok := apiResourceLists[ref.APIVersion]; !ok {
 				rl, err := o.ClientSet.Discovery().ServerResourcesForGroupVersion(ref.APIVersion)
 				if client.IgnoreNotFound(err) != nil {

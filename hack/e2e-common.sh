@@ -50,8 +50,6 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
-    export KUBERAY_RAY_IMAGE=rayproject/ray:2.9.0
-    export KUBERAY_RAY_IMAGE_ARM=rayproject/ray:2.9.0-aarch64
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
@@ -113,13 +111,9 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBERAY_VERSION:-} ]]; then
         docker pull "${KUBERAY_IMAGE}"
-
-        # Extra e2e images required for Kuberay
-        unamestr=$(uname)
-        if [[ "$unamestr" == 'Linux' ]]; then
+        determine_kuberay_ray_image
+        if [[ ${USE_RAY_FOR_TESTS:-} == "ray" ]]; then
             docker pull "${KUBERAY_RAY_IMAGE}"
-        elif [[ "$unamestr" == 'Darwin' ]]; then
-            docker pull "${KUBERAY_RAY_IMAGE_ARM}"
         fi
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
@@ -145,32 +139,53 @@ function cluster_kind_load_image {
     # filter out 'control-plane' node, use only worker nodes to load image
     worker_nodes=$($KIND get nodes --name "$1" | grep -v 'control-plane' | paste -sd "," -)
     if [[ -n "$worker_nodes" ]]; then
+        echo "kind load docker-image '$2' --name '$1' --nodes '$worker_nodes'"
         $KIND load docker-image "$2" --name "$1" --nodes "$worker_nodes"
     fi
 }
 
-# Wait until all cert-manager deployments are available.
-function wait_for_cert_manager_ready() {
-    echo "Waiting for cert-manager components to be ready..."
-    local deployments=(cert-manager cert-manager-cainjector cert-manager-webhook)
-    for dep in "${deployments[@]}"; do
-        echo "Waiting for deployment '$dep'..."
-        if ! kubectl wait --for=condition=Available deployment/"$dep" -n cert-manager --timeout=300s; then
-            echo "Timeout waiting for deployment '$dep' to become available."
-            exit 1
-        fi
-    done
-    echo "All cert-manager components are ready."
+function deploy_with_certmanager() {
+    local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
+    local default_kust="${ROOT_DIR}/config/default/kustomization.yaml"
+    local crd_backup
+    crd_backup="$(<"$crd_kust")"
+    local default_backup
+    default_backup="$(<"$default_kust")"
+    
+    (
+        cd "${ROOT_DIR}/config/components/crd" || exit
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
+        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
+    )
+
+    (
+        cd "${ROOT_DIR}/config/default" || exit
+        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
+        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
+        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
+        
+        $KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager" | \
+            kubectl apply --server-side -f -
+    )
+
+    printf "%s\n" "$crd_backup" > "$crd_kust"
+    printf "%s\n" "$default_backup" > "$default_kust"
 }
 
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
+    
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-       wait_for_cert_manager_ready
-       kubectl apply --server-side -k test/e2e/config/certmanager
+        kubectl -n cert-manager wait --for condition=ready pod \
+            -l app.kubernetes.io/instance=cert-manager \
+            --timeout=5m
+        
+        deploy_with_certmanager
     else
-       kubectl apply --server-side -k test/e2e/config/default  
+        kubectl apply --server-side -k test/e2e/config/default
     fi
 }
 
@@ -204,14 +219,7 @@ function install_mpi {
 
 #$1 - cluster name
 function install_kuberay {
-    # Extra e2e images required for Kuberay
-    unamestr=$(uname)
-    if [[ "$unamestr" == 'Linux' ]]; then
-        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
-    elif [[ "$unamestr" == 'Darwin' ]]; then
-        cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE_ARM}"
-    fi 
-
+    cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
     kubectl config use-context "kind-${1}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
@@ -234,4 +242,25 @@ export INITIAL_IMAGE
 
 function restore_managers_image {
     (cd config/components/manager && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+}
+
+function determine_kuberay_ray_image {
+    local RAY_IMAGE=rayproject/ray:${RAY_VERSION}
+    local RAYMINI_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/ray-project-mini:${RAYMINI_VERSION}
+
+    # Extra e2e images required for Kuberay
+    local ray_image_to_use=""
+
+    if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
+        ray_image_to_use="${RAY_IMAGE}"
+    else
+        ray_image_to_use="${RAYMINI_IMAGE}"
+    fi
+
+    if [[ -z "$ray_image_to_use" ]]; then
+        echo "Error: Unable to determine the ray image to load." >&2
+        return 1
+    fi
+
+    export KUBERAY_RAY_IMAGE="${ray_image_to_use}"
 }

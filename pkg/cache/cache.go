@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -141,7 +142,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
-		localQueues:         make(map[string]*LocalQueue),
+		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
@@ -445,7 +446,11 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		for _, q := range c.hm.ClusterQueue(cqName).localQueues {
-			metrics.ClearLocalQueueCacheMetrics(metrics.LQRefFromLocalQueueKey(q.key))
+			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
+			metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
+				Name:      lqName,
+				Namespace: namespace,
+			})
 		}
 	}
 	c.hm.DeleteClusterQueue(cqName)
@@ -494,6 +499,19 @@ func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 		return
 	}
 	cq.deleteLocalQueue(q)
+}
+
+func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue.LocalQueue) (*LocalQueue, error) {
+	c.Lock()
+	defer c.Unlock()
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return nil, ErrCqNotFound
+	}
+	if cacheLq, ok := cq.localQueues[queueKey(lq)]; ok {
+		return cacheLq, nil
+	}
+	return nil, errQNotFound
 }
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
@@ -942,6 +960,6 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 }
 
 // Key is the key used to index the queue.
-func queueKey(q *kueue.LocalQueue) string {
-	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
+	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }

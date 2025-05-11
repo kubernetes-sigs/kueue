@@ -23,7 +23,6 @@ import (
 )
 
 func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interface, k8sClient *kubernetes.Clientset) {
-
 	// Workloads
 	router.GET("/ws/workloads", WorkloadsWebSocketHandler(dynamicClient))
 	router.GET("/ws/workloads/dashboard", WorkloadsDashboardWebSocketHandler(dynamicClient))

@@ -64,7 +64,7 @@ func (j *XGBoostJobWrapper) XGBReplicaSpecs(replicaSpecs ...XGBReplicaSpecRequir
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "xgboost"
 
 		if rs.Annotations != nil {
-			j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
+			j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Annotations = rs.Annotations
 		}
 	}
 

@@ -26,6 +26,7 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
+HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
@@ -38,6 +39,8 @@ IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+RAY_VERSION := 2.41.0
+RAYMINI_VERSION ?= 0.0.1
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -77,7 +80,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.11.3
+RELEASE_VERSION=v0.11.4
 RELEASE_BRANCH=main
 # Version used form Helm which is not using the leading "v"
 CHART_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -177,11 +180,11 @@ vet: ## Run go vet against code.
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	$(GOLANGCI_LINT) run --timeout 15m0s
+	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
 
 .PHONY: lint-fix
-lint-fix: golangci-lint
-	$(GOLANGCI_LINT) run --fix --timeout 15m0s
+lint-fix: GOLANGCI_LINT_FIX=--fix
+lint-fix: ci-lint
 
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
@@ -237,9 +240,9 @@ image-push: image-build
 helm-chart-push: yq helm
 	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
 
-# Build an amd64 image that can be used for Kind E2E tests.
+# Build an image just for the host architecture that can be used for Kind E2E tests.
 .PHONY: kind-image-build
-kind-image-build: PLATFORMS=linux/amd64
+kind-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
 kind-image-build: kind image-build
 
@@ -351,7 +354,7 @@ importer-image-push: importer-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer image
 .PHONY: importer-image
-importer-image: PLATFORMS=linux/amd64
+importer-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
@@ -381,7 +384,7 @@ kueueviz-image-push: kueueviz-image-build
 
 # Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
 .PHONY: kueueviz-image
-kueueviz-image: VIZ_PLATFORMS=linux/amd64
+kueueviz-image: VIZ_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueueviz-image: PUSH=--load
 kueueviz-image: kueueviz-image-build
 
@@ -399,3 +402,19 @@ generate-kueuectl-docs: kueuectl-docs
 	$(PROJECT_DIR)/bin/kueuectl-docs \
 		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
+
+# Build the ray-project-mini image
+.PHONY: ray-project-mini-image-build
+ray-project-mini-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION) \
+		--platform=$(PLATFORMS) \
+		--build-arg RAY_VERSION=$(RAY_VERSION) \
+		$(PUSH) \
+		-f ./hack/internal/test-images/ray/Dockerfile ./ \
+
+# The step is required for local e2e test run
+.PHONY: kind-ray-project-mini-image-build
+kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-ray-project-mini-image-build: PUSH=--load
+kind-ray-project-mini-image-build: ray-project-mini-image-build

@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
+	"os/exec"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -58,6 +58,8 @@ const (
 	E2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
 	// E2eTestAgnHostImage is the image used for testing.
 	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
+
+	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
@@ -93,8 +95,8 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	cfg.APIPath = "/api"
-	cfg.ContentConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
-	cfg.ContentConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+	cfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+	cfg.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
 
 	err = awv1beta2.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
@@ -138,6 +140,9 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 }
 
 func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	// Export logs before the rollout to preserve logs from the previous version.
+	exportKindLogs(ctx)
+
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
 	expectedDeploymentCondition := &appsv1.DeploymentCondition{
@@ -165,6 +170,20 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 		afterUpdateTime := deploymentCondition.LastUpdateTime
 		g.Expect(afterUpdateTime).NotTo(gomega.Equal(beforeUpdateTime))
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+}
+
+func exportKindLogs(ctx context.Context) {
+	// Path to the kind binary
+	kind := os.Getenv("KIND")
+	// Path to the artifacts
+	artifacts := os.Getenv("ARTIFACTS")
+
+	if kind != "" && artifacts != "" {
+		cmd := exec.CommandContext(ctx, kind, "export", "logs", artifacts)
+		cmd.Stdout = ginkgo.GinkgoWriter
+		cmd.Stderr = ginkgo.GinkgoWriter
+		gomega.Expect(cmd.Run()).To(gomega.Succeed())
+	}
 }
 
 func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
@@ -297,15 +316,7 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 }
 
 func GetKuberayTestImage() string {
-	var (
-		kuberayTestImage string
-		found            bool
-	)
-	if runtime.GOARCH == "arm64" {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE_ARM")
-	} else {
-		kuberayTestImage, found = os.LookupEnv("KUBERAY_RAY_IMAGE")
-	}
+	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage
 }
@@ -324,4 +335,42 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 	MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
+}
+
+func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, error) {
+	metricsOutput, _, err := KExecute(ctx, cfg, restClient, configapi.DefaultNamespace, curlPodName, curlContainerName, []string{
+		"/bin/sh", "-c",
+		fmt.Sprintf(
+			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
+			defaultMetricsServiceName, configapi.DefaultNamespace,
+		),
+	})
+	return string(metricsOutput), err
+}
+
+func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
+	}, Timeout).Should(gomega.Succeed())
+}
+
+func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
+	}, Timeout).Should(gomega.Succeed())
+}
+
+func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod) {
+	ginkgo.GinkgoHelper()
+	createdPod := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
