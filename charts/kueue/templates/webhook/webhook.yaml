@@ -22,7 +22,6 @@ webhooks:
         path: /mutate-workload-codeflare-dev-v1beta2-appwrapper
     failurePolicy: Fail
     name: mappwrapper.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - workload.codeflare.dev
@@ -33,6 +32,7 @@ webhooks:
         resources:
           - appwrappers
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -57,7 +57,6 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - apps
@@ -69,6 +68,7 @@ webhooks:
         resources:
           - deployments
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -78,7 +78,6 @@ webhooks:
         path: /mutate-batch-v1-job
     failurePolicy: Fail
     name: mjob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - batch
@@ -89,6 +88,7 @@ webhooks:
         resources:
           - jobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -98,7 +98,6 @@ webhooks:
         path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
     name: mjobset.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - jobset.x-k8s.io
@@ -109,6 +108,7 @@ webhooks:
         resources:
           - jobsets
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -118,7 +118,6 @@ webhooks:
         path: /mutate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
     name: mpaddlejob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -129,6 +128,7 @@ webhooks:
         resources:
           - paddlejobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -138,7 +138,6 @@ webhooks:
         path: /mutate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
     name: mpytorchjob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -149,6 +148,7 @@ webhooks:
         resources:
           - pytorchjobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -158,7 +158,6 @@ webhooks:
         path: /mutate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
     name: mtfjob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -169,6 +168,7 @@ webhooks:
         resources:
           - tfjobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -178,7 +178,6 @@ webhooks:
         path: /mutate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
     name: mxgboostjob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -189,6 +188,7 @@ webhooks:
         resources:
           - xgboostjobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -213,7 +213,6 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - ""
@@ -224,6 +223,7 @@ webhooks:
         resources:
           - pods
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -233,7 +233,6 @@ webhooks:
         path: /mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset
     failurePolicy: Fail
     name: mleaderworkerset.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - leaderworkerset.x-k8s.io
@@ -245,6 +244,7 @@ webhooks:
         resources:
           - leaderworkersets
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -254,7 +254,6 @@ webhooks:
         path: /mutate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
     name: mmpijob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -265,6 +264,7 @@ webhooks:
         resources:
           - mpijobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -274,7 +274,6 @@ webhooks:
         path: /mutate-ray-io-v1-raycluster
     failurePolicy: Fail
     name: mraycluster.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - ray.io
@@ -285,6 +284,7 @@ webhooks:
         resources:
           - rayclusters
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -294,7 +294,6 @@ webhooks:
         path: /mutate-ray-io-v1-rayjob
     failurePolicy: Fail
     name: mrayjob.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - ray.io
@@ -305,6 +304,7 @@ webhooks:
         resources:
           - rayjobs
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -329,7 +329,6 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - apps
@@ -341,6 +340,7 @@ webhooks:
         resources:
           - statefulsets
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -350,7 +350,6 @@ webhooks:
         path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
     name: mclusterqueue.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kueue.x-k8s.io
@@ -361,6 +360,7 @@ webhooks:
         resources:
           - clusterqueues
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -370,7 +370,6 @@ webhooks:
         path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
     failurePolicy: Fail
     name: mresourceflavor.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kueue.x-k8s.io
@@ -381,6 +380,7 @@ webhooks:
         resources:
           - resourceflavors
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -390,7 +390,6 @@ webhooks:
         path: /mutate-kueue-x-k8s-io-v1beta1-workload
     failurePolicy: Fail
     name: mworkload.kb.io
-    reinvocationPolicy: {{ $reinvocationPolicy }}
     rules:
       - apiGroups:
           - kueue.x-k8s.io
@@ -401,6 +400,7 @@ webhooks:
         resources:
           - workloads
     sideEffects: None
+    reinvocationPolicy: '{{ $reinvocationPolicy }}'
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
