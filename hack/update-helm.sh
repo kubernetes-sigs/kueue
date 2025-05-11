@@ -297,7 +297,6 @@ webhook_files=(
 "${DEST_WEBHOOK_DIR}/ValidatingWebhookConfiguration.yml"
 "${DEST_WEBHOOK_DIR}/service.yaml"
 )
-
 for output_file in "${webhook_files[@]}"; do
   if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
