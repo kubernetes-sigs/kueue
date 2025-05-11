@@ -102,6 +102,7 @@ replace_service_line=$(
   {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
 EOF
 )
+
 search_webhook_pod_mutate="        path: /mutate--v1-pod"
 search_webhook_pod_validate="        path: /validate--v1-pod"
 search_webhook_deployment_mutate="        path: /mutate-apps-v1-deployment"
