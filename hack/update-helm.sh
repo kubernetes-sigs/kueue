@@ -114,7 +114,6 @@ add_webhook_line=$(
   cat <<'EOF'
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
 {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
-{{- $reinvocationPolicy := .Values.webhook.reinvocationPolicy }}
 EOF
 )
 add_annotations_line=$(
@@ -309,7 +308,7 @@ for output_file in "${webhook_files[@]}"; do
     $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
   if [[ "$output_file" == "${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml" ]]; then
-    $YQ -N -i '.webhooks.[].reinvocationPolicy = "{{ $reinvocationPolicy }}"' "$output_file"
+    $YQ -N -i '.webhooks.[].reinvocationPolicy = "{{ .Values.webhook.reinvocationPolicy }}"' "$output_file"
   fi
   $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
