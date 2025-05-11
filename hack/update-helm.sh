@@ -305,9 +305,7 @@ for output_file in "${webhook_files[@]}"; do
     $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
   if [[ "$output_file" == "${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml" ]]; then
-    echo "bla"
     $YQ -N -i '.webhooks.[].reinvocationPolicy = "{{ $reinvocationPolicy }}"' "$output_file"
-    cat ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml
   fi
   $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
