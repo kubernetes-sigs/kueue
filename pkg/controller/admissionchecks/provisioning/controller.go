@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -578,7 +579,7 @@ func (c *Controller) syncCheckStates(
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					// add the pod podSetUpdates
-					checkState.PodSetUpdates = podSetUpdates(wl, pr)
+					checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
 					// propagate the message from the provisioning request status into the workload
 					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -616,13 +617,13 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {
+func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
 	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
-		return kueue.PodSetUpdate{
+		podSetUpdate := kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				DeprecatedConsumesAnnotationKey:  pr.Name,
@@ -630,6 +631,18 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 				ConsumesAnnotationKey:            pr.Name,
 				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
 		}
+		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
+			podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))
+			for _, nodeSelector := range psUpdate.NodeSelector {
+				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
+				if !ok {
+					log.Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
+					continue
+				}
+				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
+			}
+		}
+		return podSetUpdate
 	})
 }
 

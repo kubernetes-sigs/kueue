@@ -2143,6 +2143,71 @@ backoffMaxSeconds:  1800 - 30 mins</p>
 set retryStrategy.backoffLimitCount to 0.</p>
 </td>
 </tr>
+<tr><td><code>podSetUpdates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates"><code>ProvisioningRequestPodSetUpdates</code></a>
+</td>
+<td>
+   <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
+are used to target the provisioned nodes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdates`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>nodeSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector"><code>[]ProvisioningRequestPodSetUpdatesNodeSelector</code></a>
+</td>
+<td>
+   <p>nodeSelector specifies the list of updates for the NodeSelector.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdatesNodeSelector`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestPodSetUpdates](#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>key</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>key specifies the key for the NodeSelector.</p>
+</td>
+</tr>
+<tr><td><code>valueFromProvisioningClassDetail</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>valueFromProvisioningClassDetail specifies the key of the
+ProvisioningRequest.status.provisioningClassDetails from which the value
+is used for the update.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

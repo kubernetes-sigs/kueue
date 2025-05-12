@@ -70,6 +70,39 @@ type ProvisioningRequestConfigSpec struct {
 	// +optional
 	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+
+	// podSetUpdates specifies the update of the workload's PodSetUpdates which
+	// are used to target the provisioned nodes.
+	//
+	// +optional
+	PodSetUpdates *ProvisioningRequestPodSetUpdates `json:"podSetUpdates,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdates struct {
+	// nodeSelector specifies the list of updates for the NodeSelector.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdatesNodeSelector struct {
+	// key specifies the key for the NodeSelector.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=317
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
+	Key string `json:"key,omitempty"`
+
+	// valueFromProvisioningClassDetail specifies the key of the
+	// ProvisioningRequest.status.provisioningClassDetails from which the value
+	// is used for the update.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32768
+	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
