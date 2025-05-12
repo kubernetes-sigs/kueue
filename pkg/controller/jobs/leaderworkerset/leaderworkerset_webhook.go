@@ -140,6 +140,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		queueNameLabelPath,
 	)...)
 
+	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
+	if !isSuspended {
+		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+			newLeaderWorkerSet.Object(),
+			oldLeaderWorkerSet.Object(),
+		)...)
+	}
+
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return nil, err

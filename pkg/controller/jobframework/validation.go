@@ -41,11 +41,12 @@ import (
 )
 
 var (
-	annotationsPath            = field.NewPath("metadata", "annotations")
-	labelsPath                 = field.NewPath("metadata", "labels")
-	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
-	maxExecTimeLabelPath       = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	supportedPrebuiltWlJobGVKs = sets.New(
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String(),
@@ -73,6 +74,9 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
+	if !newJob.IsSuspended() {
+		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
+	}
 	return allErrs
 }
 
@@ -135,6 +139,11 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 	} else {
 		allErrs = append(allErrs, validateCreateForPrebuiltWorkload(newJob)...)
 	}
+	return allErrs
+}
+
+func ValidateUpdateForWorkloadPriorityClassName(oldObj, newObj client.Object) field.ErrorList {
+	allErrs := apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
 	return allErrs
 }
 
