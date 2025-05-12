@@ -182,13 +182,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should not create provisioning requests before quota is reserved", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Checking no provision request is created", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
@@ -197,13 +190,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -263,7 +249,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &updatedWl, nil)).To(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -275,13 +260,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should set the condition ready when the provision succeed", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -365,13 +343,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should set the condition rejected when the provision fails", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -421,14 +392,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-			})
-
 			ginkgo.By("Admitting the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -494,14 +457,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Admitted, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -554,14 +509,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should not set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workload is Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
@@ -634,14 +581,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should ignore the change if Workload is Admitted and the ProvisioningRequest's condition is set to BookingExpired", framework.SlowSpec, func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -695,13 +634,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should keep the provisioning config in sync", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -800,13 +732,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should let a running workload to continue after the provisioning request deleted", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -955,7 +880,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(readyAC.Name), kueue.CheckStateReady, false)
 
 			wlKey = client.ObjectKeyFromObject(wl)
 			admission = testing.MakeAdmission(cq.Name).
@@ -994,13 +918,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should retry if a ProvisioningRequest fails, then succeed if the second Provisioning request succeeds", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1107,13 +1024,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should retry if a ProvisioningRequest fails, then reject AdmissionCheck if the second ProvisioningRequest fails", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1241,13 +1151,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should retry when a ProvisioningRequest is in BookingExpired stated, then succeed if the second Provisioning request succeeds", func() {
-			ginkgo.By("Setting the admission check to the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, &updatedWl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStatePending, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
