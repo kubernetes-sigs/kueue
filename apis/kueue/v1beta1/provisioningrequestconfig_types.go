@@ -93,7 +93,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=317
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	Key string `json:"key,omitempty"`
+	Key string `json:"key"`
 
 	// valueFromProvisioningClassDetail specifies the key of the
 	// ProvisioningRequest.status.provisioningClassDetails from which the value
@@ -102,7 +102,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
-	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail,omitempty"`
+	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
