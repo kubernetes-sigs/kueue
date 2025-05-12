@@ -797,6 +797,42 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "objectRetentionPolicies.workloads.afterDeactivatedByKueue",
+				},
+			},
+		},
+		"zero afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+					},
+				},
+			},
+		},
+		"positive afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

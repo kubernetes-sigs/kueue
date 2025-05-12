@@ -162,7 +162,7 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 	log := r.log.WithValues("resourceFlavor", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ResourceFlavor update event")
 
-	if e.ObjectNew.DeletionTimestamp != nil {
+	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
 

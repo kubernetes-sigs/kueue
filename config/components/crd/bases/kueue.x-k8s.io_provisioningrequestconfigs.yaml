@@ -68,6 +68,37 @@ spec:
                   require.
                 maxProperties: 100
                 type: object
+              podSetUpdates:
+                description: |-
+                  podSetUpdates specifies the update of the workload's PodSetUpdates which
+                  are used to target the provisioned nodes.
+                properties:
+                  nodeSelector:
+                    description: nodeSelector specifies the list of updates for the
+                      NodeSelector.
+                    items:
+                      properties:
+                        key:
+                          description: key specifies the key for the NodeSelector.
+                          maxLength: 317
+                          minLength: 1
+                          pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                          type: string
+                        valueFromProvisioningClassDetail:
+                          description: |-
+                            valueFromProvisioningClassDetail specifies the key of the
+                            ProvisioningRequest.status.provisioningClassDetails from which the value
+                            is used for the update.
+                          maxLength: 32768
+                          minLength: 1
+                          type: string
+                      required:
+                      - key
+                      - valueFromProvisioningClassDetail
+                      type: object
+                    maxItems: 8
+                    type: array
+                type: object
               provisioningClassName:
                 description: |-
                   ProvisioningClassName describes the different modes of provisioning the resources.

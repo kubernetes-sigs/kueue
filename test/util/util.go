@@ -574,7 +574,7 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 }
 
 func expectCounterMetric(metric prometheus.Counter, count int) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
@@ -1046,4 +1046,14 @@ func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, 
 	hasOwnerRef, err := controllerutil.HasOwnerReference(ownerRefs, obj, scheme)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 	g.Expect(hasOwnerRef).To(gomega.BeTrue())
+}
+
+func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, wl)).To(gomega.Succeed())
+		wl.Spec.Active = ptr.To(false)
+		g.Expect(c.Update(ctx, wl)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

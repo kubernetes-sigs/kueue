@@ -161,7 +161,7 @@ func syncLocalPodWithRemote(
 	// If the remote pod exists
 	if err == nil {
 		// Skip syncing if the local pod is terminating
-		if localPod.DeletionTimestamp != nil {
+		if !localPod.DeletionTimestamp.IsZero() {
 			log.V(2).Info("Skipping sync since the local pod is terminating", "podName", localPod.Name)
 			return nil
 		}
