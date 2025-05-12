@@ -49,7 +49,8 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 	go func() {
 		err := syncTasCache(mgr, cache)
 		if err != nil {
-			panic(fmt.Sprintf("failed to populate TAS cache: %v", err))
+			log := ctrl.Log.WithName("tas").WithName("syncTasCache")
+			log.Error(err, "failed to populate TAS cache")
 		}
 	}()
 
@@ -58,7 +59,7 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 
 func syncTasCache(mgr ctrl.Manager, cCache *cache.Cache) error {
 	// Wait for the cache to be synced before listing resources. Else it will fail.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	if ok := mgr.GetCache().WaitForCacheSync(ctx); !ok {

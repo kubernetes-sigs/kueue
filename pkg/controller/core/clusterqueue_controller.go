@@ -177,13 +177,6 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ClusterQueue")
 
-	if features.Enabled(features.TopologyAwareScheduling) && !r.cache.TASCache().SyncedFlavors() {
-		log.V(2).Info("Waiting for TAS cache to be synced")
-		return ctrl.Result{
-			RequeueAfter: 2 * time.Second,
-		}, nil
-	}
-
 	if cqObj.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.

@@ -213,6 +213,36 @@ func (s *Scheduler) waitForTas(ctx context.Context, log logr.Logger) wait.SpeedS
 	return wait.KeepGoing
 }
 
+func (s *Scheduler) waitForTasLoop(ctx context.Context, log logr.Logger) {
+	if !features.Enabled(features.TopologyAwareScheduling) || s.doneTas {
+		return
+	}
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+retry:
+	for {
+		select {
+		case <-ctx.Done():
+			log.V(2).Info("Scheduler context cancelled, stopping scheduling")
+			return
+		case <-timer.C:
+			err := fmt.Errorf("TAS cache not synced after 5 seconds")
+			log.Error(err, "TAS usage may be wrong")
+			break retry
+		default:
+			if s.waitForTas(ctx, log) == wait.SlowDown {
+				log.V(2).Info("Waiting for the TAS cache to be synced")
+				time.Sleep(1 * time.Second)
+				continue
+			} else {
+				break retry
+			}
+		}
+	}
+	s.doneTas = true
+}
+
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
@@ -224,31 +254,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	}
 
 	log.V(2).Info("Starting scheduling cycle")
-	if features.Enabled(features.TopologyAwareScheduling) && !s.doneTas {
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
-	retry:
-		for {
-			select {
-			case <-ctx.Done():
-				log.V(2).Info("Scheduler context cancelled, stopping scheduling")
-				return wait.KeepGoing
-			case <-timer.C:
-				err := fmt.Errorf("TAS cache not synced after 5 seconds")
-				log.Error(err, "TAS usage may be wrong")
-				break retry
-			default:
-				if s.waitForTas(ctx, log) == wait.SlowDown {
-					log.V(2).Info("Waiting for the TAS cache to be synced")
-					time.Sleep(1 * time.Second)
-					continue
-				} else {
-					break retry
-				}
-			}
-		}
-		s.doneTas = true
-	}
+	s.waitForTasLoop(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
