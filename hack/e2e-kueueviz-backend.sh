@@ -18,6 +18,7 @@ set -e
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
+KIND_CLUSTER_KUBECONFIG="${ARTIFACTS}/kubeconfig-$KIND_CLUSTER_NAME"
 # shellcheck source=hack/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 echo ROOT_DIR="${ROOT_DIR}" SOURCE_DIR="${SOURCE_DIR}" KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
@@ -39,13 +40,18 @@ cleanup() {
 # Set trap to clean up on exit
 trap cleanup EXIT
 
+cat <<EOF > "$KIND_CLUSTER_KUBECONFIG"
+        apiVersion: v1
+        kind: Config
+        preferences: {}
+EOF
 echo Creating kind cluster "${KIND_CLUSTER_NAME}"
-cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE"
+cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" "$KIND_CLUSTER_KUBECONFIG"
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
 prepare_docker_images
 cluster_kind_load "${KIND_CLUSTER_NAME}"
 (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-cluster_kueue_deploy "${KIND_CLUSTER_NAME}"
+cluster_kueue_deploy "${KIND_CLUSTER_KUBECONFIG}"
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 
 # Deploy KueueViz resources

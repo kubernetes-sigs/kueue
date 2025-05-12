@@ -69,8 +69,9 @@ E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE%%@*}
 
 
 # $1 - cluster name
+# $2 kubeconfig
 function cluster_cleanup {
-	kubectl config use-context "kind-$1"
+	kubectl config --kubeconfig "$2" use-context "kind-$1"
         $KIND export logs "$ARTIFACTS" --name "$1" || true
         kubectl describe pods -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
         kubectl describe pods > "$ARTIFACTS/$1-default-pods.log" || true
@@ -79,12 +80,14 @@ function cluster_cleanup {
 
 # $1 cluster name
 # $2 cluster kind config
+# $3 kubeconfig
 function cluster_create {
-        $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
-		||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
-	kubectl config use-context "kind-$1"
-        kubectl get nodes > "$ARTIFACTS/$1-nodes.log" || true
-        kubectl describe pods -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
+    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --kubeconfig "$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
+    ||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
+
+	kubectl config --kubeconfig "$3" use-context "kind-$1"
+        kubectl get --kubeconfig "$3" nodes > "$ARTIFACTS/$1-nodes.log" || true
+        kubectl describe --kubeconfig "$3" pods -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
 }
 
 function prepare_docker_images {
@@ -126,6 +129,40 @@ function cluster_kind_load {
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA}"
     cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
+}
+
+# $1 cluster
+# $2 kubeconfig
+function kind_load {
+    kubectl config --kubeconfig "$2" use-context "kind-$1"
+
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
+	      cluster_kind_load "$1"
+    fi
+    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+        install_appwrapper "$1" "$2"
+    fi
+    if [[ -n ${JOBSET_VERSION:-} ]]; then
+        install_jobset "$1" "$2"
+    fi
+    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+        # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
+        # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
+        # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
+        install_kubeflow "$1" "$2"
+    fi
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+        install_mpi "$1" "$2"
+    fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        install_lws "$1" "$2"
+    fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        install_kuberay "$1" "$2"
+    fi
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+        install_cert_manager "$2"
+    fi
 }
 
 # $1 cluster
@@ -174,10 +211,8 @@ function deploy_with_certmanager() {
     printf "%s\n" "$default_backup" > "$default_kust"
 }
 
-# $1 cluster
+# $1 kubeconfig
 function cluster_kueue_deploy {
-    kubectl config use-context "kind-${1}"
-    
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
@@ -185,56 +220,57 @@ function cluster_kueue_deploy {
         
         deploy_with_certmanager
     else
-        kubectl apply --server-side -k test/e2e/config/default
+        kubectl apply --kubeconfig "$1" --server-side -k "${ROOT_DIR}/test/e2e/config/default"
     fi
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function install_appwrapper {
     cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply -k "${APPWRAPPER_MANIFEST}"
+    kubectl apply --kubeconfig "$2" -k "${APPWRAPPER_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function install_jobset {
     cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${JOBSET_MANIFEST}"
+    kubectl apply --kubeconfig "$2" --server-side -f "${JOBSET_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+    kubectl apply --kubeconfig "$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    kubectl apply --kubeconfig "$2" --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function install_kuberay {
     cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
-    kubectl config use-context "kind-${1}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create -k "${KUBERAY_MANIFEST}"
+    kubectl create --kubeconfig "$2" -k "${KUBERAY_MANIFEST}"
 }
 
+# $1 cluster name
+# $2 kubeconfig
 function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    kubectl apply --kubeconfig "$2" --server-side -f "${LEADERWORKERSET_MANIFEST}"
 }
 
+# $1 kubeconfig
 function install_cert_manager {
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${CERTMANAGER_MANIFEST}"
+    kubectl apply --kubeconfig "$1" --server-side -f "${CERTMANAGER_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
