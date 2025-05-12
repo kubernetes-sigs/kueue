@@ -248,12 +248,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	if ctx.Err() != nil {
-		log.V(2).Info("Scheduler context cancelled, stopping scheduling")
-		return wait.KeepGoing
-	}
-
-	log.V(2).Info("Starting scheduling cycle")
 	s.waitForTasLoop(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.

@@ -17,14 +17,9 @@ limitations under the License.
 package tas
 
 import (
-	"context"
-	"fmt"
-	"time"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -43,58 +38,5 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-
-	// Set up the TAS flavor cache in the background. This is because mgr is configured to list from a cache
-	// and the cache is not populated until the controller is started.
-	go func() {
-		err := syncTasCache(mgr, cache)
-		if err != nil {
-			log := ctrl.Log.WithName("tas").WithName("syncTasCache")
-			log.Error(err, "failed to populate TAS cache")
-		}
-	}()
-
 	return "", nil
-}
-
-func syncTasCache(mgr ctrl.Manager, cCache *cache.Cache) error {
-	// Wait for the cache to be synced before listing resources. Else it will fail.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	if ok := mgr.GetCache().WaitForCacheSync(ctx); !ok {
-		return fmt.Errorf("failed to wait for caches to sync")
-	}
-
-	var flvs kueue.ResourceFlavorList
-	// Wait for the flavors to be populated in the cache. We suppose that we are down when we are
-	// in sync with the catched list fetched above. We also suppose that the flavors are not
-	// created/recreated in the meantime.
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for flavors to be populated in the cache: %w", ctx.Err())
-		default:
-		}
-		if err := mgr.GetClient().List(ctx, &flvs); err != nil {
-			return fmt.Errorf("unable to list resource flavors: %w", err)
-		}
-		allFound := true
-		for _, flv := range flvs.Items {
-			if flv.Spec.TopologyName != nil {
-				for {
-					if cCache.TASCache().Get(kueue.ResourceFlavorReference(flv.Name)) != nil {
-						break
-					}
-					allFound = false
-					time.Sleep(1 * time.Second)
-					break
-				}
-			}
-		}
-		if allFound {
-			cCache.TASCache().SetSyncedFlavors(true)
-			return nil
-		}
-	}
 }
