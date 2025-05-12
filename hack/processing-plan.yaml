@@ -149,7 +149,7 @@ files:
         value: '"{{ include \"kueue.fullname\" . }}-"'
       - type: APPEND
         key: .webhooks.[].reinvocationPolicy
-        value: '"{{ .Values.webhook.reinvocationPolicy }}"'
+        value: '"{{ .Values.mutatingWebhookConfiguration.reinvocationPolicy }}"'
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         addKeyIfMissing: true
       - type: UPDATE
