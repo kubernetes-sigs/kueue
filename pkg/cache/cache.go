@@ -556,7 +556,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return clusterQueue.addWorkload(w) == nil
+	return clusterQueue.addWorkload(w, false) == nil
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
@@ -581,7 +581,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return cq.addWorkload(newWl)
+	return cq.addWorkload(newWl, false)
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
@@ -610,6 +610,9 @@ func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
 	if _, assumed := c.assumedWorkloads[k]; assumed {
 		return true
 	}
+	if workload.HasTopologyAssignmentsPending(w.Obj) {
+		return false
+	}
 	if cq := c.hm.ClusterQueue(w.ClusterQueue); cq != nil {
 		if _, admitted := cq.Workloads[k]; admitted {
 			return true
@@ -619,6 +622,10 @@ func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
 }
 
 func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
+	return c.AssumeWorkloadWithOpts(w, false)
+}
+
+func (c *Cache) AssumeWorkloadWithOpts(w *kueue.Workload, allowUpdate bool) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -628,7 +635,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 
 	k := workload.Key(w)
 	assumedCq, assumed := c.assumedWorkloads[k]
-	if assumed {
+	if assumed && !allowUpdate {
 		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCq)
 	}
 
@@ -637,7 +644,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 		return ErrCqNotFound
 	}
 
-	if err := cq.addWorkload(w); err != nil {
+	if err := cq.addWorkload(w, allowUpdate); err != nil {
 		return err
 	}
 	c.assumedWorkloads[k] = w.Status.Admission.ClusterQueue

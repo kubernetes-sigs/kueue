@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -319,6 +320,7 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
+	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
@@ -415,8 +417,14 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	simulateEmpty bool) (*kueue.TopologyAssignment, string) {
 	requests := tasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
-	podSetTolerations := tasPodSetRequests.PodSet.Template.Spec.Tolerations
-	podSetNodeSelectors := tasPodSetRequests.PodSet.Template.Spec.NodeSelector
+	info := podset.FromPodSet(tasPodSetRequests.PodSet)
+	for _, podSetUpdate := range tasPodSetRequests.PodSetUpdates {
+		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
+			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", tasPodSetRequests.PodSet.Name, err.Error())
+		}
+	}
+	podSetTolerations := info.Tolerations
+	podSetNodeSelectors := info.NodeSelector
 	count := tasPodSetRequests.Count
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	key := s.levelKeyWithImpliedFallback(&tasPodSetRequests)

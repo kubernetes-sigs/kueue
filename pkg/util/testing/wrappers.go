@@ -593,6 +593,11 @@ func (w *AdmissionWrapper) TopologyAssignment(ts *kueue.TopologyAssignment) *Adm
 	return w
 }
 
+func (w *AdmissionWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
+	w.DelayedTopologyRequestWithIndex(0, state)
+	return w
+}
+
 func (w *AdmissionWrapper) AssignmentWithIndex(index int32, r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[index].Flavors[r] = f
 	w.PodSetAssignments[index].ResourceUsage[r] = resource.MustParse(value)
@@ -606,6 +611,11 @@ func (w *AdmissionWrapper) AssignmentPodCountWithIndex(index, value int32) *Admi
 
 func (w *AdmissionWrapper) TopologyAssignmentWithIndex(index int32, ts *kueue.TopologyAssignment) *AdmissionWrapper {
 	w.PodSetAssignments[index].TopologyAssignment = ts
+	return w
+}
+
+func (w *AdmissionWrapper) DelayedTopologyRequestWithIndex(index int32, state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
+	w.PodSetAssignments[index].DelayedTopologyRequest = ptr.To(state)
 	return w
 }
 

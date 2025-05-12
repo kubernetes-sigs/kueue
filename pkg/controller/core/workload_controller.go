@@ -614,6 +614,8 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
+	} else {
+		r.queues.QueueSecondPassIfNeeded(ctx, e.Object)
 	}
 	if !r.cache.AddOrUpdateWorkload(wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
@@ -732,6 +734,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
 					log.V(2).Info("ignored an error for now", "error", err)
 				}
+				r.queues.DeleteSecondPassWithoutLock(wlCopy)
 			}
 		})
 
@@ -767,7 +770,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.Error(err, "Updating workload in cache")
 		}
 	}
-
+	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew)
 	return true
 }
 

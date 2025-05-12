@@ -34,8 +34,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
+	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
 
-	if isAdmitted == (hasReservation && hasAllChecksReady) {
+	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
 		return false
 	}
 	newCondition := metav1.Condition{
