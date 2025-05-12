@@ -146,6 +146,7 @@ data:
     metrics:
       bindAddress: :8443
       # enableClusterQueueResources: true
+      # enableHttpMetrics: true
     webhook:
       port: 9443
     manageJobsWithoutQueueName: true
