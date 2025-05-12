@@ -355,7 +355,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	log := r.log.WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ClusterQueue update event")
 
-	if e.ObjectNew.DeletionTimestamp != nil {
+	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
