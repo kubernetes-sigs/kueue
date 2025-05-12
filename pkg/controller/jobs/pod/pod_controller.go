@@ -787,7 +787,7 @@ func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	if p.DeletionTimestamp != nil && len(p.Spec.NodeName) == 0 {
+	if !p.DeletionTimestamp.IsZero() && len(p.Spec.NodeName) == 0 {
 		return false
 	}
 	return p.Status.Phase != corev1.PodFailed
