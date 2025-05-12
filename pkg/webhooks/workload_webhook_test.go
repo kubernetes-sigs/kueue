@@ -419,7 +419,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
 			},
 		},
-		"TopologyAssignment cannot be set is not delayedTopologyRequest": {
+		"TopologyAssignment cannot be set without delayedTopologyRequest": {
 			enableTopologyAwareScheduling: true,
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -538,7 +538,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
 			},
 		},
-		"PodSets cannot be added to admission": {
+		"PodSets cannot be removed from admission": {
 			enableTopologyAwareScheduling: true,
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(

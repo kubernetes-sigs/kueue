@@ -173,7 +173,7 @@ type PodSetResources struct {
 	// TopologyRequest specifies the requests for TAS
 	TopologyRequest *TopologyRequest
 
-	// DelayedTopologyRequest indicates if the state of the delayed TopologyRequest
+	// DelayedTopologyRequest indicates the state of the delayed TopologyRequest
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 
 	// Flavors are populated when the Workload is assigned.
@@ -638,6 +638,8 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 	}
 }
 
+// NeedsSecondPass checks if the second pass of scheduling is needed for the
+// workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) &&
 		HasAllChecksReady(w) &&
@@ -647,6 +649,8 @@ func NeedsSecondPass(w *kueue.Workload) bool {
 		!IsEvicted(w)
 }
 
+// HasTopologyAssignmentsPending checks if the workload contains any
+// PodSetAssignment with the DelayedTopologyRequest=Pending.
 func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
 	if w.Status.Admission == nil {
 		return false
@@ -659,6 +663,7 @@ func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
 	}
 	return false
 }
+
 func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:    kueue.WorkloadPreempted,

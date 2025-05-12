@@ -780,12 +780,6 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
 }
 
-func (m *Manager) DeleteSecondPass(w *kueue.Workload) {
-	m.Lock()
-	defer m.Unlock()
-	m.DeleteSecondPassWithoutLock(w)
-}
-
 func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 	m.secondPassQueue.deleteByKey(workload.Key(w))
 }

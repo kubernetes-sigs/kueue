@@ -27,8 +27,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// SyncAdmittedCondition sync the state of the Admitted condition
-// with the state of QuotaReserved and AdmissionChecks.
+// SyncAdmittedCondition sync the state of the Admitted condition based on the
+// state of QuotaReserved, AdmissionChecks and DelayedTopologyRequests.
 // Return true if any change was done.
 func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
@@ -59,6 +59,10 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "UnsatisfiedChecks"
 		newCondition.Message = "The workload has not all checks ready"
+	case !hasAllTopologyAssignmentsReady:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "PendingDelayedTopologyRequests"
+		newCondition.Message = "There are pending delayed topology requests"
 	}
 
 	// Accumulate the admitted time if needed
