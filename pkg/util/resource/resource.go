@@ -106,6 +106,7 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 
 // MulByFloat multiplies every element in q by f.
 // Leverages k8s.io/apimachinery/pkg/api/resource package to provide precision to 3 decimal places
+// It expects f value to be in range [0,1], otherwise an overflow can happen.
 func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
 	ret := q.DeepCopy()
 	for k, v := range ret {

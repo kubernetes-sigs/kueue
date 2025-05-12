@@ -485,7 +485,7 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateFlavorUsage(frUsage, lq.totalReserved, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
-			lq.UpdateAdmittedUsage(frUsage, m)
+			lq.updateAdmittedUsage(frUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
@@ -529,7 +529,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			updateFlavorUsage(frq, qImpl.totalReserved, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				qImpl.UpdateAdmittedUsage(frq, 1)
+				qImpl.updateAdmittedUsage(frq, 1)
 				qImpl.admittedWorkloads++
 			}
 		}

@@ -6,11 +6,11 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-webhook-service'
   namespace: '{{ .Release.Namespace }}'
 spec:
+  type: '{{ .Values.webhookService.type }}'
   {{- if .Values.webhookService.ipDualStack.enabled }}
   ipFamilies: {{ toYaml .Values.webhookService.ipDualStack.ipFamilies | nindent 4 }}
   ipFamilyPolicy: {{ .Values.webhookService.ipDualStack.ipFamilyPolicy }}
   {{- end }}
-  type: {{ .Values.webhookService.type }}
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:

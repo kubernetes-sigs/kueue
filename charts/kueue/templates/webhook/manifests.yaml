@@ -38,12 +38,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-deployment
+    name: mdeployment.kb.io
     {{- if has "deployment" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: mdeployment.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
@@ -187,12 +187,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
+    name: mpod.kb.io
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: mpod.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
@@ -298,12 +298,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-statefulset
+    name: mstatefulset.kb.io
     {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: mstatefulset.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
@@ -423,12 +423,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-deployment
+    name: vdeployment.kb.io
     {{- if has "deployment" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: vdeployment.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
@@ -578,12 +578,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate--v1-pod
+    name: vpod.kb.io
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: vpod.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
@@ -693,12 +693,12 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-statefulset
+    name: vstatefulset.kb.io
     {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
     {{- else }}
     failurePolicy: Ignore
     {{- end }}
-    name: vstatefulset.kb.io
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}

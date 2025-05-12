@@ -58,6 +58,8 @@ const (
 	E2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
 	// E2eTestAgnHostImage is the image used for testing.
 	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
+
+	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
@@ -333,4 +335,42 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 	MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
+}
+
+func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, error) {
+	metricsOutput, _, err := KExecute(ctx, cfg, restClient, configapi.DefaultNamespace, curlPodName, curlContainerName, []string{
+		"/bin/sh", "-c",
+		fmt.Sprintf(
+			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
+			defaultMetricsServiceName, configapi.DefaultNamespace,
+		),
+	})
+	return string(metricsOutput), err
+}
+
+func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
+	}, Timeout).Should(gomega.Succeed())
+}
+
+func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
+	}, Timeout).Should(gomega.Succeed())
+}
+
+func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod) {
+	ginkgo.GinkgoHelper()
+	createdPod := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
