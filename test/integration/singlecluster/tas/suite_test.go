@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -90,7 +92,30 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
-	err = sched.Start(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	go func() {
+		objects := []client.Object{
+			&kueue.ResourceFlavor{},
+			&kueue.ClusterQueue{},
+			&kueue.LocalQueue{},
+			&kueue.Workload{},
+			&kueue.WorkloadPriorityClass{},
+			&kueue.AdmissionCheck{},
+			&kueue.ProvisioningRequestConfig{},
+			&kueuealpha.Topology{},
+		}
+		gomega.Eventually(func() bool {
+			for _, obj := range objects {
+				informer, err := mgr.GetCache().GetInformer(ctx, obj)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !informer.HasSynced() {
+					return false
+				}
+			}
+			return true
+		}).Should(gomega.BeTrue(), "Informers not synced")
+		gomega.Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(gomega.BeTrue(), "Cache not synced")
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+		err = sched.Start(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 }

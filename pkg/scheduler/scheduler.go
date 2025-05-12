@@ -23,14 +23,12 @@ import (
 	"slices"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -73,7 +71,6 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
 	clock                   clock.Clock
-	doneTas                 bool
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -176,79 +173,10 @@ func reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 	}
 }
 
-func (s *Scheduler) waitForTas(ctx context.Context, log logr.Logger) wait.SpeedSignal {
-	for !s.cache.TASCache().SyncedFlavors() {
-		log.V(2).Info("Waiting for the TAS cache to be synced")
-		time.Sleep(1 * time.Second)
-	}
-
-	// All the listed workloads that have reservation should have been added to the cache to ensure
-	// the TAS usage is as correct as possible.
-	var wlsList kueue.WorkloadList
-	err := s.client.List(ctx, &wlsList)
-	if err != nil {
-		return wait.SlowDown
-	}
-	wlsIn := s.cache.GetWorkloads()
-	wls := sets.Set[string]{}
-	for _, wl := range wlsIn {
-		key := fmt.Sprintf("%s/%s", wl.Obj.Namespace, wl.Obj.Name)
-		wls.Insert(key)
-	}
-	wlsListSet := sets.Set[string]{}
-	for _, wl := range wlsList.Items {
-		wlsListSet.Insert(wl.Name)
-	}
-	for _, wl := range wlsList.Items {
-		if !workload.HasQuotaReservation(&wl) || workload.IsFinished(&wl) {
-			continue
-		}
-		key := fmt.Sprintf("%s/%s", wl.Namespace, wl.Name)
-		if !wls.Has(key) {
-			log.V(2).Info("Workload has not received the topology update", "workload", wl)
-			return wait.SlowDown
-		}
-	}
-	log.V(2).Info("TAS cache is synced, proceeding with scheduling")
-	return wait.KeepGoing
-}
-
-func (s *Scheduler) waitForTasLoop(ctx context.Context, log logr.Logger) {
-	if !features.Enabled(features.TopologyAwareScheduling) || s.doneTas {
-		return
-	}
-
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-retry:
-	for {
-		select {
-		case <-ctx.Done():
-			log.V(2).Info("Scheduler context cancelled, stopping scheduling")
-			return
-		case <-timer.C:
-			err := fmt.Errorf("TAS cache not synced after 5 seconds")
-			log.Error(err, "TAS usage may be wrong")
-			break retry
-		default:
-			if s.waitForTas(ctx, log) == wait.SlowDown {
-				log.V(2).Info("Waiting for the TAS cache to be synced")
-				time.Sleep(1 * time.Second)
-				continue
-			} else {
-				break retry
-			}
-		}
-	}
-	s.doneTas = true
-}
-
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
-
-	s.waitForTasLoop(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
