@@ -668,8 +668,17 @@ for [Beta](#beta). The initial approach for the design is left in the
 section.
 
 #### Node failures
-We propose to introduce a new Annotation at a Workload level, to keep track
-if any of the nodes require a replacement.
+
+Initially we plan to support node becoming not ready (as indicated in Node 
+`status.conditions.ready` field) and node being deleted. A new controller will 
+monitor nodes and will update each affected TAS workload with the information 
+about the failed nodes. This information will then be consumed by a new mechanism
+in scheduler where we will try to find a new topology assignment and replace the
+failed node(s) (by changing the assignment only on the affected pods). 
+If no replacement is possible, the workload will be evicted. Initially we plan 
+to only replace in the case of a single node failure. 
+
+We propose to introduce a new Annotation at a Workload level:
 
 ```golang
 const (
@@ -678,6 +687,21 @@ const (
 	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
 )
 ```
+Alternatively (for Beta release), this information could be stored in a new field in WorkloadStatus.
+
+```golang
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+  ...
+  // nodesToReplace lists the names of failed nodes running pods associated 
+  // with this workload. This field is populated by the node failure controller.
+  // +optional
+  // +listType=set
+  NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
+```
+
+
 
 ### Implicit defaulting of TAS annotations
 
@@ -935,7 +959,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
 - add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
-- change failed nodes information from Annotation into a field in workload.Status
+- change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 
 #### Stable
 
