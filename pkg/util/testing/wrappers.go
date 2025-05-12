@@ -1457,6 +1457,11 @@ func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.
 	return prc
 }
 
+func (prc *ProvisioningRequestConfigWrapper) PodSetUpdate(update kueue.ProvisioningRequestPodSetUpdates) *ProvisioningRequestConfigWrapper {
+	prc.Spec.PodSetUpdates = &update
+	return prc
+}
+
 func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
 	if prc.Spec.RetryStrategy == nil {
 		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}

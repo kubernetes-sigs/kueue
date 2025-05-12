@@ -231,6 +231,15 @@ func TestReconcile(t *testing.T) {
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
 
+	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
+		NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{
+			{
+				Key:                              "node-selector-key",
+				ValueFromProvisioningClassDetail: "node-selector-value",
+			},
+		},
+	})
+
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
@@ -1125,6 +1134,106 @@ func TestReconcile(t *testing.T) {
 					Reason:    "FailedCreate",
 					Message:   `Error creating ProvisioningRequest "wl-check1-1": invalid ProvisioningRequest error`,
 				},
+			},
+		},
+		"when request is provisioned and has NodeSelector specified via ProvisioningClassDetail": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithPodSetUpdates.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				func() autoscaling.ProvisioningRequest {
+					pr := *requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue)
+					pr.Status.ProvisioningClassDetails = map[string]autoscaling.Detail{
+						"node-selector-value": "nodes-selector-xyz",
+					}
+					return pr
+				}(),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "ps1",
+								Annotations: map[string]string{
+									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
+									DeprecatedClassNameAnnotationKey: "class1",
+									ConsumesAnnotationKey:            "wl-check1-1",
+									ClassNameAnnotationKey:           "class1",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key": "nodes-selector-xyz",
+								},
+							},
+							{
+								Name: "ps2",
+								Annotations: map[string]string{
+									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
+									DeprecatedClassNameAnnotationKey: "class1",
+									ConsumesAnnotationKey:            "wl-check1-1",
+									ClassNameAnnotationKey:           "class1",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key": "nodes-selector-xyz",
+								},
+							},
+						},
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+		},
+		"when request is provisioned and has NodeSelector missing in the ProvisioningClassDetail": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithPodSetUpdates.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				func() autoscaling.ProvisioningRequest {
+					pr := *requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue)
+					pr.Status.ProvisioningClassDetails = map[string]autoscaling.Detail{
+						"some-detail": "xyz",
+					}
+					return pr
+				}(),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "ps1",
+								Annotations: map[string]string{
+									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
+									DeprecatedClassNameAnnotationKey: "class1",
+									ConsumesAnnotationKey:            "wl-check1-1",
+									ClassNameAnnotationKey:           "class1",
+								},
+							},
+							{
+								Name: "ps2",
+								Annotations: map[string]string{
+									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
+									DeprecatedClassNameAnnotationKey: "class1",
+									ConsumesAnnotationKey:            "wl-check1-1",
+									ClassNameAnnotationKey:           "class1",
+								},
+							},
+						},
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
 			},
 		},
 	}
