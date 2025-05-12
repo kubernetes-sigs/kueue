@@ -163,6 +163,12 @@ const (
 	//
 	// Enable admission fair sharing
 	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
+
+	// owner: @mwysokin @mykysha @mbobrovskyi
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1618-optional-gc-of-workloads
+	//
+	// Enable object retentions
+	ObjectRetentionPolicies featuregate.Feature = "ObjectRetentionPolicies"
 )
 
 func init() {
@@ -251,6 +257,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
 	},
 	AdmissionFairSharing: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ObjectRetentionPolicies: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
