@@ -41,6 +41,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
+		_ = features.SetEnable(features.TopologyAwareScheduling, true)
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
