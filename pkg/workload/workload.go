@@ -642,6 +642,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) &&
+		len(w.Status.AdmissionChecks) > 0 &&
 		HasAllChecksReady(w) &&
 		HasTopologyAssignmentsPending(w) &&
 		!IsAdmitted(w) &&
