@@ -190,6 +190,23 @@ func (j *ClusterWrapper) Label(key, value string) *ClusterWrapper {
 	return j
 }
 
+// NodeLabel sets the label key and value for specific RayNodeType
+func (j *ClusterWrapper) NodeLabel(rayType rayv1.RayNodeType, key, value string) *ClusterWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		if j.Spec.HeadGroupSpec.Template.Labels == nil {
+			j.Spec.HeadGroupSpec.Template.Labels = make(map[string]string)
+		}
+		j.Spec.HeadGroupSpec.Template.Labels[key] = value
+	case rayv1.WorkerNode:
+		if j.Spec.WorkerGroupSpecs[0].Template.Labels == nil {
+			j.Spec.WorkerGroupSpecs[0].Template.Labels = make(map[string]string)
+		}
+		j.Spec.WorkerGroupSpecs[0].Template.Labels[key] = value
+	}
+	return j
+}
+
 // StatusConditions adds a condition
 func (j *ClusterWrapper) StatusConditions(c metav1.Condition) *ClusterWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)

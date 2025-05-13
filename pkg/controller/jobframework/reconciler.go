@@ -1197,9 +1197,11 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			return nil, err
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			info.Labels[kueuealpha.PodSetLabel] = string(psAssignment.Name)
 			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
 		}
+
+		info.Labels[controllerconsts.PodSetLabel] = string(psAssignment.Name)
+
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {

@@ -294,6 +294,7 @@ func TestReconciler(t *testing.T) {
 				ManagedByKueueLabel().
 				NodeSelector(corev1.LabelArchStable, "arm64").
 				KueueFinalizer().
+				Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj()},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -1044,6 +1045,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
+					Label(controllerconsts.PodSetLabel, podUID).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1053,6 +1055,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
+					Label(controllerconsts.PodSetLabel, podUID).
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1598,6 +1601,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("1").
+					Label(controllerconsts.PodSetLabel, podUID).
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1658,6 +1662,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
+					Label(controllerconsts.PodSetLabel, podUID).
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
@@ -1711,6 +1716,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
+					Label(controllerconsts.PodSetLabel, podUID).
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 				*basePodWrapper.
@@ -1737,6 +1743,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
+					Label(controllerconsts.PodSetLabel, podUID).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4430,6 +4437,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
 					GroupTotalCount("2").
+					Label(controllerconsts.PodSetLabel, podUID).
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
@@ -4479,6 +4487,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
 					GroupTotalCount("2").
+					Label(controllerconsts.PodSetLabel, podUID).
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
@@ -4488,6 +4497,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
+					Label(controllerconsts.PodSetLabel, podUID).
 					CreationTimestamp(now).
 					Obj(),
 			},
