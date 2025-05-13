@@ -28,6 +28,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
   - [Internal APIs](#internal-apis)
+    - [Node failures](#node-failures)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
@@ -1159,3 +1160,8 @@ type WorkloadStatus struct {
   NodesToReplace []string `json:"nodesToReplace,omitempty"`
 }
 ```
+**Reasons for discarding/deferring**
+
+Uncertanity about the final shape of the feature and the required format.
+We will decide on the format of this field based on the feedback from the 
+customers on the MVP.
