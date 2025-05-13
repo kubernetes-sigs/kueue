@@ -25,6 +25,7 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+  - [Changes to metrics](#changes-to-metrics)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -208,39 +209,48 @@ type RequeueState struct {
 }
 ```
 
-Add a new field `evictionStats` to the WorkloadStatus struct to track the number of evictions by type and reason:
+Add a new field, `schedulingStats`, to the WorkloadStatus struct to track the number of scheduling statistics.
+SchedulingState serves as a history of the Workload thus will not be reset.
+First sub field to be a part of the `schedulingStats` will be `eviction` a struct to track the number of evictions by reason.
 
 ```go
 type WorkloadStatus struct {
-	// evictionStats tracks eviction statistics by type and reason.
-    //
-    // +optional
-    // +listType=map
-    // +listMapKey=type
-    // +patchStrategy=merge
-    // +patchMergeKey=type
-    EvictionStats []Eviction `json:"evictionStats,omitempty"`
+	// schedulingStats tracks scheduling statistics (e.g. evictions)
+	//
+	// +optional
+	SchedulingStats *SchedulingStats `json:"schedulingStats,omitempty"`
 }
 
-type Eviction struct {
-    // type identifies the eviction type.
-    //
-    // +required
-    // +kubebuilder:validation:Required
-    // +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-    // +kubebuilder:validation:MaxLength=316
-    Type string `json:"type"`
-    
+type SchedulingStats struct {
+	// evictions tracks eviction statistics by reason and underlyingCause.
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=reason
+	// +listMapKey=underlyingCause
+	// +patchStrategy=merge
+	// +patchMergeKey=reason
+	// +patchMergeKey=underlyingCause
+	Evictions []WorkloadSchedulingStatsEvicition `json:"evictions,omitempty"`
+}
+
+type WorkloadSchedulingStatsEvicition struct {
     // reason specifies the programmatic identifier for the eviction cause.
     //
     // +required
     // +kubebuilder:validation:Required
-    // +kubebuilder:validation:MaxLength=1024
-    // +kubebuilder:validation:MinLength=1
-    // +kubebuilder:validation:Pattern=`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`
+    // +kubebuilder:validation:MaxLength=316
     Reason string `json:"reason"`
-    
-    // count tracks the number of evictions for this type and reason.
+
+    // underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+    // This may be an empty string.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MaxLength=316
+    UnderlyingCause string `json:"underlyingCause"`
+
+    // count tracks the number of evictions for this reason and detailed reason.
     //
     // +required
     // +kubebuilder:validation:Required
@@ -340,6 +350,26 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
+
+### Changes to metrics
+
+Introduce a new metric `evicted_workloads_once_total` to count total unique number of evictions per 'cluster_queue'.
+
+```go
+	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "evicted_workloads_once_total",
+			Help: `The number of unique workload evictions per 'cluster_queue',
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+		}, []string{"cluster_queue", "reason", "underlying_cause"},
+	)
+```
 
 ## Implementation History
 
