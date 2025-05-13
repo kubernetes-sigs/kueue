@@ -106,7 +106,6 @@ var _ webhook.CustomValidator = &Webhook{}
 var (
 	labelsPath               = field.NewPath("metadata", "labels")
 	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
-	priorityClassNamePath    = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	specPath                 = field.NewPath("spec")
 	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
@@ -140,10 +139,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
 		queueNameLabelPath,
 	)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-		newLeaderWorkerSet.Object(),
-		oldLeaderWorkerSet.Object(),
-	)...)
+
+	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
+	if !isSuspended {
+		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+			newLeaderWorkerSet.Object(),
+			oldLeaderWorkerSet.Object(),
+		)...)
+	}
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {

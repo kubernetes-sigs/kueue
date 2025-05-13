@@ -496,6 +496,9 @@ func TestReconciler(t *testing.T) {
 	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
 
+	highWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc-high").
+		PriorityValue(200)
+
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
 
@@ -2583,19 +2586,25 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(true).
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
-					Priority(0).
-					PriorityClass("new-priority-class").
+					Priority(baseWPCWrapper.Value).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PriorityClass(baseWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -2606,12 +2615,21 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
-					Priority(0).
-					PriorityClass("new-priority-class").
+					Priority(highWPCWrapper.Value).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PriorityClass(highWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/job",
+				},
 			},
 		},
 		"the workload without uid label is created when job's uid is longer than 63 characters": {

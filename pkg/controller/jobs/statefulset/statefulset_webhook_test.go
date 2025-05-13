@@ -337,7 +337,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in priority class label": {
+		"change in priority class label when suspended": {
 			oldObj: &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
@@ -352,6 +352,30 @@ func TestValidateUpdate(t *testing.T) {
 						constants.QueueLabel:                 "queue1",
 						constants.WorkloadPriorityClassLabel: "priority2",
 					},
+				},
+			},
+		},
+		"change in priority class label when replicas ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
 				},
 			},
 			wantErr: field.ErrorList{

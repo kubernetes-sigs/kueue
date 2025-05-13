@@ -575,6 +575,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 			return ctrl.Result{}, err
 		}
+		// update workload priority if job's label changed
+		if wl.Spec.PriorityClassName != "" && WorkloadPriorityClassName(object) != wl.Spec.PriorityClassName {
+			log.V(2).Info("Job changed priority, updating workload", "oldPriority", wl.Spec.PriorityClassName, "newPriority", WorkloadPriorityClassName(object))
+			if _, err = r.updateWorkloadToMatchJob(ctx, job, object, wl); err != nil {
+				log.Error(err, "Updating workload priority")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
 		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 		return ctrl.Result{}, nil
 	}
