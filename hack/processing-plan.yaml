@@ -147,6 +147,11 @@ files:
       - type: APPEND
         key: .webhooks.[].clientConfig.service.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .webhooks.[].reinvocationPolicy
+        value: '"{{ .Values.mutatingWebhook.reinvocationPolicy }}"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        addKeyIfMissing: true
       - type: UPDATE
         key: .webhooks.[].clientConfig.service.namespace
         value: '"{{ .Release.Namespace }}"'
