@@ -33,6 +33,7 @@ const (
 	ReadyNode                     = "metadata.ready"
 	SchedulableNode               = "spec.schedulable"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
+	PodNodeNameIndexKey           = "spec.nodeName"
 )
 
 func indexPodWorkload(o client.Object) []string {
@@ -76,6 +77,14 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 	return []string{string(*flavor.Spec.TopologyName)}
 }
 
+func indexPodNodeName(o client.Object) []string {
+	p, ok := o.(*corev1.Pod)
+	if !ok || p.Spec.NodeName == "" {
+		return nil
+	}
+	return []string{p.Spec.NodeName}
+}
+
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
@@ -91,6 +100,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {
 		return fmt.Errorf("setting index resource flavor topology name: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameIndexKey, indexPodNodeName); err != nil {
+		return fmt.Errorf("setting index pod node name: %w", err)
 	}
 
 	return nil

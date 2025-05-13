@@ -71,6 +71,10 @@ const (
 	// belonging to a Pod group. It indicates a label name used to retrieve
 	// the Pod's index within the group.
 	PodGroupPodIndexLabelAnnotation = "kueue.x-k8s.io/pod-group-pod-index-label"
+
+	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
+	// name of a failed node running at least one pod of this workload.
+	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
 )
 
 // TopologySpec defines the desired state of Topology
