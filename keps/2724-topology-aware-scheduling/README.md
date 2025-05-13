@@ -677,9 +677,11 @@ monitor nodes and will update each affected TAS workload with the information
 about the failed nodes. This information will then be consumed by a new mechanism
 in scheduler where we will try to find a new topology assignment and replace the
 failed node(s) (by changing the assignment only on the affected pods). 
-If no replacement is possible, the workload will be evicted. Initially we plan 
-to only replace in the case of a single node failure. This mechanism will only
-work for Topologies which specify `kubernetes.io/hostname` at the lowest level.
+If no replacement is possible, the workload will be evicted. Initially we plan
+to only replace in the case of a single node failure and if no preemption/reclamation
+is neccessary to fit the workload. Since this mechanism is dedicated
+to only replace nodes, it will only work for Topologies which specify
+`kubernetes.io/hostname` at the lowest level.
 
 We propose to introduce a new Annotation at a Workload level:
 
