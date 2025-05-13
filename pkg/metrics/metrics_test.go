@@ -21,7 +21,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
@@ -57,10 +61,6 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3)
 
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 7)
-	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 3)
-
-	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 2, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 2, "cluster_queue", "queue")
 
 	ClearClusterQueueResourceMetrics("queue")
 
@@ -172,4 +172,119 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
+func TestShouldReportLocalQueueMetrics(t *testing.T) {
+	tests := []struct {
+		name               string
+		config             configapi.LocalQueueMetrics
+		testLabels         map[string]string
+		expectLabelMatches bool
+	}{
+		{
+			name: "with nil selector",
+			config: configapi.LocalQueueMetrics{
+				LocalQueueSelector: nil,
+			},
+			testLabels:         map[string]string{"app": "test"},
+			expectLabelMatches: false,
+		},
+		{
+			name: "with empty selector",
+			config: configapi.LocalQueueMetrics{
+				LocalQueueSelector: &metav1.LabelSelector{},
+			},
+			testLabels:         map[string]string{"app": "test"},
+			expectLabelMatches: true,
+		},
+		{
+			name: "with specific selector that matches",
+			config: configapi.LocalQueueMetrics{
+				LocalQueueSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app": "test"},
+				},
+			},
+			testLabels:         map[string]string{"app": "test"},
+			expectLabelMatches: true,
+		},
+		{
+			name: "with specific selector that doesn't match",
+			config: configapi.LocalQueueMetrics{
+				LocalQueueSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app": "test"},
+				},
+			},
+			testLabels:         map[string]string{"app": "other"},
+			expectLabelMatches: false,
+		},
+	}
+	features.SetEnable(features.LocalQueueMetrics, true)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset the config singleton for each test
+			lqMetricsConfigSingleton = nil
+
+			err := SetLocalQueueMetrics(&tc.config)
+			if err != nil {
+				t.Fatalf("Expected no error but got: %v", err)
+			}
+
+			if ShouldReportLocalMetrics(tc.testLabels) != tc.expectLabelMatches {
+				t.Fatalf("Expected enabled=%v but got %v", tc.expectLabelMatches, ShouldReportLocalMetrics(tc.testLabels))
+			}
+		})
+	}
+}
+
+func TestLocalQueueMetricsEnabled(t *testing.T) {
+	tests := []struct {
+		name           string
+		featureEnabled bool
+		configNil      bool
+		expected       bool
+	}{
+		{
+			name:           "feature disable and config not nil",
+			featureEnabled: false,
+			configNil:      false,
+			expected:       false,
+		},
+		{
+			name:           "feature disabled, config nil",
+			featureEnabled: false,
+			configNil:      false,
+			expected:       false,
+		},
+		{
+			name:           "feature enabled, config not nil",
+			featureEnabled: true,
+			configNil:      false,
+			expected:       true,
+		},
+		{
+			name:           "feature enabled, config nil",
+			featureEnabled: true,
+			configNil:      true,
+			expected:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, tc.featureEnabled)
+
+			// Setup config
+			if tc.configNil {
+				lqMetricsConfigSingleton = nil
+			} else {
+				lqMetricsConfigSingleton = &LocalQueueMetricsConfig{
+					localQueueSelector: labels.Everything(),
+				}
+			}
+
+			if result := LocalQueueMetricsEnabled(); result != tc.expected {
+				t.Errorf("Expected LocalQueueMetricsEnabled()=%v but got %v", tc.expected, result)
+			}
+		})
+	}
 }

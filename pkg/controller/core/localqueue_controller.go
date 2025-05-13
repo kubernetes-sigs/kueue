@@ -203,7 +203,7 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	if features.Enabled(features.LocalQueueMetrics) {
+	if metrics.ShouldReportLocalMetrics(e.Object.Labels) {
 		recordLocalQueueUsageMetrics(e.Object)
 	}
 
@@ -226,7 +226,11 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	log.V(2).Info("Queue update event")
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		updateLocalQueueResourceMetrics(e.ObjectNew)
+		if metrics.ShouldReportLocalMetrics(e.ObjectNew.Labels) {
+			updateLocalQueueResourceMetrics(e.ObjectNew)
+		} else if metrics.ShouldReportLocalMetrics(e.ObjectOld.Labels) && !metrics.ShouldReportLocalMetrics(e.ObjectNew.Labels) {
+			metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.ObjectOld))
+		}
 	}
 
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
@@ -472,7 +476,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			Message:            msg,
 			ObservedGeneration: queue.Generation,
 		})
-		if features.Enabled(features.LocalQueueMetrics) {
+		if metrics.ShouldReportLocalMetrics(queue.Labels) {
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
 				Name:      kueue.LocalQueueName(queue.Name),
 				Namespace: queue.Namespace,

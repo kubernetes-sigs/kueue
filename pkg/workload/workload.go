@@ -917,9 +917,9 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
+func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reportLQMetrics bool, reason, message string) {
 	metrics.ReportEvictedWorkloads(cqName, reason)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if reportLQMetrics {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)

@@ -159,7 +159,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			MaxCount: DefaultClusterQueuesMaxCount,
 		}
 	}
-
 	if !features.Enabled(features.ManagedJobsNamespaceSelector) {
 		// Backwards compatibility: default podOptions.NamespaceSelector if ManagedJobsNamespaceSelector disabled
 		if cfg.Integrations.PodOptions == nil {

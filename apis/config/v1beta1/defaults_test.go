@@ -49,7 +49,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			Port: ptr.To(DefaultWebhookPort),
 		},
 		Metrics: ControllerMetrics{
-			BindAddress: DefaultMetricsBindAddress,
+			BindAddress:       DefaultMetricsBindAddress,
+			LocalQueueMetrics: nil,
 		},
 		Health: ControllerHealth{
 			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
@@ -651,6 +652,125 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
 					},
 				},
+			},
+		},
+		"localQueue metrics should default to nil": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+		},
+		"if localQueueMetrics is set it should default to disabled with a nil lq selector": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ControllerManager: ControllerManager{
+					Metrics: ControllerMetrics{
+						LocalQueueMetrics: &LocalQueueMetrics{},
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace: ptr.To(DefaultNamespace),
+				ControllerManager: ControllerManager{
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
+					},
+					Webhook: ControllerWebhook{
+						Port: ptr.To(DefaultWebhookPort),
+					},
+					Metrics: ControllerMetrics{
+						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							LocalQueueSelector: nil,
+						},
+					},
+					Health: ControllerHealth{
+						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+		},
+		"if localQueueMetrics selector is set localQueueMetrics selector is used": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ControllerManager: ControllerManager{
+					Metrics: ControllerMetrics{
+						LocalQueueMetrics: &LocalQueueMetrics{
+							LocalQueueSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foo": "bar",
+								},
+							},
+						},
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace: ptr.To(DefaultNamespace),
+				ControllerManager: ControllerManager{
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
+					},
+					Webhook: ControllerWebhook{
+						Port: ptr.To(DefaultWebhookPort),
+					},
+					Metrics: ControllerMetrics{
+						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							LocalQueueSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foo": "bar",
+								},
+							},
+						},
+					},
+					Health: ControllerHealth{
+						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 		},
 	}

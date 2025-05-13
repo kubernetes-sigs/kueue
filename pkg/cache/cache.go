@@ -194,6 +194,10 @@ func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
+func (q *LocalQueue) GetLabels() map[string]string {
+	return q.labels
+}
+
 func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	for _, cq := range c.hm.ClusterQueues() {
 		if len(cq.WorkloadsNotReady) > 0 {
@@ -390,11 +394,16 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
+		var qLabels map[string]string
+		if metrics.LocalQueueMetricsEnabled() {
+			qLabels = q.Labels
+		}
 		qKey := queueKey(&q)
 		qImpl := &LocalQueue{
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
+			labels:             qLabels,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 		}
@@ -445,6 +454,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
+		// eagerly delete metrics
 		for _, q := range c.hm.ClusterQueue(cqName).localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
 			metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{

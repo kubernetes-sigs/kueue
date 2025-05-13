@@ -21,8 +21,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -419,6 +421,57 @@ the maximum possible share value.`,
 	)
 )
 
+type LocalQueueMetricsConfig struct {
+	localQueueSelector labels.Selector
+}
+
+var lqMetricsConfigSingleton *LocalQueueMetricsConfig
+
+func SetLocalQueueMetrics(lqMetricsConfig *configapi.LocalQueueMetrics) error {
+	var lqLabelSelector labels.Selector
+	var err error
+	if !features.Enabled(features.LocalQueueMetrics) || lqMetricsConfig == nil {
+		return nil
+	}
+	if lqMetricsConfig.LocalQueueSelector == nil {
+		lqLabelSelector = nil
+	} else {
+		lqLabelSelector, err = metav1.LabelSelectorAsSelector(lqMetricsConfig.LocalQueueSelector)
+		if err != nil {
+			return err
+		}
+	}
+
+	lqMetricsConfigSingleton = &LocalQueueMetricsConfig{
+		localQueueSelector: lqLabelSelector,
+	}
+	return nil
+}
+
+func getLocalQueueMetrics() *LocalQueueMetricsConfig {
+	return lqMetricsConfigSingleton
+}
+
+func LocalQueueMetricsEnabled() bool {
+	return features.Enabled(features.LocalQueueMetrics) && lqMetricsConfigSingleton != nil
+}
+
+func ShouldReportLocalMetrics(lqLabels map[string]string) bool {
+	if !features.Enabled(features.LocalQueueMetrics) {
+		return false
+	}
+	lqMetricsConfig := getLocalQueueMetrics()
+	if lqMetricsConfig == nil || lqMetricsConfig.localQueueSelector == nil {
+		return false
+	}
+	localQueueMatches := true
+	if lqMetricsConfig.localQueueSelector != nil {
+		lqLblSet := labels.Set(lqLabels)
+		localQueueMatches = lqMetricsConfig.localQueueSelector.Matches(lqLblSet)
+	}
+	return localQueueMatches
+}
+
 func generateExponentialBuckets(count int) []float64 {
 	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
 }
@@ -693,7 +746,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 	)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if LocalQueueMetricsEnabled() {
 		RegisterLQMetrics()
 	}
 }
