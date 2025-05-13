@@ -687,20 +687,6 @@ const (
 	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
 )
 ```
-Alternatively (for Beta release), this information could be stored in a new field in WorkloadStatus.
-
-```golang
-// WorkloadStatus defines the observed state of Workload
-type WorkloadStatus struct {
-  ...
-  // nodesToReplace lists the names of failed nodes running pods associated 
-  // with this workload. This field is populated by the node failure controller.
-  // +optional
-  // +listType=set
-  NodesToReplace []string `json:"nodesToReplace,omitempty"`
-}
-```
-
 
 
 ### Implicit defaulting of TAS annotations
@@ -1155,3 +1141,20 @@ fulfilled with a dedicated indexed virtual field.
 
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
+
+### Failed nodes in WorkloadStatus
+
+Alternatively, the information about failed nodes could be stored in a dedicated 
+field in WorkloadStatus.
+
+```golang
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+  ...
+  // nodesToReplace lists the names of failed nodes running pods associated 
+  // with this workload. This field is populated by the node failure controller.
+  // +optional
+  // +listType=set
+  NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
+```
