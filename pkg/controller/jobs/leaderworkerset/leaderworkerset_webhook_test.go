@@ -285,7 +285,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change priority class": {
+		"change priority class when suspended": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
@@ -296,6 +296,26 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
+		},
+		"change priority class when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
 		},
 		"change image": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

@@ -291,7 +291,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"update priority-class": {
+		"update priority-class when suspended": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "test").
@@ -300,6 +300,24 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
+		},
+		"update priority-class when replicas ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
 		},
 	}
 
