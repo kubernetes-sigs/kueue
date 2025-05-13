@@ -4502,7 +4502,61 @@ func TestScheduleForTAS(t *testing.T) {
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
 	}{
+		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
+			nodes:           defaultSingleNode,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+							AssignmentPodCount(1).Obj(),
+					).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "prov-check",
+						State: kueue.CheckStateReady,
+					}).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 		"large workload in CQ with ProvisioningRequest; second pass": {
+			// In this scenario we test a workload which is using 26 out of 50
+			// available units of quota, to make sure we are not double counting
+			// the quota in the second pass.
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label("tas-node", "true").
@@ -4792,57 +4846,6 @@ func TestScheduleForTAS(t *testing.T) {
 							},
 						},
 					).Obj(),
-			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
-			},
-		},
-		"workload in CQ with ProvisioningRequest; second pass": {
-			nodes:           defaultSingleNode,
-			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("foo", "default").
-					Queue("tas-main").
-					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					ReserveQuota(
-						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							AssignmentPodCount(1).Obj(),
-					).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "prov-check",
-						State: kueue.CheckStateReady,
-					}).
-					Obj(),
-			},
-			wantNewAssignments: map[string]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-					AssignmentPodCount(1).
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
