@@ -403,14 +403,10 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[kueue.AdmissionCheck
 	}
 }
 
-func (c *clusterQueue) addWorkload(w *kueue.Workload, allowUpdate bool) error {
+func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		if allowUpdate {
-			c.deleteWorkload(w)
-		} else {
-			return errors.New("workload already exists in ClusterQueue")
-		}
+		c.deleteWorkload(w)
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi

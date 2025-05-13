@@ -521,8 +521,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
-	allowUpdate := workload.HasTopologyAssignmentsPending(e.Obj) && workload.IsAdmitted(newWorkload)
-	if err := s.cache.AssumeWorkloadWithOpts(newWorkload, allowUpdate); err != nil {
+	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
 	e.status = assumed

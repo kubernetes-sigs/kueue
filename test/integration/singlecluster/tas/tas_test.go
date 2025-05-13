@@ -1476,6 +1476,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
+				ginkgo.By("verify there is no TAS assignment for the workload yet", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+						g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("Make the node Ready", func() {
 					createdNode := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, createdNode)).Should(gomega.Succeed())
