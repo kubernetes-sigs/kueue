@@ -678,7 +678,8 @@ about the failed nodes. This information will then be consumed by a new mechanis
 in scheduler where we will try to find a new topology assignment and replace the
 failed node(s) (by changing the assignment only on the affected pods). 
 If no replacement is possible, the workload will be evicted. Initially we plan 
-to only replace in the case of a single node failure. 
+to only replace in the case of a single node failure. This mechanism will only
+work for Topologies which specify `kubernetes.io/hostname` at the lowest level.
 
 We propose to introduce a new Annotation at a Workload level:
 
