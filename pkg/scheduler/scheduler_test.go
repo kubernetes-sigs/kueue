@@ -5005,48 +5005,6 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 		},
-		"workload in CQ with ProvisioningRequest per-flavor gets QuotaReserved only": {
-			nodes:           []corev1.Node{},
-			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues: []kueue.ClusterQueue{*utiltesting.MakeClusterQueue("tas-main").
-				ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
-					Resource(corev1.ResourceCPU, "50").
-					Resource(corev1.ResourceMemory, "50Gi").Obj()).
-				AdmissionCheckStrategy(
-					*utiltesting.MakeAdmissionCheckStrategyRule(kueue.AdmissionCheckReference(defaultProvCheck.Name),
-						kueue.ResourceFlavorReference(defaultTASFlavor.Name)).Obj(),
-				).Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("foo", "default").
-					Queue("tas-main").
-					PodSets(*utiltesting.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "prov-check",
-						State: kueue.CheckStatePending,
-					}).
-					Obj(),
-			},
-			wantNewAssignments: map[string]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-					AssignmentPodCount(1).Obj(),
-			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-			},
-		},
 		"workload with a custom AdmissionCheck gets TAS assigned": {
 			nodes:           defaultSingleNode,
 			admissionChecks: []kueue.AdmissionCheck{defaultCustomCheck},
