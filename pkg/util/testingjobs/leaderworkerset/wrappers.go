@@ -219,3 +219,8 @@ func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWo
 func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
 }
+
+func (w *LeaderWorkerSetWrapper) ReadyReplicas(r int32) *LeaderWorkerSetWrapper {
+	w.Status.ReadyReplicas = r
+	return w
+}
