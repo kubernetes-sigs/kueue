@@ -152,7 +152,7 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
-mutatingWebhookConfiguration:
+mutatingWebhook:
   reinvocationPolicy: Never
 # kueueviz dashboard
 enableKueueViz: false
