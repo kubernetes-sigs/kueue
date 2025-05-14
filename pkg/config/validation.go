@@ -414,6 +414,10 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 	if rr == nil || rr.Workloads == nil {
 		return allErrs
 	}
+	if rr.Workloads.AfterFinished != nil && rr.Workloads.AfterFinished.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterFinished"),
+			c.ObjectRetentionPolicies.Workloads.AfterFinished, apimachineryvalidation.IsNegativeErrorMsg))
+	}
 	if rr.Workloads.AfterDeactivatedByKueue != nil && rr.Workloads.AfterDeactivatedByKueue.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterDeactivatedByKueue"),
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))

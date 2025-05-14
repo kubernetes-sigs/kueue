@@ -48,6 +48,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
+					AfterFinished:           &metav1.Duration{Duration: util.TinyTimeout},
 					AfterDeactivatedByKueue: &metav1.Duration{Duration: util.TinyTimeout},
 				},
 			}
@@ -73,6 +74,44 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+	})
+
+	ginkgo.When("workload has finished", func() {
+		ginkgo.It("should delete the Workload", func() {
+			job := testingjob.MakeJob("job", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("Creating a Job", func() {
+				util.MustCreate(ctx, k8sClient, job)
+			})
+
+			wlKey := types.NamespacedName{
+				Namespace: job.Namespace,
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			}
+			wl := &kueue.Workload{}
+
+			ginkgo.By("Waiting for the Workload to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the Workload is deleted after it is finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the Job is not deleted", func() {
+				createdJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("manually deactivating a Workload", func() {
