@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -63,34 +62,25 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	markFailed := false
 	if nodeExists {
-		readyStatus, readyTransitionTime := r.getNodeConditionState(&node, corev1.NodeReady)
-		if readyStatus == corev1.ConditionTrue {
-			return ctrl.Result{}, nil
-		}
-		if readyTransitionTime != nil {
-			timeSinceNotReady := r.clock.Now().Sub(readyTransitionTime.Time)
-			if timeSinceNotReady >= NodeFailureDelay {
-				markFailed = true
-			} else {
+		readyCondition := r.getNodeCondition(&node, corev1.NodeReady)
+		if readyCondition != nil {
+			if readyCondition.Status == corev1.ConditionTrue {
+				return ctrl.Result{}, nil
+			}
+			timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
+			if NodeFailureDelay > timeSinceNotReady {
 				return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 			}
-		} else { // Node exists, not ready, but no transition time? Treat as failed immediately.
-			markFailed = true
-			r.log.V(2).Info("Node is not ready and NodeReady condition is missing or has an unexpected status, marking as failed immediately", "nodeName", node.Name)
+		} else {
+			r.log.V(2).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", node.Name)
 		}
 	} else {
 		r.log.V(3).Info("Node not found, assuming deleted")
-		markFailed = true
 	}
 
-	if markFailed {
-		if patchErr := r.patchWorkloadsForFailedNode(ctx, req.Name); patchErr != nil {
-			return ctrl.Result{}, patchErr
-		}
-	}
-	return ctrl.Result{}, nil
+	patchErr := r.patchWorkloadsForFailedNode(ctx, req.Name)
+	return ctrl.Result{}, patchErr
 }
 
 var _ reconcile.Reconciler = (*nodeFailureReconciler)(nil)
@@ -220,13 +210,11 @@ func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context,
 	return nil
 }
 
-// getNodeConditionState returns the status and last transition time of the condition.
-func (r *nodeFailureReconciler) getNodeConditionState(node *corev1.Node, conditionType corev1.NodeConditionType) (status corev1.ConditionStatus, transitionTime *metav1.Time) {
+func (r *nodeFailureReconciler) getNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType) *corev1.NodeCondition {
 	for _, cond := range node.Status.Conditions {
 		if cond.Type == conditionType {
-			return cond.Status, &cond.LastTransitionTime
+			return &cond
 		}
 	}
-	r.log.V(3).Info("NodeReady condition not found, assuming node is failed", "nodeName", node.Name)
-	return corev1.ConditionUnknown, nil
+	return nil
 }
