@@ -21,10 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,6 +50,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
 	admissionFairSharing        *config.AdmissionFairSharing
+	clock                       clock.WithDelayedExecution
 }
 
 // Option configures the manager.
@@ -56,6 +59,14 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+	clock:                       clock.RealClock{},
+}
+
+// WithClock allows to specify a custom clock
+func WithClock(c clock.WithDelayedExecution) Option {
+	return func(o *options) {
+		o.clock = c
+	}
 }
 
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
@@ -96,6 +107,7 @@ type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
+	clock         clock.WithDelayedExecution
 	client        client.Client
 	statusChecker StatusChecker
 	localQueues   map[LocalQueueReference]*LocalQueue
@@ -112,6 +124,7 @@ type Manager struct {
 	topologyUpdateWatchers []TopologyUpdateWatcher
 
 	admissionFairSharingConfig *config.AdmissionFairSharing
+	secondPassQueue            *secondPassQueue
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -120,6 +133,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		opt(&options)
 	}
 	m := &Manager{
+		clock:          options.clock,
 		client:         client,
 		statusChecker:  checker,
 		localQueues:    make(map[LocalQueueReference]*LocalQueue),
@@ -133,6 +147,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 
 		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
 		admissionFairSharingConfig: options.admissionFairSharing,
+		secondPassQueue:            newSecondPassQueue(),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -464,8 +479,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Lock()
+	defer m.Unlock()
 	m.deleteWorkloadFromQueueAndClusterQueue(w, KeyFromWorkload(w))
-	m.Unlock()
+	m.DeleteSecondPassWithoutLock(w)
 }
 
 func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey LocalQueueReference) {
@@ -631,6 +647,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
+	workloads = append(workloads, m.secondPassQueue.takeAllReady()...)
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -761,4 +778,37 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
+}
+
+// DeleteSecondPassWithoutLock deletes the pending workload from the second
+// pass queue.
+func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
+	m.secondPassQueue.deleteByKey(workload.Key(w))
+}
+
+// QueueSecondPassIfNeeded queues for the second pass of scheduling with 1s
+// delay.
+func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
+	if workload.NeedsSecondPass(w) {
+		m.clock.AfterFunc(time.Second, func() {
+			m.queueSecondPass(ctx, w)
+		})
+		return true
+	}
+	return false
+}
+
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	m.queueSecondPassWithoutLock(ctx, w)
+}
+
+func (m *Manager) queueSecondPassWithoutLock(ctx context.Context, w *kueue.Workload) {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+
+	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	m.secondPassQueue.offer(wInfo)
+	m.Broadcast()
 }

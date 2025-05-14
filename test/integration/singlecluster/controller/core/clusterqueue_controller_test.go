@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -941,7 +942,19 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 		ginkgo.By("Enabling queue visibility feature", func() {
 			gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
 		})
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManager(
+			ctx, cfg,
+			managerAndControllerSetup(
+				&config.Configuration{
+					QueueVisibility: &config.QueueVisibility{
+						UpdateIntervalSeconds: 2,
+						ClusterQueues: &config.ClusterQueueVisibility{
+							MaxCount: 3,
+						},
+					},
+				},
+			),
+		)
 	})
 
 	ginkgo.AfterAll(func() {

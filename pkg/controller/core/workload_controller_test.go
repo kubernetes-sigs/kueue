@@ -38,8 +38,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -395,6 +397,8 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(testStartTime)
 
 	cases := map[string]struct {
+		enableObjectRetentionPolicies bool
+
 		workload       *kueue.Workload
 		cq             *kueue.ClusterQueue
 		lq             *kueue.LocalQueue
@@ -1696,9 +1700,111 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"shouldn't delete the workload because, object retention not configured": {
+			enableObjectRetentionPolicies: true,
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(nil),
+			},
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			wantError: nil,
+		},
+		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
+			enableObjectRetentionPolicies: true,
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: testStartTime,
+					},
+				}).
+				DeletionTimestamp(testStartTime).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.LongTimeout),
+					},
+				),
+			},
+			wantWorkload: nil,
+			wantError:    nil,
+		},
+		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
+			enableObjectRetentionPolicies: true,
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-util.Timeout)),
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.LongTimeout),
+					},
+				),
+			},
+			wantResult: reconcile.Result{
+				RequeueAfter: util.LongTimeout - util.Timeout,
+			},
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-util.Timeout)),
+				}).
+				Obj(),
+			wantError: nil,
+		},
+		"should delete the workload because the retention period has elapsed, object retention configured": {
+			enableObjectRetentionPolicies: true,
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.LongTimeout),
+					},
+				),
+			},
+			wantWorkload: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key: types.NamespacedName{
+						Namespace: "ns",
+						Name:      "wl",
+					},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "Deleted",
+					Message:   "Deleted finished workload due to elapsed retention",
+				},
+			},
+			wantError: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+
 			objs := []client.Object{tc.workload}
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			cl := clientBuilder.Build()

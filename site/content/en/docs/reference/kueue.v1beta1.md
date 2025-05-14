@@ -1123,6 +1123,20 @@ subdomain in DNS (RFC 1123).</p>
 
 
 
+## `DelayedTopologyRequestState`     {#kueue-x-k8s-io-v1beta1-DelayedTopologyRequestState}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
+
+
+<p>DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -1886,6 +1900,18 @@ count: 4</li>
 <li>values: [hostname-2]
 count: 2</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>delayedTopologyRequest</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-DelayedTopologyRequestState"><code>DelayedTopologyRequestState</code></a>
+</td>
+<td>
+   <p>delayedTopologyRequest indicates the topology assignment is delayed.
+Topology assignment might be delayed in case there is ProvisioningRequest
+AdmissionCheck used.
+Kueue schedules the second pass of scheduling for each workload with at
+least one PodSet which has delayedTopologyRequest=true and without
+topologyAssignment.</p>
 </td>
 </tr>
 </tbody>

@@ -32,12 +32,15 @@ cleanup() {
 }
 
 # Start kueueviz frontend
-cd cmd/kueueviz/frontend
+cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
 npm install
 npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
+cd "${PROJECT_DIR}/test/e2e/kueueviz"
+npm install cypress --save-dev
+npm install
 npx cypress install
-npm run cypress:run --headless
+npm run cypress:run --headless --config-file cypress.config.js
 
 # The trap will handle cleanup 
