@@ -74,9 +74,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
-	if !newJob.IsSuspended() || WorkloadPriorityClassName(newJob.Object()) == "" {
-		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
-	}
+	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return allErrs
 }
 
@@ -138,6 +136,14 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	} else {
 		allErrs = append(allErrs, validateCreateForPrebuiltWorkload(newJob)...)
+	}
+	return allErrs
+}
+
+func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if !newJob.IsSuspended() || IsWorkloadPriorityClassNameEmpty(newJob.Object()) {
+		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	}
 	return allErrs
 }
@@ -205,4 +211,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fie
 	}
 
 	return allErrs
+}
+
+func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {
+	return WorkloadPriorityClassName(obj) == ""
 }
