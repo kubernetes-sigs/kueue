@@ -689,7 +689,7 @@ We propose to introduce a new Annotation at a Workload level:
 const (
 	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
 	// name of a failed node running at least one pod of this workload.
-	NodeToReplaceAnnotation = "kueue.x-k8s.io/node-to-replace"
+	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
 )
 ```
 
