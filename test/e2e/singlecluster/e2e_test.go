@@ -412,11 +412,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 				gomega.Expect(k8sClient.Delete(ctx, samplePriorityClass)).To(gomega.Succeed())
 			})
 
+			// Request more resources than are available to keep the job suspended
 			ginkgo.By("Create job with priority", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					WorkloadPriorityClass(samplePriority).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
+					RequestAndLimit("cpu", "2").
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob)
 			})
