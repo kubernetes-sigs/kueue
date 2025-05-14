@@ -19,6 +19,7 @@ package tas
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -39,9 +40,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -139,27 +138,33 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 		Complete(r)
 }
 
-// getWorkloadsOnNode lists all pods running on the given node and returns a set of Workload keys
+// getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
 func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
-	var podList corev1.PodList
-	if err := r.client.List(ctx, &podList, client.MatchingFields{indexer.PodNodeNameIndexKey: nodeName}); err != nil {
-		r.log.V(2).Error(err, "Failed to list pods on node", "nodeName", nodeName)
-		return nil, err
+	var allWorkloads kueue.WorkloadList
+	if err := r.client.List(ctx, &allWorkloads); err != nil {
+		return nil, fmt.Errorf("failed to list workloads: %w", err)
 	}
 	workloadsToProcess := sets.New[types.NamespacedName]()
-	for _, pod := range podList.Items {
-		if _, found := pod.GetLabels()[kueuealpha.TASLabel]; !found {
-			// skip non TAS pods
+	for _, wl := range allWorkloads.Items {
+		if !isAdmittedByTAS(&wl) {
 			continue
 		}
-		if utilpod.IsTerminated(&pod) {
-			continue
+		for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
+			topologyAssignment := podSetAssignment.TopologyAssignment
+			if topologyAssignment == nil || topologyAssignment.Levels == nil || len(topologyAssignment.Levels) == 0 {
+				continue
+			}
+			if topologyAssignment.Levels[len(topologyAssignment.Levels)-1] == corev1.LabelHostname {
+				for _, domain := range topologyAssignment.Domains {
+					if len(domain.Values) == 0 {
+						continue
+					}
+					if nodeName == domain.Values[len(domain.Values)-1] {
+						workloadsToProcess.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
+					}
+				}
+			}
 		}
-		wlName, found := pod.Annotations[kueuealpha.WorkloadAnnotation]
-		if !found {
-			continue
-		}
-		workloadsToProcess.Insert(types.NamespacedName{Name: wlName, Namespace: pod.Namespace})
 	}
 	return workloadsToProcess, nil
 }

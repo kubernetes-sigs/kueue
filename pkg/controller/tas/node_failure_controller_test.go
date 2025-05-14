@@ -50,7 +50,7 @@ func newNodeTest(name string, readyStatus corev1.ConditionStatus, clock clock.Cl
 
 func TestNodeFailureReconciler(t *testing.T) {
 	testStartTime := time.Now().Truncate(time.Second)
-	nodeNameUnhealthy := "test-node-unhealthy"
+	nodeName := "test-node-name"
 	wlName := "test-workload"
 	nsName := "default"
 	fakeClock := testingclock.NewFakeClock(testStartTime)
@@ -58,14 +58,31 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	baseWorkload := utiltesting.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
-		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(
+			utiltesting.MakeAdmission("cq").
+				Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+				AssignmentPodCount(1).
+				TopologyAssignment(&kueue.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								nodeName,
+							},
+						},
+					},
+				}).
+				Obj(),
+		).
 		Admitted(true).
 		Obj()
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
 		Label(kueuealpha.TASLabel, "true").
-		NodeName(nodeNameUnhealthy).
+		NodeName(nodeName).
 		Obj()
 
 	tests := map[string]struct {
@@ -77,26 +94,26 @@ func TestNodeFailureReconciler(t *testing.T) {
 	}{
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
+			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
 			wantFailedNode: "",
 			wantRequeue:    NodeFailureDelay,
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
-			wantFailedNode: nodeNameUnhealthy,
+			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
+			wantFailedNode: nodeName,
 		},
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeNameUnhealthy, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
 				utiltesting.MakeWorkload(wlName, nsName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
@@ -104,7 +121,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Obj(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
+			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
 			wantFailedNode: "",
 		},
 		"Node Deleted - marked as unavailable": {
@@ -112,8 +129,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
-			wantFailedNode: nodeNameUnhealthy,
+			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
+			wantFailedNode: nodeName,
 		},
 	}
 
