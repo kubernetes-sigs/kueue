@@ -77,14 +77,6 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 	return []string{string(*flavor.Spec.TopologyName)}
 }
 
-func indexPodNodeName(o client.Object) []string {
-	p, ok := o.(*corev1.Pod)
-	if !ok || p.Spec.NodeName == "" {
-		return nil
-	}
-	return []string{p.Spec.NodeName}
-}
-
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
