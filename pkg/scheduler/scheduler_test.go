@@ -4374,8 +4374,9 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: tc.assignmentUsage},
 			}
-			wl := &kueue.Workload{}
-			e := &entry{assignment: assignment, Info: *workload.NewInfo(wl)}
+			e := &entry{assignment: assignment, Info: *workload.NewInfo(
+				&kueue.Workload{},
+			)}
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()

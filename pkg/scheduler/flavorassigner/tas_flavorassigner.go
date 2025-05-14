@@ -38,7 +38,8 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				continue
 			}
 			if psAssignment.TopologyAssignment != nil {
-				// skip if already computed
+				// Skip if already computed, which may happen if this is the
+				// second pass of scheduler.
 				continue
 			}
 			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {

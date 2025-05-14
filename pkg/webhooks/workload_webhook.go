@@ -294,8 +294,8 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
 			return apivalidation.ValidateImmutableField(new, old, path)
 		}
-		// we allow to update (set) TopologyAssignment only if
-		// DelayedTopologyRequest was set.
+		// Allow to update (set) TopologyAssignment when DelayedTopologyRequest
+		// transitions from Pending to Ready.
 		for i := range new.PodSetAssignments {
 			oldPSA := old.PodSetAssignments[i]
 			newPSA := new.PodSetAssignments[i]

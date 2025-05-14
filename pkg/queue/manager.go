@@ -780,10 +780,14 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
 }
 
+// DeleteSecondPassWithoutLock deletes the pending workload from the second
+// pass queue.
 func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 	m.secondPassQueue.deleteByKey(workload.Key(w))
 }
 
+// QueueSecondPassIfNeeded queues for the second pass of scheduling with 1s
+// delay.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
 	if workload.NeedsSecondPass(w) {
 		m.clock.AfterFunc(time.Second, func() {

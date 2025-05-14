@@ -423,7 +423,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) {
-			// Respect preexisting assignments.
+			// Respect preexisting assignments. The PodSet assignments may be
+			// already set if this is the second pass of scheduler.
 			for resName, fName := range podSet.Flavors {
 				psAssignment.Flavors[resName] = &FlavorAssignment{
 					Name: fName,

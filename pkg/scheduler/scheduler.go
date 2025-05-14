@@ -593,7 +593,8 @@ func (e entryOrdering) Less(i, j int) bool {
 	a := e.entries[i]
 	b := e.entries[j]
 
-	// Already has quota reserved
+	// First process workloads which already have quota reserved. Such workload
+	// may be considered if this is their second pass.
 	aHasQuota := workload.HasQuotaReservation(a.Obj)
 	bHasQuota := workload.HasQuotaReservation(b.Obj)
 	if aHasQuota != bHasQuota {
