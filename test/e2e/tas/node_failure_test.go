@@ -132,23 +132,13 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				var found bool
 				wlName, found = chosenPod.Annotations[kueuealpha.WorkloadAnnotation]
 				gomega.Expect(found).Should(gomega.BeTrue())
-				nodeList := &corev1.NodeList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, nodeList)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				for _, n := range nodeList.Items {
-					if n.Name == chosenPod.Spec.NodeName {
-						node = &n
-						break
-					}
-				}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
 			})
 
-			// Store original node condition to restore it later
-			defer func() {
+			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name))
 				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue)
-			}()
+			})
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
 				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse)
@@ -186,8 +176,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 			originalNode := &corev1.Node{}
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeNameToDelete}, originalNode)).To(gomega.Succeed())
 
-			// Defer node re-creation
-			defer func() {
+			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Re-creating node %s", nodeNameToDelete))
 				originalNode.ResourceVersion = ""
 				originalNode.UID = ""
@@ -195,7 +184,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				setNodeConditionInObject(originalNode, corev1.NodeReady, corev1.ConditionTrue, time.Now())
 				util.MustCreate(ctx, k8sClient, originalNode)
 				setNodeCondition(ctx, k8sClient, originalNode, corev1.NodeReady, corev1.ConditionTrue) // Ensure status is updated
-			}()
+			})
 
 			ginkgo.By(fmt.Sprintf("Simulate deletion of node %s hosting pod %s", nodeNameToDelete, chosenPod.Name), func() {
 				gomega.Expect(k8sClient.Delete(ctx, originalNode)).To(gomega.Succeed())
