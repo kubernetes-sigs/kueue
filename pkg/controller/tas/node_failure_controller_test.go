@@ -17,7 +17,6 @@ limitations under the License.
 package tas
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -76,7 +75,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantFailedNode string
 		wantRequeue    time.Duration
 	}{
-		"Node Found and Unhealthy (NotReady) - delay not passed": {
+		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse, fakeClock, time.Duration(0)),
 				baseWorkload.DeepCopy(),
@@ -86,7 +85,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantFailedNode: "",
 			wantRequeue:    NodeFailureDelay,
 		},
-		"Node Found and Unhealthy (NotReady) - delay passed": {
+		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeNameUnhealthy, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
 				baseWorkload.DeepCopy(),
@@ -95,7 +94,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
 			wantFailedNode: nodeNameUnhealthy,
 		},
-		"Node Found and Healthy": {
+		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeNameUnhealthy, corev1.ConditionTrue, fakeClock, time.Duration(0)),
 				utiltesting.MakeWorkload(wlName, nsName).
@@ -108,7 +107,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeNameUnhealthy}},
 			wantFailedNode: "",
 		},
-		"Node Deleted": {
+		"Node Deleted - marked as unavailable": {
 			initObjs: []client.Object{
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
@@ -136,7 +135,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				WithObjects(tc.initObjs...).
 				WithStatusSubresource(tc.initObjs...)
 
-			err := indexer.SetupIndexes(context.Background(), utiltesting.AsIndexer(clientBuilder))
+			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
