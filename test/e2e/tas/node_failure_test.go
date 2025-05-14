@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			node := &corev1.Node{}
-			chosenPod := pods.Items[3]
+			chosenPod := pods.Items[0]
 			var wlName string
 			ginkgo.By("Get node running the chosen pod", func() {
 				var found bool
