@@ -151,17 +151,15 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 		}
 		for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
 			topologyAssignment := podSetAssignment.TopologyAssignment
-			if topologyAssignment == nil || topologyAssignment.Levels == nil || len(topologyAssignment.Levels) == 0 {
+			if topologyAssignment == nil {
 				continue
 			}
-			if topologyAssignment.Levels[len(topologyAssignment.Levels)-1] == corev1.LabelHostname {
-				for _, domain := range topologyAssignment.Domains {
-					if len(domain.Values) == 0 {
-						continue
-					}
-					if nodeName == domain.Values[len(domain.Values)-1] {
-						workloadsToProcess.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
-					}
+			if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
+				continue
+			}
+			for _, domain := range topologyAssignment.Domains {
+				if nodeName == domain.Values[len(domain.Values)-1] {
+					workloadsToProcess.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 				}
 			}
 		}
