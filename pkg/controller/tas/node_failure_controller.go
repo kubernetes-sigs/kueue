@@ -53,7 +53,7 @@ type nodeFailureReconciler struct {
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.log.V(3).Info("Getting node", "name", req.Name, "namespacename", req.NamespacedName)
+	r.log.V(3).Info("Getting node", "nodeName", req.NamespacedName)
 	var node corev1.Node
 	err := r.client.Get(ctx, req.NamespacedName, &node)
 	nodeExists := !apierrors.IsNotFound(err)
@@ -72,14 +72,15 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if NodeFailureDelay > timeSinceNotReady {
 				return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 			}
+			r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
 		} else {
-			r.log.V(2).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", node.Name)
+			r.log.V(3).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", req.NamespacedName)
 		}
 	} else {
 		r.log.V(3).Info("Node not found, assuming deleted")
 	}
 
-	patchErr := r.patchWorkloadsForFailedNode(ctx, req.Name)
+	patchErr := r.patchWorkloadsForUnavailableNode(ctx, req.Name)
 	return ctrl.Result{}, patchErr
 }
 
@@ -163,9 +164,9 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 	return workloadsToProcess, nil
 }
 
-// patchWorkloadsForFailedNode finds workloads with pods on the specified node
-// and patches their status to indicate the node has failed.
-func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context, nodeName string) error {
+// patchWorkloadsForUnavailableNode finds workloads with pods on the specified node
+// and patches their status to indicate the node is unavailable.
+func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Context, nodeName string) error {
 	workloadsToProcess, err := r.getWorkloadsOnNode(ctx, nodeName)
 	if err != nil {
 		return err
@@ -194,14 +195,14 @@ func (r *nodeFailureReconciler) patchWorkloadsForFailedNode(ctx context.Context,
 			}
 			currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 			wl.SetAnnotations(currentAnnotations)
-			r.log.V(4).Info("Adding failed node to workload annotation", "workload", wlKey, "nodeName", nodeName)
+			r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 			return true, nil
 		})
 		if err != nil {
 			r.log.V(2).Error(err, "Failed to patch workload with annotation", "workload", wlKey)
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 		} else {
-			r.log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "failedNodesAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
+			r.log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "unavailableNodesAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
 		}
 	}
 	if len(workloadProcessingErrors) > 0 {

@@ -25,6 +25,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -102,8 +103,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("setting index resource flavor topology name: %w", err)
 	}
 
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameIndexKey, indexPodNodeName); err != nil {
-		return fmt.Errorf("setting index pod node name: %w", err)
+	if features.Enabled(features.TASFailedNodeReplacement) {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameIndexKey, indexPodNodeName); err != nil {
+			return fmt.Errorf("setting index pod node name: %w", err)
+		}
 	}
 
 	return nil

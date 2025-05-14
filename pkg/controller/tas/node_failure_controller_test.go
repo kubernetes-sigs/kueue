@@ -18,7 +18,6 @@ package tas
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -36,35 +35,11 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
-
-func setupTest(clock clock.Clock, initObjs ...client.Object) (client.Client, *nodeFailureReconciler) {
-	s := scheme.Scheme
-	if err := kueue.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-
-	clientBuilder := fake.NewClientBuilder().
-		WithScheme(s).
-		WithObjects(initObjs...).
-		WithStatusSubresource(initObjs...)
-
-	err := indexer.SetupIndexes(context.Background(), utiltesting.AsIndexer(clientBuilder))
-	if err != nil {
-		panic(fmt.Sprintf("Failed to setup indexes: %v", err))
-	}
-	cl := clientBuilder.Build()
-	r := newNodeFailureReconciler(cl)
-	r.clock = clock
-
-	return cl, r
-}
 
 // newNodeTest is a helper to create a Node object for testing
 func newNodeTest(name string, readyStatus corev1.ConditionStatus, clock clock.Clock, transitionTimeOffset time.Duration) *corev1.Node {
@@ -145,9 +120,30 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacement, true)
 			ctx := t.Context()
 			fakeClock.SetTime(testStartTime)
-			cl, r := setupTest(fakeClock, tc.initObjs...)
+			s := scheme.Scheme
+			if err := kueue.AddToScheme(s); err != nil {
+				t.Fatalf("Failed to add kueue scheme: %v", err)
+			}
+			if err := corev1.AddToScheme(s); err != nil {
+				t.Fatalf("Failed to add kueue scheme: %v", err)
+			}
+
+			clientBuilder := fake.NewClientBuilder().
+				WithScheme(s).
+				WithObjects(tc.initObjs...).
+				WithStatusSubresource(tc.initObjs...)
+
+			err := indexer.SetupIndexes(context.Background(), utiltesting.AsIndexer(clientBuilder))
+			if err != nil {
+				t.Fatalf("Failed to setup indexes: %v", err)
+			}
+			cl := clientBuilder.Build()
+			r := newNodeFailureReconciler(cl)
+			r.clock = fakeClock
+
 			result, err := r.Reconcile(ctx, tc.req)
 			if err != nil {
 				t.Errorf("Reconcile() error = %v", err)
