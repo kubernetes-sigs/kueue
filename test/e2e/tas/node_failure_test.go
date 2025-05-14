@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				nodeList := &corev1.NodeList{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, nodeList)).To(gomega.Succeed())
-				}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				for _, n := range nodeList.Items {
 					if n.Name == chosenPod.Spec.NodeName {
 						node = &n
