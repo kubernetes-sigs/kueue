@@ -632,7 +632,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	log := ctrl.LoggerFrom(ctx)
 	for {
 		workloads := m.heads()
-		log.V(2).Info("Obtained ClusterQueue heads", "count", len(workloads))
+		log.V(3).Info("Obtained ClusterQueue heads", "count", len(workloads))
 		if len(workloads) != 0 {
 			return workloads
 		}
