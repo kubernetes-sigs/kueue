@@ -614,13 +614,11 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
-	} else {
-		r.queues.QueueSecondPassIfNeeded(ctx, e.Object)
 	}
 	if !r.cache.AddOrUpdateWorkload(wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
-
+	r.queues.QueueSecondPassIfNeeded(ctx, e.Object)
 	return true
 }
 
