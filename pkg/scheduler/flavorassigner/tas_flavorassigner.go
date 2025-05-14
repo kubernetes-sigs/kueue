@@ -37,6 +37,15 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
+			if psAssignment.TopologyAssignment != nil {
+				// Skip if already computed, which may happen if this is the
+				// second pass of scheduler.
+				continue
+			}
+			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {
+				psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
+				continue
+			}
 			isTASImplied := isTASImplied(&podSet, cq)
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
@@ -68,10 +77,21 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
+	var podSetUpdates []*kueue.PodSetUpdate
+	for _, ac := range wl.Obj.Status.AdmissionChecks {
+		if ac.State == kueue.CheckStateReady {
+			for _, psUpdate := range ac.PodSetUpdates {
+				if psUpdate.Name == podSet.Name {
+					podSetUpdates = append(podSetUpdates, &psUpdate)
+				}
+			}
+		}
+	}
 	return &cache.TASPodSetRequests{
 		Count:             podCount,
 		SinglePodRequests: singlePodRequests,
 		PodSet:            podSet,
+		PodSetUpdates:     podSetUpdates,
 		Flavor:            *tasFlvr,
 		Implied:           isTASImplied,
 	}, nil

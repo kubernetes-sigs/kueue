@@ -336,7 +336,9 @@ type entry struct {
 }
 
 func (e *entry) assignmentUsage() workload.Usage {
-	return e.assignment.Usage
+	return netUsage(e, func() resources.FlavorResourceQuantities {
+		return e.assignment.Usage.Quota
+	})
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -349,8 +351,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if s.cache.IsAssumedOrAdmittedWorkload(w) {
-			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
+		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAssumedOrAdmittedWorkload(w) {
+			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
 			continue
 		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
@@ -389,10 +391,21 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
-	return workload.Usage{
-		Quota: quotaResourcesToReserve(e, cq),
-		TAS:   e.assignment.Usage.TAS,
+	return netUsage(e, func() resources.FlavorResourceQuantities {
+		return quotaResourcesToReserve(e, cq)
+	})
+}
+
+// netUsage calculates the net usage for quota and TAS to reserve
+func netUsage(e *entry, netQuota func() resources.FlavorResourceQuantities) workload.Usage {
+	result := workload.Usage{}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		result.TAS = e.assignment.ComputeTASNetUsage(e.Obj.Status.Admission)
 	}
+	if !workload.HasQuotaReservation(e.Obj) {
+		result.Quota = netQuota()
+	}
+	return result
 }
 
 func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
@@ -518,10 +531,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
-			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
-			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-			if features.Enabled(features.LocalQueueMetrics) {
-				metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+			if !workload.HasQuotaReservation(e.Obj) {
+				// Skip sending the event and bumping metrics related to quota
+				// reservation if quota was already reserved
+				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+				metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
+				if features.Enabled(features.LocalQueueMetrics) {
+					metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+				}
 			}
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
@@ -575,6 +592,14 @@ func (e entryOrdering) Swap(i, j int) {
 func (e entryOrdering) Less(i, j int) bool {
 	a := e.entries[i]
 	b := e.entries[j]
+
+	// First process workloads which already have quota reserved. Such workload
+	// may be considered if this is their second pass.
+	aHasQuota := workload.HasQuotaReservation(a.Obj)
+	bHasQuota := workload.HasQuotaReservation(b.Obj)
+	if aHasQuota != bHasQuota {
+		return aHasQuota
+	}
 
 	// 1. Request under nominal quota.
 	aBorrows := a.assignment.Borrows()
@@ -647,6 +672,13 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
+
+	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj) {
+		log.V(2).Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
+		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
+		return
+	}
+
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 

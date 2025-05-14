@@ -25,11 +25,12 @@ import (
 // PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name               *kueuev1beta1.PodSetReference                            `json:"name,omitempty"`
-	Flavors            map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
-	ResourceUsage      *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
-	Count              *int32                                                   `json:"count,omitempty"`
-	TopologyAssignment *TopologyAssignmentApplyConfiguration                    `json:"topologyAssignment,omitempty"`
+	Name                   *kueuev1beta1.PodSetReference                            `json:"name,omitempty"`
+	Flavors                map[v1.ResourceName]kueuev1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
+	ResourceUsage          *v1.ResourceList                                         `json:"resourceUsage,omitempty"`
+	Count                  *int32                                                   `json:"count,omitempty"`
+	TopologyAssignment     *TopologyAssignmentApplyConfiguration                    `json:"topologyAssignment,omitempty"`
+	DelayedTopologyRequest *kueuev1beta1.DelayedTopologyRequestState                `json:"delayedTopologyRequest,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -81,5 +82,13 @@ func (b *PodSetAssignmentApplyConfiguration) WithCount(value int32) *PodSetAssig
 // If called multiple times, the TopologyAssignment field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithTopologyAssignment(value *TopologyAssignmentApplyConfiguration) *PodSetAssignmentApplyConfiguration {
 	b.TopologyAssignment = value
+	return b
+}
+
+// WithDelayedTopologyRequest sets the DelayedTopologyRequest field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DelayedTopologyRequest field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithDelayedTopologyRequest(value kueuev1beta1.DelayedTopologyRequestState) *PodSetAssignmentApplyConfiguration {
+	b.DelayedTopologyRequest = &value
 	return b
 }

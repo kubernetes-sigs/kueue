@@ -8413,6 +8413,15 @@ spec:
                           format: int32
                           minimum: 0
                           type: integer
+                        delayedTopologyRequest:
+                          description: |-
+                            delayedTopologyRequest indicates the topology assignment is delayed.
+                            Topology assignment might be delayed in case there is ProvisioningRequest
+                            AdmissionCheck used.
+                            Kueue schedules the second pass of scheduling for each workload with at
+                            least one PodSet which has delayedTopologyRequest=true and without
+                            topologyAssignment.
+                          type: string
                         flavors:
                           additionalProperties:
                             description: ResourceFlavorReference is the name of the
