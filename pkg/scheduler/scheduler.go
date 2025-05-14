@@ -209,6 +209,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 	for iterator.hasNext() {
+		if ctx.Err() != nil {
+			log.V(2).Info("Scheduler context cancelled, stopping scheduling")
+			return wait.KeepGoing
+		}
 		e := iterator.pop()
 
 		cq := snapshot.ClusterQueue(e.ClusterQueue)

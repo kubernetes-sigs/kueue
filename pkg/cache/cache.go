@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -134,6 +135,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		tasCache:            NewTASCache(client),
 	}
 	c.podsReadyCond.L = &c.RWMutex
+	go c.waitForTASCache()
 	return c
 }
 
@@ -559,6 +561,19 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	return clusterQueue.addWorkload(w) == nil
 }
 
+func (c *Cache) GetWorkloads() []*workload.Info {
+	c.RLock()
+	defer c.RUnlock()
+
+	workloads := make([]*workload.Info, 0)
+	for _, cq := range c.hm.ClusterQueues() {
+		for _, wl := range cq.Workloads {
+			workloads = append(workloads, wl)
+		}
+	}
+	return workloads
+}
+
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
@@ -957,6 +972,59 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 		}
 	}
 	return cqs
+}
+
+func (c *Cache) waitForTASCache() error {
+	if !features.Enabled(features.TopologyAwareScheduling) || c.tasCache.SyncedFlavors() {
+		return nil
+	}
+	ctx := context.Background()
+	log := ctrl.LoggerFrom(ctx)
+	// Wait for the cache to be synced before listing resources. Else it will fail.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	defer func() {
+		// We avoid panicking if the cache could not be synced, we will log the error but keep going.
+		c.TASCache().SetSyncedFlavors(true)
+	}()
+
+	var flvs kueue.ResourceFlavorList
+	// Wait for the flavors to be populated in the cache. We suppose that we are down when we are
+	// in sync with the catched list fetched above. We also suppose that the flavors are not
+	// created/recreated in the meantime.
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for flavors to be populated in the cache: %w", ctx.Err())
+		default:
+		}
+		if c.tasCache.SyncedFlavors() {
+			return nil
+		}
+		if err := c.client.List(ctx, &flvs); err != nil {
+			log.Error(err, "unable to list resource flavors")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		allFound := true
+		for _, flv := range flvs.Items {
+			if flv.Spec.TopologyName != nil {
+				for {
+					if c.TASCache().Get(kueue.ResourceFlavorReference(flv.Name)) != nil {
+						break
+					}
+					allFound = false
+					time.Sleep(1 * time.Second)
+					break
+				}
+			}
+		}
+		if allFound {
+			c.TASCache().SetSyncedFlavors(true)
+			return nil
+		}
+	}
 }
 
 // Key is the key used to index the queue.
