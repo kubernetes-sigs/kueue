@@ -33,7 +33,6 @@ const (
 	ReadyNode                     = "metadata.ready"
 	SchedulableNode               = "spec.schedulable"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
-	PodNodeNameIndexKey           = "spec.nodeName"
 )
 
 func indexPodWorkload(o client.Object) []string {
