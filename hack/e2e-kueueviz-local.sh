@@ -53,9 +53,11 @@ go build -o bin/kueueviz
 cd -
 
 # Start kueueviz frontend
-cd cmd/kueueviz/frontend
+cd "${ROOT_DIR}/cmd/kueueviz/frontend"
 npm start & FRONTEND_PID=$!
+cd -
 
+cd "${ROOT_DIR}/test/e2e/kueueviz/"
 # Run Cypress tests for kueueviz frontend
 npm run cypress:run --headless
 

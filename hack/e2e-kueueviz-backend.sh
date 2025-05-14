@@ -84,7 +84,7 @@ fi
 # Start KueueViz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
 docker run -i --entrypoint /workspace/hack/e2e-kueueviz-frontend.sh \
-           -w /workspace --network host \
+           -e PROJECT_DIR="/workspace" -w /workspace --network host \
            -v "${WORKSPACE_VOLUME}":/workspace:rw \
            -v /var/run/docker.sock:/var/run/docker.sock "${CYPRESS_IMAGE_NAME}"
 
