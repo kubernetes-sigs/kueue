@@ -606,9 +606,6 @@ func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
 	if _, assumed := c.assumedWorkloads[k]; assumed {
 		return true
 	}
-	if workload.HasTopologyAssignmentsPending(w.Obj) {
-		return false
-	}
 	if cq := c.hm.ClusterQueue(w.ClusterQueue); cq != nil {
 		if _, admitted := cq.Workloads[k]; admitted {
 			return true
