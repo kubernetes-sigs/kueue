@@ -41,6 +41,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -62,7 +63,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if nodeExists {
-		readyCondition := r.getNodeCondition(&node, corev1.NodeReady)
+		readyCondition := utilnode.GetNodeCondition(&node, corev1.NodeReady)
 		if readyCondition != nil {
 			if readyCondition.Status == corev1.ConditionTrue {
 				return ctrl.Result{}, nil
@@ -210,15 +211,6 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
-	}
-	return nil
-}
-
-func (r *nodeFailureReconciler) getNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType) *corev1.NodeCondition {
-	for _, cond := range node.Status.Conditions {
-		if cond.Type == conditionType {
-			return &cond
-		}
 	}
 	return nil
 }

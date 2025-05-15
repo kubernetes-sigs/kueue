@@ -32,6 +32,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
+	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -137,11 +138,11 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 
 			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name))
-				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue)
+				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue, time.Now())
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse)
+				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
 			})
 			ginkgo.By(fmt.Sprintf("Verify node is added to failure list by checking workload %s status", wlName), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -181,9 +182,8 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				originalNode.ResourceVersion = ""
 				originalNode.UID = ""
 				originalNode.ManagedFields = nil
-				setNodeConditionInObject(originalNode, corev1.NodeReady, corev1.ConditionTrue, time.Now())
 				util.MustCreate(ctx, k8sClient, originalNode)
-				setNodeCondition(ctx, k8sClient, originalNode, corev1.NodeReady, corev1.ConditionTrue) // Ensure status is updated
+				setNodeCondition(ctx, k8sClient, originalNode, corev1.NodeReady, corev1.ConditionTrue, time.Now())
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate deletion of node %s hosting pod %s", nodeNameToDelete, chosenPod.Name), func() {
@@ -201,22 +201,13 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 	})
 })
 
-func setNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus) {
-	gomega.Eventually(func(g gomega.Gomega) {
+func setNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, time time.Time) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var updatedNode corev1.Node
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
-		setNodeConditionInObject(&updatedNode, conditionType, conditionStatus, time.Now().Add(-tas.NodeFailureDelay))
+		condition := utilnode.GetNodeCondition(&updatedNode, conditionType)
+		condition.LastTransitionTime = metav1.NewTime(time)
+		condition.Status = conditionStatus
 		g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", conditionType, conditionStatus, node.Name)
-}
-
-// setNodeConditionInObject is a helper to modify a node object's condition in memory.
-func setNodeConditionInObject(node *corev1.Node, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, transitionTime time.Time) {
-	for i := range node.Status.Conditions {
-		if node.Status.Conditions[i].Type == conditionType {
-			node.Status.Conditions[i].Status = conditionStatus
-			node.Status.Conditions[i].LastTransitionTime = metav1.NewTime(transitionTime)
-			return
-		}
-	}
 }
