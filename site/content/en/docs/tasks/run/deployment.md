@@ -34,16 +34,12 @@ When running Deployment on Kueue, take into consideration the following aspects:
 
 ### a. Queue selection
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `spec.template.metadata.labels` section of the Deployment configuration. 
-Since Kueue's scheduling and resource management will be applied to the individual Pods of the Deployment,
-the queue name should be specified at the Pod level.
+The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the Deployment configuration.
 
 ```yaml
-spec:
-   template:
-      metadata:
-         labels:
-            kueue.x-k8s.io/queue-name: user-queue
+metadata:
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
 ```
 
 ### b. Configure the resource needs
