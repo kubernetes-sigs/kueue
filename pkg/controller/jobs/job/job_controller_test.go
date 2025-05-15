@@ -1068,7 +1068,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is reactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0": {
+		"when workload is active after deactivation; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
 			enableObjectRetentionPolicies: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
@@ -1159,7 +1159,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0": {
+		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
 			enableObjectRetentionPolicies: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
@@ -1250,7 +1250,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0": {
+		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
 			enableObjectRetentionPolicies: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{

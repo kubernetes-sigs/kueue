@@ -2827,11 +2827,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				ginkgo.By("Checking that the Job is deleted", func() {
 					createdJob := &batchv1.Job{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						err := k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)
-						if apierrors.IsNotFound(err) {
-							return
-						}
-						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
 						g.Expect(createdJob.GetDeletionTimestamp()).To(gomega.BeNil())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
