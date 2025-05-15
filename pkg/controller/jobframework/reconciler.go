@@ -637,9 +637,14 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 
 		owner := metav1.GetControllerOf(currentObj)
 		if owner == nil {
+			log.V(3).Info("stop walking up as the owner is not found", "owner", klog.KObj(currentObj))
 			return topLevelJob, nil
 		}
 
+		if !manager.isKnownOwner(owner) {
+			log.V(3).Info("stop walking up as the owner is not known", "owner", klog.KObj(currentObj))
+			return topLevelJob, nil
+		}
 		parentObj := GetEmptyOwnerObject(owner)
 		managed := parentObj != nil
 		if parentObj == nil {

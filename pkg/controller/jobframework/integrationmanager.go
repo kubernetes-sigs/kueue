@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -187,6 +188,23 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
+func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool {
+	for _, cbs := range m.integrations {
+		if cbs.matchingOwnerReference(ownerRef) {
+			return true
+		}
+	}
+	for _, jt := range m.externalIntegrations {
+		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
+			return true
+		}
+	}
+	// ReplicaSet is an interim owner from Pod to Deployment. We call it known
+	// so that the users don't need to list	it explicitly in their configs.
+	// Note that Kueue provides RBAC permissions allowing for traversal over it.
+	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == "apps/v1"
+}
+
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
 	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
@@ -277,6 +295,23 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 	return func() {
 		manager.mu.Lock()
 		manager.enabledIntegrations = old
+		manager.mu.Unlock()
+	}
+}
+
+// EnableExternalIntegrationsForTest - should be used only in tests
+// Mark the frameworks identified by names and return a revert function.
+func EnableExternalIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := maps.Clone(manager.externalIntegrations)
+	for _, name := range names {
+		if err := manager.registerExternal(name); err != nil {
+			tb.Fatalf("failed to register external framework: %q", name)
+		}
+	}
+	return func() {
+		manager.mu.Lock()
+		manager.externalIntegrations = old
 		manager.mu.Unlock()
 	}
 }
