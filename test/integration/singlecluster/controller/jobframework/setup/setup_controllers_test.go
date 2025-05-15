@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -48,7 +49,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		fwk = &framework.Framework{}
 		cfg = fwk.Init()
 		ctx, k8sClient = fwk.SetupClient(cfg)
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]configapi.IntegrationReference{jobset.FrameworkName})))
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 

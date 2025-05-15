@@ -385,7 +385,7 @@ objectRetentionPolicies:
 	}
 
 	defaultIntegrations := &configapi.Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []configapi.IntegrationReference{job.FrameworkName},
 	}
 
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
@@ -471,7 +471,7 @@ objectRetentionPolicies:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
+					Frameworks: []configapi.IntegrationReference{job.FrameworkName},
 				},
 				QueueVisibility: defaultQueueVisibility,
 				MultiKueue:      defaultMultiKueue,
@@ -739,7 +739,7 @@ objectRetentionPolicies:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks:         []string{job.FrameworkName},
+					Frameworks:         []configapi.IntegrationReference{job.FrameworkName},
 					ExternalFrameworks: []string{"Foo.v1.example.com"},
 				},
 				QueueVisibility:              defaultQueueVisibility,
@@ -820,8 +820,8 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				QueueVisibility:            defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{
-						"pod",
+					Frameworks: []configapi.IntegrationReference{
+						configapi.Pod,
 					},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
