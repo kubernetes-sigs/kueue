@@ -604,12 +604,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func shouldHandleDeletionOfDeactivatedWorkload(afterDeactivatedByKueue *time.Duration, wl *kueue.Workload) bool {
-	return afterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
+	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
 }
 
 func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
-	if !shouldHandleDeletionOfDeactivatedWorkload(r.workloadRetentionPolicy.AfterDeactivatedByKueue, wl) {
+	if !r.shouldHandleDeletionOfDeactivatedWorkload(wl) {
 		return 0, nil
 	}
 

@@ -5447,7 +5447,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
-		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0": {
+		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
 			enableObjectRetentionPolicies: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
