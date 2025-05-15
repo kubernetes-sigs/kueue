@@ -19,7 +19,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 {{% alert title="Note" color="primary" %}}
 In order to use JobSet, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
+You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
 {{% /alert %}}
 
 ## JobSet definition

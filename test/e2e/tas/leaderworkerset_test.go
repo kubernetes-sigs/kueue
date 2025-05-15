@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				util.MustCreate(ctx, k8sClient, lws)
 			})
 
-			ginkgo.By("Waiting for replicas is ready", func() {
+			ginkgo.By("Waiting for replicas to be ready", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())

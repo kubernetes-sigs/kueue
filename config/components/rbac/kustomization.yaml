@@ -53,3 +53,5 @@ resources:
 - xgboostjob_viewer_role.yaml
 - paddlejob_editor_role.yaml
 - paddlejob_viewer_role.yaml
+- jaxjob_editor_role.yaml
+- jaxjob_viewer_role.yaml
