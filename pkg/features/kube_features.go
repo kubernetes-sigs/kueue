@@ -169,6 +169,12 @@ const (
 	//
 	// Enable object retentions
 	ObjectRetentionPolicies featuregate.Feature = "ObjectRetentionPolicies"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable replacement of failed node in TAS.
+	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
 )
 
 func init() {
@@ -260,6 +266,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ObjectRetentionPolicies: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
