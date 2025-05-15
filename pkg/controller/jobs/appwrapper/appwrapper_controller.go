@@ -147,12 +147,9 @@ func (j *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 			Count:    awutils.Replicas(awPodSets[psIndex]),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSets[psIndex].TopologyRequest = jobframework.PodSetTopologyRequest(
-				&(podSpecTemplates[psIndex].ObjectMeta),
-				podIndexLabel,
-				subGroupIndexLabel,
-				subGroupCount,
-			)
+			podSets[psIndex].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&(podSpecTemplates[psIndex].ObjectMeta)).
+				PodIndexLabel(podIndexLabel).SubGroup(subGroupIndexLabel, subGroupCount).Build()
 		}
 	}
 	return podSets, nil

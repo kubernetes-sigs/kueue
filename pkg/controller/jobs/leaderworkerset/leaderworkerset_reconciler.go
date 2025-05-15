@@ -203,10 +203,8 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 			},
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta,
-				nil, nil, nil,
-			)
+			podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
 		}
 		podSets = append(podSets, podSet)
 	}
@@ -230,11 +228,9 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
-			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
-			ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
-			nil, nil,
-		)
+		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
+			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).Build()
 	}
 
 	podSets = append(podSets, podSet)

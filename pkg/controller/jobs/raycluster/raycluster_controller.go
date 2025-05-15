@@ -113,10 +113,8 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSets[0].TopologyRequest = jobframework.PodSetTopologyRequest(
-			&j.Spec.HeadGroupSpec.Template.ObjectMeta,
-			nil, nil, nil,
-		)
+		podSets[0].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			&j.Spec.HeadGroupSpec.Template.ObjectMeta).Build()
 	}
 
 	// workers
@@ -135,10 +133,8 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 			Count:    count,
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSets[index+1].TopologyRequest = jobframework.PodSetTopologyRequest(
-				&wgs.Template.ObjectMeta,
-				nil, nil, nil,
-			)
+			podSets[index+1].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&wgs.Template.ObjectMeta).Build()
 		}
 	}
 	return podSets, nil
