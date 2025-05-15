@@ -88,6 +88,17 @@ type IntegrationCallbacks struct {
 	DependencyList []string
 }
 
+func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
+	if i.NewJob != nil {
+		return i.NewJob().GVK()
+	}
+	return i.GVK
+}
+
+func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerReference) bool {
+	return ownerReferenceMatchingGVK(ownerRef, i.getGVK())
+}
+
 type integrationManager struct {
 	names                []string
 	integrations         map[string]IntegrationCallbacks
@@ -340,6 +351,11 @@ func matchingGVK(integration IntegrationCallbacks, gvk schema.GroupVersionKind) 
 	} else {
 		return gvk == integration.GVK
 	}
+}
+
+func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.
