@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -85,6 +86,17 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
+}
+
+func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
+	if i.NewJob != nil {
+		return i.NewJob().GVK()
+	}
+	return i.GVK
+}
+
+func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerReference) bool {
+	return ownerReferenceMatchingGVK(ownerRef, i.getGVK())
 }
 
 type integrationManager struct {
@@ -187,6 +199,23 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
+func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool {
+	for _, cbs := range m.integrations {
+		if cbs.matchingOwnerReference(ownerRef) {
+			return true
+		}
+	}
+	for _, jt := range m.externalIntegrations {
+		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
+			return true
+		}
+	}
+	// ReplicaSet is an interim owner from Pod to Deployment. We call it known
+	// so that the users don't need to list	it explicitly in their configs.
+	// Note that Kueue provides RBAC permissions allowing for traversal over it.
+	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == "apps/v1"
+}
+
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
 	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
@@ -281,6 +310,23 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 	}
 }
 
+// EnableExternalIntegrationsForTest - should be used only in tests
+// Mark the frameworks identified by names and return a revert function.
+func EnableExternalIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := maps.Clone(manager.externalIntegrations)
+	for _, name := range names {
+		if err := manager.registerExternal(name); err != nil {
+			tb.Fatalf("failed to register external framework: %q", name)
+		}
+	}
+	return func() {
+		manager.mu.Lock()
+		manager.externalIntegrations = old
+		manager.mu.Unlock()
+	}
+}
+
 // GetIntegration looks-up the framework identified by name in the currently registered
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
@@ -305,6 +351,11 @@ func matchingGVK(integration IntegrationCallbacks, gvk schema.GroupVersionKind) 
 	} else {
 		return gvk == integration.GVK
 	}
+}
+
+func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.

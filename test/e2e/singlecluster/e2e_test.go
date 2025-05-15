@@ -17,11 +17,14 @@ limitations under the License.
 package e2e
 
 import (
+	"time"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -117,6 +120,85 @@ var _ = ginkgo.Describe("Kueue", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		})
+
+		ginkgo.It("Should allow to schedule Jobs via CronJob", func() {
+			cronJob := &batchv1.CronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: ns.Name,
+				},
+				Spec: batchv1.CronJobSpec{
+					Schedule:          "* * * * *",
+					ConcurrencyPolicy: batchv1.ForbidConcurrent,
+					JobTemplate: batchv1.JobTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: localQueue.Name,
+							},
+						},
+						Spec: batchv1.JobSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name:    "c",
+											Image:   util.E2eTestAgnHostImage,
+											Command: util.BehaviorExitFast,
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("1"),
+												},
+												Limits: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("1"),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, cronJob)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(util.DeleteAllCronJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Patch the last start time to be in the past so that it starts immediately", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cronJob), cronJob)).To(gomega.Succeed())
+					nextSchedule := cronJob.CreationTimestamp.Add(-2 * time.Minute)
+					cronJob.Status.LastScheduleTime = ptr.To(metav1.Time{Time: nextSchedule})
+					g.Expect(k8sClient.Status().Update(ctx, cronJob)).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createJobs := &batchv1.JobList{}
+			ginkgo.By("Check that the Job is create and retrieve it", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, createJobs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(createJobs.Items).To(gomega.HaveLen(1))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdJob := createJobs.Items[0]
+			ginkgo.By("verify the job has the nodeSelector assigned", func() {
+				jobKey := client.ObjectKeyFromObject(&createdJob)
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+			ginkgo.By("verify the workload was created and admitted for the Job", func() {
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(createdJob.Name, createdJob.UID), Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {

@@ -24,12 +24,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -38,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -69,6 +72,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	cases := map[string]struct {
 		manageJobsWithoutQueueName bool
 		integrations               []string
+		externalFrameworks         []string
 		ancestors                  []client.Object
 		job                        client.Object
 		wantManaged                client.Object
@@ -315,10 +319,80 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 				Obj(),
 			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Obj(),
 		},
+		"Job -> CronJob (external framework, not enabled) -> AppWrapper (queue-name) => AppWrapper": {
+			integrations: []string{"workload.codeflare.dev/appwrapper"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				&batchv1.CronJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cronjob",
+						Namespace: jobNamespace,
+						OwnerReferences: []metav1.OwnerReference{{
+							Name:       "aw",
+							APIVersion: "workload.codeflare.dev/appwrapper",
+							Kind:       "AppWrapper",
+							UID:        "aw",
+							Controller: ptr.To(true),
+						}},
+					},
+				},
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("cronjob", batchv1.SchemeGroupVersion.WithKind("CronJob")).
+				Obj(),
+		},
+		"Job -> CronJob (external framework, enabled) -> AppWrapper (queue-name) => AppWrapper": {
+			integrations:       []string{"workload.codeflare.dev/appwrapper"},
+			externalFrameworks: []string{"CronJob.v1.batch"},
+			ancestors: []client.Object{
+				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+				&batchv1.CronJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cronjob",
+						Namespace: jobNamespace,
+						OwnerReferences: []metav1.OwnerReference{{
+							Name:       "aw",
+							APIVersion: "workload.codeflare.dev/v1beta2",
+							Kind:       "AppWrapper",
+							UID:        "aw",
+							Controller: ptr.To(true),
+						}},
+					},
+				},
+			},
+			job: testingjob.MakeJob("job", jobNamespace).UID("job").
+				OwnerReference("cronjob", batchv1.SchemeGroupVersion.WithKind("CronJob")).
+				Obj(),
+			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
+		},
+		"Pod -> ReplicaSet -> Deployment (queue-name) => Deployment": {
+			integrations: []string{"pod", "deployment"},
+			ancestors: []client.Object{
+				testingdeployment.MakeDeployment("deploy", jobNamespace).UID("deploy").Queue("test-q").Obj(),
+				&appsv1.ReplicaSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rs",
+						Namespace: jobNamespace,
+						OwnerReferences: []metav1.OwnerReference{{
+							Name:       "deploy",
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							UID:        "deploy",
+							Controller: ptr.To(true),
+						}},
+					},
+				},
+			},
+			job: testingjob.MakeJob("pod", jobNamespace).UID("pod").
+				OwnerReference("rs", appsv1.SchemeGroupVersion.WithKind("ReplicaSet")).
+				Obj(),
+			wantManaged: testingdeployment.MakeDeployment("deploy", jobNamespace).UID("deploy").Queue("test-q").Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(EnableIntegrationsForTest(t, tc.integrations...))
+			t.Cleanup(EnableExternalIntegrationsForTest(t, tc.externalFrameworks...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
 			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme, v1alpha2.AddToScheme)
