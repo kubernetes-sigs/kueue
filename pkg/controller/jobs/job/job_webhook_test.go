@@ -700,7 +700,6 @@ func TestDefault(t *testing.T) {
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Queue("default").
 				Obj(),
-			wantErr: jobframework.ErrWorkloadOwnerNotFound,
 		},
 	}
 	for name, tc := range testcases {
