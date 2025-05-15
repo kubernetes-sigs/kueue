@@ -186,7 +186,11 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	w = w.DeepCopy()
 	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
 	workload.ResetChecksOnEviction(w, p.clock.Now())
+	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
 	workload.SetPreemptedCondition(w, reason, message)
+	if reportWorkloadEvictedOnce {
+		metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
+	}
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
 }
 

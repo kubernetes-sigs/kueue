@@ -746,6 +746,12 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+	if w.Status.SchedulingStats != nil {
+		if wlCopy.Status.SchedulingStats == nil {
+			wlCopy.Status.SchedulingStats = &kueue.SchedulingStats{}
+		}
+		wlCopy.Status.SchedulingStats.Evictions = append(wlCopy.Status.SchedulingStats.Evictions, w.Status.SchedulingStats.Evictions...)
+	}
 }
 
 func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -968,4 +974,45 @@ func References(wls []*Info) []klog.ObjectRef {
 		keys[i] = klog.KObj(wl.Obj)
 	}
 	return keys
+}
+
+func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
+	evictionState := FindSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
+	if evictionState == nil {
+		evictionState = &kueue.WorkloadSchedulingStatsEvicition{
+			Reason:          reason,
+			UnderlyingCause: underlyingCause,
+		}
+	}
+	report := evictionState.Count == 0
+	evictionState.Count++
+	SetSchedulingStatsEviction(wl, *evictionState)
+	return report
+}
+
+func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEvicition {
+	if wl.Status.SchedulingStats != nil {
+		for i := range wl.Status.SchedulingStats.Evictions {
+			if wl.Status.SchedulingStats.Evictions[i].Reason == reason && wl.Status.SchedulingStats.Evictions[i].UnderlyingCause == underlyingCause {
+				return &wl.Status.SchedulingStats.Evictions[i]
+			}
+		}
+	}
+	return nil
+}
+
+func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEvicition) bool {
+	if wl.Status.SchedulingStats == nil {
+		wl.Status.SchedulingStats = &kueue.SchedulingStats{}
+	}
+	evictionState := FindSchedulingStatsEvictionByReason(wl, newEvictionState.Reason, newEvictionState.UnderlyingCause)
+	if evictionState == nil {
+		wl.Status.SchedulingStats.Evictions = append(wl.Status.SchedulingStats.Evictions, newEvictionState)
+		return true
+	}
+	if evictionState.Count != newEvictionState.Count {
+		evictionState.Count = newEvictionState.Count
+		return true
+	}
+	return false
 }

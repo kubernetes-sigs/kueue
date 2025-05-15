@@ -269,6 +269,20 @@ The label 'reason' can have the following values:
 		}, []string{"name", "namespace", "reason"},
 	)
 
+	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "evicted_workloads_once_total",
+			Help: `The number of unique workload evictions per 'cluster_queue',
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+		}, []string{"cluster_queue", "reason", "detailed_reason"},
+	)
+
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -490,6 +504,10 @@ func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {
 	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason).Inc()
 }
 
+func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause string) {
+	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause).Inc()
+}
+
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
@@ -514,6 +532,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	admittedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 }
 
@@ -679,6 +698,7 @@ func Register() {
 		quotaReservedWaitTime,
 		AdmittedWorkloadsTotal,
 		EvictedWorkloadsTotal,
+		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		admissionWaitTime,
 		admissionChecksWaitTime,

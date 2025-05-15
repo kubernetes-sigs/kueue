@@ -145,6 +145,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ResourceQuotaApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceUsage"):
 		return &kueuev1beta1.ResourceUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("SchedulingStats"):
+		return &kueuev1beta1.SchedulingStatsApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta1.TopologyAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
@@ -155,6 +157,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
 		return &kueuev1beta1.WorkloadPriorityClassApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSchedulingStatsEvicition"):
+		return &kueuev1beta1.WorkloadSchedulingStatsEvicitionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSpec"):
 		return &kueuev1beta1.WorkloadSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadStatus"):

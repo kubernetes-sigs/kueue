@@ -50,10 +50,10 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	testCases := map[string]struct {
-		workload                   kueue.Workload
-		waitForPodsReady           *waitForPodsReadyConfig
-		wantCountingTowardsTimeout bool
-		wantRecheckAfter           time.Duration
+		workload            kueue.Workload
+		waitForPodsReady    *waitForPodsReadyConfig
+		wantUnderlyingCause string
+		wantRecheckAfter    time.Duration
 	}{
 		"workload without Admitted condition; not counting": {
 			workload: kueue.Workload{},
@@ -71,9 +71,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
 		},
 		"workload with Admitted=True, no PodsReady, but no timeout configured; not counting": {
 			workload: kueue.Workload{
@@ -102,9 +102,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           0,
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    0,
 		},
 		"with reason WorkloadWaitForPodsReadyStart; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
@@ -125,9 +125,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
 		},
 		"with reason PodsReady; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
 			workload: kueue.Workload{
@@ -148,9 +148,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           4 * time.Minute,
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
 			workload: kueue.Workload{
@@ -171,9 +171,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
-			wantCountingTowardsTimeout: true,
-			wantRecheckAfter:           3 * time.Minute,
+			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
+			wantRecheckAfter:    3 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery, recoveryTimeout not configured": {
 			workload: kueue.Workload{
@@ -194,8 +194,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:           &waitForPodsReadyConfig{recoveryTimeout: nil},
-			wantCountingTowardsTimeout: false,
+			waitForPodsReady: &waitForPodsReadyConfig{recoveryTimeout: nil},
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
@@ -252,13 +251,13 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
-			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
+			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
 
-			if tc.wantCountingTowardsTimeout != countingTowardsTimeout {
-				t.Errorf("Unexpected countingTowardsTimeout, want=%v, got=%v", tc.wantCountingTowardsTimeout, countingTowardsTimeout)
-			}
 			if tc.wantRecheckAfter != recheckAfter {
 				t.Errorf("Unexpected recheckAfter, want=%v, got=%v", tc.wantRecheckAfter, recheckAfter)
+			}
+			if tc.wantUnderlyingCause != underlyingCause {
+				t.Errorf("Unexpected underlyingCause, want=%v, got=%v", tc.wantUnderlyingCause, underlyingCause)
 			}
 		})
 	}
@@ -676,6 +675,12 @@ func TestReconcile(t *testing.T) {
 						Message: "Admission check(s): check-1, were rejected",
 					},
 				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -716,6 +721,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "AdmissionCheck",
 					Message: "At least one admission check is false",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadEvictedByAdmissionCheck,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -751,6 +762,20 @@ func TestReconcile(t *testing.T) {
 				}).
 				Admitted(true).
 				RequeueState(ptr.To[int32](3), nil).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForRecovery,
+						Count:           1,
+					},
+				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
 				Generation(1).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -771,6 +796,21 @@ func TestReconcile(t *testing.T) {
 				}).
 				// 10s * 2^(4-1) = 80s
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
+				// check EvictionState mergeStrategy
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForRecovery,
+						Count:           1,
+					},
+				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           2,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -866,6 +906,89 @@ func TestReconcile(t *testing.T) {
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"recovery time should be limited to recoveryTimeout": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     5 * time.Minute,
+					recoveryTimeout:             ptr.To(3 * time.Second),
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-3 * time.Minute)),
+					Reason:             kueue.WorkloadWaitForRecovery,
+					Message:            "At least one pod has failed, waiting for recovery",
+				}).
+				Admitted(true).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(testStartTime),
+					Reason:             kueue.WorkloadWaitForRecovery,
+					Message:            "At least one pod has failed, waiting for recovery",
+				}).
+				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForRecovery,
+						Count:           1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1078,6 +1201,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active=False and Admitted": {
@@ -1096,6 +1225,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1117,6 +1252,13 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
@@ -1128,6 +1270,19 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1188,6 +1343,9 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{Reason: kueue.WorkloadDeactivated, Count: 1},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1248,6 +1406,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1311,6 +1475,12 @@ func TestReconcile(t *testing.T) {
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1374,6 +1544,12 @@ func TestReconcile(t *testing.T) {
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1428,6 +1604,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
 					Message: "The ClusterQueue is stopped",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadEvictedByClusterQueueStopped,
+						Count:  1,
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
