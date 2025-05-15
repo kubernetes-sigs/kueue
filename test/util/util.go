@@ -567,6 +567,11 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, detailedReason string, v int) {
+	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, detailedReason)
+	expectCounterMetric(metric, v)
+}
+
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
 	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
 	expectCounterMetric(metric, v)

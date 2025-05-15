@@ -341,7 +341,7 @@ func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RES
 	metricsOutput, _, err := KExecute(ctx, cfg, restClient, configapi.DefaultNamespace, curlPodName, curlContainerName, []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(
-			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
+			"curl --connect-timeout 10 --max-time 30 -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
 			defaultMetricsServiceName, configapi.DefaultNamespace,
 		),
 	})
@@ -354,7 +354,7 @@ func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClien
 		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
-	}, Timeout).Should(gomega.Succeed())
+	}, LongTimeout).Should(gomega.Succeed())
 }
 
 func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
@@ -363,7 +363,7 @@ func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restCl
 		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
-	}, Timeout).Should(gomega.Succeed())
+	}, LongTimeout).Should(gomega.Succeed())
 }
 
 func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod) {

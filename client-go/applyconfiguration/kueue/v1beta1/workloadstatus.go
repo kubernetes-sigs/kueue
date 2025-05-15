@@ -24,13 +24,14 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
-	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
-	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
-	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
-	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
-	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	Admission                            *AdmissionApplyConfiguration              `json:"admission,omitempty"`
+	RequeueState                         *RequeueStateApplyConfiguration           `json:"requeueState,omitempty"`
+	Conditions                           []v1.ConditionApplyConfiguration          `json:"conditions,omitempty"`
+	ReclaimablePods                      []ReclaimablePodApplyConfiguration        `json:"reclaimablePods,omitempty"`
+	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration   `json:"admissionChecks,omitempty"`
+	ResourceRequests                     []PodSetRequestApplyConfiguration         `json:"resourceRequests,omitempty"`
+	AccumulatedPastExexcutionTimeSeconds *int32                                    `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	EvictionStates                       []WorkloadEvictionStateApplyConfiguration `json:"evictionStates,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -112,5 +113,18 @@ func (b *WorkloadStatusApplyConfiguration) WithResourceRequests(values ...*PodSe
 // If called multiple times, the AccumulatedPastExexcutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeconds(value int32) *WorkloadStatusApplyConfiguration {
 	b.AccumulatedPastExexcutionTimeSeconds = &value
+	return b
+}
+
+// WithEvictionStates adds the given value to the EvictionStates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the EvictionStates field.
+func (b *WorkloadStatusApplyConfiguration) WithEvictionStates(values ...*WorkloadEvictionStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithEvictionStates")
+		}
+		b.EvictionStates = append(b.EvictionStates, *values[i])
+	}
 	return b
 }
