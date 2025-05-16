@@ -124,6 +124,10 @@ type PodSetTopologyRequest struct {
 	// SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
+
+	PodSetChunkRequiredTopology  *string `json:"podSetChunkRequiredTopology,omitempty"`
+	PodSetChunkPreferredTopology *string `json:"podSetChunkPreferredTopology,omitempty"`
+	PodSetChunkSize              *int32  `json:"podSetChunkSize,omitempty"`
 }
 
 type Admission struct {

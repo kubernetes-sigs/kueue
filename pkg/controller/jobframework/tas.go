@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -53,6 +54,10 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+
+	chunkRequiredTopologyValue, chunkRequiredTopologyFound := meta.Annotations[kueuealpha.PodSetChunkRequiredTopologyAnnotation]
+	chunkSizeValue, chunkSizeFound := meta.Annotations[kueuealpha.PodSetChunkSizeAnnotation]
+
 	switch {
 	case requiredFound:
 		psTopologyReq.Required = &requiredValue
@@ -63,6 +68,17 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
 		psTopologyReq = nil
+	}
+
+	if chunkRequiredTopologyFound {
+		if chunkRequiredTopologyFound {
+			psTopologyReq.PodSetChunkRequiredTopology = &chunkRequiredTopologyValue
+		}
+		if chunkSizeFound {
+			chunkSizeIntValue, _ := strconv.ParseInt(chunkSizeValue, 10, 32)
+			// TODO error handling
+			psTopologyReq.PodSetChunkSize = ptr.To(int32(chunkSizeIntValue))
+		}
 	}
 
 	builder := &podSetTopologyRequestBuilder{request: psTopologyReq}

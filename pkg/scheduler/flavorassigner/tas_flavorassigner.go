@@ -49,7 +49,11 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				continue
 			}
 			isTASImplied := isTASImplied(&podSet, cq)
-			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
+			chunkSize := podSet.Count
+			if podSet.TopologyRequest.PodSetChunkSize != nil {
+				chunkSize = *podSet.TopologyRequest.PodSetChunkSize
+			}
+			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, chunkSize)
 			if err != nil {
 				psAssignment.error(err)
 			} else {
@@ -77,7 +81,8 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	wl *workload.Info,
 	cq *cache.ClusterQueueSnapshot,
 	isTASImplied bool,
-	podSetIndex int) (*cache.TASPodSetRequests, error) {
+	podSetIndex int,
+	chunkSize int32) (*cache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
@@ -104,6 +109,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}
 	return &cache.TASPodSetRequests{
 		Count:             podCount,
+		ChunkSize:         chunkSize,
 		SinglePodRequests: singlePodRequests,
 		PodSet:            podSet,
 		PodSetUpdates:     podSetUpdates,
