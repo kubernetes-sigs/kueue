@@ -528,7 +528,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					createdJob.Labels[constants.WorkloadPriorityClassLabel] = ""
-					g.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(testing.BeForbiddenError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
