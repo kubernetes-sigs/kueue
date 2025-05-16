@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -51,6 +52,7 @@ func newNodeTest(name string, readyStatus corev1.ConditionStatus, clock clock.Cl
 func TestNodeFailureReconciler(t *testing.T) {
 	testStartTime := time.Now().Truncate(time.Second)
 	nodeName := "test-node-name"
+	nodeName2 := "test-node-name-2"
 	wlName := "test-workload"
 	nsName := "default"
 	fakeClock := testingclock.NewFakeClock(testStartTime)
@@ -79,6 +81,25 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
+	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(
+			utiltesting.MakeAdmission("cq").
+				Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+				AssignmentPodCount(2).
+				TopologyAssignment(&kueue.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []kueue.TopologyDomainAssignment{
+						{Count: 1, Values: []string{nodeName}},
+						{Count: 1, Values: []string{nodeName2}},
+					},
+				}).
+				Obj(),
+		).
+		Admitted(true).
+		Obj()
+
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
 		Label(kueuealpha.TASLabel, "true").
@@ -86,21 +107,32 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	tests := map[string]struct {
-		initObjs       []client.Object
-		req            reconcile.Request
-		advanceClock   time.Duration
-		wantFailedNode string
-		wantRequeue    time.Duration
+		initObjs          []client.Object
+		reconcileRequests []reconcile.Request
+		advanceClock      time.Duration
+		wantFailedNode    string
+		wantRequeue       time.Duration
+		wantEvicted       bool
+		wantEvents        []utiltesting.EventRecord
 	}{
+		"Node Found and Healthy - not marked as unavailable": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+		},
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
-			wantFailedNode: "",
-			wantRequeue:    NodeFailureDelay,
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+			wantRequeue:       NodeFailureDelay,
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
 			initObjs: []client.Object{
@@ -108,33 +140,48 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
-			wantFailedNode: nodeName,
-		},
-		"Node Found and Healthy - not marked as unavailable": {
-			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
-				utiltesting.MakeWorkload(wlName, nsName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
-					Admitted(true).
-					Obj(),
-				basePod.DeepCopy(),
-			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
-			wantFailedNode: "",
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    nodeName,
 		},
 		"Node Deleted - marked as unavailable": {
 			initObjs: []client.Object{
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
-			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}},
-			wantFailedNode: nodeName,
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    nodeName,
+		},
+		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
+				newNodeTest(nodeName2, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
+				workloadWithTwoNodes.DeepCopy(),
+				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName).Obj(),
+				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName2).Obj(),
+			},
+			reconcileRequests: []reconcile.Request{
+				{NamespacedName: types.NamespacedName{Name: nodeName}},
+				{NamespacedName: types.NamespacedName{Name: nodeName2}},
+			},
+			wantFailedNode: nodeName2, // The annotation will hold the last failed node.
+			wantEvicted:    true,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       wlKey,
+					EventType: corev1.EventTypeNormal,
+					Reason:    "WorkloadEvictedDueToTASNodeFailures",
+					Message:   "Workload eviction triggered due to multiple TAS assigned node failures",
+				},
+			},
 		},
 	}
-
+	restrictedCases := sets.New[string](
+		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted",
+	)
 	for name, tc := range tests {
+		if !restrictedCases.Has(name) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacement, true)
 			ctx := t.Context()
@@ -157,12 +204,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			cl := clientBuilder.Build()
-			r := newNodeFailureReconciler(cl)
+			recorder := &utiltesting.EventRecorder{}
+			r := newNodeFailureReconciler(cl, recorder)
 			r.clock = fakeClock
 
-			result, err := r.Reconcile(ctx, tc.req)
-			if err != nil {
-				t.Errorf("Reconcile() error = %v", err)
+			var result reconcile.Result
+			for _, req := range tc.reconcileRequests {
+				result, err = r.Reconcile(ctx, req)
+				if err != nil {
+					t.Errorf("Reconcile() error = %v for request %v", err, req)
+				}
 			}
 			wl := &kueue.Workload{}
 			if err := cl.Get(ctx, wlKey, wl); err != nil {
@@ -176,6 +227,22 @@ func TestNodeFailureReconciler(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantEvicted {
+				foundEvicted := false
+				for _, cond := range wl.Status.Conditions {
+					if cond.Type == kueue.WorkloadEvicted && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedDueToTASNodeFailures {
+						foundEvicted = true
+						break
+					}
+				}
+				if !foundEvicted {
+					t.Errorf("Workload was not evicted with reason %s, got conditions: %v", kueue.WorkloadEvictedDueToTASNodeFailures, wl.Status.Conditions)
+				}
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}
