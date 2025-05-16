@@ -29,8 +29,6 @@ import (
 
 const (
 	certDir        = "/tmp/k8s-webhook-server/serving-certs"
-	vwcName        = "kueue-validating-webhook-configuration"
-	mwcName        = "kueue-mutating-webhook-configuration"
 	caName         = "kueue-ca"
 	caOrganization = "kueue"
 )
@@ -56,10 +54,10 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		IsReady:        setupFinished,
 		Webhooks: []cert.WebhookInfo{{
 			Type: cert.Validating,
-			Name: vwcName,
+			Name: *cfg.ControllerManager.Webhook.ValidatingWebhookConfigurationName,
 		}, {
 			Type: cert.Mutating,
-			Name: mwcName,
+			Name: *cfg.ControllerManager.Webhook.MutatingWebhookConfigurationName,
 		}},
 		// When kueue is running in the leader election mode,
 		// we expect webhook server will run in primary and secondary instance
