@@ -119,11 +119,9 @@ func (j *MPIJob) PodSets() ([]kueue.PodSet, error) {
 			Count:    podsCount(&j.Spec, mpiReplicaType),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSets[index].TopologyRequest = jobframework.PodSetTopologyRequest(
-				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta,
-				ptr.To(kfmpi.ReplicaIndexLabel),
-				nil, nil,
-			)
+			podSets[index].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta).PodIndexLabel(
+				ptr.To(kfmpi.ReplicaIndexLabel)).Build()
 		}
 	}
 	return podSets, nil

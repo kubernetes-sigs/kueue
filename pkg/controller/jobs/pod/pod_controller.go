@@ -659,11 +659,9 @@ func constructPodSet(p *corev1.Pod) kueue.PodSet {
 		},
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.PodSetTopologyRequest(
-			&p.ObjectMeta,
-			ptr.To(kueuealpha.PodGroupPodIndexLabel),
-			nil, nil,
-		)
+		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			&p.ObjectMeta).PodIndexLabel(
+			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
 	}
 	return podSet
 }
