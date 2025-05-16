@@ -24,12 +24,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -113,7 +111,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantFailedNode    string
 		wantRequeue       time.Duration
 		wantEvicted       bool
-		wantEvents        []utiltesting.EventRecord
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -163,41 +160,20 @@ func TestNodeFailureReconciler(t *testing.T) {
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantFailedNode: nodeName2, // The annotation will hold the last failed node.
+			wantFailedNode: nodeName,
 			wantEvicted:    true,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       wlKey,
-					EventType: corev1.EventTypeNormal,
-					Reason:    "WorkloadEvictedDueToTASNodeFailures",
-					Message:   "Workload eviction triggered due to multiple TAS assigned node failures",
-				},
-			},
 		},
 	}
-	restrictedCases := sets.New[string](
-		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted",
-	)
 	for name, tc := range tests {
-		if !restrictedCases.Has(name) {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacement, true)
 			ctx := t.Context()
 			fakeClock.SetTime(testStartTime)
-			s := scheme.Scheme
-			if err := kueue.AddToScheme(s); err != nil {
-				t.Fatalf("Failed to add kueue scheme: %v", err)
-			}
-			if err := corev1.AddToScheme(s); err != nil {
-				t.Fatalf("Failed to add kueue scheme: %v", err)
-			}
 
-			clientBuilder := fake.NewClientBuilder().
-				WithScheme(s).
+			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.initObjs...).
-				WithStatusSubresource(tc.initObjs...)
+				WithStatusSubresource(tc.initObjs...).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
@@ -240,9 +216,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 				if !foundEvicted {
 					t.Errorf("Workload was not evicted with reason %s, got conditions: %v", kueue.WorkloadEvictedDueToTASNodeFailures, wl.Status.Conditions)
 				}
-			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

@@ -203,7 +203,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			}
 			if ok && existingFailedNode != nodeName {
 				r.startEviction(ctx, &wl)
-				return true, nil
+				return false, nil
 			}
 			currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 			wl.SetAnnotations(currentAnnotations)
