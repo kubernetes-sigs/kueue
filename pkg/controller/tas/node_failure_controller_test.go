@@ -160,7 +160,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantFailedNode: nodeName,
+			wantFailedNode: "",
 			wantEvicted:    true,
 		},
 	}

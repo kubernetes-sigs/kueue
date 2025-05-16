@@ -191,7 +191,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			}
 			continue
 		}
-
+		evictionNeeded := false
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
 			currentAnnotations := wl.GetAnnotations()
 			if currentAnnotations == nil {
@@ -202,12 +202,14 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 				return false, nil
 			}
 			if ok && existingFailedNode != nodeName {
-				r.startEviction(ctx, &wl)
-				return false, nil
+				delete(currentAnnotations, kueuealpha.NodeToReplaceAnnotation)
+				wl.SetAnnotations(currentAnnotations)
+				evictionNeeded = true
+			} else {
+				currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
+				wl.SetAnnotations(currentAnnotations)
+				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 			}
-			currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
-			wl.SetAnnotations(currentAnnotations)
-			r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 			return true, nil
 		})
 		if err != nil {
@@ -215,6 +217,16 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 		} else {
 			r.log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "unavailableNodesAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
+			if evictionNeeded {
+				var freshWLForEviction kueue.Workload
+				if getErr := r.client.Get(ctx, wlKey, &freshWLForEviction); getErr != nil {
+					r.log.Error(getErr, "Failed to re-fetch workload before eviction", "workload", wlKey)
+					workloadProcessingErrors = append(workloadProcessingErrors, getErr)
+				} else {
+					r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
+					r.startEviction(ctx, &freshWLForEviction)
+				}
+			}
 		}
 	}
 	if len(workloadProcessingErrors) > 0 {
