@@ -20,6 +20,7 @@ set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
+KIND_CLUSTER_KUBECONFIG="${ARTIFACTS}/kubeconfig-$KIND_CLUSTER_NAME"
 
 # shellcheck source=hack/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
@@ -42,48 +43,25 @@ function startup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
-        cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE"
-    fi
-}
-
-function kind_load {
-    prepare_docker_images
-
-    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
-	      cluster_kind_load "$KIND_CLUSTER_NAME"
-    fi
-
-    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
-        install_appwrapper "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${JOBSET_VERSION:-} ]]; then
-        install_jobset "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
-        install_kubeflow "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
-        install_mpi "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
-        install_lws "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${KUBERAY_VERSION:-} ]]; then
-        install_kuberay "$KIND_CLUSTER_NAME"
-    fi
-    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-        install_cert_manager "$KIND_CLUSTER_NAME"
+        cat <<EOF > "$KIND_CLUSTER_KUBECONFIG"
+        apiVersion: v1
+        kind: Config
+        preferences: {}
+EOF
+        cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE" "$KIND_CLUSTER_KUBECONFIG"
     fi
 }
 
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-    cluster_kueue_deploy "$KIND_CLUSTER_NAME"
+    cluster_kueue_deploy "$KIND_CLUSTER_KUBECONFIG"
 }
 
 trap cleanup EXIT
 startup
-kind_load
+prepare_docker_images &
+kind_load "$KIND_CLUSTER_NAME" "$KIND_CLUSTER_KUBECONFIG" &
+wait
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
