@@ -40,7 +40,7 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 		return ctrlName, err
 	}
 	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient())
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
 		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
 			return ctrlName, err
 		}

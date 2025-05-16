@@ -69,6 +69,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1064,4 +1065,15 @@ func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectK
 		wl.Spec.Active = ptr.To(false)
 		g.Expect(c.Update(ctx, wl)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, time time.Time) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var updatedNode corev1.Node
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
+		condition := utilnode.GetNodeCondition(&updatedNode, conditionType)
+		condition.LastTransitionTime = metav1.NewTime(time)
+		condition.Status = conditionStatus
+		g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", conditionType, conditionStatus, node.Name)
 }
