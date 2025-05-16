@@ -387,6 +387,39 @@ type WorkloadStatus struct {
 	//
 	// +optional
 	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+
+	// evictionState tracks eviction statistics by reason.
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=reason
+	// +patchStrategy=merge
+	// +patchMergeKey=reason
+	EvictionStates []WorkloadEvictionState `json:"evictionStates,omitempty"`
+}
+
+type WorkloadEvictionState struct {
+	// reason specifies the programmatic identifier for the eviction cause.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=316
+	Reason string `json:"reason"`
+
+	// detailedReason specifies a finer-grained explanation that complements the eviction cause.
+	// This may be an empty string.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=316
+	DetailedReason string `json:"detailedReason"`
+
+	// count tracks the number of evictions for this reason and detailed reason.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 type RequeueState struct {
@@ -534,6 +567,15 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+)
+
+// Detailed Reasons for the WorkloadEvicted condition due to PodsReadyTimeout.
+const (
+	// StartupTimeoutReason TBD
+	StartupTimeoutReason string = "StartupTimeout"
+
+	// RecoveryTimeoutReason TBD
+	RecoveryTimeoutReason string = "RecoveryTimeout"
 )
 
 // Reasons for the WorkloadPreempted condition.

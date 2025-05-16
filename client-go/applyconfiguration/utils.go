@@ -153,6 +153,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.TopologyInfoApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WorkloadEvictionState"):
+		return &kueuev1beta1.WorkloadEvictionStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
 		return &kueuev1beta1.WorkloadPriorityClassApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSpec"):

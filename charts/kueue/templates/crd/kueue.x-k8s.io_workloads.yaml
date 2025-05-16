@@ -8273,6 +8273,34 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
+                evictionStates:
+                  description: evictionState tracks eviction statistics by reason.
+                  items:
+                    properties:
+                      count:
+                        description: count tracks the number of evictions for this reason and detailed reason.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      detailedReason:
+                        description: |-
+                          detailedReason specifies a finer-grained explanation that complements the eviction cause.
+                          This may be an empty string.
+                        maxLength: 316
+                        type: string
+                      reason:
+                        description: reason specifies the programmatic identifier for the eviction cause.
+                        maxLength: 316
+                        type: string
+                    required:
+                      - count
+                      - detailedReason
+                      - reason
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - reason
+                  x-kubernetes-list-type: map
                 reclaimablePods:
                   description: |-
                     reclaimablePods keeps track of the number pods within a podset for which

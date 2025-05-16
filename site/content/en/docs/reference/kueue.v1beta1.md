@@ -2742,6 +2742,45 @@ domain indicated by the values field.</p>
 
 
 
+## `WorkloadEvictionState`     {#kueue-x-k8s-io-v1beta1-WorkloadEvictionState}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>reason</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>reason specifies the programmatic identifier for the eviction cause.</p>
+</td>
+</tr>
+<tr><td><code>detailedReason</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>detailedReason specifies a finer-grained explanation that complements the eviction cause.
+This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>count</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count tracks the number of evictions for this reason and detailed reason.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     
 
@@ -2913,6 +2952,13 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>evictionStates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WorkloadEvictionState"><code>[]WorkloadEvictionState</code></a>
+</td>
+<td>
+   <p>evictionState tracks eviction statistics by reason.</p>
 </td>
 </tr>
 </tbody>

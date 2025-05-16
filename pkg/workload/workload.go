@@ -746,6 +746,7 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+	wlCopy.Status.EvictionStates = append(wlCopy.Status.EvictionStates, w.Status.EvictionStates...)
 }
 
 func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -968,4 +969,37 @@ func References(wls []*Info) []klog.ObjectRef {
 		keys[i] = klog.KObj(wl.Obj)
 	}
 	return keys
+}
+
+func WorkloadEvictionStateInc(wl *kueue.Workload, reason, detailedReason string) bool {
+	evictionState := FindEvictionStateByReason(wl, reason, detailedReason)
+	if evictionState == nil {
+		evictionState = &kueue.WorkloadEvictionState{Reason: reason, DetailedReason: detailedReason}
+	}
+	report := evictionState.Count == 0
+	evictionState.Count++
+	SetEvictionState(wl, *evictionState)
+	return report
+}
+
+func FindEvictionStateByReason(wl *kueue.Workload, reason, detailedReason string) *kueue.WorkloadEvictionState {
+	for i := range wl.Status.EvictionStates {
+		if wl.Status.EvictionStates[i].Reason == reason && wl.Status.EvictionStates[i].DetailedReason == detailedReason {
+			return &wl.Status.EvictionStates[i]
+		}
+	}
+	return nil
+}
+
+func SetEvictionState(wl *kueue.Workload, newEvictionState kueue.WorkloadEvictionState) bool {
+	evictionState := FindEvictionStateByReason(wl, newEvictionState.Reason, newEvictionState.DetailedReason)
+	if evictionState == nil {
+		wl.Status.EvictionStates = append(wl.Status.EvictionStates, newEvictionState)
+		return true
+	}
+	if evictionState.Count != newEvictionState.Count {
+		evictionState.Count = newEvictionState.Count
+		return true
+	}
+	return false
 }
