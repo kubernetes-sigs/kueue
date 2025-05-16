@@ -995,6 +995,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
+						annotations := updatedWl.GetAnnotations()
+						_, found := annotations[kueuealpha.NodeToReplaceAnnotation]
+						g.Expect(found).To(gomega.BeFalse(), "NodeToReplaceAnnotation should be cleared after eviction due to multiple node failures")
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -1047,6 +1054,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
+						annotations := updatedWl.GetAnnotations()
+						_, found := annotations[kueuealpha.NodeToReplaceAnnotation]
+						g.Expect(found).To(gomega.BeFalse(), "NodeToReplaceAnnotation should be cleared after eviction due to multiple node failures")
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
