@@ -28,6 +28,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -50,6 +51,7 @@ func newNodeTest(name string, readyStatus corev1.ConditionStatus, clock clock.Cl
 func TestNodeFailureReconciler(t *testing.T) {
 	testStartTime := time.Now().Truncate(time.Second)
 	nodeName := "test-node-name"
+	nodeName2 := "test-node-name-2"
 	nodeName2 := "test-node-name-2"
 	wlName := "test-workload"
 	nsName := "default"
@@ -98,6 +100,25 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
+	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(
+			utiltesting.MakeAdmission("cq").
+				Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+				AssignmentPodCount(2).
+				TopologyAssignment(&kueue.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []kueue.TopologyDomainAssignment{
+						{Count: 1, Values: []string{nodeName}},
+						{Count: 1, Values: []string{nodeName2}},
+					},
+				}).
+				Obj(),
+		).
+		Admitted(true).
+		Obj()
+
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
 		Label(kueuealpha.TASLabel, "true").
@@ -111,7 +132,22 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantFailedNode    string
 		wantRequeue       time.Duration
 		wantEvicted       bool
+		initObjs          []client.Object
+		reconcileRequests []reconcile.Request
+		advanceClock      time.Duration
+		wantFailedNode    string
+		wantRequeue       time.Duration
+		wantEvicted       bool
 	}{
+		"Node Found and Healthy - not marked as unavailable": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+		},
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
@@ -130,6 +166,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantFailedNode:    "",
 			wantRequeue:       NodeFailureDelay,
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+			wantRequeue:       NodeFailureDelay,
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
 			initObjs: []client.Object{
@@ -137,6 +176,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    nodeName,
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantFailedNode:    nodeName,
 		},
@@ -171,7 +212,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 			fakeClock.SetTime(testStartTime)
 
 			clientBuilder := utiltesting.NewClientBuilder().
+			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.initObjs...).
+				WithStatusSubresource(tc.initObjs...).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
@@ -182,8 +226,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			r := newNodeFailureReconciler(cl, recorder)
+			recorder := &utiltesting.EventRecorder{}
+			r := newNodeFailureReconciler(cl, recorder)
 			r.clock = fakeClock
 
+			var result reconcile.Result
+			for _, req := range tc.reconcileRequests {
+				result, err = r.Reconcile(ctx, req)
+				if err != nil {
+					t.Errorf("Reconcile() error = %v for request %v", err, req)
+				}
 			var result reconcile.Result
 			for _, req := range tc.reconcileRequests {
 				result, err = r.Reconcile(ctx, req)
@@ -203,6 +255,19 @@ func TestNodeFailureReconciler(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantEvicted {
+				foundEvicted := false
+				for _, cond := range wl.Status.Conditions {
+					if cond.Type == kueue.WorkloadEvicted && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedDueToTASNodeFailures {
+						foundEvicted = true
+						break
+					}
+				}
+				if !foundEvicted {
+					t.Errorf("Workload was not evicted with reason %s, got conditions: %v", kueue.WorkloadEvictedDueToTASNodeFailures, wl.Status.Conditions)
+				}
 			}
 
 			if tc.wantEvicted {
