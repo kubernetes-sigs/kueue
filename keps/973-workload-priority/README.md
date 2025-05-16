@@ -9,6 +9,8 @@
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+    - [Workload's priority values are always mutable](#workloads-priority-values-are-always-mutable)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Kueue WorkloadPriorityClass API](#kueue-workloadpriorityclass-api)
@@ -22,7 +24,6 @@
     - [5. A jobFramework specifies only <code>workload's priority</code>](#5-a-jobframework-specifies-only-workloads-priority)
     - [6. A jobFramework specifies only <code>priorityClass</code>](#6-a-jobframework-specifies-only-priorityclass)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
-  - [Workload's priority values are always mutable](#workloads-priority-values-are-always-mutable)
   - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-workloadpriorityclass)
   - [Validation webhook](#validation-webhook)
   - [Future works](#future-works)
@@ -97,6 +98,18 @@ In such cases, they create two `WorkloadPriorityClass` and apply each one to the
 
 An organization desires to modify the priority of workloads that remain inactive for a specific duration.
 By developing a custom controller to manage Priority value of `Workload` spec, this expectation can be met.
+
+### Notes/Constraints/Caveats (Optional)
+
+#### Workload's priority values are always mutable
+
+Workload's `Priority` field is always mutable because it might be useful for the preemption.
+On the other hand, Workload's `PriorityClassSource` and `PriorityClassName` fields are always immutable for simplicity until Kueue v0.11.
+Since Kueue v0.12, the only Workload's `PriorityClassName` is made mutable only when the Workload is suspended. 
+However, the `PriorityClassName` can not be replaced with an empty name when updating to prevent switching to `scheduling.k8s.io/v1` PriorityClass.
+
+Side Note: The `scheduling.k8s.io/v1` PriorityClass is immutable although the sig-scheduling discussed mutable PriorityClass in 
+[Kubernetes Enhancement 4133](https://github.com/kubernetes/enhancements/issues/4133).
 
 ### Risks and Mitigations
 
@@ -439,12 +452,6 @@ spec:
 The priority of workloads is utilized in queuing, preemption, and other scheduling processes in Kueue.
 With the introduction of `workloadPriorityClass`, there is no change in the places where priority is used in Kueue.
 It just enables the usage of `workloadPriorityClass` as the priority.
-
-### Workload's priority values are always mutable
-
-Workload's `Priority` field is always mutable because it might be useful for the preemption.  
-Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable for simplicity.  
-By the way, there is an [open KEP](https://github.com/kubernetes/enhancements/pull/4129) to make `PriorityClass` mutable in k8s. This `workload`'s design aligns with the direction of k8s `PriorityClass`.
 
 ### What happens when a user changes the priority of `workloadPriorityClass`?
 
