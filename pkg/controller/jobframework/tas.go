@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -53,6 +54,10 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+
+	sliceRequiredTopologyValue, sliceRequiredTopologyFound := meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+
 	switch {
 	case requiredFound:
 		psTopologyReq.Required = &requiredValue
@@ -63,6 +68,13 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
 		psTopologyReq = nil
+	}
+
+	if sliceRequiredTopologyFound && sliceSizeFound {
+		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
+		sliceSizeIntValue, _ := strconv.ParseInt(sliceSizeValue, 10, 32)
+		// TODO Error handling. For simplicity of reviewing a PR, it will be implemented in a follow-up
+		psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
 	}
 
 	builder := &podSetTopologyRequestBuilder{request: psTopologyReq}
