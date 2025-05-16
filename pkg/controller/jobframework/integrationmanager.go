@@ -249,22 +249,6 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 	return nil
 }
 
-// isOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
-func (m *integrationManager) isOwnerIntegrationEnabled(ownerRef *metav1.OwnerReference) bool {
-	for jobKey := range m.getEnabledIntegrations() {
-		cbs, found := m.integrations[jobKey]
-		if found && cbs.matchingOwnerReference(ownerRef) {
-			return true
-		}
-	}
-	for _, jt := range m.externalIntegrations {
-		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
-			return true
-		}
-	}
-	return false
-}
-
 // RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name or if a
 // mandatory callback is missing.
@@ -349,24 +333,18 @@ func GetIntegrationsList() []string {
 	return manager.getList()
 }
 
-// IsOwnerManagedByKueue returns true if the provided owner can be managed by
-// kueue.
-func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {
-	return manager.getJobTypeForOwner(owner) != nil
-}
-
 // IsOwnerManagedByKueueForObject returns true if the provided object has an owner,
 // and this owner can be managed by Kueue.
 func IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	if owner := metav1.GetControllerOf(obj); owner != nil {
-		return IsOwnerManagedByKueue(owner)
+		return manager.getJobTypeForOwner(owner) != nil
 	}
 	return false
 }
 
-// GetEmptyOwnerObject returns an empty object of the owner's type,
+// getEmptyOwnerObject returns an empty object of the owner's type,
 // returns nil if the owner is not manageable by kueue.
-func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+func getEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 	if jt := manager.getJobTypeForOwner(owner); jt != nil {
 		return jt.DeepCopyObject().(client.Object)
 	}
