@@ -53,10 +53,6 @@ type nodeFailureReconciler struct {
 	clock    clock.Clock
 	log      logr.Logger
 	recorder record.EventRecorder
-	client   client.Client
-	clock    clock.Clock
-	log      logr.Logger
-	recorder record.EventRecorder
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -237,17 +233,6 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
-}
-
-func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload) {
-	message := "Workload eviction triggered due to multiple TAS assigned node failures"
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToTASNodeFailures, message)
-	workload.ResetChecksOnEviction(wl, r.clock.Now())
-	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
-	if err == nil {
-		cqName := wl.Status.Admission.ClusterQueue
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToTASNodeFailures, message)
-	}
 }
 
 func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload) {
