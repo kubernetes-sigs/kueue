@@ -2108,8 +2108,13 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionFalse,
+						Reason:  "RequeuingLimitExceeded",
+						Message: "exceeding the maximum number of re-queuing retries",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-				g.Expect(wl.Status.Conditions).ShouldNot(testing.HaveCondition(kueue.WorkloadDeactivationTarget))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
