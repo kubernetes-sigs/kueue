@@ -48,8 +48,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
-			RequestAndLimit("cpu", "1").
-			RequestAndLimit("memory", "20Mi").
+			RequestAndLimit(corev1.ResourceCPU, "1").
+			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Obj()
 		jobKey = client.ObjectKeyFromObject(sampleJob)
 	})
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
 				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				RequestAndLimit("cpu", "500m").
+				RequestAndLimit(corev1.ResourceCPU, "500m").
 				Parallelism(3).
 				Completions(4).
 				SetAnnotation(workloadjob.JobMinParallelismAnnotation, "1").
@@ -428,12 +428,22 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 
+			ginkgo.By("Verify priority label is immutable when running", func() {
+				createdJob := &batchv1.Job{}
+				jobKey = client.ObjectKeyFromObject(sampleJob)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					createdJob.Labels[constants.WorkloadPriorityClassLabel] = ""
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(testing.BeForbiddenError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			var sampleJob2 *batchv1.Job
 			ginkgo.By("Create job-two with low priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", ns.Name).
 					Queue("main").
-					RequestAndLimit("cpu", "1").
-					RequestAndLimit("memory", "20Mi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "20Mi").
 					WorkloadPriorityClass(lowPriority).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
@@ -500,7 +510,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					WorkloadPriorityClass(samplePriority).
 					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
-					RequestAndLimit("cpu", "2").
+					RequestAndLimit(corev1.ResourceCPU, "2").
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob)
 			})
@@ -528,7 +538,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					createdJob.Labels[constants.WorkloadPriorityClassLabel] = ""
-					g.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(testing.BeForbiddenError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
