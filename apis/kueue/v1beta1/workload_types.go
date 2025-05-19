@@ -580,6 +580,10 @@ const (
 	// because the LocalQueue is Stopped.
 	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
 
+	// WorkloadEvictedDueToTASNodeFailures indicates that the workload was evicted
+	// due to non-recoverable node failures in TAS.
+	WorkloadEvictedDueToTASNodeFailures = "WorkloadEvictedDueToTASNodeFailures"
+
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadDeactivated = "Deactivated"

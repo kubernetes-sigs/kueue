@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,13 +44,15 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
-	client client.Client
-	clock  clock.Clock
-	log    logr.Logger
+	client   client.Client
+	clock    clock.Clock
+	log      logr.Logger
+	recorder record.EventRecorder
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -119,11 +122,12 @@ func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) b
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
-func newNodeFailureReconciler(client client.Client) *nodeFailureReconciler {
+func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder) *nodeFailureReconciler {
 	return &nodeFailureReconciler{
-		client: client,
-		log:    ctrl.Log.WithName(TASNodeFailureController),
-		clock:  clock.RealClock{},
+		client:   client,
+		log:      ctrl.Log.WithName(TASNodeFailureController),
+		clock:    clock.RealClock{},
+		recorder: recorder,
 	}
 }
 
@@ -187,19 +191,30 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			}
 			continue
 		}
-
+		currentAnnotations := wl.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		existingFailedNode, annotationPresent := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
+		if annotationPresent && existingFailedNode != nodeName && !workload.IsEvicted(&wl) {
+			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
+			if evictionErr := r.startEviction(ctx, &wl); evictionErr != nil {
+				r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
+				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
+			}
+		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
-			currentAnnotations := wl.GetAnnotations()
-			if currentAnnotations == nil {
-				currentAnnotations = make(map[string]string)
-			}
-			existingFailedNode, ok := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
-			if ok && existingFailedNode == nodeName {
+			if annotationPresent && (workload.IsEvicted(&wl) || existingFailedNode != nodeName) {
+				delete(currentAnnotations, kueuealpha.NodeToReplaceAnnotation)
+				wl.SetAnnotations(currentAnnotations)
+				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", existingFailedNode)
+			} else if annotationPresent && existingFailedNode == nodeName {
 				return false, nil
+			} else {
+				currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
+				wl.SetAnnotations(currentAnnotations)
+				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 			}
-			currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
-			wl.SetAnnotations(currentAnnotations)
-			r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
 			return true, nil
 		})
 		if err != nil {
@@ -213,4 +228,16 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
+}
+
+func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload) error {
+	message := "Workload eviction triggered due to multiple TAS assigned node failures"
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToTASNodeFailures, message)
+	workload.ResetChecksOnEviction(wl, r.clock.Now())
+	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+	if err == nil {
+		cqName := wl.Status.Admission.ClusterQueue
+		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToTASNodeFailures, message)
+	}
+	return err
 }
