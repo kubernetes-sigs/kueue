@@ -202,15 +202,20 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 				r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
 			}
+			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+				r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
+				workloadProcessingErrors = append(workloadProcessingErrors, err)
+			}
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
-			if annotationPresent && (workload.IsEvicted(&wl) || existingFailedNode != nodeName) {
+			switch {
+			case annotationPresent && (workload.IsEvicted(&wl) || existingFailedNode != nodeName):
 				delete(currentAnnotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(currentAnnotations)
 				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", existingFailedNode)
-			} else if annotationPresent && existingFailedNode == nodeName {
+			case annotationPresent && existingFailedNode == nodeName:
 				return false, nil
-			} else {
+			default:
 				currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 				wl.SetAnnotations(currentAnnotations)
 				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", nodeName)
