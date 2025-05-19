@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main
+          image: backend:lastest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

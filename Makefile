@@ -37,17 +37,27 @@ IMAGE_BUILD_EXTRA_OPTS ?=
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue
+IMAGE_NAME_KUEUEVIZ_BACKEND := kueueviz-backend
+IMAGE_NAME_KUEUEVIZ_FRONTEND := kueueviz-frontend
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
+IMAGE_REPO_KUEUEVIZ_BACKEND ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME_KUEUEVIZ_BACKEND)
+IMAGE_REPO_KUEUEVIZ_FRONTEND ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME_KUEUEVIZ_FRONTEND)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_BACKEND ?= $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_FRONTEND ?= $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
+IMAGE_EXTRA_TAG_KUEUEVIZ_BACKEND ?= $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(EXTRA_TAG)
+IMAGE_EXTRA_TAG_KUEUEVIZ_FRONTEND ?= $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(EXTRA_TAG)
 endif
 ifdef IMAGE_EXTRA_TAG
 IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
+IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_BACKEND += -t $(IMAGE_EXTRA_TAG_KUEUEVIZ_BACKEND)
+IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_FRONTEND += -t $(IMAGE_EXTRA_TAG_KUEUEVIZ_FRONTEND)
 endif
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -261,6 +271,9 @@ ifndef ignore-not-found
 endif
 
 clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$(RELEASE_BRANCH))
+clean-kueueviz-manifests = (cd config/components/kueueviz && \
+  $(KUSTOMIZE) edit set image backend=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:$(RELEASE_BRANCH) && \
+  $(KUSTOMIZE) edit set image frontend=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -292,6 +305,8 @@ site-server: hugo
 .PHONY: artifacts
 artifacts: kustomize yq helm ## Generate release artifacts.
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 	mkdir -p artifacts
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
@@ -300,13 +315,18 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	$(KUSTOMIZE) build config/kueueviz -o artifacts/kueueviz.yaml
 	@$(call clean-manifests)
+	@$(call clean-kueueviz-manifests)
 	# Update the image tag and policy
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.kueueViz.backend.image = "$(IMAGE_TAG_KUEUEVIZ_BACKEND)"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.kueueViz.frontend.image = "$(IMAGE_TAG_KUEUEVIZ_FRONTEND)"' -i charts/kueue/values.yaml
 	# create the package. TODO: consider signing it
 	$(HELM) package --version $(GIT_TAG) --app-version $(GIT_TAG) charts/kueue -d artifacts/
 	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
 	# Revert the image changes
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REGISTRY)/$(IMAGE_NAME)" | del(.controllerManager.manager.image.tag) | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.kueueViz.backend.image = "$(STAGING_IMAGE_REGISTRY)/kueue/$(IMAGE_NAME_KUEUEVIZ_BACKEND):main"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.kueueViz.frontend.image = "$(STAGING_IMAGE_REGISTRY)/kueue/$(IMAGE_NAME_KUEUEVIZ_FRONTEND):main"' -i charts/kueue/values.yaml
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
@@ -371,19 +391,19 @@ importer-image: importer-image-build
 .PHONY: kueueviz-image-build
 kueueviz-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) \
+		-t $(IMAGE_TAG_KUEUEVIZ_BACKEND) \
 		--platform=$(VIZ_PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_BACKEND) \
 		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend; \
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(GIT_TAG) \
-		-t $(IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) \
+		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		--platform=$(VIZ_PLATFORMS) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_FRONTEND) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend; \
 
 .PHONY: kueueviz-image-push
