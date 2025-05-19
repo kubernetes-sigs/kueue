@@ -32,11 +32,12 @@ HELM=${HELM:-./bin/helm}
 YQ=${YQ:-./bin/yq}
 
 readonly k8s_registry="registry.k8s.io/kueue"
-readonly semver_regex='^v([0-9]+)(\.[0-9]+){1,2}$'
+# Regex taken from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string, but with "v" prefix
+readonly semver_regex='^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'
 
 image_repository=${IMAGE_REPO}
 app_version=${GIT_TAG}
-if [[ ${EXTRA_TAG} =~ ${semver_regex} ]]
+if echo "${EXTRA_TAG}" | grep -Pq "${semver_regex}";
 then
 	image_repository=${k8s_registry}/kueue
 	app_version=${EXTRA_TAG}
