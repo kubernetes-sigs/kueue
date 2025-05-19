@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -63,5 +64,215 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 	}
 	if diff := cmp.Diff(expected, got); diff != "" {
 		t.Errorf("SerializeFreeCapacityPerDomain() mismatch (-expected +got):\n%s", diff)
+	}
+}
+
+func TestMergeTopologyAssignments(t *testing.T) {
+	cases := map[string]struct {
+		a    *kueue.TopologyAssignment
+		b    *kueue.TopologyAssignment
+		want kueue.TopologyAssignment
+	}{
+		"topologies with different domains, all a before b": {
+			a: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+				},
+			},
+			b: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+			want: kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+		},
+		"topologies with different domains, all b before a": {
+			a: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+			b: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+				},
+			},
+			want: kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+		},
+		"topologies with different domains, mixed order": {
+			a: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+				},
+			},
+			b: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+			want: kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "f"},
+						Count:  1,
+					},
+				},
+			},
+		},
+		"topologies with different and the same domains, mixed order": {
+			a: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+				},
+			},
+			b: &kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  1,
+					},
+				},
+			},
+			want: kueue.TopologyAssignment{
+				Levels: []string{"level-1", "level-2"},
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Values: []string{"a", "b"},
+						Count:  1,
+					},
+					{
+						Values: []string{"a", "c"},
+						Count:  1,
+					},
+					{
+						Values: []string{"d", "e"},
+						Count:  2,
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := mergeTopologyAssignments(tc.a, tc.b)
+			if diff := cmp.Diff(tc.want, *got); diff != "" {
+				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+			}
+		})
 	}
 }

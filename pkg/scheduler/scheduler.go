@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -181,6 +182,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
+
 	// If there are no elements, it means that the program is finishing.
 	if len(headWorkloads) == 0 {
 		return wait.KeepGoing
@@ -499,7 +501,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
 			revertUsage := cq.SimulateWorkloadRemoval(targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, false)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, false, nil)
 			revertUsage()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
@@ -508,7 +510,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, true)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, true, nil)
 		}
 		assignment.UpdateForTASResult(tasResult)
 	}
@@ -536,6 +538,12 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
+	if workload.HasFailedNode(newWorkload) {
+		annotations := newWorkload.GetAnnotations()
+		delete(annotations, kueuealpha.NodeToReplaceAnnotation)
+		newWorkload.SetAnnotations(annotations)
+	}
+
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
@@ -549,7 +557,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 					metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 			}
-			if workload.IsAdmitted(newWorkload) {
+			if workload.IsAdmitted(newWorkload) && !workload.HasFailedNode(e.Obj) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 				if features.Enabled(features.LocalQueueMetrics) {
@@ -562,6 +570,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 					}
 				}
 			}
+
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}

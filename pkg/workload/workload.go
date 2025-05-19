@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -592,10 +593,12 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	wlCopy := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			UID:        w.UID,
-			Name:       w.Name,
-			Namespace:  w.Namespace,
-			Generation: w.Generation, // Produce a conflict if there was a change in the spec.
+			UID:         w.UID,
+			Name:        w.Name,
+			Namespace:   w.Namespace,
+			Generation:  w.Generation, // Produce a conflict if there was a change in the spec.
+			Annotations: maps.Clone(w.Annotations),
+			Labels:      maps.Clone(w.Labels),
 		},
 		TypeMeta: w.TypeMeta,
 	}
@@ -647,7 +650,7 @@ func NeedsSecondPass(w *kueue.Workload) bool {
 		HasTopologyAssignmentsPending(w) &&
 		!IsAdmitted(w) &&
 		!IsFinished(w) &&
-		!IsEvicted(w)
+		!IsEvicted(w) || IsAdmitted(w) && HasFailedNode(w) && !IsFinished(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -891,6 +894,12 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+func HasFailedNode(w *kueue.Workload) bool {
+	annotations := w.GetAnnotations()
+	_, hasFailedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
+	return hasFailedNode
 }
 
 func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {

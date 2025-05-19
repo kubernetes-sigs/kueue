@@ -4413,7 +4413,8 @@ func TestResourcesToReserve(t *testing.T) {
 
 func TestScheduleForTAS(t *testing.T) {
 	const (
-		tasRackLabel = "cloud.provider.com/rack"
+		tasBlockLabel = "cloud.com/topology-block"
+		tasRackLabel  = "cloud.provider.com/rack"
 	)
 	defaultSingleNode := []corev1.Node{
 		*testingnode.MakeNode("x1").
@@ -4427,9 +4428,93 @@ func TestScheduleForTAS(t *testing.T) {
 			Ready().
 			Obj(),
 	}
+
+	//      b1                   b2
+	//   /      \             /      \
+	//  r1       r2          r1       r2
+	//  |      /  |  \       |         |
+	//  x1    x2  x3  x4     x5       x6
+	defaultNodes := []corev1.Node{
+		*testingnode.MakeNode("b1-r1-x1").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x2").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x3").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x4").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x5").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x5").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x6").
+			Label("tas-node", "true").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("40"),
+			}).
+			Ready().
+			Obj(),
+	}
+
 	defaultSingleLevelTopology := *utiltesting.MakeDefaultOneLevelTopology("tas-single-level")
 	defaultTwoLevelTopology := *utiltesting.MakeTopology("tas-two-level").
 		Levels(tasRackLabel, corev1.LabelHostname).
+		Obj()
+	defaultThreeLevelTopology := *utiltesting.MakeTopology("tas-three-level").
+		Levels(tasBlockLabel, tasRackLabel, corev1.LabelHostname).
 		Obj()
 	defaultFlavor := *utiltesting.MakeResourceFlavor("default").Obj()
 	defaultTASFlavor := *utiltesting.MakeResourceFlavor("tas-default").
@@ -4439,6 +4524,10 @@ func TestScheduleForTAS(t *testing.T) {
 	defaultTASTwoLevelFlavor := *utiltesting.MakeResourceFlavor("tas-default").
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-two-level").
+		Obj()
+	defaultTASThreeLevelFlavor := *utiltesting.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-three-level").
 		Obj()
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
 		ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
@@ -4502,6 +4591,8 @@ func TestScheduleForTAS(t *testing.T) {
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
+
+		wantAnnotations map[string]map[string]string
 	}{
 		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
 			nodes:           defaultSingleNode,
@@ -4552,6 +4643,414 @@ func TestScheduleForTAS(t *testing.T) {
 					Reason:    "Admitted",
 					EventType: corev1.EventTypeNormal,
 				},
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; baseline scenario": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": make(map[string]string, 0),
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; preferred; fit in different rack": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						PreferredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+									{
+										Count: 1,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+							{
+								Count: 1,
+								Values: []string{
+									"x5",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": make(map[string]string, 0),
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; preferred; no fit": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						PreferredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x0",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    "SecondPassFailed",
+					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
+				},
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": {kueuealpha.NodeToReplaceAnnotation: "x0"},
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; required rack; fit": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						RequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+									{
+										Count: 1,
+										Values: []string{
+											"x2",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x2",
+								},
+							},
+							{
+								Count: 1,
+								Values: []string{
+									"x3",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": make(map[string]string, 0),
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; required rack; no fit": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						RequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+									{
+										Count: 1,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x0",
+								},
+							},
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    "SecondPassFailed",
+					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
+				},
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": {kueuealpha.NodeToReplaceAnnotation: "x0"},
+			},
+		},
+		"workload with nodeToReplace annotation; second pass; two podsets": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one", "two").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultThreeLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+								},
+							}).
+							AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "1000m").
+							AssignmentPodCountWithIndex(1, 1).
+							TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultThreeLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one", "two").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x2",
+								},
+							},
+						},
+					}).
+					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "1000m").
+					AssignmentPodCountWithIndex(1, 1).
+					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantAnnotations: map[string]map[string]string{
+				"default/foo": make(map[string]string, 0),
 			},
 		},
 		"large workload in CQ with ProvisioningRequest; second pass": {
@@ -6306,7 +6805,7 @@ func TestScheduleForTAS(t *testing.T) {
 			}
 			initiallyAdmittedWorkloads := sets.New[string]()
 			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) {
+				if workload.IsAdmitted(&w) && !workload.HasFailedNode(&w) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 				}
 			}
@@ -6341,6 +6840,10 @@ func TestScheduleForTAS(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			gotAssignments := make(map[string]kueue.Admission)
+			gotAnnotations := make(map[string]map[string]string)
+			if tc.wantAnnotations == nil {
+				tc.wantAnnotations = make(map[string]map[string]string)
+			}
 			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
 					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
@@ -6353,11 +6856,18 @@ func TestScheduleForTAS(t *testing.T) {
 						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
 					default:
 						gotAssignments[name] = *w.Obj.Status.Admission
+						gotAnnotations[name] = w.Obj.Annotations
+						if _, found := tc.wantAnnotations[name]; !found {
+							tc.wantAnnotations[name] = nil
+						}
 					}
 				}
 			}
 			if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAnnotations, gotAnnotations); diff != "" {
+				t.Errorf("Unexpected annotations in cache (-want,+got):\n%s", diff)
 			}
 			qDump := qManager.Dump()
 			if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
