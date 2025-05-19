@@ -30,6 +30,8 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 |       [IBM Research](https://research.ibm.com)          | End User | Part of [MLBatch][mlbatch] stack for running AI/ML workloads    | AppWrapper</br>PyTorchJob</br>RayJob  |    [dgrove-oss](https://github.com/dgrove-oss)   |
 |       [Innovatrics](https://www.innovatrics.com/)       | End User |                     On-premise ML Platform                      |          batch/job </br> pod          |    [@mmolisch](https://github.com/mmolisch)      |
 | [Red Hat, Inc.](https://www.redhat.com/en) | End User | Cloud/On-premise ML Platform | Ray Cluster <br> RayJob <br> Pytorch Job <br> TensorFlow Job <br> ... | [@varshaprasad96](https://github.com/varshaprasad96) |
+| [Octue](https://octue.com)                              | End User | [Scientific data service framework][octue-sdk]                  |               batch/job               | [@cortadocodes](https://github.com/cortadocodes) |
 
 [gcmldemo]: https://cloud.google.com/blog/products/compute/the-worlds-largest-distributed-llm-training-job-on-tpu-v5e
 [mlbatch]: https://github.com/project-codeflare/mlbatch
+[octue-sdk]: https://github.com/octue/octue-sdk-python
