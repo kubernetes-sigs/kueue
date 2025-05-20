@@ -148,6 +148,8 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
+
+		workloadsNotAccountedForTAS: sets.New[string](),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
@@ -267,8 +269,11 @@ func (c *Cache) AddOrUpdateTopologyForFlavor(topology *kueuealpha.Topology, flv 
 	c.Lock()
 	defer c.Unlock()
 	levels := utiltas.Levels(topology)
-	tasInfo := c.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels, flv.Spec.Tolerations)
-	c.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
+	tasFlavor := kueue.ResourceFlavorReference(flv.Name)
+	if c.tasCache.Get(tasFlavor) == nil {
+		tasInfo := c.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels, flv.Spec.Tolerations)
+		c.tasCache.Set(tasFlavor, tasInfo)
+	}
 	return c.updateClusterQueues()
 }
 
@@ -658,6 +663,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 		return ErrCqNotFound
 	}
 	cq.deleteWorkload(w)
+	delete(cq.workloadsNotAccountedForTAS, workload.Key(w))
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}

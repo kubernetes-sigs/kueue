@@ -86,6 +86,8 @@ type clusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 
 	tasCache *TASCache
+
+	workloadsNotAccountedForTAS sets.Set[string]
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -196,6 +198,17 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 }
 
 func (c *clusterQueue) updateQueueStatus() {
+	if features.Enabled(features.TopologyAwareScheduling) &&
+		len(c.tasFlavors) > 0 &&
+		len(c.workloadsNotAccountedForTAS) > 0 &&
+		c.isTASSynced() {
+		for k, w := range c.Workloads {
+			if c.workloadsNotAccountedForTAS.Has(k) {
+				c.addOrUpdateWorkload(w.Obj)
+				c.workloadsNotAccountedForTAS.Delete(k)
+			}
+		}
+	}
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
@@ -214,6 +227,15 @@ func (c *clusterQueue) updateQueueStatus() {
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
 	}
+}
+
+func (c *clusterQueue) isTASSynced() bool {
+	for tasFlavor := range c.tasFlavors {
+		if c.tasCache.Get(tasFlavor) == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *clusterQueue) inactiveReason() (string, string) {
@@ -460,15 +482,25 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		}
 	}
 	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
-		for tasFlavor, tasUsage := range wi.TASUsage() {
-			if tasFlvCache := c.tasFlavorCache(tasFlavor); tasFlvCache != nil {
-				if m == 1 {
-					tasFlvCache.addUsage(tasUsage)
+		key := workload.Key(wi.Obj)
+		if c.isTASSynced() {
+			for tasFlavor, tasUsage := range wi.TASUsage() {
+				if tasFlvCache := c.tasCache.Get(tasFlavor); tasFlvCache != nil {
+					if m == 1 {
+						tasFlvCache.addUsage(tasUsage)
+					}
+					if m == -1 {
+						if !c.workloadsNotAccountedForTAS.Has(key) {
+							tasFlvCache.removeUsage(tasUsage)
+						}
+					}
 				}
-				if m == -1 {
-					tasFlvCache.removeUsage(tasUsage)
-				}
+				// we just accounted for TAS usage so drop it from the set
+				c.workloadsNotAccountedForTAS.Delete(key)
 			}
+		} else if _, ok := c.Workloads[key]; ok {
+			// TAS cache is not synced yet so we defer accounting for TAS usage.
+			c.workloadsNotAccountedForTAS.Insert(key)
 		}
 	}
 	if admitted {
@@ -487,16 +519,6 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			lq.reportActiveWorkloads()
 		}
 	}
-}
-
-func (c *clusterQueue) tasFlavorCache(flvName kueue.ResourceFlavorReference) *TASFlavorCache {
-	if !features.Enabled(features.TopologyAwareScheduling) {
-		return nil
-	}
-	if c.tasCache == nil {
-		return nil
-	}
-	return c.tasCache.Get(flvName)
 }
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, m int64) {
