@@ -951,19 +951,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("making the node Ready again", func() {
-					nodeToUpdate := &corev1.Node{}
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
-					for i, cond := range nodeToUpdate.Status.Conditions {
-						if cond.Type == corev1.NodeReady {
-							nodeToUpdate.Status.Conditions[i].Status = corev1.ConditionTrue
-							nodeToUpdate.Status.Conditions[i].LastTransitionTime = metav1.NewTime(time.Now())
-							break
-						}
-					}
-					gomega.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
-				})
-
 				ginkgo.By("verify the workload has corrected TopologyAssignment and no NodeToReplaceAnnotation", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
@@ -976,6 +963,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
+						fmt.Printf("PATRYK wl assignment %#v\n", wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 						fmt.Printf("PATRYK wl annotations %#v\n", wl1.Annotations)
 						g.Expect(wl1.Annotations).NotTo(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())

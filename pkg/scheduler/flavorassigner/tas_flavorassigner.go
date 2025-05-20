@@ -61,7 +61,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 }
 
 func (psa *PodSetAssignment) HasFailedNodeAssignment(wl *workload.Info) bool {
-	if !workload.HasFailedNode(wl.Obj) {
+	if !workload.HasFailedNodeAnnotation(wl.Obj) {
 		return false
 	}
 	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]

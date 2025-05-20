@@ -650,7 +650,7 @@ func NeedsSecondPass(w *kueue.Workload) bool {
 		HasTopologyAssignmentsPending(w) &&
 		!IsAdmitted(w) &&
 		!IsFinished(w) &&
-		!IsEvicted(w) || IsAdmitted(w) && HasFailedNode(w) && !IsFinished(w)
+		!IsEvicted(w) || IsAdmitted(w) && HasFailedNodeAnnotation(w) && !IsFinished(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -896,10 +896,29 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
-func HasFailedNode(w *kueue.Workload) bool {
+func HasFailedNodeAnnotation(w *kueue.Workload) bool {
 	annotations := w.GetAnnotations()
-	_, hasFailedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
-	return hasFailedNode
+	_, hasFailedNodeAnnotation := annotations[kueuealpha.NodeToReplaceAnnotation]
+	return hasFailedNodeAnnotation
+}
+
+func HasTopologyAssignmentWithFailedNode(w *kueue.Workload) bool {
+	if !HasFailedNodeAnnotation(w) || !IsAdmitted(w){
+		return false
+	}
+	annotations := w.GetAnnotations()
+	failedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
+	for _, psa := range w.Status.Admission.PodSetAssignments {
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		for _, domain := range psa.TopologyAssignment.Domains {
+			if domain.Values[len(domain.Values)-1] == failedNode {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {

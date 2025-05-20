@@ -6805,7 +6805,7 @@ func TestScheduleForTAS(t *testing.T) {
 			}
 			initiallyAdmittedWorkloads := sets.New[string]()
 			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) && !workload.HasFailedNode(&w) {
+				if workload.IsAdmitted(&w) && !workload.HasFailedNodeAnnotation(&w) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 				}
 			}

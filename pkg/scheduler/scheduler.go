@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -538,15 +537,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
-	fmt.Printf("PATRYK deleting annotations before: %#v\n", newWorkload.GetAnnotations())
-	if workload.HasFailedNode(newWorkload) {
-		annotations := newWorkload.GetAnnotations()
-		delete(annotations, kueuealpha.NodeToReplaceAnnotation)
-		newWorkload.SetAnnotations(annotations)
-		fmt.Printf("PATRYK deleting annotations\n")
-	}
-	fmt.Printf("PATRYK deleting annotations after: %#v\n", newWorkload.GetAnnotations())
-
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
@@ -560,7 +550,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 					metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 			}
-			if workload.IsAdmitted(newWorkload) && !workload.HasFailedNode(e.Obj) {
+			if workload.IsAdmitted(newWorkload) && !workload.HasFailedNodeAnnotation(e.Obj) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 				if features.Enabled(features.LocalQueueMetrics) {

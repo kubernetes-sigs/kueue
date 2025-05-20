@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -190,6 +191,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
 		return ctrl.Result{}, nil
+	}
+
+	if workload.IsAdmitted(&wl) && workload.HasFailedNodeAnnotation(&wl) {
+		if !workload.HasTopologyAssignmentWithFailedNode(&wl) {
+			annotations := wl.GetAnnotations()
+			delete(annotations, kueuealpha.NodeToReplaceAnnotation)
+			wl.SetAnnotations(annotations)
+			if err := r.client.Update(ctx, &wl); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
 	}
 
 	if workload.IsActive(&wl) {
