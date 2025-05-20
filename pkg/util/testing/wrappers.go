@@ -412,6 +412,11 @@ func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) RestartPolicy(policy corev1.RestartPolicy) *PodSetWrapper {
+	p.Template.Spec.RestartPolicy = policy
+	return p
+}
+
 func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
@@ -1499,6 +1504,11 @@ func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32)
 	return prc
 }
 
+func (prc *ProvisioningRequestConfigWrapper) PodSetMergePolicy(mode kueue.ProvisioningRequestConfigPodSetMergePolicy) *ProvisioningRequestConfigWrapper {
+	prc.Spec.PodSetMergePolicy = &mode
+	return prc
+}
+
 func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigWrapper {
 	return &ProvisioningRequestConfigWrapper{ProvisioningRequestConfig: *prc.DeepCopy()}
 }
@@ -1554,6 +1564,28 @@ func (w *PodTemplateWrapper) NodeSelector(k, v string) *PodTemplateWrapper {
 func (w *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTemplateWrapper {
 	w.Template.Spec.Tolerations = append(w.Template.Spec.Tolerations, toleration)
 	return w
+}
+
+func (p *PodTemplateWrapper) PriorityClass(pc string) *PodTemplateWrapper {
+	p.Template.Spec.PriorityClassName = pc
+	return p
+}
+
+func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodTemplateWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
 }
 
 func (w *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
