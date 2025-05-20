@@ -195,7 +195,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		if currentAnnotations == nil {
 			currentAnnotations = make(map[string]string)
 		}
-		existingFailedNode, annotationPresent := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
+		failedNode, ok := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
 		if annotationPresent && existingFailedNode != nodeName && !workload.IsEvicted(&wl) {
 			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
 			if evictionErr := r.startEviction(ctx, &wl); evictionErr != nil {
