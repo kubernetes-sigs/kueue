@@ -6,7 +6,7 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: lq-a
 spec:
-  parallelism: 3
+  parallelism: 1
   suspend: true
   template:
     spec:
@@ -17,4 +17,4 @@ spec:
         resources:
           requests:
             cpu: 3
-      restartPolicy: OnFailure
+      restartPolicy: Never

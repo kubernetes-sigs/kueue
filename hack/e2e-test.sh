@@ -83,7 +83,7 @@ function kueue_deploy {
 
 trap cleanup EXIT
 startup
-# kind_load
+kind_load
 kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
