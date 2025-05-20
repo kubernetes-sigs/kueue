@@ -903,7 +903,6 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 			g.Expect(readCq.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.ClusterQueueActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
-	fmt.Printf("PATRYK CQ is not active %#v\n", apimeta.FindStatusCondition(cqs[0].Status.Conditions, kueue.ClusterQueueActive))
 }
 
 func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {

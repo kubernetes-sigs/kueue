@@ -538,11 +538,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
+	fmt.Printf("PATRYK deleting annotations before: %#v\n", newWorkload.GetAnnotations())
 	if workload.HasFailedNode(newWorkload) {
 		annotations := newWorkload.GetAnnotations()
 		delete(annotations, kueuealpha.NodeToReplaceAnnotation)
 		newWorkload.SetAnnotations(annotations)
+		fmt.Printf("PATRYK deleting annotations\n")
 	}
+	fmt.Printf("PATRYK deleting annotations after: %#v\n", newWorkload.GetAnnotations())
 
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)

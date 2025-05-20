@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -885,7 +886,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
-			ginkgo.It("should update workload Annotation when node fails", func() {
+			ginkgo.FIt("should update workload TopologyAssignment when node fails", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -948,6 +949,36 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Annotations).Should(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("making the node Ready again", func() {
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
+					for i, cond := range nodeToUpdate.Status.Conditions {
+						if cond.Type == corev1.NodeReady {
+							nodeToUpdate.Status.Conditions[i].Status = corev1.ConditionTrue
+							nodeToUpdate.Status.Conditions[i].LastTransitionTime = metav1.NewTime(time.Now())
+							break
+						}
+					}
+					gomega.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the workload has corrected TopologyAssignment and no NodeToReplaceAnnotation", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+							&kueue.TopologyAssignment{
+								Levels: []string{corev1.LabelHostname},
+								Domains: []kueue.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"x2"}},
+									{Count: 1, Values: []string{"x3"}},
+								},
+							},
+						))
+						fmt.Printf("PATRYK wl annotations %#v\n", wl1.Annotations)
+						g.Expect(wl1.Annotations).NotTo(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
