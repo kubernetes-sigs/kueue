@@ -68,6 +68,14 @@ spec:
                   require.
                 maxProperties: 100
                 type: object
+              podSetMergePolicy:
+                description: |-
+                  podSetMergePolicy specifies the policy for merging PodSets before being passed
+                  to the cluster autoscaler.
+                enum:
+                - IdenticalPodTemplates
+                - IdenticalWorkloadSchedulingRequirements
+                type: string
               podSetUpdates:
                 description: |-
                   podSetUpdates specifies the update of the workload's PodSetUpdates which
