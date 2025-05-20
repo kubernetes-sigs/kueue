@@ -200,11 +200,19 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			wl, workloadProcessingErrors = r.evictWorkloadWhenMultipleFailures(ctx, &wl, wlKey, workloadProcessingErrors)
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
-			if ok && failedNode == nodeName {
-				return false, nil
+			if !ok {
+				annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
+				wl.SetAnnotations(annotations)
+				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", failedNode)
+				return true, nil
 			}
-			r.updateWorkloadAnnotation(&wl, wlKey, nodeName)
-			return true, nil
+			if workload.IsEvicted(&wl) || failedNode != nodeName {
+				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
+				wl.SetAnnotations(annotations)
+				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
+				return true, nil
+			}
+			return false, nil
 		})
 		if err != nil {
 			r.log.V(2).Error(err, "Failed to patch workload with annotation", "workload", wlKey)
@@ -217,23 +225,6 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
-}
-
-func (r *nodeFailureReconciler) updateWorkloadAnnotation(wl *kueue.Workload, wlKey types.NamespacedName, nodeName string) {
-	annotations := wl.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]
-	if ok && (workload.IsEvicted(wl) || failedNode != nodeName) {
-		delete(annotations, kueuealpha.NodeToReplaceAnnotation)
-		wl.SetAnnotations(annotations)
-		r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
-	} else {
-		annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
-		wl.SetAnnotations(annotations)
-		r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", failedNode)
-	}
 }
 
 func (r *nodeFailureReconciler) evictWorkloadWhenMultipleFailures(ctx context.Context, wl *kueue.Workload, wlKey types.NamespacedName, workloadProcessingErrors []error) (kueue.Workload, []error) {
