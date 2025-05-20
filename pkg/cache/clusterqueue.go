@@ -403,7 +403,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[kueue.AdmissionCheck
 	}
 }
 
-func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(w)
@@ -415,7 +415,6 @@ func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) error {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
-	return nil
 }
 
 func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
