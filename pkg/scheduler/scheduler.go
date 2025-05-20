@@ -196,7 +196,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	logSnapshotIfVerbose(log, snapshot)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
-	entries := s.nominate(ctx, headWorkloads, snapshot)
+	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
 	sort.Sort(entryOrdering{
@@ -303,6 +303,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
+	for _, e := range inadmissibleEntries {
+		logAdmissionAttemptIfVerbose(log, &e)
+		s.requeueAndUpdate(ctx, e)
+	}
+
 	reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime))
 	if result != metrics.AdmissionResultSuccess {
@@ -359,10 +364,12 @@ func (e *entry) netUsage() resources.FlavorResourceQuantities {
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
-// they were admitted by the clusterQueues in the snapshot.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *cache.Snapshot) []entry {
+// they were admitted by the clusterQueues in the snapshot. The second return value
+// is the list of inadmissibleEntries.
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *cache.Snapshot) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
+	var inadmissibleEntries []entry
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
 		cq := snap.ClusterQueues[w.ClusterQueue]
@@ -393,10 +400,12 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			if s.fairSharing.Enable && e.assignment.RepresentativeMode() != flavorassigner.NoFit {
 				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
+			entries = append(entries, e)
+			continue
 		}
-		entries = append(entries, e)
+		inadmissibleEntries = append(inadmissibleEntries, e)
 	}
-	return entries
+	return entries, inadmissibleEntries
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
