@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type ResourceFlavorWebhook struct{}
@@ -93,6 +94,12 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 	allErrs = append(allErrs, validateNodeTaints(rf.Spec.NodeTaints, specPath.Child("nodeTaints"))...)
 	allErrs = append(allErrs, validateTolerations(rf.Spec.Tolerations, specPath.Child("tolerations"))...)
+
+	// Validate dynamicResources if feature gate is enabled
+	if len(rf.Spec.DynamicResources) > 0 && features.Enabled(features.DynamicResourceStructuredParameters) {
+		allErrs = append(allErrs, validateDynamicResources(rf.Spec.DynamicResources, specPath.Child("dynamicResources"))...)
+	}
+
 	return allErrs
 }
 
@@ -125,5 +132,53 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 		}
 		uniqueTaints[currTaint.Effect].Insert(currTaint.Key)
 	}
+	return allErrors
+}
+
+// validateDynamicResources validates the DynamicResources field
+func validateDynamicResources(dynamicResources []kueue.DynamicResourceMapping, fldPath *field.Path) field.ErrorList {
+	var allErrors field.ErrorList
+	resourceNames := sets.NewString()
+
+	for i, res := range dynamicResources {
+		idxPath := fldPath.Index(i)
+
+		// Validate resource name
+		if len(res.Name) == 0 {
+			allErrors = append(allErrors, field.Required(idxPath.Child("name"), "resource name is required"))
+		} else if errs := validation.IsQualifiedName(string(res.Name)); len(errs) > 0 {
+			allErrors = append(allErrors, field.Invalid(idxPath.Child("name"), res.Name, strings.Join(errs, ";")))
+		}
+
+		// Check for duplicate resource names
+		if resourceNames.Has(string(res.Name)) {
+			allErrors = append(allErrors, field.Duplicate(idxPath.Child("name"), res.Name))
+		}
+		resourceNames.Insert(string(res.Name))
+
+		// Validate deviceClassNames
+		if len(res.DeviceClassNames) == 0 {
+			allErrors = append(allErrors, field.Required(idxPath.Child("deviceClassNames"), "at least one device class name is required"))
+		}
+
+		// Validate each deviceClassName
+		deviceClassNames := sets.NewString()
+		for j, deviceClassName := range res.DeviceClassNames {
+			deviceIdxPath := idxPath.Child("deviceClassNames").Index(j)
+
+			if len(deviceClassName) == 0 {
+				allErrors = append(allErrors, field.Required(deviceIdxPath, "device class name cannot be empty"))
+			} else if errs := validation.IsQualifiedName(string(deviceClassName)); len(errs) > 0 {
+				allErrors = append(allErrors, field.Invalid(deviceIdxPath, deviceClassName, strings.Join(errs, ";")))
+			}
+
+			// Check for duplicate device class names
+			if deviceClassNames.Has(string(deviceClassName)) {
+				allErrors = append(allErrors, field.Duplicate(deviceIdxPath, deviceClassName))
+			}
+			deviceClassNames.Insert(string(deviceClassName))
+		}
+	}
+
 	return allErrors
 }

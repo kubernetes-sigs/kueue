@@ -40,6 +40,17 @@ type ResourceFlavor struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type TopologyReference string
 
+// DynamicResourceMapping defines mapping for Dynamic Resource Allocation resources
+type DynamicResourceMapping struct {
+	// name of this resource
+	Name corev1.ResourceName `json:"name"`
+
+	// deviceClassNames lists the names of all the device classes that will count against
+	// the quota defined in this resource
+	// +listType=atomic
+	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+}
+
 // ResourceFlavorSpec defines the desired state of the ResourceFlavor
 // +kubebuilder:validation:XValidation:rule="!has(self.topologyName) || self.nodeLabels.size() >= 1", message="at least one nodeLabel is required when topology is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || self == oldSelf", message="resourceFlavorSpec are immutable when topologyName is set"
@@ -103,6 +114,13 @@ type ResourceFlavorSpec struct {
 	//
 	// +optional
 	TopologyName *TopologyReference `json:"topologyName,omitempty"`
+
+	// dynamicResources defines Kubernetes Dynamic Resource Allocation resources
+	// +optional
+	// +featureGate=DynamicResourceStructuredParameters
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	DynamicResources []DynamicResourceMapping `json:"dynamicResources,omitempty"`
 }
 
 // +kubebuilder:object:root=true

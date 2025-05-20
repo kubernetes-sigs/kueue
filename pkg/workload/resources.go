@@ -224,6 +224,19 @@ func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, 
 	}
 }
 
+func deviceClassMapFromResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) map[corev1.ResourceName]corev1.ResourceName {
+	deviceClassMap := make(map[corev1.ResourceName]corev1.ResourceName)
+
+	for _, res := range rf.Spec.DynamicResources {
+		for _, dc := range res.DeviceClassNames {
+			deviceClassMap[dc] = res.Name
+		}
+	}
+
+	log.V(2).Info("deviceClassMapFromResourceFlavor", "rf", rf.Name, "deviceClassMap", deviceClassMap)
+	return deviceClassMap
+}
+
 func getDeviceClassToNameMap(ctx context.Context, cl client.Client, wl *kueue.Workload) (map[corev1.ResourceName]corev1.ResourceName, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.WithValues("workloadName", wl.Name, "workloadNamespace", wl.Namespace)
@@ -248,25 +261,26 @@ func getDeviceClassToNameMap(ctx context.Context, cl client.Client, wl *kueue.Wo
 		return nil, err
 	}
 
-	return deviceClassMapFromCQ(log, cq), nil
-}
-
-func deviceClassMapFromCQ(log logr.Logger, cq *kueue.ClusterQueue) map[corev1.ResourceName]corev1.ResourceName {
+	// Create device class map from ResourceFlavors
 	deviceClassMap := make(map[corev1.ResourceName]corev1.ResourceName)
-	for _, resourceGroup := range cq.Spec.ResourceGroups {
-		for _, flavor := range resourceGroup.Flavors {
-			for _, res := range flavor.Resources {
-				if res.Kind != nil && *res.Kind == "DeviceClass" {
-					for _, dc := range res.DeviceClassNames {
-						deviceClassMap[dc] = res.Name
-					}
-				}
+
+	// Get all resource flavors used in the cluster queue
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, flavor := range rg.Flavors {
+			rf := &kueue.ResourceFlavor{}
+			if err := cl.Get(ctx, client.ObjectKey{Name: string(flavor.Name)}, rf); err != nil {
+				log.Error(err, "Failed to get ResourceFlavor", "name", flavor.Name)
+				continue
+			}
+
+			// Merge maps
+			for dc, resName := range deviceClassMapFromResourceFlavor(log, rf) {
+				deviceClassMap[dc] = resName
 			}
 		}
 	}
-	// TODO: change the logging verbosity below
-	log.V(2).Info("deviceClassMapFromCQ", "cq", cq.Name, "deviceClassMap", deviceClassMap)
-	return deviceClassMap
+
+	return deviceClassMap, nil
 }
 
 func resourceClaimsToContainerRequests(podSpec *corev1.PodSpec, resourceList corev1.ResourceList) {
