@@ -552,7 +552,8 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return clusterQueue.addOrUpdateWorkload(w) == nil
+	clusterQueue.addOrUpdateWorkload(w)
+	return true
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
@@ -577,7 +578,8 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return cq.addOrUpdateWorkload(newWl)
+	cq.addOrUpdateWorkload(newWl)
+	return nil
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
@@ -633,9 +635,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 		return ErrCqNotFound
 	}
 
-	if err := cq.addOrUpdateWorkload(w); err != nil {
-		return err
-	}
+	cq.addOrUpdateWorkload(w)
 	c.assumedWorkloads[k] = w.Status.Admission.ClusterQueue
 	return nil
 }
