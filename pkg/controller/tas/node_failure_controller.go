@@ -239,10 +239,10 @@ func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Wor
 	message := "Workload eviction triggered due to multiple TAS assigned node failures"
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToTASNodeFailures, message)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
-	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
-	if err == nil {
-		cqName := wl.Status.Admission.ClusterQueue
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToTASNodeFailures, message)
+	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
+	      return err
 	}
-	return err
+	cqName := wl.Status.Admission.ClusterQueue
+	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToTASNodeFailures, message)
+	return nil
 }
