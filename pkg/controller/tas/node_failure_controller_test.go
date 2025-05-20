@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
@@ -205,17 +206,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
 
-			if tc.wantEvicted {
-				foundEvicted := false
-				for _, cond := range wl.Status.Conditions {
-					if cond.Type == kueue.WorkloadEvicted && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedDueToTASNodeFailures {
-						foundEvicted = true
-						break
-					}
-				}
-				if !foundEvicted {
-					t.Errorf("Workload was not evicted with reason %s, got conditions: %v", kueue.WorkloadEvictedDueToTASNodeFailures, wl.Status.Conditions)
-				}
+			isEvicted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
+			if diff := cmp.Diff(tc.wantEvicted, isEvicted); diff != "" {
+				t.Errorf("Unexpected eviction status (-want/+got):\n%s", diff)
 			}
 		})
 	}
