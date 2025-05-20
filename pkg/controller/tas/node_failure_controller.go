@@ -196,7 +196,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			currentAnnotations = make(map[string]string)
 		}
 		failedNode, ok := currentAnnotations[kueuealpha.NodeToReplaceAnnotation]
-		if annotationPresent && existingFailedNode != nodeName && !workload.IsEvicted(&wl) {
+		if ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
 			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
 			if evictionErr := r.startEviction(ctx, &wl); evictionErr != nil {
 				r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
@@ -209,11 +209,11 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
 			switch {
-			case annotationPresent && (workload.IsEvicted(&wl) || existingFailedNode != nodeName):
+			case ok && (workload.IsEvicted(&wl) || failedNode != nodeName):
 				delete(currentAnnotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(currentAnnotations)
-				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", existingFailedNode)
-			case annotationPresent && existingFailedNode == nodeName:
+				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
+			case ok && failedNode == nodeName:
 				return false, nil
 			default:
 				currentAnnotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
@@ -240,7 +240,7 @@ func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Wor
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToTASNodeFailures, message)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-	      return err
+		return err
 	}
 	cqName := wl.Status.Admission.ClusterQueue
 	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToTASNodeFailures, message)
