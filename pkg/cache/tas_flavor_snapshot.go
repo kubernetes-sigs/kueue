@@ -469,7 +469,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	} else {
 		selector = labels.Everything()
 	}
-	requiredDomain := s.requiredDomain(required, levelIdx, currentTopologyAssignment, len(s.levelKeys)-1)
+	requiredDomain := s.requiredDomain(required, levelIdx, currentTopologyAssignment)
 
 	// phase 1 - determine the number of pods which can fit in each topology domain
 	s.fillInCounts(
@@ -505,10 +505,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return topologyAssignment, ""
 }
 
-func (s *TASFlavorSnapshot) requiredDomain(required bool, levelIdx int, currentTopologyAssignment *kueue.TopologyAssignment, nodeLevel int) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredDomain(required bool, levelIdx int, currentTopologyAssignment *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	if !required || currentTopologyAssignment == nil {
 		return ""
 	}
+	nodeLevel := len(s.levelKeys) - 1
 	nodeDomain := currentTopologyAssignment.Domains[0].Values[0]
 	node := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
 	parent := node
@@ -574,16 +575,11 @@ func deleteDomainIfNecessary(tasPodSetRequests TASPodSetRequests,
 	}
 	for i, domain := range currentTopologyAssignment.Domains {
 		if domain.Values[len(domain.Values)-1] == *nodeToReplace {
-			noMissingsPods := domain.Count
+			noAffectedPods := domain.Count
 
 			// remove the faulty domain:
-			// 1. move the rest of domains to the left by one
-			// 2. shrink the array by one
-			for j := i + 1; j < len(currentTopologyAssignment.Domains); j++ {
-				currentTopologyAssignment.Domains[j-1] = currentTopologyAssignment.Domains[j]
-			}
-			currentTopologyAssignment.Domains = currentTopologyAssignment.Domains[:len(currentTopologyAssignment.Domains)-1]
-			return noMissingsPods
+			currentTopologyAssignment.Domains = append(currentTopologyAssignment.Domains[:i], currentTopologyAssignment.Domains[i+1:]...)
+			return noAffectedPods
 		}
 	}
 	return 0
