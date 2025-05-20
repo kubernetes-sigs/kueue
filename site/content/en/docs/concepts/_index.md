@@ -49,7 +49,7 @@ A mechanism allowing internal or external components to influence the timing of 
 ### [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)
 
 A mechanism allowing to schedule Workloads optimizing Pod placement for
-network throuput between the Pods.
+network throughput between the Pods.
 
 ## Glossary
 
