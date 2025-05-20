@@ -28,6 +28,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
   - [Internal APIs](#internal-apis)
+    - [Node failures](#node-failures)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
@@ -55,6 +56,7 @@
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
+  - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
 <!-- /toc -->
 
 ## Summary
@@ -323,12 +325,13 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-A more involving approach would be to recompute the TopologyAdmission, however,
-until now we don't modify the workload's admission while the workload is
-scheduled, so it would require extra investigation and effort. We will consider
-this before graduation to GA based on investigation if feasible and feedback
-from users.
-
+We also propose to recompute the TopologyAdmission upon node removal and/or 
+failure, to find matching replacements for missing nodes. If no such 
+replacement exists, the workload has to be evicted and rescheduled again.
+This mechanism requires kueue to keep track of any failed or missing nodes 
+affecting the scheduled TAS workloads. We propose to initially handle only
+a single node failure and extend it to multiple depending on the feedback
+from the users.
 #### Race condition when accounting for DaemonSet pods
 
 There is a risk that workloads are scheduled before the DaemonSet pods are
@@ -661,6 +664,31 @@ for [Beta](#beta). The initial approach for the design is left in the
 [Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
 section.
 
+#### Node failures
+
+Initially we plan to support node becoming not ready (as indicated in Node 
+`status.conditions.ready` field) and node being deleted. A new controller will 
+monitor nodes and will update each affected TAS workload with the information 
+about the failed nodes. This information will then be consumed by a new mechanism
+in scheduler where we will try to find a new topology assignment and replace the
+failed node(s) (by changing the assignment only on the affected pods). 
+If no replacement is possible, the workload will be evicted. Initially we plan
+to only replace in the case of a single node failure and if no preemption/reclamation
+is neccessary to fit the workload. Since this mechanism is dedicated
+to only replace nodes, it will only work for Topologies which specify
+`kubernetes.io/hostname` at the lowest level.
+
+We propose to introduce a new Annotation at a Workload level:
+
+```golang
+const (
+	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
+	// name of a failed node running at least one pod of this workload.
+	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
+)
+```
+
+
 ### Implicit defaulting of TAS annotations
 
 Requiring to set the TAS annotations (see [User facing API](#user-facing-api))
@@ -921,6 +949,8 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
 - add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
+- change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
+- handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 
 #### Stable
 
@@ -1116,3 +1146,25 @@ fulfilled with a dedicated indexed virtual field.
 
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
+
+### Failed nodes in WorkloadStatus
+
+Alternatively, the information about failed nodes could be stored in a dedicated 
+field in WorkloadStatus.
+
+```golang
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+  ...
+  // nodesToReplace lists the names of failed nodes running pods associated 
+  // with this workload. This field is populated by the node failure controller.
+  // +optional
+  // +listType=set
+  NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
+```
+**Reasons for discarding/deferring**
+
+Uncertanity about the final shape of the feature and the required format.
+We will decide on the format of this field based on the feedback from the 
+customers on the MVP.
