@@ -160,7 +160,20 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+					g.Expect(wl.Status.SchedulingStats.Evictions).To(
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEvicition{{
+							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+							UnderlyingCause: kueue.WorkloadWaitForStart,
+							Count:           1,
+						}}),
+					)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the metric is updated", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_evicted_workloads_once_total", cq.Name, string(kueue.WorkloadEvictedByPodsReadyTimeout), kueue.WorkloadWaitForStart, "1"},
+				})
 			})
 
 			ginkgo.By("verifying that the job is suspended", func() {
@@ -242,7 +255,21 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadEvicted))
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+
+					g.Expect(wl.Status.SchedulingStats.Evictions).To(
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEvicition{{
+							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+							UnderlyingCause: kueue.WorkloadWaitForRecovery,
+							Count:           1,
+						}}),
+					)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the metric is updated", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_evicted_workloads_once_total", cq.Name, string(kueue.WorkloadEvictedByPodsReadyTimeout), kueue.WorkloadWaitForRecovery, "1"},
+				})
 			})
 		})
 	})
@@ -307,6 +334,12 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the metric is not updated", func() {
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_evicted_workloads_once_total", ns.Name},
+				})
 			})
 		})
 	})

@@ -373,6 +373,14 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEvicition) *WorkloadWrapper {
+	if w.Status.SchedulingStats == nil {
+		w.Status.SchedulingStats = &kueue.SchedulingStats{}
+	}
+	w.Status.SchedulingStats.Evictions = append(w.Status.SchedulingStats.Evictions, evictionState)
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {

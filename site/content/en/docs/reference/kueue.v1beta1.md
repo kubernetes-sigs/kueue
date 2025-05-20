@@ -2613,6 +2613,30 @@ words, it's the used quota that is over the nominalQuota.</p>
 </tbody>
 </table>
 
+## `SchedulingStats`     {#kueue-x-k8s-io-v1beta1-SchedulingStats}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>evictions</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEvicition"><code>[]WorkloadSchedulingStatsEvicition</code></a>
+</td>
+<td>
+   <p>evictions tracks eviction statistics by reason and underlyingCause.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `StopPolicy`     {#kueue-x-k8s-io-v1beta1-StopPolicy}
     
 (Alias of `string`)
@@ -2741,6 +2765,45 @@ domain indicated by the values field.</p>
 
 
 
+
+## `WorkloadSchedulingStatsEvicition`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEvicition}
+    
+
+**Appears in:**
+
+- [SchedulingStats](#kueue-x-k8s-io-v1beta1-SchedulingStats)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>reason</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>reason specifies the programmatic identifier for the eviction cause.</p>
+</td>
+</tr>
+<tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>count</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count tracks the number of evictions for this reason and detailed reason.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     
@@ -2913,6 +2976,13 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>schedulingStats</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-SchedulingStats"><code>SchedulingStats</code></a>
+</td>
+<td>
+   <p>schedulingStats tracks scheduling statistics</p>
 </td>
 </tr>
 </tbody>

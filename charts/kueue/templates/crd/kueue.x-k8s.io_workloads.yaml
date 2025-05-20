@@ -8355,6 +8355,39 @@ spec:
                   x-kubernetes-list-map-keys:
                     - name
                   x-kubernetes-list-type: map
+                schedulingStats:
+                  description: schedulingStats tracks scheduling statistics
+                  properties:
+                    evictions:
+                      description: evictions tracks eviction statistics by reason and underlyingCause.
+                      items:
+                        properties:
+                          count:
+                            description: count tracks the number of evictions for this reason and detailed reason.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          reason:
+                            description: reason specifies the programmatic identifier for the eviction cause.
+                            maxLength: 316
+                            type: string
+                          underlyingCause:
+                            description: |-
+                              underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+                              This may be an empty string.
+                            maxLength: 316
+                            type: string
+                        required:
+                          - count
+                          - reason
+                          - underlyingCause
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                        - reason
+                        - underlyingCause
+                      x-kubernetes-list-type: map
+                  type: object
               type: object
           type: object
           x-kubernetes-validations:
