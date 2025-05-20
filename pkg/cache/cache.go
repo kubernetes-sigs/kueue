@@ -662,8 +662,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	if cq == nil {
 		return ErrCqNotFound
 	}
-	cq.deleteWorkload(w)
-	delete(cq.workloadsNotAccountedForTAS, workload.Key(w))
+	cq.forgetWorkload(w)
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}

@@ -439,6 +439,11 @@ func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) {
 	c.reportActiveWorkloads()
 }
 
+func (c *clusterQueue) forgetWorkload(w *kueue.Workload) {
+	c.deleteWorkload(w)
+	delete(c.workloadsNotAccountedForTAS, workload.Key(w))
+}
+
 func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]

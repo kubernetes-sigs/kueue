@@ -520,7 +520,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should respect TAS usage by admitted worklods after reboot; second workload created after reboot", func() {
+			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created after reboot", func() {
 				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
@@ -562,7 +562,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should respect TAS usage by admitted worklods after reboot; second workload created before reboot", func() {
+			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", func() {
 				var wl1, wl2, wl3 *kueue.Workload
 				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
