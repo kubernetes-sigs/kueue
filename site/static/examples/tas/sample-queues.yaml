@@ -24,7 +24,7 @@ metadata:
 spec:
   namespaceSelector: {} # match all.
   resourceGroups:
-  - coveredResources: ["cpu", "memory"]
+  - coveredResources: ["cpu"]
     flavors:
     - name: "tas-flavor"
       resources:

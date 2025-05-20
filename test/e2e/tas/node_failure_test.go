@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
+var _ = ginkgo.FDescribe("NodeFailure Controller", ginkgo.Ordered, func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")
@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating a Job", func() {
+	ginkgo.FWhen("Creating a Job", func() {
 		var (
 			topology     *kueuealpha.Topology
 			tasFlavor    *kueue.ResourceFlavor

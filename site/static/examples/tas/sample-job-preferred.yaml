@@ -5,8 +5,8 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: tas-user-queue
 spec:
-  parallelism: 40
-  completions: 40
+  parallelism: 3
+  completions: 3
   completionMode: Indexed
   template:
     metadata:
@@ -19,6 +19,5 @@ spec:
         args: ["pause"]
         resources:
           requests:
-            cpu: "1"
-            memory: "200Mi"
-      restartPolicy: Never
+            cpu: "20"
+      restartPolicy: OnFailure
