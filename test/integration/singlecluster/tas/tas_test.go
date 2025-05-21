@@ -935,7 +935,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("making the node NotReady 30s in the past", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
-					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
+
+					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+					})
 				})
 
 				ginkgo.By("verify the workload has the NodeToReplaceAnnotation", func() {
@@ -1036,7 +1041,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("updating nodeReady condition of the second node", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: node1Name}, nodeToUpdate)).Should(gomega.Succeed())
-					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
+					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+					})
 				})
 
 				ginkgo.By("verify the workload has the NodeToReplaceAnnotation", func() {
@@ -1049,7 +1058,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("updating nodeReady condition of the second node", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: node2Name}, nodeToUpdate)).Should(gomega.Succeed())
-					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
+					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+					})
 				})
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {

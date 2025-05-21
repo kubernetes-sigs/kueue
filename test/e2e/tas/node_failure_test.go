@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -135,11 +136,19 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 
 			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name))
-				util.SetNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue, time.Now())
+				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				util.SetNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
+				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+				})
 			})
 			ginkgo.By(fmt.Sprintf("Verify node is added to failure list by checking workload %s status", wlName), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -180,7 +189,12 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				originalNode.UID = ""
 				originalNode.ManagedFields = nil
 				util.MustCreate(ctx, k8sClient, originalNode)
-				util.SetNodeCondition(ctx, k8sClient, originalNode, corev1.NodeReady, corev1.ConditionTrue, time.Now())
+
+				util.SetNodeCondition(ctx, k8sClient, originalNode, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate deletion of node %s hosting pod %s", nodeNameToDelete, chosenPod.Name), func() {
