@@ -70,7 +70,7 @@ func (psa *PodSetAssignment) HasFailedNodeAssignment(wl *workload.Info) bool {
 			return true
 		}
 	}
-	return true
+	return false
 }
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,

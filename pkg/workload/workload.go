@@ -644,13 +644,21 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
+	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
+}
+
+func needsSecondPassForDelayedAssignment(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) &&
 		len(w.Status.AdmissionChecks) > 0 &&
 		HasAllChecksReady(w) &&
 		HasTopologyAssignmentsPending(w) &&
 		!IsAdmitted(w) &&
 		!IsFinished(w) &&
-		!IsEvicted(w) || IsAdmitted(w) && HasFailedNodeAnnotation(w) && !IsFinished(w)
+		!IsEvicted(w)
+}
+
+func needsSecondPassAfterNodeFailure(w *kueue.Workload) bool {
+	return IsAdmitted(w) && HasFailedNodeAnnotation(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -897,13 +905,16 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 }
 
 func HasFailedNodeAnnotation(w *kueue.Workload) bool {
+	if w == nil {
+		return false
+	}
 	annotations := w.GetAnnotations()
 	_, hasFailedNodeAnnotation := annotations[kueuealpha.NodeToReplaceAnnotation]
 	return hasFailedNodeAnnotation
 }
 
 func HasTopologyAssignmentWithFailedNode(w *kueue.Workload) bool {
-	if !HasFailedNodeAnnotation(w) || !IsAdmitted(w){
+	if !HasFailedNodeAnnotation(w) || !IsAdmitted(w) {
 		return false
 	}
 	annotations := w.GetAnnotations()

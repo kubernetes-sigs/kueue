@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -886,7 +885,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
-			ginkgo.FIt("should update workload TopologyAssignment when node fails", func() {
+			ginkgo.It("should update workload TopologyAssignment when node fails", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -963,8 +962,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
-						fmt.Printf("PATRYK wl assignment %#v\n", wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-						fmt.Printf("PATRYK wl annotations %#v\n", wl1.Annotations)
 						g.Expect(wl1.Annotations).NotTo(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
