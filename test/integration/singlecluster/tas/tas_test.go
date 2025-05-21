@@ -884,6 +884,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(wl1.Annotations).Should(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
+
+				ginkgo.By("verify the workload has corrected TopologyAssignment and no NodeToReplaceAnnotation", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+							&kueue.TopologyAssignment{
+								Levels: []string{corev1.LabelHostname},
+								Domains: []kueue.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"x2"}},
+									{Count: 1, Values: []string{"x3"}},
+								},
+							},
+						))
+						g.Expect(wl1.Annotations).NotTo(gomega.HaveKeyWithValue(kueuealpha.NodeToReplaceAnnotation, nodeName))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 			})
 			ginkgo.It("should update workload TopologyAssignment when node fails", func() {
 				var wl1 *kueue.Workload
