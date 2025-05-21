@@ -1,0 +1,46 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "fancy-gpu-flavor"
+spec:
+  dynamicResources:
+    - name: gpus
+      deviceClassNames:
+        - gpu.example.com
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "new-gpu-flavor"
+spec:
+  dynamicResources:
+    - name: new-gpus
+      deviceClassNames:
+        - gpu.example.com
+    - name: shared-gpus
+      deviceClassNames:
+        - new-feature-device-class.example.com
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "gpus-cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: gpus
+  preemption:
+    reclaimWithinCohort: "Any"
+  resourceGroups:
+    - coveredResources: ["cpu", "memory", "gpus", "new-gpus"]
+      flavors:
+        - name: "fancy-gpu-flavor"
+          resources:
+            - name: "gpus"
+              nominalQuota: 2
+        - name: "new-gpus"
+          resources:
+            - name: "new-gpus"
+              nominalQuota: 2
+# When a workload requesting resource from gpu.example.com is created, what canonical name should Kueue count its quota against?
+# Both gpus and new-gpus canonical names have defined gpu.example.com
