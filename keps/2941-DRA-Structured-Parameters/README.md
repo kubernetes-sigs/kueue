@@ -69,7 +69,7 @@ more robust way to schedule, it is important to walk through how support of DRA 
 
 ### Background
 
-DRA has three APIs that are relevant for a Kueue:
+DRA has four APIs that are relevant for a Kueue:
 
 - ResourceClaims
 - ResourceClaimTemplates
@@ -161,14 +161,17 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 ## Proposal
 
 This proposal is to extend the APIs for allowing workloads using DRA APIs to be tallied against quota management, 
-borrowing and preemptable scheduling. This includes modifying the `ResourceQuota` struct to allow configuring the field
-to distinguish a core resource from a dynamic resource.
+borrowing and preemptable scheduling. This includes modifying:
+1. The `ResourceFlavor` API to allow creating a mapping canonical name -> device class names list
+2. Allowing admins to refer to canonical name defined in resource flavor to define nominalQuota. The nominalQuota here
+   will be applied to workloads requesting devices from any DeviceClasses mentioned in the deviceClassNames list for
+   the specific canonical name. More details are documented in [Design Details](#design-details)
 
 ### User Stories (Optional)
 
 #### Story 1
 
-As a Kueue user, I want to use the DRA API to provide more control over the scheduling of devices.
+As a Kueue user, I want to use DRA devices for batch workloads in Kubernetes using Kueue
 
 #### Story 2
 
@@ -199,59 +202,69 @@ In order to mitigate this risk, Kueue can take the following approach:
 ### Resource Quota API
 
 ```golang
-type ResourceQuota struct {
-    // kind is used to configure if this is for a DRA Device. Its value will be DeviceClass.
-    // +featureGate=KueueDynamicResourceAllocation
-    Kind *string `json:"kind,omitempty"`
-    
-    // deviceClassNames lists the names of all the device classes that will count against
-    // the quota defined in this resource quota object.
-    // +listType=atomic
-    // +optional
-    // +featureGate=KueueDynamicResourceAllocation
-    DeviceClassNames []corev1.ResourceName `json:"deviceClassNames,omitempty"`
+type DynamicResourceMapping struct {
+	// Name is the canonical name of this mapping. This will be referred in ClusterQueue
+	// and Workload status
+	Name corev1.ResourceName `json:"name"`
+
+	// deviceClassNames lists the names of all the device classes that will count against
+	// the quota defined in this resource
+	// +listType=atomic
+	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+}
+
+type ResourceFlavorSpec struct {
+	// dynamicResources defines Kubernetes Dynamic Resource Allocation resources
+	// +optional
+	// +featureGate=DynamicResourceStructuredParameters
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	DynamicResources []DynamicResourceMapping `json:"dynamicResources,omitempty"`
 }
 ```
 
-Kind field in ResourceQuota allows Kueue to distinguish between a Core resource and a DeviceClass. When the value of kind
-field is configured to be DeviceClass, the `name` becomes a canonical name of the collection of resources that can be 
-provisioned for each device class present in `deviceClassNames` field.
-
-
-With this, a ClusterQueue could be defined as follows:
+The ResourceFlavor spec will have a field called dynamicResource. The cluster admin has to define the list of
+deviceClasses that will be represented by a canonical name and can be used to define quotas in cluster queue. With this
+a ClusterQueue with nominalQuota can be defined as follows:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-gpu-flavor"
+spec:
+  dynamicResources:
+  - name: whole-gpus
+    deviceClassNames:
+    - gpu.example.com
+  - name: shared-gpus
+    deviceClassNames:
+    - ts-shard-gpus.example.com
+    - sp-shared-gpus.example.com
+---
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: "cluster-queue"
+  name: "gpus-cluster-queue"
 spec:
-  namespaceSelector: {} # match all.
   resourceGroups:
-  - coveredResources: ["cpu", "memory", "gpu.example.com"]
+  - coveredResources: ["cpu", "memory", "whole-gpus", "shared-gpu"]
     flavors:
-    - name: "default-flavor"
+    - name: "default-gpu-flavor"
       resources:
       - name: "cpu"
         nominalQuota: 9
       - name: "memory"
-        nominalQuota: "200Mi"
-      - name: "single-gpu"
-        deviceClassNames: ["gpu.example.com"]
+        nominalQuota: "1200Mi"
+      - name: 'whole-gpus'
         nominalQuota: 2
-        kind: "DeviceClass"
-      - name: "shared-gpus"
-        deviceClassNames: 
-        - "ts-shared.gpu.example.com"
-        - "sp-shared.gpu.example.com"
+      - name: 'shared-gpus'
         nominalQuota: 2
-        kind: "DeviceClass"
 ```
 
 The above ClusterQueue is an example configuration of a queue, with half quota configured for single allocation of example
 GPUs, and half quota configured for GPUs that are shared by workloads. Similarly, when DRAPartitionableDevices feature
-is supported in kubernetes, GPUs partitions can be represented by a single device class. This allows for quota to be 
-configured in Kueue without any modifications. 
+is supported in kubernetes, GPUs partitions can be represented by a single device class.
 
 ### Workloads
 
@@ -259,33 +272,22 @@ When a user submits a workload and KueueDynamicResourceAllocation feature gate i
 
 1. Claims will be read from resources.claims in the PodTemplateSpec.
 2. ResourceClaimSpec will be looked up either by using:
-     1. the name of the ResourceClaimTemplate or
-     2. the name of the ResourceClaim
-   
+  1. the name of the ResourceClaimTemplate or
+  2. the name of the ResourceClaim
+
    Both ResourceClaimTemplate or ResourceClaim will be in the same namespace as the workload.
 3. From the ResourceClaimSpec, the deviceClassName will be read.
-4. Every claim, deviceClassName for each request will be looked at 
-   1. For the workload a deviceClassMap will be created, which is map of deviceClass -> canonical name in cluster queue
-   2. for each device class the canonical quota name will be looked up and resource will be counted against it.
+4. Every claim, deviceClassName for each request will be looked at
+  1. For the workload a deviceClassMap will be created by:
+    1. Retrieving the LocalQueue and ClusterQueue for the workload
+      1. Getting all ResourceFlavors used in the ClusterQueue
+        1. For each ResourceFlavor, extracting its DynamicResources section
+          1. Creating a map from DeviceClass names to the Kueue resource names
+  2. for each device class the canonical quota name will be looked up and resource will be counted against it.
 5. Once the Kueue counts and admits the workloads, it saves the count in workload status. This does not require any API
-   change, as an example:
-    ```yaml
-    status:
-      admission:
-        clusterQueue: single-gpus-cluster-queue
-        podSetAssignments:
-        - count: 2
-          flavors:
-            cpu: default-flavor
-            memory: default-flavor
-            single-gpus: default-flavor   # the canonical name is from ClusterQueue where quota is defined
-          name: main
-          resourceUsage:
-            cpu: "2"
-            memory: 400Mi
-            single-gpus: "2"              # A count is included here with the canonical name
-    ```
+   change
 
+All the step above are reflect in the YAMLs below:
 ```yaml
 ---
 
@@ -328,25 +330,54 @@ spec:
       - name: gpu
         deviceClassName: gpu.example.com # 3) the name of the device class
 ---
+
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: "cluster-queue"
+  name: "gpus-cluster-queue"
 spec:
-  namespaceSelector: {} # match all.
   resourceGroups:
-    - coveredResources: ["cpu", "memory", "single-gpus"]
+  - coveredResources: ["cpu", "memory", "whole-gpus"]
+    flavors:
+    - name: "default-gpu-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: "1200Mi"
+      - name: 'whole-gpus'             # 4.1.1.1) get the canonical name for default-gpu-flavor
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-gpu-flavor"
+spec:
+  dynamicResources:
+  - name: whole-gpus
+    deviceClassNames:
+    - gpu.example.com                # 4.1.1.1.1) create a map{"gpu.example.com" -> "whole-gpus"}
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: job-job0-6f46e
+  namespace: gpu-test1
+...
+...
+status:
+  admission:
+    clusterQueue: single-gpus-cluster-queue
+    podSetAssignments:
+    - count: 2
       flavors:
-        - name: "default-flavor"
-          resources:
-            - name: "cpu"
-              nominalQuota: 9
-            - name: "memory"
-              nominalQuota: "200Mi"
-            - name: "single-gpu"    #4.ii) lookup the cannonical name of the collection of deviceClassNames and count quota against it
-              deviceClassNames: ["gpu.example.com"]
-              nominalQuota: 2
-              kind: "DeviceClass"
+        cpu: whole-gpu-flavor
+        memory: whole-gpu-flavor
+        single-gpus: default-gpu-flavor # 5) selected flavor is reflected here in workload status
+      name: main
+      resourceUsage:
+        cpu: "1"
+        memory: 400Mi
+        whole-gpus: "1"                # 5) selected device count is reflected here in workload status
 ```
 <!--
 This section should contain enough information that the specifics of your
@@ -417,14 +448,14 @@ The goal will be limit changes only if this feature gate is enabled in combinati
 
 ## Drawbacks
 
-NA. Kueue should be able to schedule devices following what upstream is proposing. 
+NA. Kueue should be able to schedule devices following what upstream is proposing.
 The only drawbacks are that workloads will have to fetch the resource claim if they are specifying resource claims.
 
 ## Alternatives
 
 ### ResourceClaim By Count
 
-Keeping a tally of the resource claims for a given workload could be another mechanism for enforcing quota. 
+Keeping a tally of the resource claims for a given workload could be another mechanism for enforcing quota.
 However, the issue with this is that resource claims are namespaced scoped, to enforce quota usage across namespaces kueue
 need to rely on a cluster-scope resource.
 
@@ -435,10 +466,10 @@ of requests becomes non-intuitive. The need is to count devices going to be allo
 ### Using devices in ResourceSlice to Count
 
 DRA drivers publish resources for each node, which could be used as a mechanism for counting resources. However, in DRA
-implementation, ResourceSlices are used for driver/scheduler communication. The only way users can request dynamic 
+implementation, ResourceSlices are used for driver/scheduler communication. The only way users can request dynamic
 resources is via ResourceClaims. ResourceClaims does not have the notion of what devices will be allocated a priori.
 
-Enforcing quota requires two inputs, 1) user request and 2) system usages. With using ResourceSlice, the first requirement 
+Enforcing quota requires two inputs, 1) user request and 2) system usages. With using ResourceSlice, the first requirement
 is missing.
 
 ### Using a CEL expression
