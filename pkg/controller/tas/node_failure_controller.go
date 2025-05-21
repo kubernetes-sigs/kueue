@@ -47,6 +47,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+const (
+	NodeMultipleFailuresEvictionMessage = "Workload eviction triggered due to multiple TAS assigned node failures"
+)
+
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeFailureReconciler struct {
 	client   client.Client
@@ -195,21 +199,21 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 		if annotations == nil {
 			annotations = make(map[string]string)
 		}
-		failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]
-		if ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
+		if failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
 			wl, workloadProcessingErrors = r.evictWorkloadWhenMultipleFailures(ctx, &wl, wlKey, workloadProcessingErrors)
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
+			failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]
 			if !ok {
+				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", failedNode)
 				annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 				wl.SetAnnotations(annotations)
-				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", failedNode)
 				return true, nil
 			}
 			if workload.IsEvicted(&wl) || failedNode != nodeName {
+				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
 				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(annotations)
-				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
 				return true, nil
 			}
 			return false, nil
@@ -241,13 +245,11 @@ func (r *nodeFailureReconciler) evictWorkloadWhenMultipleFailures(ctx context.Co
 }
 
 func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload) error {
-	message := "Workload eviction triggered due to multiple TAS assigned node failures"
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, message)
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, NodeMultipleFailuresEvictionMessage)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
 		return err
 	}
-	cqName := wl.Status.Admission.ClusterQueue
-	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedDueToNodeFailures, message)
+	workload.ReportEvictedWorkload(r.recorder, wl, wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, NodeMultipleFailuresEvictionMessage)
 	return nil
 }
