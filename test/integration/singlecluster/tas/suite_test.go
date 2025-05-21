@@ -81,6 +81,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
+	err = tas.RegisterInformers(ctx, mgr)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Informer not initialized")
+
 	cacheOptions := []cache.Option{}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
 	queues := queue.NewManager(mgr.GetClient(), cCache)
@@ -105,7 +108,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
-	err = sched.Start(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithManager(mgr))
+	go func() {
+		err = sched.Start(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
 }
