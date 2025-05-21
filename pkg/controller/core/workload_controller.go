@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -195,10 +196,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if workload.IsAdmitted(&wl) && workload.HasFailedNodeAnnotation(&wl) {
 		if !workload.HasTopologyAssignmentWithFailedNode(&wl) {
-			annotations := wl.GetAnnotations()
-			delete(annotations, kueuealpha.NodeToReplaceAnnotation)
-			wl.SetAnnotations(annotations)
-			if err := r.client.Update(ctx, &wl); err != nil {
+			if err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
+				annotations := wl.GetAnnotations()
+				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
+				wl.SetAnnotations(annotations)
+				r.log.V(3).Info("Deleting %v annotation from Workload", "annotation", kueuealpha.NodeToReplaceAnnotation)
+				return true, nil
+			}); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 		}
