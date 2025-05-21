@@ -46,8 +46,9 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Resource Claim By Count](#resource-claim-by-count)
+  - [Resource Claim By Count](#resourceclaim-by-count)
   - [Using devices in ResourceSlice to Count](#using-devices-in-resourceslice-to-count)
+  - [Using a CEL expression](#using-a-cel-expression)
 <!-- /toc -->
 
 ## Summary
@@ -70,7 +71,8 @@ more robust way to schedule, it is important to walk through how support of DRA 
 
 DRA has three APIs that are relevant for a Kueue:
 
-- Resource Claims
+- ResourceClaims
+- ResourceClaimTemplates
 - DeviceClasses
 - ResourceSlices
 
@@ -134,8 +136,8 @@ cluster.
 
 ##### ResourceSlices
 
-ResourceSlices are meant for communication between drivers and the control planes. These are not expected to be used for workloads.
-Kueue does not need to be aware of these resources.
+ResourceSlices are meant for communication between drivers and the control planes. These are not expected to be used for
+workloads.
 
 ##### DeviceClasses
 
@@ -153,6 +155,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 - We are limiting scope for DRA to structured parameters (beta in 1.32 and 1.33)
   - Support for alpha features like DRADeviceTaints, DRAAdminAccess, DRAPrioritizedLists and DRAPartitionableDevices will not be
     included.
+- This design does not work with Topology Aware Scheduling feature of Kueue. It is a significant amount of work, will be
+   addressed in the future with a separate body of work
 
 ## Proposal
 
@@ -263,6 +267,24 @@ When a user submits a workload and KueueDynamicResourceAllocation feature gate i
 4. Every claim, deviceClassName for each request will be looked at 
    1. For the workload a deviceClassMap will be created, which is map of deviceClass -> canonical name in cluster queue
    2. for each device class the canonical quota name will be looked up and resource will be counted against it.
+5. Once the Kueue counts and admits the workloads, it saves the count in workload status. This does not require any API
+   change, as an example:
+    ```yaml
+    status:
+      admission:
+        clusterQueue: single-gpus-cluster-queue
+        podSetAssignments:
+        - count: 2
+          flavors:
+            cpu: default-flavor
+            memory: default-flavor
+            single-gpus: default-flavor   # the canonical name is from ClusterQueue where quota is defined
+          name: main
+          resourceUsage:
+            cpu: "2"
+            memory: 400Mi
+            single-gpus: "2"              # A count is included here with the canonical name
+    ```
 
 ```yaml
 ---
@@ -400,11 +422,15 @@ The only drawbacks are that workloads will have to fetch the resource claim if t
 
 ## Alternatives
 
-### Resource Claim By Count
+### ResourceClaim By Count
 
 Keeping a tally of the resource claims for a given workload could be another mechanism for enforcing quota. 
 However, the issue with this is that resource claims are namespaced scoped, to enforce quota usage across namespaces kueue
 need to rely on a cluster-scope resource.
+
+Additionally, ResourceClaims capture the intent of the user on what kind of device is request. The request could mean
+anything from one small allocatable device to several devices or entire resource pool. Therefore, tracking the number
+of requests becomes non-intuitive. The need is to count devices going to be allocated to those requests.
 
 ### Using devices in ResourceSlice to Count
 
