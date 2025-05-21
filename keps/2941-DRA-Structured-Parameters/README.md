@@ -410,7 +410,83 @@ need to rely on a cluster-scope resource.
 
 DRA drivers publish resources for each node, which could be used as a mechanism for counting resources. However, in DRA
 implementation, ResourceSlices are used for driver/scheduler communication. The only way users can request dynamic 
-resources is via ResourceClaims. ResourceClaims does not have the notion of what devices will be allocated a priori. 
+resources is via ResourceClaims. ResourceClaims does not have the notion of what devices will be allocated a priori.
 
 Enforcing quota requires two inputs, 1) user request and 2) system usages. With using ResourceSlice, the first requirement 
 is missing.
+
+### Using a CEL expression
+
+Cluster admin might have to create new deviceclass for narrowing set of target devices in existing device class for
+setting quota. Moreover, when existing users use the old device classes, they might have to migrate to the new deviceclass.
+For example, assume gpu.example.com deviceclass exists, and each device has device attribute "memory" there are existing
+users who have resourceclaims with the deviceclass and selector like this:
+```yaml
+kind: ResourceClaim
+name: one-large-gpu
+spec:
+requests:
+- name: gpu-large
+  deviceClassName: gpu.example.com
+  selectors:
+    - cel:
+      expression: device.attributes["memory"] >= 80g
+```
+
+Now, if Kueue admin wants to set quota for gpu.example.com devices with device.attribute["memory"]>=80g, Kueue admin
+might have to create a device class and use the new device class in clusterqueue:
+
+```yaml
+kind: DeviceClass
+name: large-gpu.example.com
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "gpu.example.com" && device.attributes["memory"] >= 80g
+```
+
+Then, existing users might have to migrate/switch their ResourceClaim with large-gpu.example.com device class from
+existing one.
+
+For minimizing user impact, there could be an API change that allows CEL expression along with deviceclass name in
+defining the Kueue quota, like this:
+```yaml
+kind: Device
+nominalQuota: 2
+devices:
+  # We might be able to extend this object to support
+  # partitionable devices, etc. in the future??
+- className: gpu.example.com
+  selectors:
+  - cel:
+      expression: device.attributes["memory"] >= 80g
+```
+
+This indeed improves the user experience, but with a cel expression like that, whether a device having attributes that
+evaluates the cel expression to true or not, will only be available after the scheduler allocates the device for the
+claim. Kueue needs to know the device and count it before admitting the workload and hence before it hits the
+kube-scheduler. Any inclusion relationship between two boolean formulae in ResourceClaim and ClusterQueue cannot be
+assumed.
+
+For example, assume the following ResourceClaim and ClusterQueue exist. In this situation, it is clear that there could
+be both cases where the allocation result consumes and does not consume the quota (i.e. this means we have to wait for
+the allocation result).
+
+```yaml
+kind: ResourceClaim
+name: one-mid-or-large-gpu
+spec:
+  requests:
+  - name: middle-or-large-gpu
+    deviceClassName: gpu.example.com
+    selectors:
+    - cel:
+        expression: 50g < device.attributes["memory"] and device.attributes["memory"] <= 100g
+---
+kind: Device
+devices:
+- className: gpu.example.com
+  selectors:
+  - cel:
+      expression: device.attributes["memory"] <= 80g
+```
