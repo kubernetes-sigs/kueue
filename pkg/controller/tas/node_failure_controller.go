@@ -203,17 +203,18 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			if evictionErr := r.startEviction(ctx, &wl, evictionMsg); evictionErr != nil {
 				r.log.V(2).Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
+				continue
 			} else {
 				evictedNow = true
 			}
 			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 				r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
-			} else {
-				annotations = getAnnotations(&wl)
+				continue
 			}
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
+			annotations = getAnnotations(&wl)
 			failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]
 			if !ok {
 				r.log.V(4).Info(fmt.Sprintf("Adding node to %s annotation", kueuealpha.NodeToReplaceAnnotation), "workload", wlKey, "nodeName", failedNode)
@@ -232,9 +233,9 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 		if err != nil {
 			r.log.V(2).Error(err, "Failed to patch workload annotation", "workload", wlKey)
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
-		} else {
-			r.log.V(3).Info("Successfully patched workload annotation", "workload", wlKey, "nodesToReplaceAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
+			continue
 		}
+		r.log.V(3).Info("Successfully patched workload annotation", "workload", wlKey, "nodesToReplaceAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
