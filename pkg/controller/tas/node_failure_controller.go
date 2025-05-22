@@ -196,12 +196,15 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			continue
 		}
 		annotations := getAnnotations(&wl)
+		evictedNow := false
 		if failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
 			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
 			evictionMsg := fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
 			if evictionErr := r.startEviction(ctx, &wl, evictionMsg); evictionErr != nil {
 				r.log.V(2).Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
+			} else {
+				evictedNow = true
 			}
 			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 				r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
@@ -218,7 +221,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 				wl.SetAnnotations(annotations)
 				return true, nil
 			}
-			if workload.IsEvicted(&wl) {
+			if workload.IsEvicted(&wl) || evictedNow {
 				r.log.V(4).Info(fmt.Sprintf("Removing node from %s annotation", kueuealpha.NodeToReplaceAnnotation), "workload", wlKey, "nodeName", failedNode)
 				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(annotations)
