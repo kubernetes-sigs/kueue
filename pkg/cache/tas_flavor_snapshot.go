@@ -548,14 +548,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return s.buildAssignment(currFitDomain), ""
 }
 
-func canMerge(mergedDomains []kueue.TopologyDomainAssignment, domain kueue.TopologyDomainAssignment) bool {
-	if len(mergedDomains) == 0 {
-		return false
-	}
-	lastDomain := mergedDomains[len(mergedDomains)-1]
-	return utiltas.DomainID(domain.Values) == utiltas.DomainID(lastDomain.Values)
-}
-
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
 	nodeLevel := len(s.levelKeys) - 1
@@ -579,6 +571,14 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignm
 		Levels:  a.Levels,
 		Domains: mergedDomains,
 	}
+}
+
+func canMerge(mergedDomains []kueue.TopologyDomainAssignment, domain kueue.TopologyDomainAssignment) bool {
+	if len(mergedDomains) == 0 {
+		return false
+	}
+	lastDomain := mergedDomains[len(mergedDomains)-1]
+	return utiltas.DomainID(domain.Values) == utiltas.DomainID(lastDomain.Values)
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
