@@ -1256,4 +1256,160 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 	})
+
+	ginkgo.When("A workload is using a provision request with enabled PodSetMergePolicy", func() {
+		var (
+			ns             *corev1.Namespace
+			wlKey          types.NamespacedName
+			provReqKey     types.NamespacedName
+			ac             *kueue.AdmissionCheck
+			prc            *kueue.ProvisioningRequestConfig
+			rf             *kueue.ResourceFlavor
+			cq             *kueue.ClusterQueue
+			lq             *kueue.LocalQueue
+			admission      *kueue.Admission
+			createdRequest autoscaling.ProvisioningRequest
+			updatedWl      kueue.Workload
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+
+			prc = baseConfig.Clone().
+				RetryLimit(0).
+				PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).
+				Obj()
+			util.MustCreate(ctx, k8sClient, prc)
+
+			ac = testing.MakeAdmissionCheck("ac-prov").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+				Obj()
+			util.MustCreate(ctx, k8sClient, ac)
+
+			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+
+			cq = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(resourceGPU, "5", "5").Obj()).
+				Cohort("cohort").
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
+				g.Expect(lq.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := testing.MakeWorkload("wl", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(
+					*testing.MakePodSet("master", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "2Gi").
+						Image("image").
+						Labels(map[string]string{"role": "master"}).
+						Obj(),
+					*testing.MakePodSet("worker", 4).
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "2Gi").
+						Image("image").
+						Labels(map[string]string{"role": "worker"}).
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey = client.ObjectKeyFromObject(wl)
+			provReqKey = types.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(
+					kueue.PodSetAssignment{
+						Name: "master",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
+						},
+						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+						Count: ptr.To[int32](1),
+					},
+					kueue.PodSetAssignment{
+						Name: "worker",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
+						},
+						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+						Count: ptr.To[int32](2),
+					},
+				).
+				Obj()
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+		})
+
+		ginkgo.It("Should merge similar PodSets into one PodTemplate, PodSetMergePolicy is IdenticalWorkloadSchedulingRequirements", func() {
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &updatedWl, admission)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ignoreContainersDefaults := cmpopts.IgnoreFields(corev1.Container{}, "TerminationMessagePath", "TerminationMessagePolicy", "ImagePullPolicy")
+			ginkgo.By("Checking that the provision requests content", func() {
+				gomega.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class"))
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(createdRequest.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+
+				mergedPodSet := createdRequest.Spec.PodSets[0]
+				gomega.Expect(mergedPodSet.Count).To(gomega.Equal(int32(3)))
+				gomega.Expect(mergedPodSet.PodTemplateRef.Name).NotTo(gomega.BeEmpty())
+
+				mergedTemplate := &corev1.PodTemplate{}
+				templateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      mergedPodSet.PodTemplateRef.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, templateKey, mergedTemplate)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(mergedTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
+				gomega.Expect(mergedTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
+				gomega.Expect(mergedTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &updatedWl, nil)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })

@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -274,17 +275,13 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			expectedPodSets := requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)
-			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
-			podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
-			for _, psName := range expectedPodSets {
-				ps, psFound := podSetMap[psName]
-				psa, psaFound := psaMap[psName]
-				if !psFound || !psaFound {
-					return errInconsistentPodSetAssignments
-				}
+			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
+			if err != nil {
+				return err
+			}
 
-				ptName := getProvisioningRequestPodTemplateName(requestName, psName)
+			for _, mergedPodSet := range mergedPodSets {
+				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
 				pt := &corev1.PodTemplate{}
 				err := c.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ptName}, pt)
@@ -293,7 +290,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 				}
 				if err != nil {
 					// it's a not found, so create it
-					_, err := c.createPodTemplate(ctx, wl, ptName, ps, psa)
+					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
 						return c.handleError(ctx, wl, ac, msg, err)
@@ -304,7 +301,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					PodTemplateRef: autoscaling.Reference{
 						Name: ptName,
 					},
-					Count: ptr.Deref(psa.Count, ps.Count),
+					Count: mergedPodSet.Count,
 				})
 			}
 
@@ -832,4 +829,85 @@ func limitObjectName(fullName string) string {
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
 	return fmt.Sprintf("%s-%s", fullName[:objNameMaxPrefixLength], hashBytes[:objNameHashLength])
+}
+
+type MergedPodSet struct {
+	Name             kueue.PodSetReference
+	PodSet           *kueue.PodSet
+	PodSetAssignment *kueue.PodSetAssignment
+	Count            int32
+}
+
+func mergePodSets(
+	wl *kueue.Workload,
+	prcSpec *kueue.ProvisioningRequestConfigSpec,
+) ([]MergedPodSet, error) {
+	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
+	psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
+	podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
+
+	mergePolicy := prcSpec.PodSetMergePolicy
+	mergedPodSets := []MergedPodSet{}
+	for _, psName := range expectedPodSets {
+		ps, psFound := podSetMap[psName]
+		psa, psaFound := psaMap[psName]
+		if !psFound || !psaFound {
+			return nil, errInconsistentPodSetAssignments
+		}
+
+		merged := false
+		if mergePolicy != nil {
+			for i, mps := range mergedPodSets {
+				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
+					mergedPodSets[i].Count += ptr.Deref(psa.Count, ps.Count)
+					break
+				}
+			}
+		}
+
+		if !merged {
+			mergedPodSets = append(mergedPodSets, MergedPodSet{
+				Name:             psName,
+				PodSet:           ps,
+				PodSetAssignment: psa,
+				Count:            ptr.Deref(psa.Count, ps.Count),
+			})
+		}
+	}
+
+	return mergedPodSets, nil
+}
+
+func canMergePodSets(ps1, ps2 *kueue.PodSet, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) bool {
+	switch *mergePolicy {
+	case kueue.IdenticalPodTemplates:
+		return equality.Semantic.DeepEqual(ps1.Template, ps2.Template)
+	case kueue.IdenticalWorkloadSchedulingRequirements:
+		return arePodSetsSimilar(ps1, ps2)
+	default:
+		return false
+	}
+}
+
+func arePodSetsSimilar(ps1, ps2 *kueue.PodSet) bool {
+	return areContainersEqual(ps1.Template.Spec.Containers, ps2.Template.Spec.Containers) &&
+		areContainersEqual(ps1.Template.Spec.InitContainers, ps2.Template.Spec.InitContainers) &&
+		equality.Semantic.DeepEqual(ps1.Template.Spec.Resources, ps2.Template.Spec.Resources) &&
+		equality.Semantic.DeepEqual(ps1.Template.Spec.NodeSelector, ps2.Template.Spec.NodeSelector) &&
+		equality.Semantic.DeepEqual(ps1.Template.Spec.Tolerations, ps2.Template.Spec.Tolerations) &&
+		equality.Semantic.DeepEqual(ps1.Template.Spec.Affinity, ps2.Template.Spec.Affinity) &&
+		equality.Semantic.DeepEqual(ps1.Template.Spec.ResourceClaims, ps2.Template.Spec.ResourceClaims)
+}
+
+// areContainersEqual compares the resource requests of containers between two lists of PodSet containers.
+func areContainersEqual(ps1Containers []corev1.Container, ps2Containers []corev1.Container) bool {
+	if len(ps1Containers) != len(ps2Containers) {
+		return false
+	}
+	for i := range ps1Containers {
+		if !equality.Semantic.DeepEqual(ps1Containers[i].Resources.Requests, ps2Containers[i].Resources.Requests) {
+			return false
+		}
+	}
+	return true
 }

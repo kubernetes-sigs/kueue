@@ -2113,6 +2113,18 @@ result in failure during workload admission.</p>
 
 
 
+## `ProvisioningRequestConfigPodSetMergePolicy`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigPodSetMergePolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+
+
 ## `ProvisioningRequestConfigSpec`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec}
     
 
@@ -2175,6 +2187,14 @@ set retryStrategy.backoffLimitCount to 0.</p>
 <td>
    <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
 are used to target the provisioned nodes.</p>
+</td>
+</tr>
+<tr><td><code>podSetMergePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigPodSetMergePolicy"><code>ProvisioningRequestConfigPodSetMergePolicy</code></a>
+</td>
+<td>
+   <p>podSetMergePolicy specifies the policy for merging PodSets before being passed
+to the cluster autoscaler.</p>
 </td>
 </tr>
 </tbody>

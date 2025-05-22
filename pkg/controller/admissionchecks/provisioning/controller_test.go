@@ -245,6 +245,59 @@ func TestReconcile(t *testing.T) {
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
+	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
+		{
+			Name: "ps1",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "flv1",
+			},
+			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			},
+			Count: ptr.To[int32](1),
+		},
+		{
+			Name: "ps2",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "flv1",
+			},
+			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			},
+			Count: ptr.To[int32](2),
+		},
+		{
+			Name: "ps3",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "flv2",
+			},
+			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceMemory: resource.MustParse("1M"),
+			},
+			Count: ptr.To[int32](2),
+		},
+		{
+			Name: "ps4",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "flv2",
+			},
+			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceMemory: resource.MustParse("1M"),
+			},
+			Count: ptr.To[int32](1),
+		},
+		{
+			Name: "ps5",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "flv2",
+			},
+			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceMemory: resource.MustParse("1M"),
+			},
+			Count: ptr.To[int32](1),
+		},
+	}
+
 	cases := map[string]struct {
 		interceptorFuncsCreate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error
 
@@ -1235,6 +1288,357 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+		},
+		"with podSetMergePolicy IdenticalPodTemplates": {
+			// podSets 1 and 2 can be merged as they are identical,
+			// podSets 3 and 4 can be merged as they are identical,
+			// podSet 5 however have different priority class even though everything else match with podSets 3 and 4
+			// PodSetMergePolicy IdenticalPodTemplates prevents the ability to merge it
+			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				PodSets(
+					*utiltesting.MakePodSet("ps1", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltesting.MakePodSet("ps2", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltesting.MakePodSet("ps3", 2).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-100").
+						Obj(),
+					*utiltesting.MakePodSet("ps4", 2).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-100").
+						Obj(),
+					*utiltesting.MakePodSet("ps5", 1).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-200").
+						Obj(),
+				).
+				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalPodTemplates).Obj()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
+						Labels: map[string]string{
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "wl",
+							},
+						},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps1",
+								},
+								Count: 3,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps3",
+								},
+								Count: 3,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps5"},
+								Count: 1,
+							},
+						},
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				"ppt-wl-check1-1-ps1": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}).
+					NodeSelector("f1l1", "v1").
+					Toleration(corev1.Toleration{
+						Key:      "f1t1k",
+						Value:    "f1t1v",
+						Operator: corev1.TolerationOpEqual,
+						Effect:   corev1.TaintEffectNoSchedule,
+					}).
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("1M"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					PriorityClass("pc-100").
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("1M"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					PriorityClass("pc-200").
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+			},
+		},
+		"with podSetMergePolicy IdenticalWorkloadSchedulingRequirements": {
+			// podSets 1 and 2 can be merged as they are similar, PriorityClass is not taken into account with this PodSetMergePolicy,
+			// podSets 3 and 4 can be merged as they are similar despite different PriorityClass and TopologyRequest,
+			// podSet 5 however have defined an extraAffinity and although everything else match with podSets can't be merged with others
+			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				PodSets(
+					*utiltesting.MakePodSet("ps1", 2).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("pc-100").
+						Obj(),
+					*utiltesting.MakePodSet("ps2", 2).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("pc-200").
+						Obj(),
+					*utiltesting.MakePodSet("ps3", 2).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-100").
+						RequiredTopologyRequest("default1").
+						Obj(),
+					*utiltesting.MakePodSet("ps4", 2).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-200").
+						RequiredTopologyRequest("default2").
+						Obj(),
+					*utiltesting.MakePodSet("ps5", 1).
+						Request(corev1.ResourceMemory, "1M").
+						PriorityClass("pc-300").
+						RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "type",
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{"two"},
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
+						Labels: map[string]string{
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "wl",
+							},
+						},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps1",
+								},
+								Count: 3,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps3",
+								},
+								Count: 3,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps5"},
+								Count: 1,
+							},
+						},
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				"ppt-wl-check1-1-ps1": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}).
+					NodeSelector("f1l1", "v1").
+					PriorityClass("pc-100").
+					Toleration(corev1.Toleration{
+						Key:      "f1t1k",
+						Value:    "f1t1v",
+						Operator: corev1.TolerationOpEqual,
+						Effect:   corev1.TaintEffectNoSchedule,
+					}).
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("1M"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					PriorityClass("pc-100").
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("1M"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					PriorityClass("pc-300").
+					RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "type",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"two"},
+								},
+							},
+						},
+					}).
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "autoscaling.x-k8s.io",
+						Version: "v1beta1",
+						Kind:    "ProvisioningRequest",
+					}, "wl-check1-1", "").
+					Obj(),
+			},
+		},
+		"with podSetMergePolicy but no PodSetAssignments": {
+			// podSets 1 and 2 can be merged as they are similar, PriorityClass is not taken into account with this PodSetMergePolicy,
+			// podSets 3 and 4 can be merged as they are similar despite different PriorityClass and TopologyRequest,
+			// podSet 5 however have defined an extraAffinity and although everything else match with podSets can't be merged with others
+			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				PodSets(
+					*utiltesting.MakePodSet("ps11", 2).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("pc-100").
+						Obj(),
+					*utiltesting.MakePodSet("ps22", 2).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("pc-200").
+						Obj(),
+				).
+				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs:            []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
+			flavors:            []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			wantReconcileError: errInconsistentPodSetAssignments,
 		},
 	}
 

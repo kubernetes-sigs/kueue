@@ -21,10 +21,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type ProvisioningRequestConfigPodSetMergePolicy string
+
 const (
 	// ProvisioningRequestControllerName is the name used by the Provisioning
 	// Request admission check controller.
 	ProvisioningRequestControllerName = "kueue.x-k8s.io/provisioning-request"
+
+	IdenticalWorkloadSchedulingRequirements ProvisioningRequestConfigPodSetMergePolicy = "IdenticalWorkloadSchedulingRequirements"
+	IdenticalPodTemplates                   ProvisioningRequestConfigPodSetMergePolicy = "IdenticalPodTemplates"
 )
 
 // ProvisioningRequestConfigSpec defines the desired state of ProvisioningRequestConfig
@@ -76,6 +81,13 @@ type ProvisioningRequestConfigSpec struct {
 	//
 	// +optional
 	PodSetUpdates *ProvisioningRequestPodSetUpdates `json:"podSetUpdates,omitempty"`
+
+	// podSetMergePolicy specifies the policy for merging PodSets before being passed
+	// to the cluster autoscaler.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=IdenticalPodTemplates;IdenticalWorkloadSchedulingRequirements
+	PodSetMergePolicy *ProvisioningRequestConfigPodSetMergePolicy `json:"podSetMergePolicy,omitempty"`
 }
 
 type ProvisioningRequestPodSetUpdates struct {
