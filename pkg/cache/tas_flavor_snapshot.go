@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -393,37 +394,37 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 // it also updates the existing assignment and deletes domain that has faulty node
 // it updates TASPodsSetRequest with the number of Pods affected by the deletion of domain
 func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Workload, psa *kueue.PodSetAssignment) utiltas.TopologyDomainID {
-	if psa != nil && psa.TopologyAssignment != nil {
-		key := s.levelKeyWithImpliedFallback(tr)
-		if key == nil {
-			return ""
-		}
-		levelIdx, found := s.resolveLevelIdx(*key)
-		if !found {
-			return ""
-		}
-
-		nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
-		tr.Count = deleteDomain(psa.TopologyAssignment, &nodeToReplace)
-		// no domain to comply with so we don't require any domain at all
-		if len(psa.TopologyAssignment.Domains) == 0 {
-			return ""
-		}
-
-		required := isRequired(tr.PodSet.TopologyRequest)
-		if !required {
-			return ""
-		}
-		nodeLevel := len(s.levelKeys) - 1
-		// we know at this point that values contains only hostname
-		nodeDomain := psa.TopologyAssignment.Domains[0].Values[0]
-		domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
-		for i := nodeLevel; i > levelIdx; i-- {
-			domain = domain.parent
-		}
-		return domain.id
+	if psa == nil || psa.TopologyAssignment == nil {
+		return ""
 	}
-	return ""
+	key := s.levelKeyWithImpliedFallback(tr)
+	if key == nil {
+		return ""
+	}
+	levelIdx, found := s.resolveLevelIdx(*key)
+	if !found {
+		return ""
+	}
+
+	nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
+	tr.Count = deleteDomain(psa.TopologyAssignment, nodeToReplace)
+	// no domain to comply with so we don't require any domain at all
+	if len(psa.TopologyAssignment.Domains) == 0 {
+		return ""
+	}
+
+	required := isRequired(tr.PodSet.TopologyRequest)
+	if !required {
+		return ""
+	}
+	nodeLevel := len(s.levelKeys) - 1
+	// we know at this point that values contains only hostname
+	nodeDomain := psa.TopologyAssignment.Domains[0].Values[0]
+	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+	for i := nodeLevel; i > levelIdx; i-- {
+		domain = domain.parent
+	}
+	return domain.id
 }
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
@@ -439,7 +440,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		requiredDomain := s.requiredDomain(&tr, wl, psa)
 		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
 		if workload.HasFailedNodeAnnotation(wl) && psa.TopologyAssignment != nil && assignment != nil {
-			assignment = mergeTopologyAssignments(assignment, psa.TopologyAssignment)
+			assignment = s.mergeTopologyAssignments(assignment, psa.TopologyAssignment)
 		}
 		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 		if reason != "" {
@@ -457,17 +458,18 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 }
 
 // deleteDomain deletes the domain the has faulty node and returns number of affected pods by the node
-func deleteDomain(currentTopologyAssignment *kueue.TopologyAssignment, nodeToReplace *string) int32 {
-	for i, domain := range currentTopologyAssignment.Domains {
-		if domain.Values[len(domain.Values)-1] == *nodeToReplace {
-			noAffectedPods := domain.Count
-
-			// remove the faulty domain:
-			currentTopologyAssignment.Domains = append(currentTopologyAssignment.Domains[:i], currentTopologyAssignment.Domains[i+1:]...)
-			return noAffectedPods
+func deleteDomain(currentTopologyAssignment *kueue.TopologyAssignment, nodeToReplace string) int32 {
+	var noAffectedPods int32 = 0
+	updatedAssignment := make([]kueue.TopologyDomainAssignment, 0, len(currentTopologyAssignment.Domains))
+	for _, domain := range currentTopologyAssignment.Domains {
+		if domain.Values[len(domain.Values)-1] == nodeToReplace {
+			noAffectedPods = domain.Count
+		} else {
+			updatedAssignment = append(updatedAssignment, domain)
 		}
 	}
-	return 0
+	currentTopologyAssignment.Domains = updatedAssignment
+	return noAffectedPods
 }
 
 // Algorithm overview:
@@ -547,33 +549,37 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return s.buildAssignment(currFitDomain), ""
 }
 
-// Merges two topology assignments keeping the lexicographical order of levelValues
-func mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
-	res := kueue.TopologyAssignment{
-		Levels: a.Levels,
+func canMerge(mergedDomains []kueue.TopologyDomainAssignment, domain kueue.TopologyDomainAssignment) bool {
+	if len(mergedDomains) == 0 {
+		return false
 	}
-	lIdx, rIdx := 0, 0
+	lastDomain := mergedDomains[len(mergedDomains)-1]
+	return utiltas.DomainID(domain.Values) == utiltas.DomainID(lastDomain.Values)
+}
 
-	for lIdx < len(a.Domains) && rIdx < len(b.Domains) {
-		// compare level values of domains
-		switch strings.Compare(strings.Join(a.Domains[lIdx].Values, ""), strings.Join(b.Domains[rIdx].Values, "")) {
-		case -1:
-			res.Domains = append(res.Domains, a.Domains[lIdx])
-			lIdx++
-		case 1:
-			res.Domains = append(res.Domains, b.Domains[rIdx])
-			rIdx++
-		default:
-			// both domain have the same level values, sum counts
-			res.Domains = append(res.Domains, a.Domains[lIdx])
-			res.Domains[len(res.Domains)-1].Count += b.Domains[rIdx].Count
-			lIdx++
-			rIdx++
+// Merges two topology assignments keeping the lexicographical order of levelValues
+func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
+	nodeLevel := len(s.levelKeys) - 1
+	sortedDomains := make([]kueue.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
+	sortedDomains = append(sortedDomains, a.Domains...)
+	sortedDomains = append(sortedDomains, b.Domains...)
+	sort.Slice(sortedDomains, func(i, j int) bool {
+		a, b := sortedDomains[i], sortedDomains[j]
+		aDomain, bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)], s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
+		return utiltas.DomainID(aDomain.levelValues) < utiltas.DomainID(bDomain.levelValues)
+	})
+	mergedDomains := make([]kueue.TopologyDomainAssignment, 0, len(sortedDomains))
+	for _, domain := range sortedDomains {
+		if canMerge(mergedDomains, domain) {
+			mergedDomains[len(mergedDomains)-1].Count += domain.Count
+		} else {
+			mergedDomains = append(mergedDomains, domain)
 		}
 	}
-	res.Domains = append(res.Domains, a.Domains[lIdx:]...)
-	res.Domains = append(res.Domains, b.Domains[rIdx:]...)
-	return &res
+	return &kueue.TopologyAssignment{
+		Levels:  a.Levels,
+		Domains: mergedDomains,
+	}
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
