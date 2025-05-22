@@ -405,6 +405,10 @@ func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Work
 
 		nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
 		tr.Count = deleteDomain(psa.TopologyAssignment, &nodeToReplace)
+		// no domain to comply with so we don't require any domain at all
+		if len(psa.TopologyAssignment.Domains) == 0 {
+			return ""
+		}
 
 		required := isRequired(tr.PodSet.TopologyRequest)
 		if !required {
