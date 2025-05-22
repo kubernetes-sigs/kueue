@@ -394,9 +394,6 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 // it also updates the existing assignment and deletes domain that has faulty node
 // it updates TASPodsSetRequest with the number of Pods affected by the deletion of domain
 func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Workload, psa *kueue.PodSetAssignment) utiltas.TopologyDomainID {
-	if psa == nil || psa.TopologyAssignment == nil {
-		return ""
-	}
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -405,16 +402,13 @@ func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Work
 	if !found {
 		return ""
 	}
-
-	nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
-	tr.Count = deleteDomain(psa.TopologyAssignment, nodeToReplace)
-	// no domain to comply with so we don't require any domain at all
-	if len(psa.TopologyAssignment.Domains) == 0 {
-		return ""
-	}
-
 	required := isRequired(tr.PodSet.TopologyRequest)
 	if !required {
+		return ""
+	}
+	// no domain to comply with so we don't require any domain at all
+	// this happens when the faulty node was the only one in the assignment
+	if len(psa.TopologyAssignment.Domains) == 0 {
 		return ""
 	}
 	nodeLevel := len(s.levelKeys) - 1
@@ -437,9 +431,15 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 	for _, tr := range flavorTASRequests {
 		// find a podset assignment that requires node replacement
 		psa := findPSA(wl, tr.PodSet.Name)
-		requiredDomain := s.requiredDomain(&tr, wl, psa)
+		var requiredDomain utiltas.TopologyDomainID
+		// TopologyAssignment present means it has a node to replace
+		if psa != nil && psa.TopologyAssignment != nil {
+			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
+			tr.Count = deleteDomain(psa.TopologyAssignment, nodeToReplace)
+			requiredDomain = s.requiredDomain(&tr, wl, psa)
+		}
 		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
-		if workload.HasFailedNodeAnnotation(wl) && psa.TopologyAssignment != nil && assignment != nil {
+		if psa != nil && psa.TopologyAssignment != nil && assignment != nil {
 			assignment = s.mergeTopologyAssignments(assignment, psa.TopologyAssignment)
 		}
 		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
