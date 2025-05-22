@@ -86,7 +86,7 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
+	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json --output-interceptor-mode=none > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
 test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
