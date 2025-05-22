@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
+
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -112,6 +114,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantFailedNode    string
 		wantRequeue       time.Duration
 		wantEvicted       bool
+		wantEvictionMsg   string
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -161,8 +164,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantFailedNode: "",
-			wantEvicted:    true,
+			wantFailedNode:  "",
+			wantEvicted:     true,
+			wantEvictionMsg: fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
 		},
 	}
 	for name, tc := range tests {
@@ -209,6 +213,15 @@ func TestNodeFailureReconciler(t *testing.T) {
 			isEvicted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
 			if diff := cmp.Diff(tc.wantEvicted, isEvicted); diff != "" {
 				t.Errorf("Unexpected eviction status (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantEvicted {
+				evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+				if evictedCond == nil {
+					t.Errorf("Expected WorkloadEvicted condition to be true, but it was not found")
+				} else if diff := cmp.Diff(tc.wantEvictionMsg, evictedCond.Message); diff != "" {
+					t.Errorf("Unexpected eviction message (-want/+got):\n%s", diff)
+				}
 			}
 		})
 	}

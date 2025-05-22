@@ -48,7 +48,7 @@ import (
 )
 
 const (
-	NodeMultipleFailuresEvictionMessage = "Workload eviction triggered due to multiple TAS assigned node failures"
+	NodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s, %s"
 )
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
@@ -87,7 +87,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.log.V(3).Info("Node not found, assuming deleted")
 	}
 
-	patchErr := r.patchWorkloadsForUnavailableNode(ctx, req.Name)
+	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name)
 	return ctrl.Result{}, patchErr
 }
 
@@ -176,9 +176,9 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 	return workloadsToProcess, nil
 }
 
-// patchWorkloadsForUnavailableNode finds workloads with pods on the specified node
-// and patches their status to indicate the node is unavailable.
-func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Context, nodeName string) error {
+// patchWorkloadsForNodeToReplace finds workloads with pods on the specified node
+// and patches their status to indicate the node is to replace.
+func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string) error {
 	workloadsToProcess, err := r.getWorkloadsOnNode(ctx, nodeName)
 	if err != nil {
 		return err
@@ -200,18 +200,32 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			annotations = make(map[string]string)
 		}
 		if failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
-			wl, workloadProcessingErrors = r.evictWorkloadWhenMultipleFailures(ctx, &wl, wlKey, workloadProcessingErrors)
+			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
+			evictionMsg := fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
+			if evictionErr := r.startEviction(ctx, &wl, evictionMsg); evictionErr != nil {
+				r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
+				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
+			}
+			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+				r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
+				workloadProcessingErrors = append(workloadProcessingErrors, err)
+			} else {
+				annotations = wl.GetAnnotations()
+				if annotations == nil {
+					annotations = make(map[string]string)
+				}
+			}
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
 			failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]
 			if !ok {
-				r.log.V(4).Info("Adding unavailable node to workload annotation", "workload", wlKey, "nodeName", failedNode)
+				r.log.V(4).Info(fmt.Sprintf("Adding node to %s annotation", kueuealpha.NodeToReplaceAnnotation), "workload", wlKey, "nodeName", failedNode)
 				annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 				wl.SetAnnotations(annotations)
 				return true, nil
 			}
-			if workload.IsEvicted(&wl) || failedNode != nodeName {
-				r.log.V(4).Info("Removing unavailable node from workload annotation", "workload", wlKey, "nodeName", failedNode)
+			if workload.IsEvicted(&wl) {
+				r.log.V(4).Info(fmt.Sprintf("Removing node from %s annotation", kueuealpha.NodeToReplaceAnnotation), "workload", wlKey, "nodeName", failedNode)
 				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(annotations)
 				return true, nil
@@ -219,10 +233,10 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 			return false, nil
 		})
 		if err != nil {
-			r.log.V(2).Error(err, "Failed to patch workload with annotation", "workload", wlKey)
+			r.log.V(2).Error(err, "Failed to patch workload annotation", "workload", wlKey)
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 		} else {
-			r.log.V(3).Info("Successfully patched workload with annotation", "workload", wlKey, "unavailableNodesAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
+			r.log.V(3).Info("Successfully patched workload annotation", "workload", wlKey, "nodesToReplaceAnnotation", wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation])
 		}
 	}
 	if len(workloadProcessingErrors) > 0 {
@@ -231,25 +245,12 @@ func (r *nodeFailureReconciler) patchWorkloadsForUnavailableNode(ctx context.Con
 	return nil
 }
 
-func (r *nodeFailureReconciler) evictWorkloadWhenMultipleFailures(ctx context.Context, wl *kueue.Workload, wlKey types.NamespacedName, workloadProcessingErrors []error) (kueue.Workload, []error) {
-	r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
-	if evictionErr := r.startEviction(ctx, wl); evictionErr != nil {
-		r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
-		workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
-	}
-	if err := r.client.Get(ctx, wlKey, wl); err != nil {
-		r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
-		workloadProcessingErrors = append(workloadProcessingErrors, err)
-	}
-	return *wl, workloadProcessingErrors
-}
-
-func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload) error {
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, NodeMultipleFailuresEvictionMessage)
+func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload, evictionMessage string) error {
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 	workload.ResetChecksOnEviction(wl, r.clock.Now())
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
 		return err
 	}
-	workload.ReportEvictedWorkload(r.recorder, wl, wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, NodeMultipleFailuresEvictionMessage)
+	workload.ReportEvictedWorkload(r.recorder, wl, wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 	return nil
 }
