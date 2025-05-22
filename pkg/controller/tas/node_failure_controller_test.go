@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -112,8 +113,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		advanceClock      time.Duration
 		wantFailedNode    string
 		wantRequeue       time.Duration
-		wantEvicted       bool
-		wantEvictionMsg   string
+		wantEvictedCond   *metav1.Condition
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -163,9 +163,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantFailedNode:  "",
-			wantEvicted:     true,
-			wantEvictionMsg: fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
+			wantFailedNode: "",
+			wantEvictedCond: &metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
+				Message: fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
+			},
 		},
 	}
 	for name, tc := range tests {
@@ -209,18 +213,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
 
-			isEvicted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
-			if diff := cmp.Diff(tc.wantEvicted, isEvicted); diff != "" {
-				t.Errorf("Unexpected eviction status (-want/+got):\n%s", diff)
-			}
-
-			if tc.wantEvicted {
-				evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
-				if evictedCond == nil {
-					t.Errorf("Expected WorkloadEvicted condition to be true, but it was not found")
-				} else if diff := cmp.Diff(tc.wantEvictionMsg, evictedCond.Message); diff != "" {
-					t.Errorf("Unexpected eviction message (-want/+got):\n%s", diff)
-				}
+			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+			if diff := cmp.Diff(tc.wantEvictedCond, evictedCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected WorkloadEvicted condition (-want/+got):\n%s", diff)
 			}
 		})
 	}

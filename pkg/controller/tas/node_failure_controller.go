@@ -200,7 +200,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
 			evictionMsg := fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
 			if evictionErr := r.startEviction(ctx, &wl, evictionMsg); evictionErr != nil {
-				r.log.Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
+				r.log.V(2).Error(evictionErr, "Failed to complete eviction process", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, evictionErr)
 			}
 			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
