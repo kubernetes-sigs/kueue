@@ -53,7 +53,6 @@ type topologyReconciler struct {
 	client           client.Client
 	queues           *queue.Manager
 	cache            *cache.Cache
-	tasCache         *cache.TASCache
 	topologyUpdateCh chan event.GenericEvent
 }
 
@@ -66,7 +65,6 @@ func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *cache.
 		client:           c,
 		queues:           queues,
 		cache:            cache,
-		tasCache:         cache.TASCache(),
 		topologyUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
@@ -101,7 +99,7 @@ func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if !topology.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(topology, kueue.ResourceInUseFinalizerName) {
 			var flavors []kueue.ResourceFlavorReference
-			for flName, flCache := range r.tasCache.Clone() {
+			for flName, flCache := range r.cache.CloneTASCache() {
 				if flCache.Flavor.TopologyName == kueue.TopologyReference(topology.Name) {
 					flavors = append(flavors, flName)
 				}

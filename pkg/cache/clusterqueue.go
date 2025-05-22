@@ -85,7 +85,7 @@ type clusterQueue struct {
 	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
 
-	tasCache *TASCache
+	tasCache *tasCache
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {

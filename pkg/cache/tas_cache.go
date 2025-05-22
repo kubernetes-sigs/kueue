@@ -28,7 +28,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-type TASCache struct {
+type tasCache struct {
 	sync.RWMutex
 	client     client.Client
 	flavors    map[kueue.ResourceFlavorReference]FlavorInformation
@@ -36,8 +36,8 @@ type TASCache struct {
 	cache      map[kueue.ResourceFlavorReference]*TASFlavorCache
 }
 
-func NewTASCache(client client.Client) TASCache {
-	return TASCache{
+func NewTASCache(client client.Client) tasCache {
+	return tasCache{
 		client:     client,
 		flavors:    make(map[kueue.ResourceFlavorReference]FlavorInformation),
 		topologies: make(map[kueue.TopologyReference]TopologyInformation),
@@ -45,20 +45,20 @@ func NewTASCache(client client.Client) TASCache {
 	}
 }
 
-func (t *TASCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
+func (t *tasCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
 	return t.cache[name]
 }
 
 // Clone returns a shallow copy of the map
-func (t *TASCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
+func (t *tasCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
 	return maps.Clone(t.cache)
 }
 
-func (t *TASCache) AddFlavor(flavor *kueue.ResourceFlavor) {
+func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.ResourceFlavorReference(flavor.Name)
@@ -75,7 +75,7 @@ func (t *TASCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 	}
 }
 
-func (t *TASCache) AddTopology(topology *kueuealpha.Topology) {
+func (t *tasCache) AddTopology(topology *kueuealpha.Topology) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.TopologyReference(topology.Name)
@@ -92,14 +92,14 @@ func (t *TASCache) AddTopology(topology *kueuealpha.Topology) {
 	}
 }
 
-func (t *TASCache) DeleteFlavor(name kueue.ResourceFlavorReference) {
+func (t *tasCache) DeleteFlavor(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.flavors, name)
 	delete(t.cache, name)
 }
 
-func (t *TASCache) DeleteTopology(name kueue.TopologyReference) {
+func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.topologies, name)

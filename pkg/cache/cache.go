@@ -113,7 +113,7 @@ type Cache struct {
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
-	tasCache TASCache
+	tasCache tasCache
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -244,7 +244,7 @@ func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
 	return cqs
 }
 
-func (c *Cache) TASCache() *TASCache {
+func (c *Cache) TASCache() *tasCache {
 	return &c.tasCache
 }
 
@@ -280,6 +280,12 @@ func (c *Cache) DeleteTopology(name kueue.TopologyReference) sets.Set[kueue.Clus
 	defer c.Unlock()
 	c.tasCache.DeleteTopology(name)
 	return c.updateClusterQueues()
+}
+
+func (c *Cache) CloneTASCache() map[kueue.ResourceFlavorReference]*TASFlavorCache {
+	c.RLock()
+	defer c.RUnlock()
+	return c.tasCache.Clone()
 }
 
 func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[kueue.ClusterQueueReference] {
@@ -829,10 +835,10 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
 					if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
-						if topology := c.tasCache.Get(rgFlavor); ok {
+						if cache := c.tasCache.Get(rgFlavor); cache != nil {
 							flavor.Topology = &kueue.TopologyInfo{
-								Name:   topology.Flavor.TopologyName,
-								Levels: topology.Topology.Levels,
+								Name:   cache.Flavor.TopologyName,
+								Levels: cache.Topology.Levels,
 							}
 						}
 					}

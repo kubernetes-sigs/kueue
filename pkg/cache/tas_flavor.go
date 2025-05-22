@@ -81,7 +81,7 @@ type TASFlavorCache struct {
 	usage map[utiltas.TopologyDomainID]resources.Requests
 }
 
-func (t *TASCache) NewTASFlavorCache(topologyInfo TopologyInformation,
+func (t *tasCache) NewTASFlavorCache(topologyInfo TopologyInformation,
 	flavorInfo FlavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
 		client:   t.client,

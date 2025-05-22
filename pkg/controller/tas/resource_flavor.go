@@ -67,7 +67,7 @@ func newRfReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache,
 
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	nodeHandler := nodeHandler{
-		tasCache: cache.TASCache(),
+		cache: cache,
 	}
 	return TASResourceFlavorController, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_resource_flavor_controller").
@@ -86,7 +86,7 @@ var _ handler.EventHandler = (*nodeHandler)(nil)
 
 // nodeHandler handles node update events.
 type nodeHandler struct {
-	tasCache *cache.TASCache
+	cache *cache.Cache
 }
 
 func (h *nodeHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -120,7 +120,7 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 		return
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
-	for name, flavor := range h.tasCache.Clone() {
+	for name, flavor := range h.cache.CloneTASCache() {
 		if nodeBelongsToFlavor(node, flavor.Flavor.NodeLabels, flavor.Topology.Levels) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
