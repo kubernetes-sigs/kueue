@@ -6282,10 +6282,7 @@ func TestScheduleForTAS(t *testing.T) {
 				cqCache.AddOrUpdateResourceFlavor(&flavor)
 				if flavor.Spec.TopologyName != nil {
 					t := topologyByName[*flavor.Spec.TopologyName]
-					tasCache := cqCache.TASCache()
-					levels := utiltas.Levels(&t)
-					tasFlavorCache := tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, levels, flavor.Spec.NodeLabels, flavor.Spec.Tolerations)
-					tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
+					cqCache.AddOrUpdateTopology(&t)
 				}
 			}
 			for _, cq := range tc.clusterQueues {
@@ -6848,10 +6845,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				cqCache.AddOrUpdateResourceFlavor(&flavor)
 				if flavor.Spec.TopologyName != nil {
 					t := topologyByName[*flavor.Spec.TopologyName]
-					tasCache := cqCache.TASCache()
-					levels := utiltas.Levels(&t)
-					tasFlavorCache := tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, levels, flavor.Spec.NodeLabels, flavor.Spec.Tolerations)
-					tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
+					cqCache.AddOrUpdateTopology(&t)
 				}
 			}
 			for _, cq := range tc.clusterQueues {
@@ -8117,10 +8111,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				cqCache.AddOrUpdateResourceFlavor(&flavor)
 				if flavor.Spec.TopologyName != nil {
 					t := topologyByName[*flavor.Spec.TopologyName]
-					tasCache := cqCache.TASCache()
-					levels := utiltas.Levels(&t)
-					tasFlavorCache := tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, levels, flavor.Spec.NodeLabels, flavor.Spec.Tolerations)
-					tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
+					cqCache.AddOrUpdateTopology(&t)
 				}
 			}
 			for _, cq := range tc.clusterQueues {

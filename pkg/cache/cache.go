@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -253,6 +252,9 @@ func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[kue
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
+	if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+		c.tasCache.AddFlavor(rf)
+	}
 	return c.updateClusterQueues()
 }
 
@@ -260,22 +262,23 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[kueue.Cl
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
+	if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
+	}
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) AddOrUpdateTopologyForFlavor(topology *kueuealpha.Topology, flv *kueue.ResourceFlavor) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) AddOrUpdateTopology(topology *kueuealpha.Topology) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
-	levels := utiltas.Levels(topology)
-	tasInfo := c.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels, flv.Spec.Tolerations)
-	c.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
+	c.tasCache.AddTopology(topology)
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) DeleteTopologyForFlavor(flv kueue.ResourceFlavorReference) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) DeleteTopology(name kueue.TopologyReference) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
-	c.tasCache.Delete(flv)
+	c.tasCache.DeleteTopology(name)
 	return c.updateClusterQueues()
 }
 
@@ -826,10 +829,10 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
 					if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
-						if topology, ok := c.tasCache.flavors[rgFlavor]; ok {
+						if topology := c.tasCache.Get(rgFlavor); ok {
 							flavor.Topology = &kueue.TopologyInfo{
-								Name:   topology.TopologyName,
-								Levels: topology.Levels,
+								Name:   topology.Flavor.TopologyName,
+								Levels: topology.Topology.Levels,
 							}
 						}
 					}
