@@ -622,6 +622,10 @@ const (
 	// because the LocalQueue is Stopped.
 	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
 
+	// WorkloadEvictedDueToNodeFailures indicates that the workload was evicted
+	// due to non-recoverable node failures.
+	WorkloadEvictedDueToNodeFailures = "NodeFailures"
+
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadDeactivated = "Deactivated"
