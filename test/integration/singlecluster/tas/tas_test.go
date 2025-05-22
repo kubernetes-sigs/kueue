@@ -845,7 +845,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 				})
 			})
-			ginkgo.It("should update workload Annotation when node is removed", func() {
+			ginkgo.It("should update workload TopologyAssignment when node is removed", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
