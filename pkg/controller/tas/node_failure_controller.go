@@ -195,10 +195,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			}
 			continue
 		}
-		annotations := wl.GetAnnotations()
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
+		annotations := getAnnotations(&wl)
 		if failedNode, ok := annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(&wl) {
 			r.log.V(3).Info("Evicting workload due to multiple node failures", "workload", wlKey)
 			evictionMsg := fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
@@ -210,10 +207,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 				r.log.V(2).Error(err, "Failed to re-fetch workload after eviction", "workload", wlKey)
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			} else {
-				annotations = wl.GetAnnotations()
-				if annotations == nil {
-					annotations = make(map[string]string)
-				}
+				annotations = getAnnotations(&wl)
 			}
 		}
 		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
@@ -243,6 +237,14 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
+}
+
+func getAnnotations(wl *kueue.Workload) map[string]string {
+	annotations := wl.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	return annotations
 }
 
 func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload, evictionMessage string) error {
