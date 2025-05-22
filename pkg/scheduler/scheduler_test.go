@@ -4429,11 +4429,11 @@ func TestScheduleForTAS(t *testing.T) {
 			Obj(),
 	}
 
-	//      b1                   b2
-	//   /      \             /      \
-	//  r1       r2          r1       r2
-	//  |      /  |  \       |         |
-	//  x1    x2  x3  x4     x5       x6
+	//        b1                   b2
+	//     /      \             /      \
+	//    r1       r2          r1       r2
+	//  /  |  \     |           |        |
+	// x2  x3  x4  x1          x5       x6
 	defaultNodes := []corev1.Node{
 		*testingnode.MakeNode("b1-r1-x1").
 			Label("tas-node", "true").

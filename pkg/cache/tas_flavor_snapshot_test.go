@@ -19,12 +19,14 @@ package cache
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
 func TestFreeCapacityPerDomain(t *testing.T) {
@@ -68,6 +70,14 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 }
 
 func TestMergeTopologyAssignments(t *testing.T) {
+	nodes := []corev1.Node{
+		*node.MakeNode("x").Label("level-1", "a").Label("level-2", "b").Obj(),
+		*node.MakeNode("y").Label("level-1", "a").Label("level-2", "c").Obj(),
+		*node.MakeNode("z").Label("level-1", "d").Label("level-2", "e").Obj(),
+		*node.MakeNode("w").Label("level-1", "d").Label("level-2", "f").Obj(),
+	}
+	levels := []string{"level-1", "level-2"}
+
 	cases := map[string]struct {
 		a    *kueue.TopologyAssignment
 		b    *kueue.TopologyAssignment
@@ -269,7 +279,14 @@ func TestMergeTopologyAssignments(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := mergeTopologyAssignments(tc.a, tc.b)
+			log, _ := logr.FromContext(t.Context())
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			for _, node := range nodes {
+				s.addNode(node)
+			}
+			s.initialize()
+
+			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
