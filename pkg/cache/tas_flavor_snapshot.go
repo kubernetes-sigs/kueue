@@ -417,11 +417,11 @@ func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Work
 		nodeLevel := len(s.levelKeys) - 1
 		// we know at this point that values contains only hostname
 		nodeDomain := psa.TopologyAssignment.Domains[0].Values[0]
-		node := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+		domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
 		for i := nodeLevel; i > levelIdx; i-- {
-			node = node.parent
+			domain = domain.parent
 		}
-		return node.id
+		return domain.id
 	}
 	return ""
 }
