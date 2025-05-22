@@ -181,7 +181,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
-
 	// If there are no elements, it means that the program is finishing.
 	if len(headWorkloads) == 0 {
 		return wait.KeepGoing
@@ -563,7 +562,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 					}
 				}
 			}
-
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}

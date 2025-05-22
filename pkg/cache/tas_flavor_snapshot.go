@@ -433,13 +433,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		psa := findPSA(wl, tr.PodSet.Name)
 		var requiredDomain utiltas.TopologyDomainID
 		// TopologyAssignment present means it has a node to replace
-		if psa != nil && psa.TopologyAssignment != nil {
+		if workload.HasFailedNodeAnnotation(wl) && psa != nil && psa.TopologyAssignment != nil {
 			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
 			tr.Count = deleteDomain(psa.TopologyAssignment, nodeToReplace)
 			requiredDomain = s.requiredDomain(&tr, wl, psa)
 		}
 		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
-		if psa != nil && psa.TopologyAssignment != nil && assignment != nil {
+		if workload.HasFailedNodeAnnotation(wl) && psa != nil && psa.TopologyAssignment != nil && assignment != nil {
 			assignment = s.mergeTopologyAssignments(assignment, psa.TopologyAssignment)
 		}
 		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
@@ -527,7 +527,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		append(podSetTolerations, s.tolerations...),
 		selector,
 		requiredDomain,
-		levelIdx,
 	)
 
 	// phase 2a: determine the level at which the assignment is done along with
@@ -788,8 +787,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	simulateEmpty bool,
 	tolerations []corev1.Toleration,
 	selector labels.Selector,
-	requiredDomain utiltas.TopologyDomainID,
-	levelIdx int) {
+	requiredDomain utiltas.TopologyDomainID) {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
@@ -812,7 +810,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 
 		// 3. While correcting the topologyAssignment with a failed node
 		// check if the leaf belongs to the required domain
-		if !belongsToRequiredDomain(leaf, requiredDomain, levelIdx) {
+		if !belongsToRequiredDomain(leaf, requiredDomain) {
 			continue
 		}
 
@@ -836,7 +834,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	}
 }
 
-func belongsToRequiredDomain(leaf *leafDomain, requiredDomain utiltas.TopologyDomainID, levelIdx int) bool {
+func belongsToRequiredDomain(leaf *leafDomain, requiredDomain utiltas.TopologyDomainID) bool {
 	if requiredDomain == "" {
 		return true
 	}
