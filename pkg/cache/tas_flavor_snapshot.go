@@ -405,9 +405,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 			}
 			requiredDomain := s.requiredDomain(&tr, wl, assignment)
 			patchAssignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
-			if patchAssignment != nil {
-				assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
-			}
+			assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
 			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 			if reason != "" {
 				return result
@@ -589,10 +587,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
-	if len(a.Domains) == 0 {
+	if a == nil || len(a.Domains) == 0 {
 		return b
 	}
-	if len(b.Domains) == 0 {
+	if b == nil || len(b.Domains) == 0 {
 		return a
 	}
 	nodeLevel := len(s.levelKeys) - 1
