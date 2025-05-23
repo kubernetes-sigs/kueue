@@ -393,47 +393,52 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 			if psa == nil || psa.TopologyAssignment == nil {
 				continue
 			}
-			// We deepCopy the assignment, so if we delete unwanted domain, and
-			// There is no fit, we have the original assignment to retry with
-			assignment := psa.TopologyAssignment.DeepCopy()
-			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
-			tr.Count = deleteDomain(assignment, nodeToReplace)
-			if isStale, staleDomain := s.IsTopologyAssignmentStale(assignment); isStale {
-				msg := fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
-				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: psa.TopologyAssignment, FailureReason: msg}
-				return result
-			}
-			requiredReplacementDomain := s.requiredReplacementDomain(&tr, wl, assignment)
-			patchAssignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredReplacementDomain)
+			// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
+			// And there is no fit, we have the original newAssignment to retry with
+			newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, psa.TopologyAssignment.DeepCopy(), wl, assumedUsage)
+			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 			if reason != "" {
-				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: nil, FailureReason: reason}
 				return result
 			}
-			assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
-			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
-			for _, domain := range patchAssignment.Domains {
-				domainID := utiltas.DomainID(domain.Values)
-				if assumedUsage[domainID] == nil {
-					assumedUsage[domainID] = resources.Requests{}
-				}
-				assumedUsage[domainID].Add(tr.TotalRequests())
-			}
+			addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 		} else {
 			assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, "")
 			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 			if reason != "" {
 				return result
 			}
-			for _, domain := range assignment.Domains {
-				domainID := utiltas.DomainID(domain.Values)
-				if assumedUsage[domainID] == nil {
-					assumedUsage[domainID] = resources.Requests{}
-				}
-				assumedUsage[domainID].Add(tr.TotalRequests())
-			}
+			addAssumedUsage(assumedUsage, assignment, &tr)
 		}
 	}
 	return result
+}
+
+// findReplacementAssignment finds the topology assignment for the replacement node
+// it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
+// reason if finding fails
+func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, existingAssignment *kueue.TopologyAssignment, wl *kueue.Workload, assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*kueue.TopologyAssignment, *kueue.TopologyAssignment, string) {
+	nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
+	tr.Count = deleteDomain(existingAssignment, nodeToReplace)
+	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
+	}
+	requiredReplacementDomain := s.requiredReplacementDomain(tr, wl, existingAssignment)
+	replacementAssignment, reason := s.findTopologyAssignment(*tr, assumedUsage, false, requiredReplacementDomain)
+	if reason != "" {
+		return nil, nil, reason
+	}
+	newAssignment := s.mergeTopologyAssignments(replacementAssignment, existingAssignment)
+	return newAssignment, replacementAssignment, ""
+}
+
+func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *kueue.TopologyAssignment, tr *TASPodSetRequests) {
+	for _, domain := range ta.Domains {
+		domainID := utiltas.DomainID(domain.Values)
+		if assumedUsage[domainID] == nil {
+			assumedUsage[domainID] = resources.Requests{}
+		}
+		assumedUsage[domainID].Add(tr.TotalRequests())
+	}
 }
 
 func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssignment {
