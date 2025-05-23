@@ -517,7 +517,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
-	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
+	if err := s.cache.AssumeWorkload(log, newWorkload); err != nil {
 		return err
 	}
 	e.status = assumed
@@ -550,7 +550,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
-		_ = s.cache.ForgetWorkload(newWorkload)
+		_ = s.cache.ForgetWorkload(log, newWorkload)
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
