@@ -1817,7 +1817,7 @@ func TestPreemption(t *testing.T) {
 
 			cqCache := cache.New(cl)
 			for _, flv := range flavors {
-				cqCache.AddOrUpdateResourceFlavor(flv)
+				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -2735,7 +2735,7 @@ func TestFairPreemptions(t *testing.T) {
 				Build()
 			cqCache := cache.New(cl)
 			for _, flv := range flavors {
-				cqCache.AddOrUpdateResourceFlavor(flv)
+				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -4027,7 +4027,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 
 			cqCache := cache.New(cl)
 			for _, flv := range flavors {
-				cqCache.AddOrUpdateResourceFlavor(flv)
+				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

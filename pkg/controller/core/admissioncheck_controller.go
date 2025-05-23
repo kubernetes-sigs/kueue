@@ -128,7 +128,7 @@ func (r *AdmissionCheckReconciler) AddUpdateWatchers(watchers ...AdmissionCheckU
 func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
@@ -140,7 +140,7 @@ func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.Admiss
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.ObjectNew); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.ObjectNew); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -150,7 +150,7 @@ func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.Admiss
 	defer r.notifyWatchers(e.Object, nil)
 	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
 
-	if cqNames := r.cache.DeleteAdmissionCheck(e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true

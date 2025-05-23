@@ -609,9 +609,9 @@ func TestDominantResourceShare(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("default").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("on-demand").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("spot").Obj())
 
 			_ = cache.AddClusterQueue(ctx, tc.clusterQueue)
 

@@ -245,7 +245,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
 			clientBuilder := utiltesting.NewClientBuilder().
@@ -276,7 +276,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 					ControllerName(kueue.MultiKueueControllerName).
 					Active(metav1.ConditionTrue).
 					Obj()
-				cqCache.AddOrUpdateAdmissionCheck(ac)
+				cqCache.AddOrUpdateAdmissionCheck(log, ac)
 				if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}

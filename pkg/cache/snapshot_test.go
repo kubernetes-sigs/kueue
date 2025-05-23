@@ -914,7 +914,7 @@ func TestSnapshot(t *testing.T) {
 				_ = cache.AddOrUpdateCohort(cohort)
 			}
 			for _, rf := range tc.rfs {
-				cache.AddOrUpdateResourceFlavor(rf)
+				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(log, wl)
@@ -987,12 +987,12 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			Obj(),
 	}
 
-	ctx := t.Context()
+	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
 	cqCache := New(cl)
 	for _, flv := range flavors {
-		cqCache.AddOrUpdateResourceFlavor(flv)
+		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
 	for _, cq := range clusterQueues {
 		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -1281,12 +1281,12 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			Obj(),
 	}
 
-	ctx := t.Context()
+	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
 	cqCache := New(cl)
 	for _, flv := range flavors {
-		cqCache.AddOrUpdateResourceFlavor(flv)
+		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
 	for _, cq := range clusterQueues {
 		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
