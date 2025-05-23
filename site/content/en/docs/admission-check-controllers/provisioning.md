@@ -47,6 +47,7 @@ spec:
     backoffLimitCount: 2
     backoffBaseSeconds: 60
     backoffMaxSeconds: 1800
+  podSetMergePolicy: IdenticalWorkloadSchedulingRequirements
 ```
 
 Where:
@@ -55,6 +56,16 @@ Where:
 - **retryStrategy.backoffLimitCount** - indicates how many times ProvisioningRequest should be retried in case of failure. Defaults to 3.
 - **retryStrategy.backoffBaseSeconds** - provides the base for calculating backoff time that ProvisioningRequest waits before being retried. Defaults to 60.
 - **retryStrategy.backoffMaxSeconds** - indicates the maximum backoff time (in seconds) before retrying a ProvisioningRequest. Defaults to 1800.
+- **podSetMergePolicy** - indicates the ability to merge similar or identical PodSets into a single PodTemplate. Disabled by default.
+
+{{% alert title="Note" color="primary" %}}
+`podSetMergePolicy` feature is available in Kueue v0.12.0 version or newer.
+
+It offers two options: `IdenticalPodTemplates` and `IdenticalWorkloadSchedulingRequirements` and result in a merge of the Workload's PodSets into single PodTemplate.
+This was introduce in order to overcome limitations in some cloud providers that only allow provisioning one PodTemplate at a time.
+
+For example, it allows to create a ProvisioningRequest with a single PodTemplate when using PyTorchJob as in this sample: [`sample-pytorchjob.yaml`](/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob). 
+{{% /alert %}}
 
 If a ProvisioningRequest fails, it may be retried after a backoff period.
 The backoff time (in seconds) is calculated using the following formula, where `n` is the retry number (starting at 1):
