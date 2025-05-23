@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -403,27 +404,27 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[kueue.AdmissionCheck
 	}
 }
 
-func (c *clusterQueue) addOrUpdateWorkload(w *kueue.Workload) {
+func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		c.deleteWorkload(w)
+		c.deleteWorkload(log, w)
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
-	c.updateWorkloadUsage(wi, 1)
+	c.updateWorkloadUsage(log, wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
 }
 
-func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
+func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(wi, -1)
+	c.updateWorkloadUsage(log, wi, -1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
@@ -448,7 +449,7 @@ func (q *LocalQueue) reportActiveWorkloads() {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
@@ -468,6 +469,8 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 				if m == -1 {
 					tasFlvCache.removeUsage(tasUsage)
 				}
+			} else {
+				log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 			}
 		}
 	}

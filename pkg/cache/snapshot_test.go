@@ -898,7 +898,7 @@ func TestSnapshot(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
@@ -917,7 +917,7 @@ func TestSnapshot(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(log, wl)
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {

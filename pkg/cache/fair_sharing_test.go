@@ -607,7 +607,7 @@ func TestDominantResourceShare(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
@@ -636,7 +636,7 @@ func TestDominantResourceShare(t *testing.T) {
 
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
 
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(log, wl)
 				snapshot.AddWorkload(workload.NewInfo(wl))
 				i++
 			}
