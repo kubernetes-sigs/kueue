@@ -595,7 +595,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			cqCache.AddOrUpdateResourceFlavor(log, rf)
 
 			if !tc.skipTopology {
-				cqCache.AddOrUpdateTopologyForFlavor(log, topology, rf)
+				cqCache.AddTopologyForFlavor(log, topology, rf)
 			}
 
 			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
