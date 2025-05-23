@@ -404,10 +404,10 @@ type SchedulingStats struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=reason
 	// +patchMergeKey=underlyingCause
-	Evictions []WorkloadSchedulingStatsEvicition `json:"evictions,omitempty"`
+	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
 }
 
-type WorkloadSchedulingStatsEvicition struct {
+type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
 	// +required

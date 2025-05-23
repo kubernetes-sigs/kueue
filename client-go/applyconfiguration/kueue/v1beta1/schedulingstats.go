@@ -20,7 +20,7 @@ package v1beta1
 // SchedulingStatsApplyConfiguration represents a declarative configuration of the SchedulingStats type for use
 // with apply.
 type SchedulingStatsApplyConfiguration struct {
-	Evictions []WorkloadSchedulingStatsEvicitionApplyConfiguration `json:"evictions,omitempty"`
+	Evictions []WorkloadSchedulingStatsEvictionApplyConfiguration `json:"evictions,omitempty"`
 }
 
 // SchedulingStatsApplyConfiguration constructs a declarative configuration of the SchedulingStats type for use with
@@ -32,7 +32,7 @@ func SchedulingStats() *SchedulingStatsApplyConfiguration {
 // WithEvictions adds the given value to the Evictions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Evictions field.
-func (b *SchedulingStatsApplyConfiguration) WithEvictions(values ...*WorkloadSchedulingStatsEvicitionApplyConfiguration) *SchedulingStatsApplyConfiguration {
+func (b *SchedulingStatsApplyConfiguration) WithEvictions(values ...*WorkloadSchedulingStatsEvictionApplyConfiguration) *SchedulingStatsApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithEvictions")
