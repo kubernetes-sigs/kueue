@@ -74,19 +74,6 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 			},
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
-
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
-			ServiceAccountName(serviceAccountName).
-			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-			TerminationGracePeriod(1).
-			Obj()
-		util.MustCreate(ctx, k8sClient, curlPod)
-
-		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			util.WaitForPodRunning(ctx, k8sClient, curlPod)
-		})
-
-		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -113,7 +100,6 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 
 	ginkgo.AfterAll(func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 	})
 
 	ginkgo.When("WaitForPodsReady has a tiny Timeout and no RecoveryTimeout", func() {
@@ -131,6 +117,23 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					},
 				}
 			})
+
+			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+				ServiceAccountName(serviceAccountName).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, curlPod)
+
+			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+				util.WaitForPodRunning(ctx, k8sClient, curlPod)
+			})
+
+			curlContainerName = curlPod.Spec.Containers[0].Name
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		})
 
 		ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
@@ -214,6 +217,23 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					},
 				}
 			})
+
+			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+				ServiceAccountName(serviceAccountName).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, curlPod)
+
+			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+				util.WaitForPodRunning(ctx, k8sClient, curlPod)
+			})
+
+			curlContainerName = curlPod.Spec.Containers[0].Name
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		})
 
 		ginkgo.It("should evict and requeue workload when pod failure causes recovery timeout", func() {
@@ -288,6 +308,23 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					},
 				}
 			})
+
+			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+				ServiceAccountName(serviceAccountName).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, curlPod)
+
+			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+				util.WaitForPodRunning(ctx, k8sClient, curlPod)
+			})
+
+			curlContainerName = curlPod.Spec.Containers[0].Name
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		})
 
 		ginkgo.It("should continue running workload if pod recovers before recoveryTimeout", func() {
