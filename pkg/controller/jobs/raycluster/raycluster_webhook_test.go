@@ -144,12 +144,48 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"invalid managed - has auto scaler": {
-			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+		"invalid managed - has auto scaler and worker groups with no queue": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
 				WithEnableAutoscaling(ptr.To(true)).
+				WithWorkerGroups(worker).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("Template", "Labels", constants.QueueLabel), "", fmt.Sprintf("a kueue managed raycluster with a queue and autoscaling should set the same %s label for its workers", constants.QueueLabel)),
+			}.ToAggregate(),
+		},
+		"invalid managed - has headnode pod with queuelabel": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue",
+							},
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "headGroupSpec", "Template", "Labels", constants.QueueLabel), "queue", fmt.Sprintf("a kueue managed raycluster should not set a %s label in its head node", constants.QueueLabel)),
+			}.ToAggregate(),
+		},
+		"invalid managed without autoscaling - has worker with queuelabel": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue",
+							},
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("Template", "Labels", constants.QueueLabel), "queue", fmt.Sprintf("a kueue managed raycluster without autoscaling should not set a %s label in its workers", constants.QueueLabel)),
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
@@ -298,6 +334,24 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 10"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
+		},
+		"valid with autoscaling": {
+			job: testingrayutil.MakeCluster("raycluster", "ns").
+				WithEnableAutoscaling(ptr.To(true)).
+				Queue("queue").
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									constants.QueueLabel: "queue",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
 		},
 	}
 

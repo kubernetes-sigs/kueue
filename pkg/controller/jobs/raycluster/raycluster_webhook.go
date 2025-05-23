@@ -122,7 +122,7 @@ func (w *RayClusterWebhook) applyDefaultQueueForWorkerGroup(job *RayCluster, que
 			labels[constants.QueueLabel] = queueName
 		}
 
-		// Setting this to asks the reconciler to create a Workload object for this k8s pod. This is will because the Skip() method of the associated kueue Pod will return False
+		// Setting this asks the reconciler to create a Workload object for this k8s pod. This is done via the Skip() method of the associated kueue Pod struct which returns False when the k8s pod has a correct managed label
 		labels[kueue_constants.ManagedByKueueLabelKey] = kueue_constants.ManagedByKueueLabelValue
 
 		wg.Template.ObjectMeta.SetLabels(labels)
@@ -148,8 +148,9 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
+	rayClusterQueueName := string(jobframework.QueueName(kueueJob))
 
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
+	if w.manageJobsWithoutQueueName || rayClusterQueueName != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
@@ -158,8 +159,8 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 			// if the AutoScaler is disabled, then WorkerGroupSpecs must NOT point to a queue
 			for i, wg := range kueueJob.Spec.WorkerGroupSpecs {
 				if wg.Template.Labels[constants.QueueLabel] != "" {
-					msg := fmt.Sprintf("a kueue managed raycluster without autoscaling should not set a %s label", constants.QueueLabel)
-					allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(i).Child("Template", "Labels"), wg.Template.Labels[constants.QueueLabel], msg))
+					msg := fmt.Sprintf("a kueue managed raycluster without autoscaling should not set a %s label in its workers", constants.QueueLabel)
+					allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(i).Child("Template", "Labels", constants.QueueLabel), wg.Template.Labels[constants.QueueLabel], msg))
 				}
 			}
 
@@ -175,10 +176,10 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 				}
 			}
 		} else {
-			// if the AutoScaler is enabled, then all WorkerGroupSpecs MUST point to a queue
+			// if the AutoScaler is enabled and Kueue does not manage pods without QueueLabels, then all Worker pods must have the same QueueLabel as the RayCluster object
 			for i, wg := range kueueJob.Spec.WorkerGroupSpecs {
-				if wg.Template.Labels[constants.QueueLabel] == "" {
-					msg := fmt.Sprintf("a kueue managed raycluster with autoscaling should set a %s label", constants.QueueLabel)
+				if !w.manageJobsWithoutQueueName && wg.Template.Labels[constants.QueueLabel] != rayClusterQueueName {
+					msg := fmt.Sprintf("a kueue managed raycluster with a queue and autoscaling should set the same %s label for its workers", constants.QueueLabel)
 					allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(i).Child("Template", "Labels", constants.QueueLabel), wg.Template.Labels[constants.QueueLabel], msg))
 				}
 			}
