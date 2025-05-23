@@ -30,9 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/queue"
+
+	kueue_constants "sigs.k8s.io/kueue/pkg/constants"
 )
 
 var (
@@ -84,7 +87,43 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+
+	// If the AutoScaler is off then there's nothing left to do here
+	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) == false {
+		return nil
+	}
+	// However, if the AutoScaler is on, propagate the queue name of the RayCluster object to the WorkGroupSpecs which do not define one
+	// First, find the queue name of the RayCluster object, if there's none bail out
+
+	labels := job.GetLabels()
+
+	if labels == nil || labels[constants.QueueLabel] == "" {
+		return nil
+	}
+
+	w.applyDefaultQueueForWorkerGroup(job, labels[constants.QueueLabel])
 	return nil
+}
+
+// Updates WorkerGroupSpecs that do not have a queue-name with a default one
+func (w *RayClusterWebhook) applyDefaultQueueForWorkerGroup(job *RayCluster, queueName string) {
+	for i := range job.Spec.WorkerGroupSpecs {
+		wg := &job.Spec.WorkerGroupSpecs[i]
+		labels := wg.Template.ObjectMeta.GetLabels()
+
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+
+		if labels[constants.QueueLabel] == "" {
+			labels[constants.QueueLabel] = queueName
+		}
+
+		// Setting this asks the reconciler to create a Workload object for this k8s pod. This is done via the Skip() method of the associated kueue Pod struct which returns False when the k8s pod has a correct managed label
+		labels[kueue_constants.ManagedByKueueLabelKey] = kueue_constants.ManagedByKueueLabelValue
+
+		wg.Template.ObjectMeta.SetLabels(labels)
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-ray-io-v1-raycluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create;update,versions=v1,name=vraycluster.kb.io,admissionReviewVersions=v1
@@ -102,27 +141,48 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorList {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
+	rayClusterQueueName := string(jobframework.QueueName(kueueJob))
 
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
+	if w.manageJobsWithoutQueueName || rayClusterQueueName != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
 		// TODO revisit once Support dynamically sized (elastic) jobs #77 is implemented
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
-		if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
-		}
-
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(spec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
-		}
-
-		// None of the workerGroups should be named "head"
-		for i := range spec.WorkerGroupSpecs {
-			if spec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-				allErrors = append(allErrors, field.Forbidden(specPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+		if ptr.Deref(spec.EnableInTreeAutoscaling, false) == false {
+			// if the AutoScaler is disabled, then WorkerGroupSpecs must NOT point to a queue
+			for i, wg := range kueueJob.Spec.WorkerGroupSpecs {
+				if wg.Template.Labels[constants.QueueLabel] != "" {
+					msg := fmt.Sprintf("a kueue managed raycluster without autoscaling should not set a %s label in its workers", constants.QueueLabel)
+					allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(i).Child("Template", "Labels", constants.QueueLabel), wg.Template.Labels[constants.QueueLabel], msg))
+				}
 			}
+
+			// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
+			if len(spec.WorkerGroupSpecs) > 7 {
+				allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
+			}
+
+			// None of the workerGroups should be named "head"
+			for i := range spec.WorkerGroupSpecs {
+				if spec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
+					allErrors = append(allErrors, field.Forbidden(specPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+				}
+			}
+		} else {
+			// if the AutoScaler is enabled and Kueue does not manage pods without QueueLabels, then all Worker pods must have the same QueueLabel as the RayCluster object
+			for i, wg := range kueueJob.Spec.WorkerGroupSpecs {
+				if !w.manageJobsWithoutQueueName && wg.Template.Labels[constants.QueueLabel] != rayClusterQueueName {
+					msg := fmt.Sprintf("a kueue managed raycluster with a queue and autoscaling should set the same %s label for its workers", constants.QueueLabel)
+					allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(i).Child("Template", "Labels", constants.QueueLabel), wg.Template.Labels[constants.QueueLabel], msg))
+				}
+			}
+		}
+
+		// The head node PodSet is accounted for in the RayCluster object regardless of whether AutoScaling is enabled or not.
+		// Therefore, the pod representing the head node must NOT have a QueueLabel pointing to a LocalQueue at all
+		if job.Spec.HeadGroupSpec.Template.Labels[constants.QueueLabel] != "" {
+			msg := fmt.Sprintf("a kueue managed raycluster should not set a %s label in its head node", constants.QueueLabel)
+			allErrors = append(allErrors, field.Invalid(headGroupSpecsPath.Child("Template", "Labels", constants.QueueLabel), job.Spec.HeadGroupSpec.Template.Labels[constants.QueueLabel], msg))
 		}
 	}
 
