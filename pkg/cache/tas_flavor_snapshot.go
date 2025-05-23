@@ -437,7 +437,7 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 		if assumedUsage[domainID] == nil {
 			assumedUsage[domainID] = resources.Requests{}
 		}
-		assumedUsage[domainID].Add(tr.TotalRequests())
+		assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
 	}
 }
 
