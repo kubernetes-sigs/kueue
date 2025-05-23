@@ -220,7 +220,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				t.Fatalf("Inserting localQueue in manager: %v", err)
 			}
 			for _, wl := range defaultWls.Items {
-				cqCache.AddOrUpdateWorkload(&wl)
+				cqCache.AddOrUpdateWorkload(log, &wl)
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,

@@ -1950,7 +1950,7 @@ func TestAssignFlavors(t *testing.T) {
 				}
 			}
 			for _, rf := range resourceFlavors {
-				cache.AddOrUpdateResourceFlavor(rf)
+				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
 
 			if err := cache.AddOrUpdateCohort(utiltesting.MakeCohort(tc.clusterQueue.Spec.Cohort).Obj()); err != nil {
@@ -2116,8 +2116,9 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
+			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			for _, rf := range resourceFlavors {
-				cache.AddOrUpdateResourceFlavor(rf)
+				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
 
 			snapshot, err := cache.Snapshot(ctx)
@@ -2131,7 +2132,6 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
-			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			assignment := flvAssigner.Assign(log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -2246,7 +2246,7 @@ func TestDeletedFlavors(t *testing.T) {
 			// we have to add the deleted flavor to the cache before snapshot,
 			// or else snapshot will fail
 			for _, flavor := range flavorMap {
-				cache.AddOrUpdateResourceFlavor(flavor)
+				cache.AddOrUpdateResourceFlavor(log, flavor)
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {
@@ -2258,7 +2258,7 @@ func TestDeletedFlavors(t *testing.T) {
 			}
 
 			// and we delete it
-			cache.DeleteResourceFlavor(flavorMap["deleted-flavor"])
+			cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 			delete(flavorMap, "deleted-flavor")
 
 			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{})

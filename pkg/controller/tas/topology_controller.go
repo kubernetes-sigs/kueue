@@ -153,7 +153,7 @@ func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueuealpha.Topolog
 		}
 		if *flv.Spec.TopologyName == kueue.TopologyReference(e.Object.Name) {
 			log.V(3).Info("Updating Topology cache for flavor", "flavor", flv.Name)
-			r.cache.AddOrUpdateTopologyForFlavor(e.Object, &flv)
+			r.cache.AddOrUpdateTopologyForFlavor(log, e.Object, &flv)
 		}
 	}
 
@@ -174,7 +174,7 @@ func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueuealpha.Topolog
 	for flName, flCache := range r.tasCache.Clone() {
 		if kueue.TopologyReference(e.Object.Name) == flCache.TopologyName {
 			log.V(3).Info("Deleting topology from cache for flavor", "flavorName", flName)
-			r.cache.DeleteTopologyForFlavor(flName)
+			r.cache.DeleteTopologyForFlavor(log, flName)
 		}
 	}
 	return true
