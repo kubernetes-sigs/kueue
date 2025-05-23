@@ -612,7 +612,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(wlCopy) {
+	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 
@@ -643,7 +643,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(wl); err != nil {
+			if err := r.cache.DeleteWorkload(log, wl); err != nil {
 				if !e.DeleteStateUnknown {
 					log.Error(err, "Failed to delete workload from cache")
 				}
@@ -705,7 +705,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == workload.StatusAdmitted {
+			if err := r.cache.DeleteWorkload(log, oldWl); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
@@ -717,7 +717,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(oldWl)
-		if !r.cache.AddOrUpdateWorkload(wlCopy) {
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	case (prevStatus == workload.StatusQuotaReserved || prevStatus == workload.StatusAdmitted) && status == workload.StatusPending:
@@ -731,7 +731,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(wl); err != nil {
+			if err := r.cache.DeleteWorkload(log, wl); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping
@@ -763,7 +763,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+			if err := r.cache.UpdateWorkload(log, oldWl, wlCopy); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
@@ -771,7 +771,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+		if err := r.cache.UpdateWorkload(log, oldWl, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
 	}

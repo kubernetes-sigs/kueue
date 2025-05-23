@@ -132,7 +132,7 @@ func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 
 	// As long as one clusterQueue becomes active,
 	// we should inform clusterQueue controller to broadcast the event.
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, flv.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 		// If at least one CQ becomes active, then those CQs should now get evaluated by the scheduler;
 		// note that the workloads in those CQs are not necessarily "inadmissible", and hence we trigger a
@@ -152,7 +152,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor delete event")
 
-	if cqNames := r.cache.DeleteResourceFlavor(flv); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteResourceFlavor(r.log, flv); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -176,7 +176,7 @@ func (r *ResourceFlavorReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(newFlv.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, newFlv.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false

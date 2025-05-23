@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -132,7 +133,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(log logr.Logger, cycleChecker hierarchy.CycleChecker, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
@@ -166,8 +167,8 @@ func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, i
 		c.Preemption = defaultPreemption
 	}
 
-	c.UpdateWithFlavors(resourceFlavors)
-	c.updateWithAdmissionChecks(admissionChecks)
+	c.UpdateWithFlavors(log, resourceFlavors)
+	c.updateWithAdmissionChecks(log, admissionChecks)
 
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility
@@ -217,7 +218,7 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 		!equality.Semantic.DeepEqual(oldQuotas, c.resourceNode.Quotas)
 }
 
-func (c *clusterQueue) updateQueueStatus() {
+func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
@@ -235,6 +236,7 @@ func (c *clusterQueue) updateQueueStatus() {
 		status = terminating
 	}
 	if status != c.Status {
+		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
 	}
@@ -338,9 +340,9 @@ func (c *clusterQueue) isTASViolated() bool {
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
-func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.updateLabelKeys(flavors)
-	c.updateQueueStatus()
+	c.updateQueueStatus(log)
 }
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
@@ -376,7 +378,7 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
+func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[string]AdmissionCheck) {
 	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[string]()
@@ -472,18 +474,18 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 
 	if update {
-		c.updateQueueStatus()
+		c.updateQueueStatus(log)
 	}
 }
 
-func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addWorkload(log logr.Logger, w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
-	c.updateWorkloadUsage(wi, 1)
+	c.updateWorkloadUsage(log, wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
@@ -491,13 +493,13 @@ func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
+func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(wi, -1)
+	c.updateWorkloadUsage(log, wi, -1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
@@ -522,7 +524,7 @@ func (q *queue) reportActiveWorkloads() {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
@@ -542,6 +544,8 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 				if m == -1 {
 					tasFlvCache.removeUsage(tasUsage)
 				}
+			} else {
+				log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 			}
 		}
 	}
