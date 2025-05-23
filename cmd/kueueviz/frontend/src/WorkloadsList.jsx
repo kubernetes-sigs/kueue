@@ -68,7 +68,6 @@ const WorkloadsList = ({ workloads, error }) => {
                   'N/A'
                 )}
               </TableCell>
-              <TableCell>{workload.status?.state || "Unknown"}</TableCell>
               <TableCell>{workload.preemption?.preempted ? "Yes" : "No"}</TableCell>
               <TableCell>{workload.preemption?.reason || "N/A"}</TableCell>
               <TableCell>{workload.spec?.priority || "N/A"}</TableCell>
