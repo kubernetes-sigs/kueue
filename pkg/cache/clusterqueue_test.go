@@ -79,14 +79,15 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cq, err := cache.newClusterQueue(cq)
+			cq, err := cache.newClusterQueue(log, cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}
 
 			cq.Status = tc.curStatus
-			cq.UpdateWithFlavors(tc.flavors)
+			cq.UpdateWithFlavors(log, tc.flavors)
 
 			if cq.Status != tc.wantStatus {
 				t.Fatalf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
@@ -151,7 +152,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
@@ -161,12 +162,12 @@ func TestClusterQueueUpdate(t *testing.T) {
 			cqCache := New(cl)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, rf := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(rf)
+				cqCache.AddOrUpdateResourceFlavor(log, rf)
 			}
 			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
 				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
 			}
-			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
+			if err := cqCache.UpdateClusterQueue(log, tc.newcq); err != nil {
 				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
 			}
 			snapshot, err := cqCache.Snapshot(ctx)
@@ -586,8 +587,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			if tc.acValidationRulesEnabled {
 				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
 			}
+			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cq, err := cache.newClusterQueue(tc.cq)
+			cq, err := cache.newClusterQueue(log, tc.cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}
@@ -609,7 +611,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					cq.flavorIndependentAdmissionCheckAppliedPerFlavor = []string{"not-on-flavor"}
 				}
 			}
-			cq.updateWithAdmissionChecks(tc.admissionChecks)
+			cq.updateWithAdmissionChecks(log, tc.admissionChecks)
 
 			if cq.Status != tc.wantStatus {
 				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
@@ -888,9 +890,9 @@ func TestDominantResourceShare(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
-			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("default").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("on-demand").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("spot").Obj())
 
 			_ = cache.AddClusterQueue(ctx, tc.clusterQueue)
 
@@ -1087,7 +1089,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder()
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
@@ -1098,24 +1100,24 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
 			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
-			cqCache.AddOrUpdateResourceFlavor(rf)
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
 
 			if !tc.skipTopology {
-				cqCache.AddOrUpdateTopologyForFlavor(topology, rf)
+				cqCache.AddOrUpdateTopologyForFlavor(log, topology, rf)
 			}
 
 			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
-			cqCache.AddOrUpdateAdmissionCheck(mkAC)
+			cqCache.AddOrUpdateAdmissionCheck(log, mkAC)
 
 			acWithPR := utiltesting.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
-			cqCache.AddOrUpdateAdmissionCheck(acWithPR)
+			cqCache.AddOrUpdateAdmissionCheck(log, acWithPR)
 
 			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
 				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
 			}
 
 			if tc.updatedCq != nil {
-				if err := cqCache.UpdateClusterQueue(tc.updatedCq); err != nil {
+				if err := cqCache.UpdateClusterQueue(log, tc.updatedCq); err != nil {
 					t.Fatalf("Updating clusterQueue %s in cache: %v", tc.updatedCq.Name, err)
 				}
 			}

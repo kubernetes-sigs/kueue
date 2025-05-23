@@ -147,7 +147,7 @@ func (r *topologyReconciler) Delete(e event.DeleteEvent) bool {
 	for flName, flCache := range r.tasCache.Clone() {
 		if kueue.TopologyReference(topology.Name) == flCache.TopologyName {
 			log.V(3).Info("Deleting topology from cache for flavor", "flavorName", flName)
-			r.cache.DeleteTopologyForFlavor(flName)
+			r.cache.DeleteTopologyForFlavor(log, flName)
 		}
 	}
 	return true

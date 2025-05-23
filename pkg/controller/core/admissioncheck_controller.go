@@ -124,7 +124,7 @@ func (r *AdmissionCheckReconciler) Create(e event.CreateEvent) bool {
 	}
 	defer r.notifyWatchers(nil, ac)
 	r.log.WithValues("admissionCheck", klog.KObj(ac)).V(5).Info("Create event")
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(ac); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, ac); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
@@ -144,7 +144,7 @@ func (r *AdmissionCheckReconciler) Update(e event.UpdateEvent) bool {
 	if !newAc.DeletionTimestamp.IsZero() {
 		return true
 	}
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(newAc); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, newAc); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -158,7 +158,7 @@ func (r *AdmissionCheckReconciler) Delete(e event.DeleteEvent) bool {
 	defer r.notifyWatchers(ac, nil)
 	r.log.WithValues("admissionCheck", klog.KObj(ac)).V(5).Info("Delete event")
 
-	if cqNames := r.cache.DeleteAdmissionCheck(ac); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteAdmissionCheck(r.log, ac); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true

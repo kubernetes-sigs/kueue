@@ -2666,7 +2666,7 @@ func TestSchedule(t *testing.T) {
 			if tc.disablePartialAdmission {
 				features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			allQueues := append(queues, tc.additionalLocalQueues...)
 			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
@@ -2693,7 +2693,7 @@ func TestSchedule(t *testing.T) {
 				}
 			}
 			for i := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
+				cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 			}
 			for _, cq := range allClusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
@@ -3494,7 +3494,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				}
 			}
 			for i := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
+				cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 			}
 			for _, cq := range tc.cqs {
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
@@ -3941,7 +3941,7 @@ func TestResourcesToReserve(t *testing.T) {
 				Build()
 			cqCache := cache.New(cl)
 			for _, flavor := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(flavor)
+				cqCache.AddOrUpdateResourceFlavor(log, flavor)
 			}
 			err := cqCache.AddClusterQueue(ctx, cq)
 			if err != nil {
@@ -5141,7 +5141,7 @@ func TestScheduleForTAS(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(
@@ -5162,7 +5162,7 @@ func TestScheduleForTAS(t *testing.T) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
 			for _, flavor := range tc.resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(&flavor)
+				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 				if flavor.Spec.TopologyName != nil {
 					t := topologyByName[*flavor.Spec.TopologyName]
 					tasCache := cqCache.TASCache()
