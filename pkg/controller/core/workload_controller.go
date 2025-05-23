@@ -194,8 +194,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if workload.IsAdmitted(&wl) && workload.HasFailedNodeAnnotation(&wl) {
-		if !workload.HasTopologyAssignmentWithFailedNode(&wl) {
+	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
+		if !workload.HasTopologyAssignmentWithNodeToReplace(&wl) {
 			if err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
 				annotations := wl.GetAnnotations()
 				delete(annotations, kueuealpha.NodeToReplaceAnnotation)

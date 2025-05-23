@@ -38,7 +38,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNodeAssignment(wl) {
+			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNode(wl) {
 				// skip if already computed and doesn't need recomputing
 				// if it already has an assignment but needs recomputing due to a failed node
 				// we add it to the list of TASRequests
@@ -60,8 +60,8 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 	return tasRequests
 }
 
-func (psa *PodSetAssignment) HasFailedNodeAssignment(wl *workload.Info) bool {
-	if !workload.HasFailedNodeAnnotation(wl.Obj) {
+func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
+	if !workload.HasNodeToReplace(wl.Obj) {
 		return false
 	}
 	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]

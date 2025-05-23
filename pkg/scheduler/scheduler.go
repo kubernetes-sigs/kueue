@@ -490,7 +490,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 }
 
 func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
-	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt && (wl.IsRequestingTAS() || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithFailedNode(wl.Obj) {
+	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt && (wl.IsRequestingTAS() || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithNodeToReplace(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
 		var tasResult cache.TASAssignmentsResult
 		if len(targets) > 0 {
@@ -549,7 +549,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 					metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 				}
 			}
-			if workload.IsAdmitted(newWorkload) && !workload.HasFailedNodeAnnotation(e.Obj) {
+			if workload.IsAdmitted(newWorkload) && !workload.HasNodeToReplace(e.Obj) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 				if features.Enabled(features.LocalQueueMetrics) {

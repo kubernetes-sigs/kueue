@@ -386,21 +386,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
-		if workload.HasFailedNodeAnnotation(wl) {
+		if workload.HasNodeToReplace(wl) {
 			// In case of looking for replacement TopologyRequest has only
 			// PodSet with node to replace, so we match PodSetAssignment
 			psa := findPSA(wl, tr.PodSet.Name)
 			if psa == nil || psa.TopologyAssignment == nil {
 				continue
 			}
-
 			// We deepCopy the assignment, so if we delete unwanted domain, and
 			// There is no fit, we have the original assignment to retry with
 			assignment := psa.TopologyAssignment.DeepCopy()
 			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
 			tr.Count = deleteDomain(assignment, nodeToReplace)
 			if isStale, staleDomain := s.IsTopologyAssignmentStale(assignment); isStale {
-				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: psa.TopologyAssignment, FailureReason: fmt.Sprintf("Domain %v not sound in the cache", staleDomain)}
+				msg := fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
+				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: psa.TopologyAssignment, FailureReason: msg}
 				return result
 			}
 			requiredDomain := s.requiredDomain(&tr, wl, assignment)
