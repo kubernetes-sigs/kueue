@@ -373,7 +373,7 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEvicition) *WorkloadWrapper {
+func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEviction) *WorkloadWrapper {
 	if w.Status.SchedulingStats == nil {
 		w.Status.SchedulingStats = &kueue.SchedulingStats{}
 	}

@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
 					g.Expect(wl.Status.SchedulingStats.Evictions).To(
-						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEvicition{{
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
 							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 							UnderlyingCause: kueue.WorkloadWaitForStart,
 							Count:           1,
@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 					g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 
 					g.Expect(wl.Status.SchedulingStats.Evictions).To(
-						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEvicition{{
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
 							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 							UnderlyingCause: kueue.WorkloadWaitForRecovery,
 							Count:           1,

@@ -979,7 +979,7 @@ func References(wls []*Info) []klog.ObjectRef {
 func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
 	evictionState := FindSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
 	if evictionState == nil {
-		evictionState = &kueue.WorkloadSchedulingStatsEvicition{
+		evictionState = &kueue.WorkloadSchedulingStatsEviction{
 			Reason:          reason,
 			UnderlyingCause: underlyingCause,
 		}
@@ -990,7 +990,7 @@ func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string
 	return report
 }
 
-func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEvicition {
+func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEviction {
 	if wl.Status.SchedulingStats != nil {
 		for i := range wl.Status.SchedulingStats.Evictions {
 			if wl.Status.SchedulingStats.Evictions[i].Reason == reason && wl.Status.SchedulingStats.Evictions[i].UnderlyingCause == underlyingCause {
@@ -1001,7 +1001,7 @@ func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingC
 	return nil
 }
 
-func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEvicition) bool {
+func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEviction) bool {
 	if wl.Status.SchedulingStats == nil {
 		wl.Status.SchedulingStats = &kueue.SchedulingStats{}
 	}
