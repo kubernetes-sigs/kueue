@@ -442,7 +442,7 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 }
 
 func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssignment {
-	if wl == nil || wl.Status.Admission == nil {
+	if wl.Status.Admission == nil {
 		return nil
 	}
 	for _, psAssignment := range wl.Status.Admission.PodSetAssignments {
