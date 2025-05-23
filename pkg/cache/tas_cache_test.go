@@ -1379,7 +1379,7 @@ func TestFindTopologyAssignmentForTwoPodSets(t *testing.T) {
 		wantResult["podset1"] = buildWantedResult(wantAssignment1)
 		wantResult["podset2"] = buildWantedResult(wantAssignment2)
 
-		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false)
+		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
 		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 			t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 		}
@@ -1406,7 +1406,7 @@ func buildSnapshot(ctx context.Context, t *testing.T, nodes []corev1.Node, level
 	return snapshot
 }
 
-func buildTASInput(podsetName kueue.PodSetReference, topologyRequest *kueue.PodSetTopologyRequest, requests resources.Requests, podCount int32) TASPodSetRequests {
+func buildTASInput(podsetName string, topologyRequest *kueue.PodSetTopologyRequest, requests resources.Requests, podCount int32) TASPodSetRequests {
 	return TASPodSetRequests{
 		PodSet: &kueue.PodSet{
 			Name:            podsetName,
