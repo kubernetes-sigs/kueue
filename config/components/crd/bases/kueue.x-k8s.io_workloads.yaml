@@ -8291,6 +8291,13 @@ spec:
                             - JobSet: kubernetes.io/job-completion-index (inherited from Job)
                             - Kubeflow: training.kubeflow.org/replica-index
                           type: string
+                        podSetChunkPreferredTopology:
+                          type: string
+                        podSetChunkRequiredTopology:
+                          type: string
+                        podSetChunkSize:
+                          format: int32
+                          type: integer
                         preferred:
                           description: |-
                             preferred indicates the topology level preferred by the PodSet, as

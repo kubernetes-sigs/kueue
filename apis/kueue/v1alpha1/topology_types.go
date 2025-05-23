@@ -46,6 +46,33 @@ const (
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 
+	// TODO description
+	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+	// Kueue admits the PodSet if there's enough free capacity available.
+	// Recommended for PodSets that don't need low-latency or high-throughput pod-to-pod communication,
+	// but want to leverage TAS capabilities improve accuracy of admitting jobs
+	//
+	// +kubebuilder:validation:Type=boolean
+	PodSetChunkSizeAnnotation = "kueue.x-k8s.io/podset-chunk-size"
+
+	// TODO description
+	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+	// Kueue admits the PodSet if there's enough free capacity available.
+	// Recommended for PodSets that don't need low-latency or high-throughput pod-to-pod communication,
+	// but want to leverage TAS capabilities improve accuracy of admitting jobs
+	//
+	// +kubebuilder:validation:Type=boolean
+	PodSetChunkRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-chunk-required-topology"
+
+	// TODO description
+	// PodSetUnconstrainedTopologyAnnotation indicates that a PodSet does not have any topology requirements.
+	// Kueue admits the PodSet if there's enough free capacity available.
+	// Recommended for PodSets that don't need low-latency or high-throughput pod-to-pod communication,
+	// but want to leverage TAS capabilities improve accuracy of admitting jobs
+	//
+	// +kubebuilder:validation:Type=boolean
+	PodSetChunkPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-chunk-preferred-topology"
+
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected
 	// into the Pod. For the Pod-based integrations the gate is added in webhook
