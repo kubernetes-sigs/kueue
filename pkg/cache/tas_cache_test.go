@@ -2207,7 +2207,7 @@ func TestFindTopologyAssignmentForTwoPodSets(t *testing.T) {
 		wantResult["podset1"] = buildWantedResult(wantAssignment1)
 		wantResult["podset2"] = buildWantedResult(wantAssignment2)
 
-		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false)
+		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false, nil)
 		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 			t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 		}
