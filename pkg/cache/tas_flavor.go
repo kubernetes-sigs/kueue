@@ -50,37 +50,44 @@ const (
 	subtract
 )
 
+type FlavorInformation struct {
+	// Name indicates the name of the topology specified in the
+	// ResourceFlavor spec.topologyName field.
+	TopologyName kueue.TopologyReference
+
+	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
+	NodeLabels map[string]string
+	// tolerations represents the list of tolerations specified for the resource
+	// flavor
+	Tolerations []corev1.Toleration
+}
+
+type TopologyInformation struct {
+	// levels is a list of levels defined in the Topology object referenced
+	// by the flavor corresponding to the cache.
+	Levels []string
+}
+
 type TASFlavorCache struct {
 	sync.RWMutex
 
 	client client.Client
 
-	// TopologyName indicates the name of the topology specified in the
-	// ResourceFlavor spec.topologyName field.
-	TopologyName kueue.TopologyReference
-	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
-	NodeLabels map[string]string
-	// levels is a list of levels defined in the Topology object referenced
-	// by the flavor corresponding to the cache.
-	Levels []string
+	Topology TopologyInformation
 
-	// tolerations represents the list of tolerations specified for the resource
-	// flavor
-	Tolerations []corev1.Toleration
+	Flavor FlavorInformation
 
 	// usage maintains the usage per topology domain
 	usage map[utiltas.TopologyDomainID]resources.Requests
 }
 
-func (t *TASCache) NewTASFlavorCache(topologyName kueue.TopologyReference, levels []string, nodeLabels map[string]string,
-	tolerations []corev1.Toleration) *TASFlavorCache {
+func (t *tasCache) NewTASFlavorCache(topologyInfo TopologyInformation,
+	flavorInfo FlavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:       t.client,
-		TopologyName: topologyName,
-		Levels:       slices.Clone(levels),
-		NodeLabels:   maps.Clone(nodeLabels),
-		Tolerations:  slices.Clone(tolerations),
-		usage:        make(map[utiltas.TopologyDomainID]resources.Requests),
+		client:   t.client,
+		Topology: topologyInfo,
+		Flavor:   flavorInfo,
+		usage:    make(map[utiltas.TopologyDomainID]resources.Requests),
 	}
 }
 
@@ -88,8 +95,8 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	log := ctrl.LoggerFrom(ctx)
 	nodes := &corev1.NodeList{}
 
-	var requiredLabels client.MatchingLabels = maps.Clone(c.NodeLabels)
-	var requiredLabelKeys client.HasLabels = slices.Clone(c.Levels)
+	var requiredLabels client.MatchingLabels = maps.Clone(c.Flavor.NodeLabels)
+	var requiredLabelKeys client.HasLabels = slices.Clone(c.Topology.Levels)
 
 	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{
 		indexer.ReadyNode:       "true",
@@ -117,9 +124,9 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	c.RLock()
 	defer c.RUnlock()
 
-	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
-		"levels", c.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.TopologyName, c.Levels, c.Tolerations)
+	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.Flavor.NodeLabels,
+		"levels", c.Topology.Levels, "nodeCount", len(nodes), "podCount", len(pods))
+	snapshot := newTASFlavorSnapshot(log, c.Flavor.TopologyName, c.Topology.Levels, c.Flavor.Tolerations)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
