@@ -422,7 +422,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
-	requiredReplacementDomain := s.requiredReplacementDomain(tr, wl, existingAssignment)
+	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
 	replacementAssignment, reason := s.findTopologyAssignment(*tr, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
@@ -454,7 +454,7 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 }
 
 // requiredReplacementDomain returns required domain for the next pass of findingTopologyAssignment to be compliant with the existing one
-func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, wl *kueue.Workload, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -591,12 +591,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
-	if len(a.Domains) == 0 {
-		return b
-	}
-	if len(b.Domains) == 0 {
-		return a
-	}
 	nodeLevel := len(s.levelKeys) - 1
 	sortedDomains := make([]kueue.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
 	sortedDomains = append(sortedDomains, a.Domains...)
