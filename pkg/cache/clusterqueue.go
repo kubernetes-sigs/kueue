@@ -506,6 +506,15 @@ func (c *clusterQueue) addWorkload(log logr.Logger, w *kueue.Workload) error {
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
 	}
+	c.addOrUpdateWorkload(log, w)
+	return nil
+}
+
+func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
+	k := workload.Key(w)
+	if _, exist := c.Workloads[k]; exist {
+		c.deleteWorkload(log, w)
+	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(log, wi, 1)
@@ -513,7 +522,6 @@ func (c *clusterQueue) addWorkload(log logr.Logger, w *kueue.Workload) error {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
-	return nil
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, w *kueue.Workload) {
