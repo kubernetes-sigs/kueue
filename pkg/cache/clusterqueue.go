@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -476,14 +477,14 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 }
 
-func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addWorkload(log logr.Logger, w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
-	c.updateWorkloadUsage(wi, 1)
+	c.updateWorkloadUsage(log, wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
@@ -491,13 +492,13 @@ func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
+func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(wi, -1)
+	c.updateWorkloadUsage(log, wi, -1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
@@ -522,7 +523,7 @@ func (q *queue) reportActiveWorkloads() {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
@@ -542,6 +543,8 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 				if m == -1 {
 					tasFlvCache.removeUsage(tasUsage)
 				}
+			} else {
+				log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 			}
 		}
 	}

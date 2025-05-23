@@ -3470,7 +3470,7 @@ func TestLastSchedulingContext(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
 			clientBuilder := utiltesting.NewClientBuilder().
@@ -3545,7 +3545,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				err = cqCache.DeleteWorkload(&wl)
+				err = cqCache.DeleteWorkload(log, &wl)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
@@ -3919,7 +3919,7 @@ func TestResourcesToReserve(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			assignment := flavorassigner.Assignment{
 				PodSets: []flavorassigner.PodSetAssignment{{
 					Name:    "memory",
@@ -3953,7 +3953,7 @@ func TestResourcesToReserve(t *testing.T) {
 				quantity := resources.ResourceQuantity(fr.Resource, v)
 				admission := utiltesting.MakeAdmission("cq").Assignment(fr.Resource, fr.Flavor, quantity.String())
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
-				cqCache.AddOrUpdateWorkload(wl)
+				cqCache.AddOrUpdateWorkload(log, wl)
 				i += 1
 			}
 			snapshot, err := cqCache.Snapshot(ctx)
