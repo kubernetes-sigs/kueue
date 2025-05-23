@@ -1640,6 +1640,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByLocalQueueStopped,
 					Message: "The LocalQueue is stopped",
 				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEvicition{
+						Reason: kueue.WorkloadEvictedByLocalQueueStopped,
+						Count:  1,
+					},
+				).
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
