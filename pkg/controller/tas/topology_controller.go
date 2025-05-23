@@ -153,7 +153,7 @@ func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueuealpha.Topolog
 		}
 		if *flv.Spec.TopologyName == kueue.TopologyReference(e.Object.Name) {
 			log.V(3).Info("Updating Topology cache for flavor", "flavor", flv.Name)
-			r.cache.AddOrUpdateTopologyForFlavor(log, e.Object, &flv)
+			r.cache.AddTopologyForFlavor(log, e.Object, &flv)
 		}
 	}
 

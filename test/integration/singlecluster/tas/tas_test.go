@@ -534,6 +534,66 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
+			ginkgo.It("should respect TAS usage by admitted workloads after reboot; second workload created before reboot", func() {
+				var wl1, wl2, wl3 *kueue.Workload
+				ginkgo.By("creating wl1 which consumes the entire TAS capacity", func() {
+					wl1 = testing.MakeWorkload("wl1", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl1.Spec.PodSets[0].Count = 4
+					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(testing.DefaultBlockTopologyLevel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify wl1 is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				})
+
+				ginkgo.By("create wl2 which is blocked by wl1", func() {
+					wl2 = testing.MakeWorkload("wl2", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(testing.DefaultRackTopologyLevel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("very wl2 is not admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("restart controllers", func() {
+					fwk.StopManager(ctx)
+					fwk.StartManager(ctx, cfg, managerSetup)
+				})
+
+				ginkgo.By("verify wl2 is still not admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				})
+
+				ginkgo.By("finish wl1 to demonstrate there is enough space for wl2", func() {
+					util.FinishWorkloads(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("create wl3 to ensure ClusterQueue is reconciled", func() {
+					wl3 = testing.MakeWorkload("wl3", ns.Name).
+						Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+					wl3.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(testing.DefaultRackTopologyLevel),
+					}
+					gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify wl2 and wl3 get admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2, wl3)
+				})
+			})
+
 			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", func() {
 				var updatedTopology kueuealpha.Topology
 
