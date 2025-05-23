@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -55,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -190,6 +192,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
 		return ctrl.Result{}, nil
+	}
+
+	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
+		if !workload.HasTopologyAssignmentWithNodeToReplace(&wl) {
+			if err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
+				annotations := wl.GetAnnotations()
+				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
+				wl.SetAnnotations(annotations)
+				r.log.V(3).Info("Deleting %v annotation from Workload", "annotation", kueuealpha.NodeToReplaceAnnotation)
+				return true, nil
+			}); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
 	}
 
 	if workload.IsActive(&wl) {
