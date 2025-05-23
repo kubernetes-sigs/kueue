@@ -378,6 +378,65 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	return true
 }
 
+// FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
+// the TAS requests in the flavor handled by the snapshot.
+// The simulateEmpty parameter allows to look for the assignment under the
+// assumption that all TAS workloads are preempted.
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool, wl *kueue.Workload) TASAssignmentsResult {
+	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
+	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	for _, tr := range flavorTASRequests {
+		if workload.HasFailedNodeAnnotation(wl) {
+			// In case of looking for replacement TopologyRequest has only
+			// PodSet with node to replace, so we match PodSetAssignment
+			psa := findPSA(wl, tr.PodSet.Name)
+			if psa == nil || psa.TopologyAssignment == nil {
+				continue
+			}
+
+			// We deepCopy the assignment, so if we delete unwanted domain, and
+			// There is no fit, we have the original assignment to retry with
+			assignment := psa.TopologyAssignment.DeepCopy()
+			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
+			tr.Count = deleteDomain(assignment, nodeToReplace)
+			if isStale, staleDomain := s.IsTopologyAssignmentStale(assignment); isStale {
+				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: psa.TopologyAssignment, FailureReason: fmt.Sprintf("Domain %v not sound in the cache", staleDomain)}
+				return result
+			}
+			requiredDomain := s.requiredDomain(&tr, wl, assignment)
+			patchAssignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
+			if patchAssignment != nil {
+				assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
+			}
+			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
+			if reason != "" {
+				return result
+			}
+			for _, domain := range patchAssignment.Domains {
+				domainID := utiltas.DomainID(domain.Values)
+				if assumedUsage[domainID] == nil {
+					assumedUsage[domainID] = resources.Requests{}
+				}
+				assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
+			}
+		} else {
+			assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, "")
+			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
+			if reason != "" {
+				return result
+			}
+			for _, domain := range assignment.Domains {
+				domainID := utiltas.DomainID(domain.Values)
+				if assumedUsage[domainID] == nil {
+					assumedUsage[domainID] = resources.Requests{}
+				}
+				assumedUsage[domainID].Add(tr.TotalRequests())
+			}
+		}
+	}
+	return result
+}
+
 func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssignment {
 	if wl == nil || wl.Status.Admission == nil {
 		return nil
@@ -393,7 +452,7 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 // requiredDomain returns required domain for the next pass of findingTopologyAssignment to be compliant with the existing one
 // it also updates the existing assignment and deletes domain that has faulty node
 // it updates TASPodsSetRequest with the number of Pods affected by the deletion of domain
-func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Workload, psa *kueue.PodSetAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Workload, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -408,53 +467,33 @@ func (s *TASFlavorSnapshot) requiredDomain(tr *TASPodSetRequests, wl *kueue.Work
 	}
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
-	if len(psa.TopologyAssignment.Domains) == 0 {
+	if len(ta.Domains) == 0 {
 		return ""
 	}
+
 	nodeLevel := len(s.levelKeys) - 1
-	// we know at this point that values contains only hostname
-	nodeDomain := psa.TopologyAssignment.Domains[0].Values[0]
+	// Since all Domains comply with the required policy, take a random one
+	// in this case, the first one
+	// We know at this point that values contains only hostname
+	nodeDomain := ta.Domains[0].Values[0]
 	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
+	// Find a domain that complies with the required policy
 	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
 	}
 	return domain.id
 }
 
-// FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
-// the TAS requests in the flavor handled by the snapshot.
-// The simulateEmpty parameter allows to look for the assignment under the
-// assumption that all TAS workloads are preempted.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool, wl *kueue.Workload) TASAssignmentsResult {
-	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
-	for _, tr := range flavorTASRequests {
-		// find a podset assignment that requires node replacement
-		psa := findPSA(wl, tr.PodSet.Name)
-		var requiredDomain utiltas.TopologyDomainID
-		// TopologyAssignment present means it has a node to replace
-		if workload.HasFailedNodeAnnotation(wl) && psa != nil && psa.TopologyAssignment != nil {
-			nodeToReplace := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
-			tr.Count = deleteDomain(psa.TopologyAssignment, nodeToReplace)
-			requiredDomain = s.requiredDomain(&tr, wl, psa)
-		}
-		assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredDomain)
-		if workload.HasFailedNodeAnnotation(wl) && psa != nil && psa.TopologyAssignment != nil && assignment != nil {
-			assignment = s.mergeTopologyAssignments(assignment, psa.TopologyAssignment)
-		}
-		result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
-		if reason != "" {
-			return result
-		}
-		for _, domain := range assignment.Domains {
-			domainID := utiltas.DomainID(domain.Values)
-			if assumedUsage[domainID] == nil {
-				assumedUsage[domainID] = resources.Requests{}
-			}
-			assumedUsage[domainID].Add(tr.TotalRequests())
+// IsTopologyAssignmentStale indicates whether the topologyAssignment have Nodes
+// that don't exists in the snapshot. It may be cause e.g. by Node deletion, or change
+// in Node's NodeReady condition
+func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *kueue.TopologyAssignment) (bool, string) {
+	for _, domain := range ta.Domains {
+		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
+			return true, domain.Values[0]
 		}
 	}
-	return result
+	return false, ""
 }
 
 // deleteDomain deletes the domain the has faulty node and returns number of affected pods by the node
@@ -550,6 +589,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
+	if len(a.Domains) == 0 {
+		return b
+	}
+	if len(b.Domains) == 0 {
+		return a
+	}
 	nodeLevel := len(s.levelKeys) - 1
 	sortedDomains := make([]kueue.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
 	sortedDomains = append(sortedDomains, a.Domains...)
