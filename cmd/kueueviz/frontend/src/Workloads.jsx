@@ -92,7 +92,6 @@ const Workloads = () => {
                       </Tooltip>
                     </TableCell>
                     <TableCell><Link to={`/local-queue/${workload.metadata.namespace}/${workload.spec.queueName}`}>{workload.spec.queueName}</Link></TableCell>
-                    <TableCell>{workload.status?.state || "Unknown"}</TableCell>
                     <TableCell>{workload.preemption?.preempted ? "Yes" : "No"}</TableCell>
                     <TableCell>{workload.preemption?.reason || "N/A"}</TableCell>
                     <TableCell>{workload.spec.priority}</TableCell>
