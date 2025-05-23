@@ -122,7 +122,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			// ignore error when old Cohort has cycle.
@@ -156,8 +156,8 @@ func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavor
 		c.Preemption = defaultPreemption
 	}
 
-	c.UpdateWithFlavors(resourceFlavors)
-	c.updateWithAdmissionChecks(admissionChecks)
+	c.UpdateWithFlavors(log, resourceFlavors)
+	c.updateWithAdmissionChecks(log, admissionChecks)
 
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility
@@ -204,7 +204,7 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 		!equality.Semantic.DeepEqual(oldQuotas, c.resourceNode.Quotas)
 }
 
-func (c *clusterQueue) updateQueueStatus() {
+func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
@@ -222,6 +222,7 @@ func (c *clusterQueue) updateQueueStatus() {
 		status = terminating
 	}
 	if status != c.Status {
+		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status)
 	}
@@ -314,9 +315,9 @@ func (c *clusterQueue) isTASViolated() bool {
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
-func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.updateLabelKeys(flavors)
-	c.updateQueueStatus()
+	c.updateQueueStatus(log)
 }
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
@@ -352,7 +353,7 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
+func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[string]AdmissionCheck) {
 	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[string]()
@@ -448,7 +449,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 
 	if update {
-		c.updateQueueStatus()
+		c.updateQueueStatus(log)
 	}
 }
 

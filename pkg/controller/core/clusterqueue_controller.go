@@ -361,7 +361,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 	specUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec)
 
-	if err := r.cache.UpdateClusterQueue(e.ObjectNew); err != nil {
+	if err := r.cache.UpdateClusterQueue(r.log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
 	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {

@@ -134,7 +134,7 @@ func (r *ResourceFlavorReconciler) Create(e event.TypedCreateEvent[*kueue.Resour
 
 	// As long as one clusterQueue becomes active,
 	// we should inform clusterQueue controller to broadcast the event.
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(e.Object.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, e.Object.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 		// If at least one CQ becomes active, then those CQs should now get evaluated by the scheduler;
 		// note that the workloads in those CQs are not necessarily "inadmissible", and hence we trigger a
@@ -150,7 +150,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.TypedDeleteEvent[*kueue.Resour
 	log := r.log.WithValues("resourceFlavor", klog.KObj(e.Object))
 	log.V(2).Info("ResourceFlavor delete event")
 
-	if cqNames := r.cache.DeleteResourceFlavor(e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteResourceFlavor(r.log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -166,7 +166,7 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(r.log, e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
