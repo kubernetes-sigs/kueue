@@ -339,64 +339,6 @@ func TestMergeTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"topology a is nil": {
-			a: nil,
-			b: &kueue.TopologyAssignment{
-				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Values: []string{"a", "b"},
-						Count:  1,
-					},
-					{
-						Values: []string{"d", "e"},
-						Count:  1,
-					},
-				},
-			},
-			want: kueue.TopologyAssignment{
-				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Values: []string{"a", "b"},
-						Count:  1,
-					},
-					{
-						Values: []string{"d", "e"},
-						Count:  1,
-					},
-				},
-			},
-		},
-		"topology b is nil": {
-			a: &kueue.TopologyAssignment{
-				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Values: []string{"a", "c"},
-						Count:  1,
-					},
-					{
-						Values: []string{"d", "e"},
-						Count:  1,
-					},
-				},
-			},
-			b: nil,
-			want: kueue.TopologyAssignment{
-				Levels: []string{"level-1", "level-2"},
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Values: []string{"a", "c"},
-						Count:  1,
-					},
-					{
-						Values: []string{"d", "e"},
-						Count:  1,
-					},
-				},
-			},
-		},
 	}
 
 	for name, tc := range cases {

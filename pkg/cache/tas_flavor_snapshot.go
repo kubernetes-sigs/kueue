@@ -387,8 +387,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
 		if workload.HasNodeToReplace(wl) {
-			// In case of looking for replacement TopologyRequest has only
-			// PodSet with node to replace, so we match PodSetAssignment
+			// In case of looking for Node replacement, TopologyRequest has only
+			// PodSets with the Node to replace, so we match PodSetAssignment
 			psa := findPSA(wl, tr.PodSet.Name)
 			if psa == nil || psa.TopologyAssignment == nil {
 				continue
@@ -405,11 +405,12 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 			}
 			requiredReplacementDomain := s.requiredReplacementDomain(&tr, wl, assignment)
 			patchAssignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, requiredReplacementDomain)
-			assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
-			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 			if reason != "" {
+				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: nil, FailureReason: reason}
 				return result
 			}
+			assignment = s.mergeTopologyAssignments(patchAssignment, assignment)
+			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 			for _, domain := range patchAssignment.Domains {
 				domainID := utiltas.DomainID(domain.Values)
 				if assumedUsage[domainID] == nil {
@@ -448,8 +449,6 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 }
 
 // requiredReplacementDomain returns required domain for the next pass of findingTopologyAssignment to be compliant with the existing one
-// it also updates the existing assignment and deletes domain that has faulty node
-// it updates TASPodsSetRequest with the number of Pods affected by the deletion of domain
 func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, wl *kueue.Workload, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
@@ -587,10 +586,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
 func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignment) *kueue.TopologyAssignment {
-	if a == nil || len(a.Domains) == 0 {
+	if len(a.Domains) == 0 {
 		return b
 	}
-	if b == nil || len(b.Domains) == 0 {
+	if len(b.Domains) == 0 {
 		return a
 	}
 	nodeLevel := len(s.levelKeys) - 1
@@ -882,6 +881,7 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 		return true
 	}
 	// Uses levelValues instead of leaf.id since for topologies with hostname as lowest level it points directly to the hostname
+	// TODO(#5322): Use util function that compare two DomainIDs
 	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
