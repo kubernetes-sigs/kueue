@@ -168,7 +168,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Type:    kueue.WorkloadEvicted,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
-				Message: fmt.Sprintf(NodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
+				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
 			},
 		},
 	}
