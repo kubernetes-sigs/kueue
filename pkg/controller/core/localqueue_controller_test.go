@@ -512,14 +512,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 				Build()
 
-			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			ctxWithLogger, log := utiltesting.ContextWithLog(t)
 			cqCache := cache.New(cl)
 			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
-				cqCache.AddOrUpdateWorkload(&wl)
+				cqCache.AddOrUpdateWorkload(log, &wl)
 			}
 			qManager := queue.NewManager(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
