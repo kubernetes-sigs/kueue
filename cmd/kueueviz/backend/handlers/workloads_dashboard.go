@@ -30,17 +30,23 @@ import (
 // WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
 func WorkloadsDashboardWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchDashboardData(dynamicClient)
-		})(c)
+		// Extract namespace query parameter if provided
+		namespace := c.Query("namespace")
+
+		// Create a closure that captures the namespace parameter
+		dataFetcher := func() (any, error) {
+			return fetchDashboardData(dynamicClient, namespace)
+		}
+
+		GenericWebSocketHandler(dataFetcher)(c)
 	}
 }
 
-func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]any, error) {
+func fetchDashboardData(dynamicClient dynamic.Interface, namespace string) (map[string]any, error) {
 	resourceFlavors, _ := fetchResourceFlavors(dynamicClient)
 	clusterQueues, _ := fetchClusterQueues(dynamicClient)
 	localQueues, _ := fetchLocalQueues(dynamicClient)
-	workloads := fetchWorkloadsDashboardData(dynamicClient)
+	workloads := fetchWorkloadsDashboardData(dynamicClient, namespace)
 	result := map[string]any{
 		"flavors":       removeManagedFields(resourceFlavors),
 		"clusterQueues": removeManagedFields(clusterQueues),
@@ -50,8 +56,17 @@ func fetchDashboardData(dynamicClient dynamic.Interface) (map[string]any, error)
 	return result, nil
 }
 
-func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface) any {
-	workloadList, err := dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
+func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface, namespace string) any {
+	var workloadList *unstructured.UnstructuredList
+	var err error
+
+	// If namespace is provided, filter workloads by namespace
+	if namespace != "" && namespace != "all" {
+		workloadList, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	} else {
+		workloadList, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
+	}
+
 	if err != nil {
 		fmt.Printf("error fetching workloads: %v", err)
 	}

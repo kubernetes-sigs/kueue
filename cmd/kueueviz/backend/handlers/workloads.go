@@ -22,17 +22,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 )
 
 func WorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (any, error) {
-		workloads, err := fetchWorkloads(dynamicClient)
-		result := map[string]any{
-			"workloads": workloads,
-		}
-		return result, err
-	})
+	return func(c *gin.Context) {
+		// Extract namespace query parameter if provided
+		namespace := c.Query("namespace")
+		GenericWebSocketHandler(func() (any, error) {
+			workloads, err := fetchWorkloads(dynamicClient, namespace)
+			result := map[string]any{
+				"workloads": workloads,
+			}
+			return result, err
+		})(c)
+	}
 }
 
 func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
@@ -45,11 +50,21 @@ func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 	}
 }
 
-func fetchWorkloads(dynamicClient dynamic.Interface) (any, error) {
-	result, err := dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error fetching resource flavors: %v", err)
+func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, error) {
+	var result *unstructured.UnstructuredList
+	var err error
+
+	// If namespace is provided, filter workloads by namespace
+	if namespace != "" {
+		result, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	} else {
+		result, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
 	}
+
+	if err != nil {
+		return nil, fmt.Errorf("error fetching workloads: %v", err)
+	}
+
 	return result, nil
 }
 
