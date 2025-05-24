@@ -54,25 +54,15 @@ func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, err
 	var result *unstructured.UnstructuredList
 	var err error
 
-	// Add debug logging
-	fmt.Printf("Fetching workloads with namespace filter: [%s]\n", namespace)
-
 	// If namespace is provided, filter workloads by namespace
 	if namespace != "" {
-		fmt.Printf("Filtering workloads by namespace: %s\n", namespace)
 		result, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 	} else {
-		fmt.Println("No namespace filter provided, fetching all workloads")
 		result, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workloads: %v", err)
-	}
-
-	// Debug log the result
-	if result != nil {
-		fmt.Printf("Fetched %d workloads\n", len(result.Items))
 	}
 
 	return result, nil

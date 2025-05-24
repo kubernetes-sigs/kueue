@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"kueueviz/handlers"
 
-	_ "net/http/pprof"
+	"kueueviz/handlers"
 )
 
 func main() {
