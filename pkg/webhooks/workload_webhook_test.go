@@ -165,7 +165,8 @@ func TestValidateWorkload(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", ""),
+				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", "").
+					WithOrigin("labelKey"),
 			},
 		},
 		"invalid node selector name of podSetUpdate": {
@@ -175,7 +176,8 @@ func TestValidateWorkload(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(podSetUpdatePath.Index(0).Child("nodeSelector"), "@abc", ""),
+				field.Invalid(podSetUpdatePath.Index(0).Child("nodeSelector"), "@abc", "").
+					WithOrigin("labelKey"),
 			},
 		},
 		"invalid label value of podSetUpdate": {

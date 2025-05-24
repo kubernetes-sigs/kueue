@@ -264,7 +264,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
-					invalidLabelKeyMessage),
+					invalidLabelKeyMessage).WithOrigin("labelKey"),
 			},
 		},
 		{
@@ -274,7 +274,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
-					invalidLabelKeyMessage),
+					invalidLabelKeyMessage).WithOrigin("labelKey"),
 			},
 		},
 	}

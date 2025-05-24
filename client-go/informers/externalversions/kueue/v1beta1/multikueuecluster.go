@@ -60,13 +60,25 @@ func NewFilteredMultiKueueClusterInformer(client versioned.Interface, resyncPeri
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().MultiKueueClusters().List(context.TODO(), options)
+				return client.KueueV1beta1().MultiKueueClusters().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().MultiKueueClusters().Watch(context.TODO(), options)
+				return client.KueueV1beta1().MultiKueueClusters().Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1beta1().MultiKueueClusters().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1beta1().MultiKueueClusters().Watch(ctx, options)
 			},
 		},
 		&apiskueuev1beta1.MultiKueueCluster{},
