@@ -1,2 +1,5 @@
 kubeconfig
 kueue_ws_app
+
+# Backend binary
+backend/kueueviz-backend
