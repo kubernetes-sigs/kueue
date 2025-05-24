@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	
+
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 	"kueueviz/handlers"
-	
+
 	_ "net/http/pprof"
 )
 
