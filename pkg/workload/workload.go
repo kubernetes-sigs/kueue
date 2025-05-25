@@ -1015,7 +1015,7 @@ func References(wls []*Info) []klog.ObjectRef {
 	return keys
 }
 
-func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
+func workloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
 	evictionState := FindSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
 	if evictionState == nil {
 		evictionState = &kueue.WorkloadSchedulingStatsEviction{
@@ -1054,4 +1054,26 @@ func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 		return true
 	}
 	return false
+}
+
+func EvictWorkload(ctx context.Context, c client.Client, clock clock.Clock, recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, baseReason, reason, message, underlyingCause string) error {
+	SetEvictedCondition(wl, reason, message)
+	resetChecksOnEviction(wl, clock.Now())
+	report := workloadEvictionStateInc(wl, baseReason, underlyingCause)
+	err := ApplyAdmissionStatus(ctx, c, wl, true, clock)
+
+	if err != nil {
+		return err
+	}
+
+	if wl.Status.Admission == nil {
+		return nil
+	}
+
+	ReportEvictedWorkload(recorder, wl, cqName, reason, message)
+	if report {
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, "")
+	}
+
+	return nil
 }
