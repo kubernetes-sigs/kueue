@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -37,9 +38,10 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			if psAssignment.TopologyAssignment != nil {
-				// Skip if already computed, which may happen if this is the
-				// second pass of scheduler.
+			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNode(wl) {
+				// skip if already computed and doesn't need recomputing
+				// if it already has an assignment but needs recomputing due to a failed node
+				// we add it to the list of TASRequests
 				continue
 			}
 			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {
@@ -56,6 +58,19 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 		}
 	}
 	return tasRequests
+}
+
+func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
+	if !workload.HasNodeToReplace(wl.Obj) {
+		return false
+	}
+	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]
+	for _, domain := range psa.TopologyAssignment.Domains {
+		if domain.Values[len(domain.Values)-1] == failedNode {
+			return true
+		}
+	}
+	return false
 }
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,

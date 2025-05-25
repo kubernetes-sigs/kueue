@@ -404,10 +404,10 @@ type SchedulingStats struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=reason
 	// +patchMergeKey=underlyingCause
-	Evictions []WorkloadSchedulingStatsEvicition `json:"evictions,omitempty"`
+	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
 }
 
-type WorkloadSchedulingStatsEvicition struct {
+type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
 	// +required
@@ -621,6 +621,10 @@ const (
 	// WorkloadEvictedByLocalQueueStopped indicates that the workload was evicted
 	// because the LocalQueue is Stopped.
 	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
+
+	// WorkloadEvictedDueToNodeFailures indicates that the workload was evicted
+	// due to non-recoverable node failures.
+	WorkloadEvictedDueToNodeFailures = "NodeFailures"
 
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.

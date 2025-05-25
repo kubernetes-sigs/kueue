@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"sort"
 	"testing"
 
@@ -2112,10 +2113,147 @@ func TestFindTopologyAssignment(t *testing.T) {
 				wantMainPodSetResult.TopologyAssignment = tc.wantAssignment
 			}
 			wantResult[kueue.DefaultPodSetName] = wantMainPodSetResult
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false, nil)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
 		})
 	}
+}
+
+func TestFindTopologyAssignmentForTwoPodSets(t *testing.T) {
+	const (
+		tasBlockLabel = "cloud.com/topology-block"
+	)
+
+	t.Run("find topology assignment for two podsets with overlapping domain", func(t *testing.T) {
+		ctx, _ := utiltesting.ContextWithLog(t)
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("b1").
+				Label(tasBlockLabel, "b1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2").
+				Label(tasBlockLabel, "b2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b3").
+				Label(tasBlockLabel, "b3").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		levels := []string{tasBlockLabel}
+		requests := resources.Requests{
+			corev1.ResourceCPU: 1000,
+		}
+		topologyRequest := &kueue.PodSetTopologyRequest{
+			Preferred: ptr.To(tasBlockLabel),
+		}
+		wantAssignment1 := &kueue.TopologyAssignment{
+			Levels: []string{tasBlockLabel},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 2,
+					Values: []string{
+						"b1",
+					},
+				},
+				{
+					Count: 1,
+					Values: []string{
+						"b2",
+					},
+				},
+			},
+		}
+		wantAssignment2 := &kueue.TopologyAssignment{
+			Levels: []string{tasBlockLabel},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 1,
+					Values: []string{
+						"b2",
+					},
+				},
+				{
+					Count: 2,
+					Values: []string{
+						"b3",
+					},
+				},
+			},
+		}
+
+		snapshot := buildSnapshot(ctx, t, nodes, levels)
+
+		tasInput1 := buildTASInput("podset1", topologyRequest, requests, 3)
+		tasInput2 := buildTASInput("podset2", topologyRequest, requests, 3)
+
+		flavorTASRequests := []TASPodSetRequests{tasInput1, tasInput2}
+
+		wantResult := make(TASAssignmentsResult)
+		wantResult["podset1"] = buildWantedResult(wantAssignment1)
+		wantResult["podset2"] = buildWantedResult(wantAssignment2)
+
+		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, false, nil)
+		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+			t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+		}
+	})
+}
+
+func buildSnapshot(ctx context.Context, t *testing.T, nodes []corev1.Node, levels []string) *TASFlavorSnapshot {
+	initialObjects := make([]client.Object, 0)
+	for i := range nodes {
+		initialObjects = append(initialObjects, &nodes[i])
+	}
+	clientBuilder := utiltesting.NewClientBuilder()
+	clientBuilder.WithObjects(initialObjects...)
+	_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+	client := clientBuilder.Build()
+
+	tasCache := NewTASCache(client)
+	tasFlavorCache := tasCache.NewTASFlavorCache("default", levels, map[string]string{}, []corev1.Toleration{})
+
+	snapshot, err := tasFlavorCache.snapshot(ctx)
+	if err != nil {
+		t.Fatalf("failed to build the snapshot: %v", err)
+	}
+	return snapshot
+}
+
+func buildTASInput(podsetName kueue.PodSetReference, topologyRequest *kueue.PodSetTopologyRequest, requests resources.Requests, podCount int32) TASPodSetRequests {
+	return TASPodSetRequests{
+		PodSet: &kueue.PodSet{
+			Name:            podsetName,
+			TopologyRequest: topologyRequest,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Tolerations:  []corev1.Toleration{},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
+		SinglePodRequests: requests,
+		Count:             podCount,
+	}
+}
+func buildWantedResult(wantAssignment *kueue.TopologyAssignment) tasPodSetAssignmentResult {
+	wantPodSetResult := tasPodSetAssignmentResult{
+		FailureReason: "",
+	}
+	wantPodSetResult.TopologyAssignment = wantAssignment
+	return wantPodSetResult
 }

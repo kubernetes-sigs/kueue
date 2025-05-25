@@ -676,7 +676,7 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -722,7 +722,7 @@ func TestReconcile(t *testing.T) {
 					Message: "At least one admission check is false",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadEvictedByAdmissionCheck,
 						Count:  1,
 					},
@@ -763,14 +763,14 @@ func TestReconcile(t *testing.T) {
 				Admitted(true).
 				RequeueState(ptr.To[int32](3), nil).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForRecovery,
 						Count:           1,
 					},
 				).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           1,
@@ -798,14 +798,14 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				// check EvictionState mergeStrategy
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForRecovery,
 						Count:           1,
 					},
 				).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           2,
@@ -907,7 +907,7 @@ func TestReconcile(t *testing.T) {
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           1,
@@ -983,7 +983,7 @@ func TestReconcile(t *testing.T) {
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForRecovery,
 						Count:           1,
@@ -1202,7 +1202,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1226,7 +1226,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1253,7 +1253,7 @@ func TestReconcile(t *testing.T) {
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           1,
@@ -1271,14 +1271,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           1,
 					},
 				).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1344,7 +1344,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{Reason: kueue.WorkloadDeactivated, Count: 1},
+					kueue.WorkloadSchedulingStatsEviction{Reason: kueue.WorkloadDeactivated, Count: 1},
 				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1407,7 +1407,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1476,7 +1476,7 @@ func TestReconcile(t *testing.T) {
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1545,7 +1545,7 @@ func TestReconcile(t *testing.T) {
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
@@ -1605,7 +1605,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The ClusterQueue is stopped",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEvicition{
+					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadEvictedByClusterQueueStopped,
 						Count:  1,
 					},

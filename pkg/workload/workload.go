@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -592,10 +593,12 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	wlCopy := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			UID:        w.UID,
-			Name:       w.Name,
-			Namespace:  w.Namespace,
-			Generation: w.Generation, // Produce a conflict if there was a change in the spec.
+			UID:         w.UID,
+			Name:        w.Name,
+			Namespace:   w.Namespace,
+			Generation:  w.Generation, // Produce a conflict if there was a change in the spec.
+			Annotations: maps.Clone(w.Annotations),
+			Labels:      maps.Clone(w.Labels),
 		},
 		TypeMeta: w.TypeMeta,
 	}
@@ -641,6 +644,10 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
+	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
+}
+
+func needsSecondPassForDelayedAssignment(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) &&
 		len(w.Status.AdmissionChecks) > 0 &&
 		HasAllChecksReady(w) &&
@@ -648,6 +655,10 @@ func NeedsSecondPass(w *kueue.Workload) bool {
 		!IsAdmitted(w) &&
 		!IsFinished(w) &&
 		!IsEvicted(w)
+}
+
+func needsSecondPassAfterNodeFailure(w *kueue.Workload) bool {
+	return IsAdmitted(w) && HasNodeToReplace(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -893,6 +904,34 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
+func HasNodeToReplace(w *kueue.Workload) bool {
+	if w == nil {
+		return false
+	}
+	annotations := w.GetAnnotations()
+	_, found := annotations[kueuealpha.NodeToReplaceAnnotation]
+	return found
+}
+
+func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
+	if !HasNodeToReplace(w) || !IsAdmitted(w) {
+		return false
+	}
+	annotations := w.GetAnnotations()
+	failedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
+	for _, psa := range w.Status.Admission.PodSetAssignments {
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		for _, domain := range psa.TopologyAssignment.Domains {
+			if domain.Values[len(domain.Values)-1] == failedNode {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message string, clock clock.Clock) metav1.Condition {
 	return metav1.Condition{
 		Type:               kueue.WorkloadPodsReady,
@@ -979,7 +1018,7 @@ func References(wls []*Info) []klog.ObjectRef {
 func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
 	evictionState := FindSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
 	if evictionState == nil {
-		evictionState = &kueue.WorkloadSchedulingStatsEvicition{
+		evictionState = &kueue.WorkloadSchedulingStatsEviction{
 			Reason:          reason,
 			UnderlyingCause: underlyingCause,
 		}
@@ -990,7 +1029,7 @@ func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string
 	return report
 }
 
-func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEvicition {
+func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEviction {
 	if wl.Status.SchedulingStats != nil {
 		for i := range wl.Status.SchedulingStats.Evictions {
 			if wl.Status.SchedulingStats.Evictions[i].Reason == reason && wl.Status.SchedulingStats.Evictions[i].UnderlyingCause == underlyingCause {
@@ -1001,7 +1040,7 @@ func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingC
 	return nil
 }
 
-func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEvicition) bool {
+func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEviction) bool {
 	if wl.Status.SchedulingStats == nil {
 		wl.Status.SchedulingStats = &kueue.SchedulingStats{}
 	}

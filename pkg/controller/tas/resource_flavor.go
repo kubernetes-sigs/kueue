@@ -154,7 +154,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(3).Info("Adding topology to cache for flavor", "flavorName", flv.Name)
-			r.cache.AddOrUpdateTopologyForFlavor(&topology, flv)
+			r.cache.AddTopologyForFlavor(log, &topology, flv)
 		} else {
 			log.V(3).Info("Skip topology update to cache as already present for flavor", "flavorName", flv.Name)
 		}

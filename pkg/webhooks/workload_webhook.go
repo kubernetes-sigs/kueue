@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -297,15 +296,9 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		// Allow to update (set) TopologyAssignment when DelayedTopologyRequest
 		// transitions from Pending to Ready.
 		for i := range new.PodSetAssignments {
-			oldPSA := old.PodSetAssignments[i]
-			newPSA := new.PodSetAssignments[i]
-			if oldPSA.TopologyAssignment == nil &&
-				newPSA.TopologyAssignment != nil &&
-				utilptr.ValEquals(oldPSA.DelayedTopologyRequest, kueue.DelayedTopologyRequestStatePending) &&
-				utilptr.ValEquals(newPSA.DelayedTopologyRequest, kueue.DelayedTopologyRequestStateReady) {
-				old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
-				old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
-			}
+			// allow to update TopologyAssignments
+			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
+			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)

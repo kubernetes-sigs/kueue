@@ -17,24 +17,24 @@ limitations under the License.
 
 package v1beta1
 
-// WorkloadSchedulingStatsEvicitionApplyConfiguration represents a declarative configuration of the WorkloadSchedulingStatsEvicition type for use
+// WorkloadSchedulingStatsEvictionApplyConfiguration represents a declarative configuration of the WorkloadSchedulingStatsEviction type for use
 // with apply.
-type WorkloadSchedulingStatsEvicitionApplyConfiguration struct {
+type WorkloadSchedulingStatsEvictionApplyConfiguration struct {
 	Reason          *string `json:"reason,omitempty"`
 	UnderlyingCause *string `json:"underlyingCause,omitempty"`
 	Count           *int32  `json:"count,omitempty"`
 }
 
-// WorkloadSchedulingStatsEvicitionApplyConfiguration constructs a declarative configuration of the WorkloadSchedulingStatsEvicition type for use with
+// WorkloadSchedulingStatsEvictionApplyConfiguration constructs a declarative configuration of the WorkloadSchedulingStatsEviction type for use with
 // apply.
-func WorkloadSchedulingStatsEvicition() *WorkloadSchedulingStatsEvicitionApplyConfiguration {
-	return &WorkloadSchedulingStatsEvicitionApplyConfiguration{}
+func WorkloadSchedulingStatsEviction() *WorkloadSchedulingStatsEvictionApplyConfiguration {
+	return &WorkloadSchedulingStatsEvictionApplyConfiguration{}
 }
 
 // WithReason sets the Reason field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Reason field is set to the value of the last call.
-func (b *WorkloadSchedulingStatsEvicitionApplyConfiguration) WithReason(value string) *WorkloadSchedulingStatsEvicitionApplyConfiguration {
+func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithReason(value string) *WorkloadSchedulingStatsEvictionApplyConfiguration {
 	b.Reason = &value
 	return b
 }
@@ -42,7 +42,7 @@ func (b *WorkloadSchedulingStatsEvicitionApplyConfiguration) WithReason(value st
 // WithUnderlyingCause sets the UnderlyingCause field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UnderlyingCause field is set to the value of the last call.
-func (b *WorkloadSchedulingStatsEvicitionApplyConfiguration) WithUnderlyingCause(value string) *WorkloadSchedulingStatsEvicitionApplyConfiguration {
+func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithUnderlyingCause(value string) *WorkloadSchedulingStatsEvictionApplyConfiguration {
 	b.UnderlyingCause = &value
 	return b
 }
@@ -50,7 +50,7 @@ func (b *WorkloadSchedulingStatsEvicitionApplyConfiguration) WithUnderlyingCause
 // WithCount sets the Count field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Count field is set to the value of the last call.
-func (b *WorkloadSchedulingStatsEvicitionApplyConfiguration) WithCount(value int32) *WorkloadSchedulingStatsEvicitionApplyConfiguration {
+func (b *WorkloadSchedulingStatsEvictionApplyConfiguration) WithCount(value int32) *WorkloadSchedulingStatsEvictionApplyConfiguration {
 	b.Count = &value
 	return b
 }

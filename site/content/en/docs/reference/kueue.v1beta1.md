@@ -2648,7 +2648,7 @@ words, it's the used quota that is over the nominalQuota.</p>
     
   
 <tr><td><code>evictions</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEvicition"><code>[]WorkloadSchedulingStatsEvicition</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction"><code>[]WorkloadSchedulingStatsEviction</code></a>
 </td>
 <td>
    <p>evictions tracks eviction statistics by reason and underlyingCause.</p>
@@ -2786,7 +2786,7 @@ domain indicated by the values field.</p>
 
 
 
-## `WorkloadSchedulingStatsEvicition`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEvicition}
+## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction}
     
 
 **Appears in:**

@@ -17,7 +17,6 @@ limitations under the License.
 package tase2e
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -32,7 +31,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
-	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -138,11 +136,19 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 
 			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name))
-				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionTrue, time.Now())
+				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				setNodeCondition(ctx, k8sClient, node, corev1.NodeReady, corev1.ConditionFalse, time.Now().Add(-tas.NodeFailureDelay))
+				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+				})
 			})
 			ginkgo.By(fmt.Sprintf("Verify node is added to failure list by checking workload %s status", wlName), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -183,7 +189,12 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				originalNode.UID = ""
 				originalNode.ManagedFields = nil
 				util.MustCreate(ctx, k8sClient, originalNode)
-				setNodeCondition(ctx, k8sClient, originalNode, corev1.NodeReady, corev1.ConditionTrue, time.Now())
+
+				util.SetNodeCondition(ctx, k8sClient, originalNode, &corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate deletion of node %s hosting pod %s", nodeNameToDelete, chosenPod.Name), func() {
@@ -200,14 +211,3 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 		})
 	})
 })
-
-func setNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, time time.Time) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		var updatedNode corev1.Node
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
-		condition := utilnode.GetNodeCondition(&updatedNode, conditionType)
-		condition.LastTransitionTime = metav1.NewTime(time)
-		condition.Status = conditionStatus
-		g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", conditionType, conditionStatus, node.Name)
-}
