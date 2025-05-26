@@ -22,7 +22,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -51,15 +50,8 @@ func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 }
 
 func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, error) {
-	var result *unstructured.UnstructuredList
-	var err error
-
-	// If namespace is provided, filter workloads by namespace
-	if namespace != "" {
-		result, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
-	} else {
-		result, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
-	}
+	// Using a single code path with Namespace() method handling empty namespace
+	result, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workloads: %v", err)
