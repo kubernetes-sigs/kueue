@@ -391,7 +391,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 			if assumedUsage[domainID] == nil {
 				assumedUsage[domainID] = resources.Requests{}
 			}
-			assumedUsage[domainID].Add(tr.TotalRequests())
+			assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
 		}
 	}
 	return result
