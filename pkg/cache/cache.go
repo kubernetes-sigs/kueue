@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -114,7 +113,7 @@ type Cache struct {
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
-	tasCache TASCache
+	tasCache tasCache
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -247,7 +246,7 @@ func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
 	return cqs
 }
 
-func (c *Cache) TASCache() *TASCache {
+func (c *Cache) TASCache() *tasCache {
 	return &c.tasCache
 }
 
@@ -255,6 +254,9 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
+	if handleTASFlavor(rf) {
+		c.tasCache.AddFlavor(rf)
+	}
 	return c.updateClusterQueues(log)
 }
 
@@ -262,26 +264,30 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
-	return c.updateClusterQueues(log)
-}
-
-func (c *Cache) AddTopologyForFlavor(log logr.Logger, topology *kueuealpha.Topology, flv *kueue.ResourceFlavor) sets.Set[kueue.ClusterQueueReference] {
-	c.Lock()
-	defer c.Unlock()
-	levels := utiltas.Levels(topology)
-	tasFlavor := kueue.ResourceFlavorReference(flv.Name)
-	if c.tasCache.Get(tasFlavor) == nil {
-		tasInfo := c.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels, flv.Spec.Tolerations)
-		c.tasCache.Set(tasFlavor, tasInfo)
+	if handleTASFlavor(rf) {
+		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	}
 	return c.updateClusterQueues(log)
 }
 
-func (c *Cache) DeleteTopologyForFlavor(log logr.Logger, flv kueue.ResourceFlavorReference) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueuealpha.Topology) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
-	c.tasCache.Delete(flv)
+	c.tasCache.AddTopology(topology)
 	return c.updateClusterQueues(log)
+}
+
+func (c *Cache) DeleteTopology(log logr.Logger, name kueue.TopologyReference) sets.Set[kueue.ClusterQueueReference] {
+	c.Lock()
+	defer c.Unlock()
+	c.tasCache.DeleteTopology(name)
+	return c.updateClusterQueues(log)
+}
+
+func (c *Cache) CloneTASCache() map[kueue.ResourceFlavorReference]*TASFlavorCache {
+	c.RLock()
+	defer c.RUnlock()
+	return c.tasCache.Clone()
 }
 
 func (c *Cache) AddOrUpdateAdmissionCheck(log logr.Logger, ac *kueue.AdmissionCheck) sets.Set[kueue.ClusterQueueReference] {
@@ -832,11 +838,11 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
-					if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
-						if topology, ok := c.tasCache.flavors[rgFlavor]; ok {
+					if handleTASFlavor(rf) {
+						if cache := c.tasCache.Get(rgFlavor); cache != nil {
 							flavor.Topology = &kueue.TopologyInfo{
-								Name:   topology.TopologyName,
-								Levels: topology.Levels,
+								Name:   cache.flavor.TopologyName,
+								Levels: cache.topology.Levels,
 							}
 						}
 					}
@@ -853,6 +859,10 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
 		Flavors:            flavors,
 	}, nil
+}
+
+func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
+	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
 func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
