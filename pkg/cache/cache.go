@@ -254,7 +254,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
-	if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+	if handleTASFlavor(rf) {
 		c.tasCache.AddFlavor(rf)
 	}
 	return c.updateClusterQueues(log)
@@ -264,7 +264,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
-	if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+	if handleTASFlavor(rf) {
 		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	}
 	return c.updateClusterQueues(log)
@@ -838,7 +838,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
-					if features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil {
+					if handleTASFlavor(rf) {
 						if cache := c.tasCache.Get(rgFlavor); cache != nil {
 							flavor.Topology = &kueue.TopologyInfo{
 								Name:   cache.flavor.TopologyName,
@@ -859,6 +859,10 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
 		Flavors:            flavors,
 	}, nil
+}
+
+func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
+	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
 func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {

@@ -30,32 +30,32 @@ import (
 
 type tasCache struct {
 	sync.RWMutex
-	client     client.Client
-	flavors    map[kueue.ResourceFlavorReference]flavorInformation
-	topologies map[kueue.TopologyReference]topologyInformation
-	cache      map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client      client.Client
+	flavors     map[kueue.ResourceFlavorReference]flavorInformation
+	topologies  map[kueue.TopologyReference]topologyInformation
+	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
 }
 
 func NewTASCache(client client.Client) tasCache {
 	return tasCache{
-		client:     client,
-		flavors:    make(map[kueue.ResourceFlavorReference]flavorInformation),
-		topologies: make(map[kueue.TopologyReference]topologyInformation),
-		cache:      make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		client:      client,
+		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
+		topologies:  make(map[kueue.TopologyReference]topologyInformation),
+		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
 }
 
 func (t *tasCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return t.cache[name]
+	return t.flavorCache[name]
 }
 
 // Clone returns a shallow copy of the map
 func (t *tasCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return maps.Clone(t.cache)
+	return maps.Clone(t.flavorCache)
 }
 
 func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
@@ -70,7 +70,7 @@ func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 		}
 		t.flavors[name] = flavorInfo
 		if tInfo, ok := t.topologies[flavorInfo.TopologyName]; ok {
-			t.cache[name] = t.NewTASFlavorCache(tInfo, flavorInfo)
+			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo)
 		}
 	}
 }
@@ -86,7 +86,7 @@ func (t *tasCache) AddTopology(topology *kueuealpha.Topology) {
 		t.topologies[name] = tInfo
 		for fName, flavorInfo := range t.flavors {
 			if flavorInfo.TopologyName == name {
-				t.cache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
+				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
 			}
 		}
 	}
@@ -96,16 +96,16 @@ func (t *tasCache) DeleteFlavor(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.flavors, name)
-	delete(t.cache, name)
+	delete(t.flavorCache, name)
 }
 
 func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.topologies, name)
-	for flavor, c := range t.cache {
+	for flavor, c := range t.flavorCache {
 		if c.flavor.TopologyName == name {
-			delete(t.cache, flavor)
+			delete(t.flavorCache, flavor)
 		}
 	}
 }
