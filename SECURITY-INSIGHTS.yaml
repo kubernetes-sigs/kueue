@@ -1,11 +1,11 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2024-09-28T01:00:00.000Z'
-  last-updated: '2025-04-24'
-  last-reviewed: '2025-04-24'
-  commit-hash: 74a9dfc91cc1caf7a0ddb283e2972cd49de32e02
+  last-updated: '2025-05-26'
+  last-reviewed: '2025-05-26'
+  commit-hash: 7a3498f047900c8a66ac3f86fb4248cbca1edc5c
   project-url: 'https://github.com/kubernetes-sigs/kueue'
-  project-release: 0.11.4
+  project-release: 0.11.5
   changelog: 'https://github.com/kubernetes-sigs/kueue/tree/main/CHANGELOG'
   license: 'https://github.com/kubernetes-sigs/kueue/blob/main/LICENSE'
 project-lifecycle:
@@ -28,7 +28,7 @@ documentation:
   - 'https://kueue.sigs.k8s.io/docs/'
 distribution-points:
   - >-
-    https://github.com/kubernetes-sigs/kueue/releases/download/v0.11.4/manifests.yaml
+    https://github.com/kubernetes-sigs/kueue/releases/download/v0.11.5/manifests.yaml
 security-artifacts:
   threat-model:
     threat-model-created: false
@@ -62,5 +62,5 @@ dependencies:
   dependencies-lists:
     - 'https://github.com/kubernetes-sigs/kueue/blob/main/go.mod'
   sbom:
-    - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.11.4/kueue-v0.11.4.spdx.json
+    - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.11.5/kueue-v0.11.5.spdx.json
       sbom-format: SPDX
