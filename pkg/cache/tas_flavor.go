@@ -62,7 +62,7 @@ type TASFlavorCache struct {
 
 	client client.Client
 
-	// TopologyName indicates the name of the topology specified in the
+	// topologyName indicates the name of the topology specified in the
 	// ResourceFlavor spec.topologyName field.
 	TopologyName kueue.TopologyReference
 	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
