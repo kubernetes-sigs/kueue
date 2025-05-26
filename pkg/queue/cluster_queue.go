@@ -56,12 +56,12 @@ var (
 type ClusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 	name              kueue.ClusterQueueReference
-	heap              heap.Heap[workload.Info]
+	heap              heap.Heap[workload.Info, workload.WorkloadReference]
 	namespaceSelector labels.Selector
 	active            bool
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
-	inadmissibleWorkloads map[string]*workload.Info
+	inadmissibleWorkloads map[workload.WorkloadReference]*workload.Info
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
 	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
@@ -88,7 +88,7 @@ func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.name
 }
 
-func workloadKey(i *workload.Info) string {
+func workloadKey(i *workload.Info) workload.WorkloadReference {
 	return workload.Key(i.Obj)
 }
 
@@ -115,7 +115,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs)
 	return &ClusterQueue{
 		heap:                   *heap.New(workloadKey, lessFunc),
-		inadmissibleWorkloads:  make(map[string]*workload.Info),
+		inadmissibleWorkloads:  make(map[workload.WorkloadReference]*workload.Info),
 		queueInadmissibleCycle: -1,
 		lessFunc:               lessFunc,
 		rwm:                    sync.RWMutex{},
@@ -274,7 +274,7 @@ func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool)
 	return true
 }
 
-func (c *ClusterQueue) forgetInflightByKey(key string) {
+func (c *ClusterQueue) forgetInflightByKey(key workload.WorkloadReference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
 	}
@@ -290,7 +290,7 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 		return false
 	}
 
-	inadmissibleWorkloads := make(map[string]*workload.Info)
+	inadmissibleWorkloads := make(map[workload.WorkloadReference]*workload.Info)
 	moved := false
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
@@ -347,26 +347,26 @@ func (c *ClusterQueue) Pop() *workload.Info {
 // Dump produces a dump of the current workloads in the heap of
 // this ClusterQueue. It returns false if the queue is empty,
 // otherwise returns true.
-func (c *ClusterQueue) Dump() ([]string, bool) {
+func (c *ClusterQueue) Dump() ([]workload.WorkloadReference, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
-	elements := make([]string, c.heap.Len())
+	elements := make([]workload.WorkloadReference, c.heap.Len())
 	for i, info := range c.heap.List() {
 		elements[i] = workload.Key(info.Obj)
 	}
 	return elements, true
 }
 
-func (c *ClusterQueue) DumpInadmissible() ([]string, bool) {
+func (c *ClusterQueue) DumpInadmissible() ([]workload.WorkloadReference, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if len(c.inadmissibleWorkloads) == 0 {
 		return nil, false
 	}
-	elements := make([]string, 0, len(c.inadmissibleWorkloads))
+	elements := make([]workload.WorkloadReference, 0, len(c.inadmissibleWorkloads))
 	for _, info := range c.inadmissibleWorkloads {
 		elements = append(elements, workload.Key(info.Obj))
 	}
@@ -385,7 +385,7 @@ func (c *ClusterQueue) Snapshot() []*workload.Info {
 
 // Info returns workload.Info for the workload key.
 // Users of this method should not modify the returned object.
-func (c *ClusterQueue) Info(key string) *workload.Info {
+func (c *ClusterQueue) Info(key workload.WorkloadReference) *workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.heap.GetByKey(key)

@@ -104,7 +104,7 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client              client.Client
-	assumedWorkloads    map[string]kueue.ClusterQueueReference
+	assumedWorkloads    map[workload.WorkloadReference]kueue.ClusterQueueReference
 	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking   bool
 	admissionChecks     map[kueue.AdmissionCheckReference]AdmissionCheck
@@ -123,7 +123,7 @@ func New(client client.Client, opts ...Option) *Cache {
 	}
 	c := &Cache{
 		client:              client,
-		assumedWorkloads:    make(map[string]kueue.ClusterQueueReference),
+		assumedWorkloads:    make(map[workload.WorkloadReference]kueue.ClusterQueueReference),
 		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:     make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		podsReadyTracking:   options.podsReadyTracking,
@@ -139,8 +139,8 @@ func New(client client.Client, opts ...Option) *Cache {
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
-		Workloads:           make(map[string]*workload.Info),
-		WorkloadsNotReady:   sets.New[string](),
+		Workloads:           make(map[workload.WorkloadReference]*workload.Info),
+		WorkloadsNotReady:   sets.New[workload.WorkloadReference](),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
@@ -148,7 +148,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
 
-		workloadsNotAccountedForTAS: sets.New[string](),
+		workloadsNotAccountedForTAS: sets.New[workload.WorkloadReference](),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
