@@ -181,8 +181,8 @@ github.com/prometheus/common v0.63.0 h1:YR/EIY1o3mEFP/kZCD7iDMnLPlGyuU2Gb3HIcXnA
 github.com/prometheus/common v0.63.0/go.mod h1:VVFF/fBIoToEnWRVkYoXEkq3R3paCoxG9PXP74SnV18=
 github.com/prometheus/procfs v0.16.0 h1:xh6oHhKwnOJKMYiYBDWmkHqQPyiY40sny36Cmx2bbsM=
 github.com/prometheus/procfs v0.16.0/go.mod h1:8veyXUu3nGP7oaCxhX6yeaM5u4stL2FeMXnCqhDthZg=
-github.com/ray-project/kuberay/ray-operator v1.3.1 h1:XrUN5BGyYb44k2rg/rjBp579rS8lxMWUkreUsKqNfm4=
-github.com/ray-project/kuberay/ray-operator v1.3.1/go.mod h1:vsO1hQC2BiQNvqWUs67HfzrbAOtbG+GqqYbnI/Ddyk8=
+github.com/ray-project/kuberay/ray-operator v1.3.2 h1:3tDr1WtLS8WgOg/PVvyokFFsCVuh44SsjPdtlOrHDY4=
+github.com/ray-project/kuberay/ray-operator v1.3.2/go.mod h1:vsO1hQC2BiQNvqWUs67HfzrbAOtbG+GqqYbnI/Ddyk8=
 github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR38lUII=
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
 github.com/russross/blackfriday/v2 v2.1.0 h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf35Ld67mk=
