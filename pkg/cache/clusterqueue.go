@@ -86,7 +86,7 @@ type clusterQueue struct {
 	resourceNode ResourceNode
 	hierarchy.ClusterQueue[*cohort]
 
-	tasCache *TASCache
+	tasCache *tasCache
 
 	workloadsNotAccountedForTAS sets.Set[string]
 }
