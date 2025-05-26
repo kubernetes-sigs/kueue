@@ -50,6 +50,13 @@ const (
 	subtract
 )
 
+func (u usageOp) asSignedOne() int {
+	if u == add {
+		return 1
+	}
+	return -1
+}
+
 type TASFlavorCache struct {
 	sync.RWMutex
 
