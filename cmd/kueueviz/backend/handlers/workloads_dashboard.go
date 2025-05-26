@@ -57,15 +57,8 @@ func fetchDashboardData(dynamicClient dynamic.Interface, namespace string) (map[
 }
 
 func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface, namespace string) any {
-	var workloadList *unstructured.UnstructuredList
-	var err error
-
-	// If namespace is provided, filter workloads by namespace
-	if namespace != "" {
-		workloadList, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
-	} else {
-		workloadList, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})
-	}
+	// Filter workloads by namespace if provided, otherwise fetch all
+	workloadList, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 
 	if err != nil {
 		fmt.Printf("error fetching workloads: %v", err)
