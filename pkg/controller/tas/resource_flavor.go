@@ -174,7 +174,7 @@ func (h *topologyHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 		}
 		if *flv.Spec.TopologyName == kueue.TopologyReference(topology.Name) {
 			log.V(3).Info("Updating Topology cache for flavor", "flavor", flv.Name)
-			h.cache.AddOrUpdateTopologyForFlavor(log, topology, &flv)
+			h.cache.AddTopologyForFlavor(log, topology, &flv)
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: flv.Name}}, nodeBatchPeriod)
 		}
 	}
@@ -208,7 +208,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(3).Info("Adding topology to cache for flavor", "flavorName", flv.Name)
-			r.cache.AddOrUpdateTopologyForFlavor(log, &topology, flv)
+			r.cache.AddTopologyForFlavor(log, &topology, flv)
 		} else {
 			log.V(3).Info("Skip topology update to cache as already present for flavor", "flavorName", flv.Name)
 		}
