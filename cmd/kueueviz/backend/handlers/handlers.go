@@ -19,12 +19,11 @@ package handlers
 import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 )
 
-func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interface, k8sClient *kubernetes.Clientset) {
+func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
 	// Namespaces
-	router.GET("/ws/namespaces", NamespacesWebSocketHandler(dynamicClient, k8sClient))
+	router.GET("/ws/namespaces", NamespacesWebSocketHandler(dynamicClient))
 
 	// Workloads
 	router.GET("/ws/workloads", WorkloadsWebSocketHandler(dynamicClient))

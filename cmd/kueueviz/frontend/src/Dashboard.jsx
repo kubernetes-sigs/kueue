@@ -33,14 +33,14 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [workloadsByUid, setWorkloadsByUid] = useState({});
-  const [selectedNamespace, setSelectedNamespace] = useState('all');
+  const [selectedNamespace, setSelectedNamespace] = useState('');
   
   // Fetch namespaces from our new endpoint
   const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
   const [namespaces, setNamespaces] = useState([]);
   
   // Fetch dashboard data with namespace filter
-  const dashboardUrl = selectedNamespace === 'all' 
+  const dashboardUrl = selectedNamespace === '' 
     ? '/ws/workloads/dashboard' 
     : `/ws/workloads/dashboard?namespace=${selectedNamespace}`;
   const { data: kueueData, error: kueueError } = useWebSocket(dashboardUrl);
@@ -190,7 +190,7 @@ const Dashboard = () => {
                           <KeyboardArrowDownIcon {...props} style={{ fontSize: '14px', right: '2px', position: 'absolute' }} />
                         )}
                       >
-                        <MenuItem value="all">All</MenuItem>
+                        <MenuItem value="">All</MenuItem>
                         {namespaces.map((namespace) => (
                           <MenuItem key={namespace} value={namespace}>
                             {namespace}

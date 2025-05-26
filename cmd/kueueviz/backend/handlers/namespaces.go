@@ -23,18 +23,17 @@ import (
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 )
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
-func NamespacesWebSocketHandler(dynamicClient dynamic.Interface, clientset *kubernetes.Clientset) gin.HandlerFunc {
+func NamespacesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return GenericWebSocketHandler(func() (any, error) {
-		return fetchNamespaces(dynamicClient, clientset)
+		return fetchNamespaces(dynamicClient)
 	})
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
-func fetchNamespaces(dynamicClient dynamic.Interface, clientset *kubernetes.Clientset) (any, error) {
+func fetchNamespaces(dynamicClient dynamic.Interface) (any, error) {
 	// First, get all LocalQueues to find namespaces that have them
 	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {

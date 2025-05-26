@@ -23,14 +23,14 @@ import './App.css';
 import ErrorMessage from './ErrorMessage';
 
 const Workloads = () => {
-  const [selectedNamespace, setSelectedNamespace] = useState('all');
+  const [selectedNamespace, setSelectedNamespace] = useState('');
   
   // Fetch namespaces from our new endpoint
   const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
   const [namespaces, setNamespaces] = useState([]);
   
   // Fetch workloads with namespace filter
-  const workloadsUrl = selectedNamespace === 'all' ? '/ws/workloads' : `/ws/workloads?namespace=${selectedNamespace}`;
+  const workloadsUrl = selectedNamespace === '' ? '/ws/workloads' : `/ws/workloads?namespace=${selectedNamespace}`;
   const { data: workloadsData, error: workloadsError } = useWebSocket(workloadsUrl);
   const [workloads, setWorkloads] = useState([]);
   
@@ -74,7 +74,7 @@ const Workloads = () => {
           onChange={(e) => setSelectedNamespace(e.target.value)}
           label="Filter by Namespace"
         >
-          <MenuItem value="all">All Namespaces</MenuItem>
+          <MenuItem value="">All Namespaces</MenuItem>
           {namespaces.map((namespace) => (
             <MenuItem key={namespace} value={namespace}>
               {namespace}
@@ -85,7 +85,7 @@ const Workloads = () => {
       
       {workloads.length === 0 ? (
         <Typography>
-          {selectedNamespace === 'all' 
+          {selectedNamespace === '' 
             ? 'No workloads found in any namespace.' 
             : `No workloads found in namespace "${selectedNamespace}". Ready to monitor when workloads are submitted!`
           }

@@ -55,7 +55,7 @@ func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, err
 	var err error
 
 	// If namespace is provided, filter workloads by namespace
-	if namespace != "" && namespace != "all" {
+	if namespace != "" {
 		result, err = dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 	} else {
 		result, err = dynamicClient.Resource(WorkloadsGVR()).List(context.TODO(), metav1.ListOptions{})

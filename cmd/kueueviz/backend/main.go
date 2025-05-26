@@ -38,7 +38,7 @@ func main() {
 		}
 	}()
 
-	k8sClient, dynamicClient, err := createK8sClient()
+	_, dynamicClient, err := createK8sClient()
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
@@ -49,7 +49,7 @@ func main() {
 		log.Fatalf("Error setting trusted proxies: %v", err)
 	}
 
-	handlers.InitializeWebSocketRoutes(r, dynamicClient, k8sClient)
+	handlers.InitializeWebSocketRoutes(r, dynamicClient)
 
 	viper.SetDefault("KUEUEVIZ_PORT", "8080")
 	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUEVIZ_PORT"))); err != nil {
