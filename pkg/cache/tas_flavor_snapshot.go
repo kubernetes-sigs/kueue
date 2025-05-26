@@ -607,8 +607,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
-	// fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, unconstrained)
-	// fitLevelIdx, currFitDomain, reason := s.findDomains(levelIdx, required, chunkTopologyRequired, chunkSize, count, unconstrained)
 	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, chunkTopologyRequired, count, chunkSize, unconstrained)
 	if len(reason) > 0 {
 		return nil, reason
@@ -637,7 +635,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	}
 	return s.buildAssignment(currFitDomain), ""
-	// }
 }
 
 func getChunkSize(podSetTopologyRequest *kueue.PodSetTopologyRequest) int32 {
@@ -739,8 +736,6 @@ func (s *TASFlavorSnapshot) chunkLevelKey(tasRequests *TASPodSetRequests) *strin
 	switch {
 	case topologyRequest.PodSetChunkRequiredTopology != nil:
 		return topologyRequest.PodSetChunkRequiredTopology
-	case topologyRequest.PodSetChunkPreferredTopology != nil:
-		return topologyRequest.PodSetChunkPreferredTopology
 	default:
 		return nil
 	}
@@ -939,22 +934,6 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-// func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
-// 	result := slices.Clone(domains)
-// 	slices.SortFunc(result, func(a, b *domain) int {
-// 		if a.state == b.state {
-// 			return slices.Compare(a.levelValues, b.levelValues)
-// 		}
-// 		// descending order.
-// 		return cmp.Compare(b.state, a.state)
-// 	})
-// 	if useLeastFreeCapacityAlgorithm(unconstrained) {
-// 		// start from the domain with the least amount of free resources
-// 		slices.Reverse(result)
-// 	}
-// 	return result
-// }
-
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
@@ -967,21 +946,6 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 		}
 		// descending order
 		return cmp.Compare(b.chunkState, a.chunkState)
-
-		// if b.state%*chunkSize == a.state%*chunkSize {
-
-		// 	if a.chunkState == b.chunkState {
-		// 		if a.state == b.state {
-		// 			return slices.Compare(a.levelValues, b.levelValues)
-		// 		}
-		// 		// ascending order - we need as tight fit as possible (lowest remaining pods in domain)
-		// 		return cmp.Compare(a.state, b.state)
-		// 	}
-
-		// 	// descending order.
-		// 	return cmp.Compare(b.chunkState, a.chunkState)
-		// }
-		// // ascending order, we want to prioritize tightly fitting chunks
 	})
 	if useLeastFreeCapacityAlgorithm(unconstrained) {
 		// start from the domain with the least amount of free resources
