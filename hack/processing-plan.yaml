@@ -320,6 +320,222 @@ files:
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-batch-v1-job"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-jobset-x-k8s-io-v1alpha2-jobset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-jaxjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-paddlejob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-pytorchjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-tfjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-xgboostjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v2beta1-mpijob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-ray-io-v1-raycluster"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-ray-io-v1-rayjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-workload-codeflare-dev-v1beta2-appwrapper"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-batch-v1-job"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-jobset-x-k8s-io-v1alpha2-jobset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-jaxjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-paddlejob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-pytorchjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-tfjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-xgboostjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v2beta1-mpijob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-ray-io-v1-raycluster"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-ray-io-v1-rayjob"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            namespaceSelector:
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-workload-codeflare-dev-v1beta2-appwrapper"'
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
     excludes:
