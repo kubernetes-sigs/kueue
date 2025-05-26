@@ -1,3 +1,17 @@
+## v0.10.6
+
+Changes since `v0.10.5`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix Kueue crash caused by race condition when deleting ClusterQueue (#5295, @gabesaba)
+- Fix RayJob webhook validation when `LocalQueueDefaulting` feature is enabled. (#5073, @MaysaMacedo)
+- Fix a bug where PropagateResourceRequests would always trigger an API status patch call. (#5131, @alexeldeib)
+- TAS: Fix RBAC configuration for the Topology API (#5121, @qti-haeyoon)
+- TAS: Fix the bug where TAS workloads may be admitted after restart of the Kueue controller. (#5335, @mimowo)
+
 ## v0.10.5
 
 Changes since `v0.10.4`:
