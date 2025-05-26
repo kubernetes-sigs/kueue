@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import 'react-toastify/dist/ReactToastify.css';
@@ -23,11 +23,30 @@ import './App.css';
 import ErrorMessage from './ErrorMessage';
 
 const Workloads = () => {
-  const { data: data, error } = useWebSocket('/ws/workloads');
+  const [selectedNamespace, setSelectedNamespace] = useState('');
+  
+  // Fetch namespaces from our new endpoint
+  const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
+  const [namespaces, setNamespaces] = useState([]);
+  
+  // Fetch workloads with namespace filter
+  const workloadsUrl = selectedNamespace === '' ? '/ws/workloads' : `/ws/workloads?namespace=${selectedNamespace}`;
+  const { data: workloadsData, error: workloadsError } = useWebSocket(workloadsUrl);
   const [workloads, setWorkloads] = useState([]);
+  
   useEffect(() => {
-    setWorkloads(data?.workloads?.items || []);
-  }, [data]);
+    if (namespacesData?.namespaces) {
+      // Make sure we're getting an array of strings, not complex objects
+      const namespaceNames = namespacesData.namespaces;
+      setNamespaces(namespaceNames);
+    }
+  }, [namespacesData]);
+  
+  useEffect(() => {
+    setWorkloads(workloadsData?.workloads?.items || []);
+  }, [workloadsData]);
+
+  const error = workloadsError || namespacesError;
 
   if (error) return <ErrorMessage error={error} />;
 
@@ -45,8 +64,32 @@ const Workloads = () => {
     <Paper className="parentContainer">
       {/* Display a table with workload details */}
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>Workloads</Typography>
+      
+      {/* Namespace filter dropdown */}
+      <FormControl variant="outlined" style={{ minWidth: 200, marginBottom: '20px' }}>
+        <InputLabel id="namespace-select-label">Filter by Namespace</InputLabel>
+        <Select
+          labelId="namespace-select-label"
+          value={selectedNamespace}
+          onChange={(e) => setSelectedNamespace(e.target.value)}
+          label="Filter by Namespace"
+        >
+          <MenuItem value="">All Namespaces</MenuItem>
+          {namespaces.map((namespace) => (
+            <MenuItem key={namespace} value={namespace}>
+              {namespace}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      
       {workloads.length === 0 ? (
-        <Typography>No Workloads found.</Typography>
+        <Typography>
+          {selectedNamespace === '' 
+            ? 'No workloads found in any namespace.' 
+            : `No workloads found in namespace "${selectedNamespace}". Ready to monitor when workloads are submitted!`
+          }
+        </Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>

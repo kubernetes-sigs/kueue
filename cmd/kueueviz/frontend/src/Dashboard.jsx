@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, IconButton, Collapse, Button } from '@mui/material';
+import { Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, IconButton, Collapse, Button, FormControl, InputLabel, MenuItem, Select } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
@@ -33,8 +33,22 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [workloadsByUid, setWorkloadsByUid] = useState({});
+  const [selectedNamespace, setSelectedNamespace] = useState('');
+  
+  // Fetch namespaces from our new endpoint
+  const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
+  const [namespaces, setNamespaces] = useState([]);
+  
+  // Fetch dashboard data with namespace filter
+  const { data: kueueData, error: kueueError } = useWebSocket(`/ws/workloads/dashboard?namespace=${selectedNamespace}`);
 
-  const { data: kueueData, error: kueueError } = useWebSocket('/ws/workloads/dashboard');
+  useEffect(() => {
+    if (namespacesData?.namespaces) {
+      // Sort namespaces alphabetically
+      const sortedNamespaces = [...namespacesData.namespaces].sort();
+      setNamespaces(sortedNamespaces);
+    }
+  }, [namespacesData]);
 
   useEffect(() => {
     if (kueueData) {
@@ -48,7 +62,7 @@ const Dashboard = () => {
         }
       });
     }
-    if (kueueError) setError(kueueError);
+    if (kueueError || namespacesError) setError(kueueError || namespacesError);
 
     setLoading(false);
   }, [kueueData, kueueError]);
@@ -140,15 +154,48 @@ const Dashboard = () => {
         <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
           Workloads
         </Typography>
+        
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell className="name-column">Namespace</TableCell>
                 <TableCell className="icon-column">
                   <IconButton variant="contained" color="primary" onClick={toggleExpandAll}>
                     {expandAll ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                   </IconButton>
+                </TableCell>
+                <TableCell className="name-column">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>Namespace</span>
+                    <FormControl variant="standard" size="small">
+                      <Select
+                        value={selectedNamespace}
+                        onChange={(e) => setSelectedNamespace(e.target.value)}
+                        displayEmpty
+                        disableUnderline
+                        renderValue={() => ''}
+                        style={{ 
+                          width: '20px',
+                          minWidth: '20px',
+                          '& .MuiSelect-select': {
+                            padding: '0px',
+                            paddingRight: '16px !important',
+                            minHeight: 'unset',
+                          }
+                        }}
+                        IconComponent={(props) => (
+                          <KeyboardArrowDownIcon {...props} style={{ fontSize: '14px', right: '2px', position: 'absolute' }} />
+                        )}
+                      >
+                        <MenuItem value="">All</MenuItem>
+                        {namespaces.map((namespace) => (
+                          <MenuItem key={namespace} value={namespace}>
+                            {namespace}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </div>
                 </TableCell>
                 <TableCell className="name-column">Name</TableCell>
                 <TableCell className="pods-count-column">Pods Count</TableCell>
@@ -176,12 +223,12 @@ const Dashboard = () => {
                 return (
                   <React.Fragment key={workload.metadata.name}>
                     <TableRow>
-                      <TableCell className="name-column">{workload.metadata.namespace}</TableCell>
                       <TableCell className="icon-column">
                         <IconButton onClick={() => toggleRow(workload.metadata.name)}>
                           {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                       </TableCell>
+                      <TableCell className="name-column">{workload.metadata.namespace}</TableCell>
                       <TableCell className="name-column">
                         <Link to={`/workload/${workload.metadata.namespace}/${workload.metadata.name}`}>
                           {workload.metadata.name}
