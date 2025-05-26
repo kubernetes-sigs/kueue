@@ -435,7 +435,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
-	c.updateWorkloadUsage(log, wi, 1)
+	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
@@ -453,7 +453,7 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(log, wi, -1)
+	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
@@ -478,29 +478,29 @@ func (q *LocalQueue) reportActiveWorkloads() {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
-		if m == 1 {
+		if op == add {
 			addUsage(c, fr, q)
 		}
-		if m == -1 {
+		if op == subtract {
 			removeUsage(c, fr, q)
 		}
 	}
-	c.updateWorkloadTASUsage(log, wi, m)
+	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
-		updateFlavorUsage(frUsage, c.AdmittedUsage, m)
-		c.admittedWorkloadsCount += int(m)
+		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
+		c.admittedWorkloadsCount += op.asSignedOne()
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateFlavorUsage(frUsage, lq.totalReserved, m)
-		lq.reservingWorkloads += int(m)
+		updateFlavorUsage(frUsage, lq.totalReserved, op)
+		lq.reservingWorkloads += op.asSignedOne()
 		if admitted {
-			lq.updateAdmittedUsage(frUsage, m)
-			lq.admittedWorkloads += int(m)
+			lq.updateAdmittedUsage(frUsage, op)
+			lq.admittedWorkloads += op.asSignedOne()
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
 			lq.reportActiveWorkloads()
@@ -508,7 +508,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, m
 	}
 }
 
-func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	if !features.Enabled(features.TopologyAwareScheduling) || !wi.IsUsingTAS() {
 		return
 	}
@@ -525,9 +525,9 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		switch {
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
-		case m == 1:
+		case op == add:
 			tasFlvCache.addUsage(tasUsage)
-		case m == -1:
+		case op == subtract:
 			// If the workload is not accounted for TAS, we haven't called
 			// addUsage on startup, and so we don't subtract the capacity now.
 			if c.workloadsNotAccountedForTAS.Has(key) {
@@ -541,9 +541,9 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 	c.workloadsNotAccountedForTAS.Delete(key)
 }
 
-func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, m int64) {
+func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
 	for fr, q := range newUsage {
-		oldUsage[fr] += q * m
+		oldUsage[fr] += q * int64(op.asSignedOne())
 	}
 }
 
@@ -563,10 +563,10 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.FlavorResourceUsage()
-			updateFlavorUsage(frq, qImpl.totalReserved, 1)
+			updateFlavorUsage(frq, qImpl.totalReserved, add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				qImpl.updateAdmittedUsage(frq, 1)
+				qImpl.updateAdmittedUsage(frq, add)
 				qImpl.admittedWorkloads++
 			}
 		}
