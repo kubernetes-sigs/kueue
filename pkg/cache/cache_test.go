@@ -3825,8 +3825,18 @@ func TestSnapshotError(t *testing.T) {
 	cache := New(client)
 	cache.AddOrUpdateResourceFlavor(log, &flavor)
 	if flavor.Spec.TopologyName != nil {
-		tasFlavorCache := cache.tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, []string{corev1.LabelHostname}, flavor.Spec.NodeLabels, flavor.Spec.Tolerations)
-		cache.tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
+		cache.AddOrUpdateTopology(log, &kueuealpha.Topology{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: string(*flavor.Spec.TopologyName),
+			},
+			Spec: kueuealpha.TopologySpec{
+				Levels: []kueuealpha.TopologyLevel{
+					{
+						NodeLabel: corev1.LabelHostname,
+					},
+				},
+			},
+		})
 	}
 	if err := cache.AddClusterQueue(ctx, &clusterQueue); err != nil {
 		t.Fatalf("failed to add CQ: %v", err)
