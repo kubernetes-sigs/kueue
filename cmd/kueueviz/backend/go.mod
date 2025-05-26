@@ -3,7 +3,7 @@ module kueueviz
 go 1.24.0
 
 require (
-	github.com/gin-gonic/gin v1.10.0
+	github.com/gin-gonic/gin v1.10.1
 	github.com/gorilla/websocket v1.5.3
 	k8s.io/api v0.32.5
 	k8s.io/apimachinery v0.32.5
