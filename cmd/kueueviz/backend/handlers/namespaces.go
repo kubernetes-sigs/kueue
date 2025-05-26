@@ -66,7 +66,7 @@ func fetchNamespaces(dynamicClient dynamic.Interface) (any, error) {
 	sort.Strings(namespaceNames)
 
 	// Return in the same format as other endpoints
-	result := map[string]interface{}{
+	result := map[string]any{
 		"namespaces": namespaceNames,
 	}
 
