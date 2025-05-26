@@ -2078,7 +2078,15 @@ func TestFindTopologyAssignment(t *testing.T) {
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
-			tasFlavorCache := tasCache.NewTASFlavorCache("default", tc.levels, tc.nodeLabels, tc.tolerations)
+			topologyInformation := topologyInformation{
+				Levels: tc.levels,
+			}
+			flavorInformation := flavorInformation{
+				TopologyName: "default",
+				NodeLabels:   tc.nodeLabels,
+				Tolerations:  tc.tolerations,
+			}
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
@@ -2225,7 +2233,13 @@ func buildSnapshot(ctx context.Context, t *testing.T, nodes []corev1.Node, level
 	client := clientBuilder.Build()
 
 	tasCache := NewTASCache(client)
-	tasFlavorCache := tasCache.NewTASFlavorCache("default", levels, map[string]string{}, []corev1.Toleration{})
+	topologyInformation := topologyInformation{
+		Levels: levels,
+	}
+	flavorInformation := flavorInformation{
+		TopologyName: "default",
+	}
+	tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 
 	snapshot, err := tasFlavorCache.snapshot(ctx)
 	if err != nil {
