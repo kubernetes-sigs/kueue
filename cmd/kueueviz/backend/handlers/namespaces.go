@@ -51,7 +51,7 @@ func fetchNamespaces(dynamicClient dynamic.Interface) (any, error) {
 
 	// If no LocalQueues found, return empty result with proper structure
 	if len(namespaceSet) == 0 {
-		return map[string]interface{}{
+		return map[string]any{
 			"namespaces": []string{},
 		}, nil
 	}
