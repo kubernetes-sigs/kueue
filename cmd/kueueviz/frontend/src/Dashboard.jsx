@@ -40,10 +40,7 @@ const Dashboard = () => {
   const [namespaces, setNamespaces] = useState([]);
   
   // Fetch dashboard data with namespace filter
-  const dashboardUrl = selectedNamespace === '' 
-    ? '/ws/workloads/dashboard' 
-    : `/ws/workloads/dashboard?namespace=${selectedNamespace}`;
-  const { data: kueueData, error: kueueError } = useWebSocket(dashboardUrl);
+  const { data: kueueData, error: kueueError } = useWebSocket(`/ws/workloads/dashboard?namespace=${selectedNamespace}`);
 
   useEffect(() => {
     if (namespacesData?.namespaces) {

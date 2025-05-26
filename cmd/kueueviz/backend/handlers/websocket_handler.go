@@ -83,12 +83,12 @@ func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
 		}
 		log.Debug("Initial message sent to client took %v", "duration", time.Since(writeStart))
 
-		// Start a ticker for periodic updates (every 2 seconds for better responsiveness)
+		// Start a ticker for periodic updates (every 5 seconds)
 		// TODO use SharedInformers and TTL to only send updates if they happen
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
-		// Continue sending updates every 2 seconds
+		// Continue sending updates every 5 seconds
 		for range ticker.C {
 			// Fetch the latest data
 			fetchStart := time.Now()
