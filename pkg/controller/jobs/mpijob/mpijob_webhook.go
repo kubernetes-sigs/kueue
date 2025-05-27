@@ -105,7 +105,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
-	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob)
+	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
 	allErrs = append(allErrs, w.validateCommon(newMpiJob)...)
 	return nil, allErrs.ToAggregate()
 }
