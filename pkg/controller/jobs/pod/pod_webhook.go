@@ -242,7 +242,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 

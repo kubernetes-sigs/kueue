@@ -37,6 +37,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -70,8 +71,8 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
-func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
-	allErrs := validateUpdateForQueueName(oldJob, newJob)
+func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
+	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
@@ -119,11 +120,17 @@ func ValidateQueueName(obj client.Object) field.ErrorList {
 	return allErrs
 }
 
-func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
 	}
+	if features.Enabled(features.LocalQueueDefaulting) {
+		if QueueName(newJob) == "" && QueueName(oldJob) != "" && defaultQueueExist(oldJob.Object().GetNamespace()) {
+			allErrs = append(allErrs, field.Invalid(queueNameLabelPath, "", "queue-name must not be empty in namespace with default queue"))
+		}
+	}
+
 	return allErrs
 }
 
