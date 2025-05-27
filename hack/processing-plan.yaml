@@ -103,6 +103,44 @@ files:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
         indentation: 2
         onFileCondition: '.kind == "Service"'
+  - path: ./config/components/visibility-apf/*.yaml
+    outputDir: ./charts/kueue/templates/visibility-apf
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.metadata.name != "v1beta*"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+        onFileCondition: '.metadata.namespace != "kube-system"'
+      - type: APPEND
+        key: .spec.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .spec.service.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableVisibilityAPF }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/webhook/service.yaml
     outputDir: ./charts/kueue/templates/webhook
     continueOnError: true
