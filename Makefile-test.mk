@@ -19,7 +19,7 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.32
+ENVTEST_K8S_VERSION ?= 1.33
 
 TEST_LOG_LEVEL ?= -3
 
@@ -38,8 +38,8 @@ INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.30.10 1.31.6 1.32.3
-E2E_K8S_VERSION ?= 1.32
+E2E_K8S_VERSIONS ?= 1.30.13 1.31.9 1.32.5 1.33.1
+E2E_K8S_VERSION ?= 1.33
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
