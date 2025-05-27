@@ -70,19 +70,12 @@ type domain struct {
 	state int32
 
 	// chunkState is a temporary state of the topology domains during the
-	// assignment algorithm.
-	//
-	// In the first phase of the algorithm (traversal to the top the topology to
-	// determine the level to fit the workload) it denotes the number of chunks
-	// which can fit in a given domain.
+	// assignment algorithm that denotes the number of chunks that can fit within
+	// that domain.
 	//
 	// For domains that are below the requested topology level the algorithm
-	// assigns 0 to that field.
-	//
-	// In the second phase of the algorithm (traversal to the bottom to
-	// determine the actual assignments) it is used to assign number of pods
-	// to the `state` field.
-	// assigned to the given domain.
+	// assigns 0 to that field as this field makes no sense for lower level
+	// domains.
 	chunkState int32
 
 	// levelValues stores the mapping from domain ID back to the
@@ -936,22 +929,42 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	result := slices.Clone(domains)
-	slices.SortFunc(result, func(a, b *domain) int {
-		if a.chunkState == b.chunkState {
-			if a.state == b.state {
-				return slices.Compare(a.levelValues, b.levelValues)
-			}
-			// ascending order within the same chunk capacity, to possibly get the tight fit in first domain
-			return cmp.Compare(a.state, b.state)
-		}
-		// descending order
-		return cmp.Compare(b.chunkState, a.chunkState)
-	})
-	if useLeastFreeCapacityAlgorithm(unconstrained) {
-		// start from the domain with the least amount of free resources
+
+	switch {
+	case useBestFitAlgorithm(unconstrained):
+		slices.SortFunc(result, sortDomainsForBestFit)
+	case useLeastFreeCapacityAlgorithm(unconstrained):
+		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
 		slices.Reverse(result)
+	default:
+		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
 	}
+
 	return result
+}
+
+func sortDomainsForBestFit(a, b *domain) int {
+	if a.chunkState == b.chunkState {
+		if a.state == b.state {
+			return slices.Compare(a.levelValues, b.levelValues)
+		}
+		// ascending order within the same chunk capacity, to possibly get the tight fit in first domain
+		return cmp.Compare(a.state, b.state)
+	}
+	// descending order
+	return cmp.Compare(b.chunkState, a.chunkState)
+}
+
+func sortDomainsForMostFreeCapacity(a, b *domain) int {
+	if a.chunkState == b.chunkState {
+		if a.state == b.state {
+			return slices.Compare(a.levelValues, b.levelValues)
+		}
+		// descending order within the same chunk capacity, to possibly get the tight fit in first domain
+		return cmp.Compare(b.state, a.state)
+	}
+	// descending order
+	return cmp.Compare(b.chunkState, a.chunkState)
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,

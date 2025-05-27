@@ -46,9 +46,8 @@ const (
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 
-	// TODO description
 	// PodSetChunkRequiredTopologyAnnotation indicates that a PodSet requires
-	// Topology Aware Scheduling, and requires scheduling subgroups of pods on nodes
+	// Topology Aware Scheduling, and requires scheduling PodSet chunks on nodes
 	// within the same topology domain corresponding to the topology level
 	// indicated by the annotation value (e.g. within a rack or within a block).
 	PodSetChunkRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-chunk-required-topology"
