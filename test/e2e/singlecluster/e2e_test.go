@@ -111,6 +111,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllCronJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -162,9 +163,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 				},
 			}
 			util.MustCreate(ctx, k8sClient, cronJob)
-			ginkgo.DeferCleanup(func() {
-				gomega.Expect(util.DeleteAllCronJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			})
 
 			ginkgo.By("Patch the last start time to be in the past so that it starts immediately", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
