@@ -31,10 +31,11 @@ type ClusterQueueSpecApplyConfiguration struct {
 	NamespaceSelector       *v1.LabelSelectorApplyConfiguration        `json:"namespaceSelector,omitempty"`
 	FlavorFungibility       *FlavorFungibilityApplyConfiguration       `json:"flavorFungibility,omitempty"`
 	Preemption              *ClusterQueuePreemptionApplyConfiguration  `json:"preemption,omitempty"`
-	AdmissionChecks         []string                                   `json:"admissionChecks,omitempty"`
+	AdmissionChecks         []kueuev1beta1.AdmissionCheckReference     `json:"admissionChecks,omitempty"`
 	AdmissionChecksStrategy *AdmissionChecksStrategyApplyConfiguration `json:"admissionChecksStrategy,omitempty"`
 	StopPolicy              *kueuev1beta1.StopPolicy                   `json:"stopPolicy,omitempty"`
 	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
+	AdmissionScope          *AdmissionScopeApplyConfiguration          `json:"admissionScope,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs a declarative configuration of the ClusterQueueSpec type for use with
@@ -99,7 +100,7 @@ func (b *ClusterQueueSpecApplyConfiguration) WithPreemption(value *ClusterQueueP
 // WithAdmissionChecks adds the given value to the AdmissionChecks field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the AdmissionChecks field.
-func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecks(values ...string) *ClusterQueueSpecApplyConfiguration {
+func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecks(values ...kueuev1beta1.AdmissionCheckReference) *ClusterQueueSpecApplyConfiguration {
 	for i := range values {
 		b.AdmissionChecks = append(b.AdmissionChecks, values[i])
 	}
@@ -127,5 +128,13 @@ func (b *ClusterQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.S
 // If called multiple times, the FairSharing field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
 	b.FairSharing = value
+	return b
+}
+
+// WithAdmissionScope sets the AdmissionScope field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AdmissionScope field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionScope(value *AdmissionScopeApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.AdmissionScope = value
 	return b
 }

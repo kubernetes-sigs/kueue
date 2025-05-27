@@ -24,20 +24,25 @@ import (
 
 // ClusterQueue Active condition reasons.
 const (
-	ClusterQueueActiveReasonTerminating                                     = "Terminating"
-	ClusterQueueActiveReasonStopped                                         = "Stopped"
-	ClusterQueueActiveReasonFlavorNotFound                                  = "FlavorNotFound"
-	ClusterQueueActiveReasonAdmissionCheckNotFound                          = "AdmissionCheckNotFound"
-	ClusterQueueActiveReasonAdmissionCheckInactive                          = "AdmissionCheckInactive"
-	ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks = "MultipleSingleInstanceControllerAdmissionChecks"
-	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks               = "MultipleMultiKueueAdmissionChecks"
-	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor        = "MultiKueueAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling         = "NotSupportedWithTopologyAwareScheduling"
-	ClusterQueueActiveReasonTopologyNotFound                                = "TopologyNotFound"
-	ClusterQueueActiveReasonUnknown                                         = "Unknown"
-	ClusterQueueActiveReasonReady                                           = "Ready"
+	ClusterQueueActiveReasonTerminating                              = "Terminating"
+	ClusterQueueActiveReasonStopped                                  = "Stopped"
+	ClusterQueueActiveReasonFlavorNotFound                           = "FlavorNotFound"
+	ClusterQueueActiveReasonAdmissionCheckNotFound                   = "AdmissionCheckNotFound"
+	ClusterQueueActiveReasonAdmissionCheckInactive                   = "AdmissionCheckInactive"
+	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
+	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling  = "NotSupportedWithTopologyAwareScheduling"
+	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonUnknown                                  = "Unknown"
+	ClusterQueueActiveReasonReady                                    = "Ready"
 )
+
+// ClusterQueueReference is the name of the ClusterQueue.
+// It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
+//
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type ClusterQueueReference string
 
 // CohortReference is the name of the Cohort.
 //
@@ -106,7 +111,7 @@ type ClusterQueueSpec struct {
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
 	// Cannot be used along with AdmissionCheckStrategy.
 	// +optional
-	AdmissionChecks []string `json:"admissionChecks,omitempty"`
+	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
 
 	// admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
 	// This property cannot be used in conjunction with the 'admissionChecks' property.
@@ -132,6 +137,10 @@ type ClusterQueueSpec struct {
 	// if FairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
+	// +optional
+	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
@@ -143,7 +152,7 @@ type AdmissionChecksStrategy struct {
 // AdmissionCheckStrategyRule defines rules for a single AdmissionCheck
 type AdmissionCheckStrategyRule struct {
 	// name is an AdmissionCheck's name.
-	Name string `json:"name"`
+	Name AdmissionCheckReference `json:"name"`
 
 	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
 	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.

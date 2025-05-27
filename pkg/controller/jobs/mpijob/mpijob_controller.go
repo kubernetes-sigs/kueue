@@ -19,11 +19,9 @@ package mpijob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,20 +43,19 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupMPIJobWebhook,
-		JobType:                &kfmpi.MPIJob{},
-		AddToScheme:            kfmpi.AddToScheme,
-		IsManagingObjectsOwner: isMPIJob,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupMPIJobWebhook,
+		JobType:           &kfmpi.MPIJob{},
+		AddToScheme:       kfmpi.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -72,10 +69,6 @@ func NewJob() jobframework.GenericJob {
 }
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
-
-func isMPIJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, kfmpi.SchemeGroupVersion.Group)
-}
 
 type MPIJob kfmpi.MPIJob
 
@@ -121,10 +114,14 @@ func (j *MPIJob) PodSets() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:            kueue.NewPodSetReference(string(mpiReplicaType)),
-			Template:        *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
-			Count:           podsCount(&j.Spec, mpiReplicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta, ptr.To(kfmpi.ReplicaIndexLabel), nil, nil),
+			Name:     kueue.NewPodSetReference(string(mpiReplicaType)),
+			Template: *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:    podsCount(&j.Spec, mpiReplicaType),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[index].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta).PodIndexLabel(
+				ptr.To(kfmpi.ReplicaIndexLabel)).Build()
 		}
 	}
 	return podSets, nil

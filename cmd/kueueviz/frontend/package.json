@@ -1,0 +1,52 @@
+{
+  "name": "kueueviz-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frontend dashboard for visualizing Kueue status",
+  "main": "src/index.jsx",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "dev": "vite --no-open",
+    "preview": "vite preview",
+    "check-unused": "depcheck",
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run",
+    "test:e2e": "start-server-and-test start http://localhost:3000 cypress:run"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^7.0.1",
+    "@mui/material": "^7.0.1",
+    "axios": "^1.8.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.3.0",
+    "react-toastify": "^11.0.5"
+  },
+  "devDependencies": {
+    "@testing-library/cypress": "^10.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "cypress": "^14.1.0",
+    "depcheck": "^1.4.7",
+    "serve": "^14.2.4",
+    "start-server-and-test": "^2.0.10",
+    "vite": "^6.2.1"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "author": "Akram Ben Aissi",
+  "license": "Apache 2.0"
+}

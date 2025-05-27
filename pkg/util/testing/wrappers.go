@@ -134,7 +134,7 @@ func (w *WorkloadWrapper) RequestAndLimit(r corev1.ResourceName, q string) *Work
 	return w.Request(r, q).Limit(r, q)
 }
 
-func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
+func (w *WorkloadWrapper) Queue(q kueue.LocalQueueName) *WorkloadWrapper {
 	w.Spec.QueueName = q
 	return w
 }
@@ -321,12 +321,12 @@ func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	appendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
 func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	appendOwnerReference(&w.Workload, gvk, name, uid, nil, nil)
+	AppendOwnerReference(&w.Workload, gvk, name, uid, nil, nil)
 	return w
 }
 
@@ -373,6 +373,14 @@ func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSchedulingStatsEviction) *WorkloadWrapper {
+	if w.Status.SchedulingStats == nil {
+		w.Status.SchedulingStats = &kueue.SchedulingStats{}
+	}
+	w.Status.SchedulingStats.Evictions = append(w.Status.SchedulingStats.Evictions, evictionState)
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {
@@ -409,6 +417,11 @@ func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
 
 func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
 	p.Template.Spec.RuntimeClassName = &name
+	return p
+}
+
+func (p *PodSetWrapper) RestartPolicy(policy corev1.RestartPolicy) *PodSetWrapper {
+	p.Template.Spec.RestartPolicy = policy
 	return p
 }
 
@@ -593,6 +606,11 @@ func (w *AdmissionWrapper) TopologyAssignment(ts *kueue.TopologyAssignment) *Adm
 	return w
 }
 
+func (w *AdmissionWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
+	w.DelayedTopologyRequestWithIndex(0, state)
+	return w
+}
+
 func (w *AdmissionWrapper) AssignmentWithIndex(index int32, r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[index].Flavors[r] = f
 	w.PodSetAssignments[index].ResourceUsage[r] = resource.MustParse(value)
@@ -606,6 +624,11 @@ func (w *AdmissionWrapper) AssignmentPodCountWithIndex(index, value int32) *Admi
 
 func (w *AdmissionWrapper) TopologyAssignmentWithIndex(index int32, ts *kueue.TopologyAssignment) *AdmissionWrapper {
 	w.PodSetAssignments[index].TopologyAssignment = ts
+	return w
+}
+
+func (w *AdmissionWrapper) DelayedTopologyRequestWithIndex(index int32, state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
+	w.PodSetAssignments[index].DelayedTopologyRequest = ptr.To(state)
 	return w
 }
 
@@ -659,9 +682,21 @@ func (q *LocalQueueWrapper) StopPolicy(p kueue.StopPolicy) *LocalQueueWrapper {
 	return q
 }
 
+// FairSharing sets the fair sharing config.
+func (q *LocalQueueWrapper) FairSharing(fs *kueue.FairSharing) *LocalQueueWrapper {
+	q.Spec.FairSharing = fs
+	return q
+}
+
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
+	return q
+}
+
+// ReservingWorkloads updates the reservingWorkloads in status.
+func (q *LocalQueueWrapper) ReservingWorkloads(n int32) *LocalQueueWrapper {
+	q.Status.ReservingWorkloads = n
 	return q
 }
 
@@ -683,6 +718,22 @@ func (q *LocalQueueWrapper) Condition(conditionType string, status metav1.Condit
 	return q
 }
 
+func (q *LocalQueueWrapper) Active(status metav1.ConditionStatus) *LocalQueueWrapper {
+	apimeta.SetStatusCondition(&q.Status.Conditions, metav1.Condition{
+		Type:    kueue.LocalQueueActive,
+		Status:  status,
+		Reason:  "Ready",
+		Message: "Can submit new workloads to localQueue",
+	})
+	return q
+}
+
+// AdmittedWorkloads updates the admittedWorkloads in status.
+func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.FairSharingStatus) *LocalQueueWrapper {
+	q.Status.FairSharing = status
+	return q
+}
+
 // Generation sets the generation of the LocalQueue.
 func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 	q.ObjectMeta.Generation = num
@@ -692,7 +743,7 @@ func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 // GeneratedName sets the prefix for the server to generate unique name.
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (q *LocalQueueWrapper) GeneratedName(name string) *LocalQueueWrapper {
-	q.ObjectMeta.GenerateName = name
+	q.GenerateName = name
 	return q
 }
 
@@ -713,7 +764,7 @@ func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
 }
 
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
-	c.Cohort.Spec.Parent = parentName
+	c.Spec.Parent = parentName
 	return c
 }
 
@@ -771,10 +822,28 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 	return c
 }
 
+func (c *ClusterQueueWrapper) AdmissionMode(am kueue.AdmissionMode) *ClusterQueueWrapper {
+	if c.Spec.AdmissionScope == nil {
+		c.Spec.AdmissionScope = &kueue.AdmissionScope{}
+	}
+	c.Spec.AdmissionScope.AdmissionMode = am
+	return c
+}
+
+func (c *ClusterQueueWrapper) Active(status metav1.ConditionStatus) *ClusterQueueWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    kueue.ClusterQueueActive,
+		Status:  status,
+		Reason:  "By test",
+		Message: "by test",
+	})
+	return c
+}
+
 // GeneratedName sets the prefix for the server to generate unique name.
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
-	c.ObjectMeta.GenerateName = name
+	c.GenerateName = name
 	return c
 }
 
@@ -810,7 +879,7 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 }
 
 // AdmissionChecks replaces the queue additional checks
-func (c *ClusterQueueWrapper) AdmissionChecks(checks ...string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckReference) *ClusterQueueWrapper {
 	c.Spec.AdmissionChecks = checks
 	return c
 }
@@ -992,16 +1061,16 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 
 // TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.ResourceFlavor.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
+	rf.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
 	return rf
 }
 
 // Label sets the label on the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
-	if rf.ObjectMeta.Labels == nil {
-		rf.ObjectMeta.Labels = map[string]string{}
+	if rf.Labels == nil {
+		rf.Labels = map[string]string{}
 	}
-	rf.ObjectMeta.Labels[k] = v
+	rf.Labels[k] = v
 	return rf
 }
 
@@ -1152,7 +1221,7 @@ type AdmissionCheckStrategyRuleWrapper struct {
 	kueue.AdmissionCheckStrategyRule
 }
 
-func MakeAdmissionCheckStrategyRule(name string, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+func MakeAdmissionCheckStrategyRule(name kueue.AdmissionCheckReference, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
 	if len(flavors) == 0 {
 		flavors = make([]kueue.ResourceFlavorReference, 0)
 	}
@@ -1205,38 +1274,6 @@ func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *Admiss
 		Kind:     kind,
 		Name:     name,
 	}
-	return ac
-}
-
-func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
-	cond := metav1.Condition{
-		Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: observedGeneration,
-	}
-	if !singleInstance {
-		cond.Status = metav1.ConditionFalse
-	}
-
-	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
-	return ac
-}
-
-func (ac *AdmissionCheckWrapper) ApplyToAllFlavors(applyToAllFlavors bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
-	cond := metav1.Condition{
-		Type:               kueue.FlavorIndependentAdmissionCheck,
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: observedGeneration,
-	}
-	if !applyToAllFlavors {
-		cond.Status = metav1.ConditionFalse
-	}
-
-	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
 	return ac
 }
 
@@ -1363,27 +1400,27 @@ func (c *ContainerWrapper) Name(name string) *ContainerWrapper {
 
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
-	requests := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Requests, corev1.ResourceList{
+	requests := utilResource.MergeResourceListKeepFirst(c.Resources.Requests, corev1.ResourceList{
 		resourceName: resource.MustParse(quantity),
 	})
-	c.Container.Resources.Requests = requests
+	c.Resources.Requests = requests
 
 	return c
 }
 
 // WithResourceLimit appends a resource limit to the container.
 func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
-	limits := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Limits, corev1.ResourceList{
+	limits := utilResource.MergeResourceListKeepFirst(c.Resources.Limits, corev1.ResourceList{
 		resourceName: resource.MustParse(quantity),
 	})
-	c.Container.Resources.Limits = limits
+	c.Resources.Limits = limits
 
 	return c
 }
 
 // AsSidecar makes the container a sidecar when used as an Init Container.
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
-	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
+	c.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 
 	return c
 }
@@ -1443,6 +1480,11 @@ func (prc *ProvisioningRequestConfigWrapper) RetryStrategy(retryStrategy *kueue.
 	return prc
 }
 
+func (prc *ProvisioningRequestConfigWrapper) PodSetUpdate(update kueue.ProvisioningRequestPodSetUpdates) *ProvisioningRequestConfigWrapper {
+	prc.Spec.PodSetUpdates = &update
+	return prc
+}
+
 func (prc *ProvisioningRequestConfigWrapper) BaseBackoff(backoffBaseSeconds int32) *ProvisioningRequestConfigWrapper {
 	if prc.Spec.RetryStrategy == nil {
 		prc.Spec.RetryStrategy = &kueue.ProvisioningRequestRetryStrategy{}
@@ -1467,6 +1509,11 @@ func (prc *ProvisioningRequestConfigWrapper) RetryLimit(backoffLimitCount int32)
 	}
 
 	prc.Spec.RetryStrategy.BackoffLimitCount = &backoffLimitCount
+	return prc
+}
+
+func (prc *ProvisioningRequestConfigWrapper) PodSetMergePolicy(mode kueue.ProvisioningRequestConfigPodSetMergePolicy) *ProvisioningRequestConfigWrapper {
+	prc.Spec.PodSetMergePolicy = &mode
 	return prc
 }
 
@@ -1502,10 +1549,10 @@ func (w *PodTemplateWrapper) Clone() *PodTemplateWrapper {
 }
 
 func (w *PodTemplateWrapper) Label(k, v string) *PodTemplateWrapper {
-	if w.ObjectMeta.Labels == nil {
-		w.ObjectMeta.Labels = make(map[string]string)
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
 	}
-	w.ObjectMeta.Labels[k] = v
+	w.Labels[k] = v
 	return w
 }
 
@@ -1527,8 +1574,30 @@ func (w *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTempla
 	return w
 }
 
+func (p *PodTemplateWrapper) PriorityClass(pc string) *PodTemplateWrapper {
+	p.Template.Spec.PriorityClassName = pc
+	return p
+}
+
+func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodTemplateWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
+}
+
 func (w *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	appendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
@@ -1546,6 +1615,10 @@ func MakeNamespaceWrapper(name string) *NamespaceWrapper {
 	}
 }
 
+func (w *NamespaceWrapper) Clone() *NamespaceWrapper {
+	return &NamespaceWrapper{Namespace: *w.DeepCopy()}
+}
+
 func (w *NamespaceWrapper) Obj() *corev1.Namespace {
 	return &w.Namespace
 }
@@ -1556,14 +1629,14 @@ func (w *NamespaceWrapper) GenerateName(generateName string) *NamespaceWrapper {
 }
 
 func (w *NamespaceWrapper) Label(k, v string) *NamespaceWrapper {
-	if w.ObjectMeta.Labels == nil {
-		w.ObjectMeta.Labels = make(map[string]string)
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
 	}
-	w.ObjectMeta.Labels[k] = v
+	w.Labels[k] = v
 	return w
 }
 
-func appendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
+func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) {
 	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), metav1.OwnerReference{
 		APIVersion:         gvk.GroupVersion().String(),
 		Kind:               gvk.Kind,

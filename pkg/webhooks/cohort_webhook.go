@@ -75,6 +75,6 @@ func validateCohort(cohort *kueuealpha.Cohort) field.ErrorList {
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, validateFairSharing(cohort.Spec.FairSharing, path.Child("fairSharing"))...)
-	allErrs = append(allErrs, validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateResourceGroups(cohort.Spec.ResourceGroups, config, path.Child("resourceGroups"), true)...)
 	return allErrs
 }

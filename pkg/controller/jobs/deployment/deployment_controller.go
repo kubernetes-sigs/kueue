@@ -50,6 +50,9 @@ func init() {
 
 type Deployment appsv1.Deployment
 
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get;list;watch
+
 func fromObject(o runtime.Object) *Deployment {
 	return (*Deployment)(o.(*appsv1.Deployment))
 }

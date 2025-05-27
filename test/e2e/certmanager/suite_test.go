@@ -25,7 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -36,6 +36,8 @@ var (
 	k8sClient       client.WithWatch
 	ctx             context.Context
 	defaultKueueCfg *v1beta1.Configuration
+	cfg             *rest.Config
+	restClient      *rest.RESTClient
 )
 
 func TestAPIs(t *testing.T) {
@@ -50,14 +52,18 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+	util.SetupLogger()
 
-	k8sClient, _ = util.CreateClientUsingCluster("")
-	ctx = context.Background()
+	k8sClient, cfg = util.CreateClientUsingCluster("")
+	restClient = util.CreateRestClient(cfg)
+	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue operator is available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in the cluster",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 })
 

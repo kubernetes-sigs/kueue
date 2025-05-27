@@ -20,12 +20,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/jobset/pkg/constants"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -52,15 +49,15 @@ var _ = ginkgo.Describe("JobSet", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			defaultRf = testing.MakeResourceFlavor("default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, defaultRf)
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(defaultRf.Name).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -90,7 +87,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -99,12 +96,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 			ginkgo.By("Waiting for the jobSet to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: constants.AllJobsCompletedMessage,
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					g.Expect(createdLeaderWorkload.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -120,10 +112,10 @@ var _ = ginkgo.Describe("JobSet", func() {
 		ginkgo.BeforeEach(func() {
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
 				NodeLabel("instance-type", "on-demand").Obj()
-			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandRF)
 			spotRF = testing.MakeResourceFlavor("spot").
 				NodeLabel("instance-type", "spot").Obj()
-			gomega.Expect(k8sClient.Create(ctx, spotRF)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, spotRF)
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").
@@ -139,9 +131,9 @@ var _ = ginkgo.Describe("JobSet", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -172,7 +164,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			ginkgo.By("Waiting for the jobSet to be unsuspended", func() {

@@ -73,8 +73,8 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
-	allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
+	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return allErrs
 }
 
@@ -140,6 +140,14 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 	return allErrs
 }
 
+func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if !newJob.IsSuspended() || IsWorkloadPriorityClassNameEmpty(newJob.Object()) {
+		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
+	}
+	return allErrs
+}
+
 func ValidateUpdateForWorkloadPriorityClassName(oldObj, newObj client.Object) field.ErrorList {
 	allErrs := apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
 	return allErrs
@@ -172,7 +180,7 @@ func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *co
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
-func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interface{}, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	fields := sets.New[string]()
@@ -183,8 +191,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 		childFieldPath := fieldPath.Child(fieldName)
 
 		switch newValue := newShape[fieldName].(type) {
-		case []map[string]interface{}:
-			oldValue := oldShape[fieldName].([]map[string]interface{})
+		case []map[string]any:
+			oldValue := oldShape[fieldName].([]map[string]any)
 
 			if len(newValue) != len(oldValue) {
 				allErrs = append(allErrs, apivalidation.ValidateImmutableField(newValue, oldValue, childFieldPath)...)
@@ -194,8 +202,8 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 			for i := range newValue {
 				allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue[i], oldValue[i], childFieldPath.Index(i))...)
 			}
-		case map[string]interface{}:
-			oldValue := oldShape[fieldName].(map[string]interface{})
+		case map[string]any:
+			oldValue := oldShape[fieldName].(map[string]any)
 			allErrs = append(allErrs, validateImmutablePodGroupPodSpecPath(newValue, oldValue, childFieldPath)...)
 		default:
 			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newShape[fieldName], oldShape[fieldName], childFieldPath)...)
@@ -205,12 +213,6 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]interfac
 	return allErrs
 }
 
-func IsManagedByKueue(obj client.Object) bool {
-	if IsOwnerManagedByKueueForObject(obj) {
-		return false
-	}
-	if QueueNameForObject(obj) != "" {
-		return true
-	}
-	return false
+func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {
+	return WorkloadPriorityClassName(obj) == ""
 }

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: workloads.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -8413,6 +8413,15 @@ spec:
                           format: int32
                           minimum: 0
                           type: integer
+                        delayedTopologyRequest:
+                          description: |-
+                            delayedTopologyRequest indicates the topology assignment is delayed.
+                            Topology assignment might be delayed in case there is ProvisioningRequest
+                            AdmissionCheck used.
+                            Kueue schedules the second pass of scheduling for each workload with at
+                            least one PodSet which has delayedTopologyRequest=true and without
+                            topologyAssignment.
+                          type: string
                         flavors:
                           additionalProperties:
                             description: ResourceFlavorReference is the name of the
@@ -8832,6 +8841,42 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              schedulingStats:
+                description: schedulingStats tracks scheduling statistics
+                properties:
+                  evictions:
+                    description: evictions tracks eviction statistics by reason and
+                      underlyingCause.
+                    items:
+                      properties:
+                        count:
+                          description: count tracks the number of evictions for this
+                            reason and detailed reason.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        reason:
+                          description: reason specifies the programmatic identifier
+                            for the eviction cause.
+                          maxLength: 316
+                          type: string
+                        underlyingCause:
+                          description: |-
+                            underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+                            This may be an empty string.
+                          maxLength: 316
+                          type: string
+                      required:
+                      - count
+                      - reason
+                      - underlyingCause
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - reason
+                    - underlyingCause
+                    x-kubernetes-list-type: map
+                type: object
             type: object
         type: object
         x-kubernetes-validations:

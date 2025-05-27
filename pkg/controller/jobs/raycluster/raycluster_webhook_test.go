@@ -17,7 +17,6 @@ limitations under the License.
 package raycluster
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -30,17 +29,13 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-)
-
-var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -125,7 +120,7 @@ func TestValidateDefault(t *testing.T) {
 				cache:                      cqCache,
 			}
 			result := tc.oldJob.DeepCopy()
-			if err := wh.Default(context.Background(), result); err != nil {
+			if err := wh.Default(t.Context(), result); err != nil {
 				t.Errorf("unexpected Default() error: %s", err)
 			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
@@ -257,7 +252,7 @@ func TestValidateCreate(t *testing.T) {
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, result := wh.ValidateCreate(context.Background(), tc.job)
+			_, result := wh.ValidateCreate(t.Context(), tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
 			}
@@ -289,7 +284,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue2", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {
@@ -303,7 +298,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"priorityClassName is immutable": {
+		"priorityClassName is mutable": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
 				WorkloadPriorityClass("test-1").
@@ -312,9 +307,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("queue").
 				WorkloadPriorityClass("test-2").
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			}.ToAggregate(),
 		},
 	}
 
@@ -323,7 +315,7 @@ func TestValidateUpdate(t *testing.T) {
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, result := wh.ValidateUpdate(context.Background(), tc.oldJob, tc.newJob)
+			_, result := wh.ValidateUpdate(t.Context(), tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}

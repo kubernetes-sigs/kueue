@@ -52,6 +52,7 @@ var (
 		validatingwebhook.PluginName,
 		mutatingwebhook.PluginName,
 	}
+	certDir = "/visibility"
 )
 
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=prioritylevelconfigurations,verbs=list;watch
@@ -88,7 +89,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) er
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	// The directory where TLS certs will be created
-	o.SecureServing.ServerCert.CertDirectory = "/tmp"
+	o.SecureServing.ServerCert.CertDirectory = certDir
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
@@ -101,13 +102,13 @@ func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
 	// enable OpenAPI schemas
-	c.Config.EffectiveVersion = utilversion.NewEffectiveVersion(version)
-	c.Config.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
-	c.Config.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
-	c.Config.OpenAPIConfig.Info.Title = "Kueue visibility-server"
-	c.Config.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
-	c.Config.OpenAPIConfig.Info.Version = version
-	c.Config.OpenAPIV3Config.Info.Version = version
+	c.EffectiveVersion = utilversion.NewEffectiveVersion(version)
+	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
+	c.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
+	c.OpenAPIConfig.Info.Title = "Kueue visibility-server"
+	c.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
+	c.OpenAPIConfig.Info.Version = version
+	c.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
 

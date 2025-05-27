@@ -22,14 +22,6 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
-### Configure API Priority and Fairness:
-
-To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply manifests:
-
-```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml
-```
-
 ### Directly accessing the Visibility API
 
 If you want to directly access the Visibility API with a http client like 

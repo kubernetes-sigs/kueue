@@ -15,6 +15,47 @@ description: Generated API reference documentation for Kueue Configuration.
     
     
 
+## `AdmissionFairSharing`     {#AdmissionFairSharing}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>usageHalfLifeTime</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half
+If set to 0, usage will be reset to 0 immediately.</p>
+</td>
+</tr>
+<tr><td><code>usageSamplingInterval</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+Defaults to 5min.</p>
+</td>
+</tr>
+<tr><td><code>resourceWeights</code> <B>[Required]</B><br/>
+<code>map[ResourceName]float64</code>
+</td>
+<td>
+   <p>resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
+resource usage and order Workloads.
+Defaults to 1.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ClientConnection`     {#ClientConnection}
     
 
@@ -192,6 +233,13 @@ instead.</p>
    <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
 </td>
 </tr>
+<tr><td><code>admissionFairSharing</code> <B>[Required]</B><br/>
+<a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+</td>
+<td>
+   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
+</td>
+</tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
 <a href="#Resources"><code>Resources</code></a>
 </td>
@@ -207,6 +255,14 @@ instead.</p>
 default enablement status of a feature. The map cannot be used in conjunction
 with passing the list of features via the command line argument &quot;--feature-gates&quot;
 for the Kueue Deployment.</p>
+</td>
+</tr>
+<tr><td><code>objectRetentionPolicies</code><br/>
+<a href="#ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
+</td>
+<td>
+   <p>ObjectRetentionPolicies provides configuration options for automatic deletion
+of Kueue-managed objects. A nil value disables all automatic deletions.</p>
 </td>
 </tr>
 </tbody>
@@ -518,6 +574,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/pytorchjob&quot;</li>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
+<li>&quot;kubeflow.org/jaxjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
 <li>&quot;deployment&quot; (requires enabling pod integration)</li>
@@ -649,6 +706,32 @@ them if their local counterpart no longer exists.</p>
    <p>WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.</p>
 <p>Defaults to 15 minutes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ObjectRetentionPolicies`     {#ObjectRetentionPolicies}
+    
+
+**Appears in:**
+
+
+
+<p>ObjectRetentionPolicies holds retention settings for different object types.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>workloads</code><br/>
+<a href="#WorkloadRetentionPolicy"><code>WorkloadRetentionPolicy</code></a>
+</td>
+<td>
+   <p>Workloads configures retention for Workloads.
+A nil value disables automatic deletion of Workloads.</p>
 </td>
 </tr>
 </tbody>
@@ -952,6 +1035,51 @@ is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
 If not set, there is no timeout.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WorkloadRetentionPolicy`     {#WorkloadRetentionPolicy}
+    
+
+**Appears in:**
+
+- [ObjectRetentionPolicies](#ObjectRetentionPolicies)
+
+
+<p>WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>afterFinished</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AfterFinished is the duration to wait after a Workload finishes
+before deleting it.
+A duration of 0 will delete immediately.
+A nil value disables automatic deletion.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
+</td>
+</tr>
+<tr><td><code>afterDeactivatedByKueue</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AfterDeactivatedByKueue is the duration to wait after <em>any</em> Kueue-managed Workload
+(such as a Job, JobSet, or other custom workload types) has been marked
+as deactivated by Kueue before automatically deleting it.
+Deletion of deactivated workloads may cascade to objects not created by
+Kueue, since deleting the parent Workload owner (e.g. JobSet) can trigger
+garbage-collection of dependent resources.
+A duration of 0 will delete immediately.
+A nil value disables automatic deletion.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
 </td>
 </tr>
 </tbody>

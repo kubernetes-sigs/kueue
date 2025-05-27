@@ -593,6 +593,37 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 		},
+		"set object retention policy for workloads": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ObjectRetentionPolicies: &ObjectRetentionPolicies{
+					Workloads: &WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				ObjectRetentionPolicies: &ObjectRetentionPolicies{
+					Workloads: &WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
+					},
+				},
+			},
+		},
 		"resources.transformations strategy": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{

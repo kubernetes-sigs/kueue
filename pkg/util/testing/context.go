@@ -29,5 +29,5 @@ func ContextWithLog(t *testing.T) (context.Context, logr.Logger) {
 	logger := testr.NewWithOptions(t, testr.Options{
 		Verbosity: 2,
 	})
-	return ctrl.LoggerInto(context.Background(), logger), logger
+	return ctrl.LoggerInto(t.Context(), logger), logger
 }

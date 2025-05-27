@@ -73,29 +73,29 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			check1            *kueue.AdmissionCheck
 			check2            *kueue.AdmissionCheck
 			check3            *kueue.AdmissionCheck
-			reservationFlavor string = "reservation"
+			reservationFlavor = "reservation"
 			updatedWl         kueue.Workload
-			flavorOnDemand    string              = "on-demand"
+			flavorOnDemand                        = "on-demand"
 			resourceGPU       corev1.ResourceName = "example.com/gpu"
 		)
 
 		ginkgo.BeforeEach(func() {
 			flavor1 = testing.MakeResourceFlavor(flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Create(ctx, flavor1)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, flavor1)
 
 			flavor2 = testing.MakeResourceFlavor(reservationFlavor).Obj()
-			gomega.Expect(k8sClient.Create(ctx, flavor2)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, flavor2)
 
 			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ctrl1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, check1)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 
 			check2 = testing.MakeAdmissionCheck("check2").ControllerName("ctrl2").Obj()
-			gomega.Expect(k8sClient.Create(ctx, check2)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, check2)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
 			check3 = testing.MakeAdmissionCheck("check3").ControllerName("ctrl3").Obj()
-			gomega.Expect(k8sClient.Create(ctx, check3)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, check3)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check3, metav1.ConditionTrue)
 
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
@@ -108,10 +108,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					*testing.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -134,13 +134,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			wlKey := client.ObjectKeyFromObject(wl)
 
 			ginkgo.By("creating and waiting for workload to have a quota reservation", func() {
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(&updatedWl)).Should(gomega.BeTrue(), "should have quota reservation")
 
-					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-					g.Expect(checks).Should(gomega.ConsistOf("check1", "check2"))
+					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
+					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check2")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse())
 			})
@@ -156,8 +156,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						*testing.MakeAdmissionCheckStrategyRule("check3").Obj()}
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).To(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-					g.Expect(checks).Should(gomega.ConsistOf("check1", "check3"))
+					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
+					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check3")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -184,18 +184,18 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("Workload with RuntimeClass defined", func() {
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
-			gomega.Expect(k8sClient.Create(ctx, runtimeClass)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, runtimeClass)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -207,11 +207,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -241,16 +241,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -261,11 +261,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -296,16 +296,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	ginkgo.When("LimitRanges are defined", func() {
 		ginkgo.BeforeEach(func() {
 			limitRange := testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, limitRange)
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -316,9 +316,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should use the range defined default requests, if provided", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -355,10 +355,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should not use the range defined requests, if provided by the workload", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -396,13 +396,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("the workload defines only resource limits and the LocalQueue is created late", func() {
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		})
 		ginkgo.AfterEach(func() {
@@ -414,12 +414,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("The limits should be used as request values", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Limit(corev1.ResourceCPU, "1").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
-				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, localQueue)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -455,13 +455,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("Resource transformations are applied", func() {
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		})
 		ginkgo.AfterEach(func() {
@@ -474,12 +474,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, true)
 			var wl2 *kueue.Workload
 			ginkgo.By("Create and wait for workload admission", func() {
-				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, localQueue)
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "1").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
 			})
 
@@ -508,10 +508,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("Create a pending workload and validate its resourceRequests", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "2").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl2)
 
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				wl2Read := kueue.Workload{}
@@ -572,12 +572,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("When the feature is disabled, the resources are not transformed", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, false)
 			ginkgo.By("Create inadmissable workload", func() {
-				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, localQueue)
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(pseudoCPU, "1").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Consistently(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -603,16 +603,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").
 				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, runtimeClass)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, runtimeClass)
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -624,11 +624,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should sync the resource requests with the new overhead", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -640,11 +640,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl2)
 
 				gomega.Consistently(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -693,16 +693,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
 			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, limitRange)
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -713,9 +713,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.It("Should sync the resource requests with the limit", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -727,9 +727,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
 				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, wl2)
 
 				gomega.Consistently(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -779,16 +779,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
 			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, limitRange)
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			ginkgo.By("Resource consumption should be 0", func() {
@@ -817,10 +817,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				var wl *kueue.Workload
 				ginkgo.By("Create the workload", func() {
 					wl = testing.MakeWorkload("one", ns.Name).
-						Queue(localQueue.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "1").
 						Obj()
-					gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, wl)
 				})
 
 				updatedLr := corev1.LimitRange{}
@@ -840,10 +840,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				var wl *kueue.Workload
 				ginkgo.By("Create the workload", func() {
 					wl = testing.MakeWorkload("one", ns.Name).
-						Queue(localQueue.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
 						Request(corev1.ResourceCPU, "7").
 						Obj()
-					gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+					util.MustCreate(ctx, k8sClient, wl)
 				})
 				updatedLr := corev1.LimitRange{}
 				ginkgo.By("Preparing the updated limitRange", func() {

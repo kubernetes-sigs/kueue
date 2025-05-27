@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -37,6 +38,16 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
+			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNode(wl) {
+				// skip if already computed and doesn't need recomputing
+				// if it already has an assignment but needs recomputing due to a failed node
+				// we add it to the list of TASRequests
+				continue
+			}
+			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {
+				psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
+				continue
+			}
 			isTASImplied := isTASImplied(&podSet, cq)
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
@@ -47,6 +58,19 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 		}
 	}
 	return tasRequests
+}
+
+func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
+	if !workload.HasNodeToReplace(wl.Obj) {
+		return false
+	}
+	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]
+	for _, domain := range psa.TopologyAssignment.Domains {
+		if domain.Values[len(domain.Values)-1] == failedNode {
+			return true
+		}
+	}
+	return false
 }
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,
@@ -68,10 +92,21 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]
+	var podSetUpdates []*kueue.PodSetUpdate
+	for _, ac := range wl.Obj.Status.AdmissionChecks {
+		if ac.State == kueue.CheckStateReady {
+			for _, psUpdate := range ac.PodSetUpdates {
+				if psUpdate.Name == podSet.Name {
+					podSetUpdates = append(podSetUpdates, &psUpdate)
+				}
+			}
+		}
+	}
 	return &cache.TASPodSetRequests{
 		Count:             podCount,
 		SinglePodRequests: singlePodRequests,
 		PodSet:            podSet,
+		PodSetUpdates:     podSetUpdates,
 		Flavor:            *tasFlvr,
 		Implied:           isTASImplied,
 	}, nil

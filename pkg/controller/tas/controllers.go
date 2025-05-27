@@ -21,6 +21,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -37,6 +38,12 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 	topologyUngater := newTopologyUngater(mgr.GetClient())
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
+	}
+	if features.Enabled(features.TASFailedNodeReplacement) {
+		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
+		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
+			return ctrlName, err
+		}
 	}
 	return "", nil
 }

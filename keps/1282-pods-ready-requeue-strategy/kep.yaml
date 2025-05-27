@@ -28,4 +28,5 @@ feature-gates: []
 disable-supported: true
 
 # The following PRR answers are required at beta release
-metrics: []
+metrics:
+  - kueue_evicted_workloads_once_total

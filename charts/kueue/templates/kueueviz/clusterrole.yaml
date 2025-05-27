@@ -1,0 +1,17 @@
+{{- if .Values.enableKueueViz }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-kueueviz-backend-read-access'
+  namespace: '{{ .Release.Namespace }}'
+rules:
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "events", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloadpriorityclass"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

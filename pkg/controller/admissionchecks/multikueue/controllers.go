@@ -116,6 +116,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName), options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
 	return wlRec.setupWithManager(mgr)
 }

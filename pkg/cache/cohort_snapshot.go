@@ -21,12 +21,13 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type CohortSnapshot struct {
 	Name kueue.CohortReference
 
-	ResourceNode ResourceNode
+	ResourceNode resourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
 
 	FairWeight resource.Quantity
@@ -73,9 +74,9 @@ func (c *CohortSnapshot) DominantResourceShare() int {
 	return share
 }
 
-// The methods below implement hierarchicalResourceNode interface.
+// implement flatResourceNode/hierarchicalResourceNode interfaces
 
-func (c *CohortSnapshot) getResourceNode() ResourceNode {
+func (c *CohortSnapshot) getResourceNode() resourceNode {
 	return c.ResourceNode
 }
 
@@ -87,4 +88,8 @@ func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 
 func (c *CohortSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
+}
+
+func (c *CohortSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
+	return c.ResourceNode.Usage[fr]+val > c.ResourceNode.SubtreeQuota[fr]
 }

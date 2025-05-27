@@ -27,15 +27,16 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// SyncAdmittedCondition sync the state of the Admitted condition
-// with the state of QuotaReserved and AdmissionChecks.
+// SyncAdmittedCondition sync the state of the Admitted condition based on the
+// state of QuotaReserved, AdmissionChecks and DelayedTopologyRequests.
 // Return true if any change was done.
 func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
+	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
 
-	if isAdmitted == (hasReservation && hasAllChecksReady) {
+	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
 		return false
 	}
 	newCondition := metav1.Condition{
@@ -58,6 +59,10 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "UnsatisfiedChecks"
 		newCondition.Message = "The workload has not all checks ready"
+	case !hasAllTopologyAssignmentsReady:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "PendingDelayedTopologyRequests"
+		newCondition.Message = "There are pending delayed topology requests"
 	}
 
 	// Accumulate the admitted time if needed
@@ -77,7 +82,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
-func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *kueue.AdmissionCheckState {
+func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
 	for i := range checks {
 		if checks[i].Name == checkName {
 			return &checks[i]
@@ -155,7 +160,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 }
 
 // HasAllChecks returns true if all the mustHaveChecks are present in the workload.
-func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
+func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}

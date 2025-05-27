@@ -81,13 +81,13 @@ func FilterKeys[K comparable, V any, M ~map[K]V](m M, k []K) M {
 	return ret
 }
 
-// DeepCopySets create a deep copy of map[string]Set which would otherwise be referenced
-func DeepCopySets[T comparable](src map[string]sets.Set[T]) map[string]sets.Set[T] {
-	copy := make(map[string]sets.Set[T], len(src))
+// DeepCopySets creates a deep copy of map[K]Set which would otherwise be referenced
+func DeepCopySets[K comparable, T comparable](src map[K]sets.Set[T]) map[K]sets.Set[T] {
+	c := make(map[K]sets.Set[T], len(src))
 	for key, set := range src {
-		copy[key] = set.Clone()
+		c[key] = set.Clone()
 	}
-	return copy
+	return c
 }
 
 // SyncMap - generic RWMutex protected map.

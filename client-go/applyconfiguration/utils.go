@@ -59,6 +59,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
 		return &kueuev1beta1.AdmissionCheckStrategyRuleApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionFairSharingStatus"):
+		return &kueuev1beta1.AdmissionFairSharingStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionScope"):
+		return &kueuev1beta1.AdmissionScopeApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
@@ -121,6 +125,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ProvisioningRequestConfigApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ProvisioningRequestConfigSpec"):
 		return &kueuev1beta1.ProvisioningRequestConfigSpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("ProvisioningRequestPodSetUpdates"):
+		return &kueuev1beta1.ProvisioningRequestPodSetUpdatesApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("ProvisioningRequestPodSetUpdatesNodeSelector"):
+		return &kueuev1beta1.ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ProvisioningRequestRetryStrategy"):
 		return &kueuev1beta1.ProvisioningRequestRetryStrategyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ReclaimablePod"):
@@ -137,16 +145,20 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ResourceQuotaApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceUsage"):
 		return &kueuev1beta1.ResourceUsageApplyConfiguration{}
-	case v1beta1.SchemeGroupVersion.WithKind("Topology"):
-		return &kueuev1beta1.TopologyApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("SchedulingStats"):
+		return &kueuev1beta1.SchedulingStatsApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta1.TopologyAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
 		return &kueuev1beta1.TopologyDomainAssignmentApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("TopologyInfo"):
+		return &kueuev1beta1.TopologyInfoApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
 		return &kueuev1beta1.WorkloadPriorityClassApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSchedulingStatsEviction"):
+		return &kueuev1beta1.WorkloadSchedulingStatsEvictionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSpec"):
 		return &kueuev1beta1.WorkloadSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadStatus"):

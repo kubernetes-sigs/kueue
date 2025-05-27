@@ -53,30 +53,27 @@ make test-integration
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
-### Increase logging verbosity
-You can change log level in the framework (for example, change -3 to -5 to increase verbosity):
-https://github.com/kubernetes-sigs/kueue/blob/f8015cb273f9115c34f9be32b35f7e1308c16459/test/integration/framework/framework.go#L72:
-```go
-var setupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
-})
-```
-
 ## Running e2e tests using custom build
 ```shell
 make kind-image-build
 make test-e2e
 make test-tas-e2e
 make test-e2e-customconfigs
+make test-e2e-certmanager
+make test-e2e-kueueviz
 make test-multikueue-e2e
 ```
 
-You can also change `kind` version by modifying `E2E_KIND_VERSION` variable:
+You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_KIND_VERSION=kindest/node:v1.32.0 make test-e2e
+E2E_K8S_FULL_VERSION=1.32.2 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+
+## Increase logging verbosity
+You can change log level (for example, set -5 to increase verbosity) using `TEST_LOG_LEVEL` variables.
+By default, `TEST_LOG_LEVEL=-3`.
 
 ## Debug tests in VSCode
 It is possible to debug unit and integration tests in VSCode.
@@ -110,12 +107,12 @@ For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visua
 and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind clanter (see [here](#attaching-e2e-tests-to-an-existing-kind-cluster) for the instructions).
 
 ## Attaching e2e tests to an existing kind cluster
-You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode, attaching them to the existing cluster.  For example, suppose you want to test some of the multikueue-e2e tests. Comment the last line of the `hack/multikueue-e2e-test.sh` and add `read -p "run your tests now"` instead:
-```shell
-#$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
-read -p "run your tests now"
-```
-Then, run `make kind-image-build test-multikueue-e2e` and wait for the `"run your tests now"` to appear.  The cluster is ready, and now you can run tests from another terminal:
+You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
+attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
+
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Press Enter to cleanup.` to appear.
+
+The cluster is ready, and now you can run tests from another terminal:
 ```shell
 <your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
 ```

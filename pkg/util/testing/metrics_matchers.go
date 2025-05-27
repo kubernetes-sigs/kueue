@@ -66,6 +66,7 @@ func containsMetric(output []string, metric []string) bool {
 func (matcher *metricsMatcher) Match(actual any) (bool, error) {
 	input, ok := actual.(string)
 	if !ok {
+		//nolint:staticcheck // We keep the error capitalized for consistency with built-in matchers.
 		return false, fmt.Errorf("Metrics matcher expects a string. Got:\n%s", format.Object(actual, 1))
 	}
 

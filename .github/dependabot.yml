@@ -59,10 +59,10 @@ updates:
       - "ok-to-test"
       - "release-note-none"
 
-  # Maintain go dependencies for kueue-viz backend
+  # Maintain go dependencies for KueueViz backend
   - package-ecosystem: "gomod"
     directories:
-      - "/cmd/experimental/kueue-viz/backend"
+      - "/cmd/kueueviz/backend"
     schedule:
       interval: "weekly"
     labels:
@@ -78,23 +78,26 @@ updates:
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  # Maintain npm dependencies for kueue-viz frontend
+  # Maintain npm dependencies for KueueViz frontend
   - package-ecosystem: "npm"
-    directory: "/cmd/experimental/kueue-viz/frontend"
+    directory: "/cmd/kueueviz/frontend"
     schedule:
       interval: "weekly"
     labels:
       - "ok-to-test"
       - "release-note-none"
     groups:
+      mui-packages:
+        patterns:
+          - "@mui/*"
       all:
         update-types:
           - "minor"
           - "patch"
 
-  # Maintain docker dependencies for kueue-viz frontend
+  # Maintain docker dependencies for KueueViz frontend
   - package-ecosystem: "docker"
-    directory: "/cmd/experimental/kueue-viz/frontend"
+    directory: "/cmd/kueueviz/frontend"
     schedule:
       interval: "weekly"
     labels:

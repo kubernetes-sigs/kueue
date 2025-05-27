@@ -17,8 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -43,7 +41,6 @@ import (
 const (
 	serviceAccountName           = "kueue-controller-manager"
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
-	metricsServiceName           = "kueue-controller-manager-metrics-service"
 )
 
 var _ = ginkgo.Describe("Metrics", func() {
@@ -61,7 +58,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
-		gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
@@ -78,24 +75,20 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Name:     metricsReaderClusterRoleName,
 			},
 		}
-		gomega.Expect(k8sClient.Create(ctx, metricsReaderClusterRoleBinding)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
 			ServiceAccountName(serviceAccountName).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, curlPod)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdPod := &corev1.Pod{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(curlPod), createdPod)).To(gomega.Succeed())
-				g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-
-				curlContainerName = createdPod.Spec.Containers[0].Name
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			util.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
+
+		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.AfterEach(func() {
@@ -123,22 +116,22 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(localQueue.Name).
+				Queue(v1beta1.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, workload)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -179,7 +172,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that default metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -213,7 +206,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, deletedMetrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
 			})
 
 			notDeletedMetrics := [][]string{
@@ -227,7 +220,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, notDeletedMetrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
 			})
 		})
 	})
@@ -244,7 +237,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 		ginkgo.BeforeEach(func() {
 			admissionCheck = utiltesting.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
-			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, admissionCheck)
 
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
@@ -256,21 +249,21 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
-				AdmissionChecks(admissionCheck.Name).
+				AdmissionChecks(v1beta1.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
-				Queue(localQueue.Name).
+				Queue(v1beta1.LocalQueueName(localQueue.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, createdJob)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, createdJob)
 
 			admissionCheckedJobWLName := job.GetWorkloadNameForJob(createdJob.Name, createdJob.UID)
 			workloadKey = types.NamespacedName{
@@ -282,8 +275,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(createdWorkload.Status.Conditions).
-					Should(utiltesting.HaveConditionStatusTrue(v1beta1.WorkloadQuotaReserved))
+				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(v1beta1.WorkloadQuotaReserved))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -301,7 +293,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta1.AdmissionCheckState{
-						Name:  admissionCheck.Name,
+						Name:  v1beta1.AdmissionCheckReference(admissionCheck.Name),
 						State: v1beta1.CheckStateReady,
 					}, realClock)
 					g.Expect(k8sClient.Status().
@@ -317,7 +309,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that admission check metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -327,7 +319,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			})
 
 			ginkgo.By("checking that admission check metrics are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
@@ -368,14 +360,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
+					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
 						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
 					},
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue1)
 
 			clusterQueue2 = utiltesting.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
@@ -386,35 +378,35 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Obj(),
 				).
 				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyAny,
+					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
 						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
 					},
 				}).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue2)
 
 			localQueue1 = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
 				ClusterQueue(clusterQueue1.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue1)
 
 			localQueue2 = utiltesting.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue2)
 
 			highPriorityClass = utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowerJob1)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lowerJob1)
 
 			lowerWLName1 := job.GetWorkloadNameForJob(lowerJob1.Name, lowerJob1.UID)
 			lowerWorkload1Key = types.NamespacedName{
@@ -430,10 +422,10 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1)
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				RequestAndLimit("cpu", "1").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowerJob2)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, lowerJob2)
 
 			lowerWLName2 := job.GetWorkloadNameForJob(lowerJob2.Name, lowerJob2.UID)
 			lowerWorkload2Key = types.NamespacedName{
@@ -449,11 +441,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload2)
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
-				Queue(localQueue2.Name).
+				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, blockerJob)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, blockerJob)
 
 			blockerWLName := job.GetWorkloadNameForJob(blockerJob.Name, blockerJob.UID)
 			blockerWorkloadKey = types.NamespacedName{
@@ -469,18 +461,18 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
-				Queue(localQueue1.Name).
+				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, higherJob1)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, higherJob1)
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
-				Queue(localQueue2.Name).
+				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, higherJob2)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, higherJob2)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -510,17 +502,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-
-				g.Expect(blockerWorkload.Status.Conditions).To(
-					gomega.ContainElements(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    v1beta1.WorkloadEvicted,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Deactivated",
-							Message: "The workload is deactivated",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-					),
-				)
+				g.Expect(blockerWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(v1beta1.WorkloadEvicted, v1beta1.WorkloadDeactivated))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Expecting at least one of the high-priority jobs to be admitted", func() {
@@ -539,6 +521,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			metrics := [][]string{
 				{"kueue_admission_cycle_preemption_skips"},
 				{"kueue_evicted_workloads_total"},
+				{"kueue_evicted_workloads_once_total"},
 				{"kueue_preempted_workloads_total"},
 
 				{"kueue_local_queue_evicted_workloads_total"},
@@ -547,7 +530,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			}
 
 			ginkgo.By("checking that eviction and preemption metrics are available", func() {
-				expectMetricsToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("delete the cluster queue", func() {
@@ -562,39 +545,8 @@ var _ = ginkgo.Describe("Metrics", func() {
 			})
 
 			ginkgo.By("checking that eviction and preemption metrics are no longer available", func() {
-				expectMetricsNotToBeAvailable(curlPod.Name, curlContainerName, metrics)
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
 })
-
-func getKueueMetrics(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, config.DefaultNamespace, curlPodName, curlContainerName,
-		[]string{
-			"/bin/sh", "-c",
-			fmt.Sprintf(
-				"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics ",
-				metricsServiceName, config.DefaultNamespace,
-			),
-		})
-
-	return metricsOutput, err
-}
-
-func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
-		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-
-		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
-}
-
-func expectMetricsNotToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	gomega.Eventually(func(g gomega.Gomega) {
-		metricsOutput, err := getKueueMetrics(curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-
-		g.Expect(string(metricsOutput)).Should(utiltesting.ExcludeMetrics(metrics))
-	}, util.Timeout).Should(gomega.Succeed())
-}

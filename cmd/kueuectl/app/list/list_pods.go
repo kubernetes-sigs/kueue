@@ -202,7 +202,7 @@ func (o *PodOptions) getForObjectInfos(clientGetter util.ClientGetter) ([]*resou
 		Do()
 
 	if r == nil {
-		return nil, fmt.Errorf("Error building client for: %s/%s", o.ForGVK.Kind, o.ForName)
+		return nil, fmt.Errorf("building client for: %s", o.UserSpecifiedForObject)
 	}
 
 	if err := r.Err(); err != nil {
@@ -220,7 +220,7 @@ func (o *PodOptions) getForObjectInfos(clientGetter util.ClientGetter) ([]*resou
 func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstructured, error) {
 	job, ok := infos[0].Object.(*unstructured.Unstructured)
 	if !ok {
-		return nil, fmt.Errorf("Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+		return nil, fmt.Errorf("unexpected type %T", infos[0].Object)
 	}
 
 	return job, nil

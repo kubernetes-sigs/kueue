@@ -6,10 +6,10 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-visibility-server'
   namespace: '{{ .Release.Namespace }}'
 spec:
+  selector:
+  {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:
     - name: https
       port: 443
       protocol: TCP
       targetPort: 8082
-  selector:
-  {{- include "kueue.selectorLabels" . | nindent 4 }}

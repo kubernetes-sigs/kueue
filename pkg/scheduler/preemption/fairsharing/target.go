@@ -65,10 +65,9 @@ func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare)
 // will depend on LendingLimits of the children. See
 // cache.resource_node.go.
 func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) TargetNewShare {
+	revertSimulation := t.targetCq.SimulateUsageRemoval(wl.Usage())
+	defer revertSimulation()
+
 	_, almostLCA := getAlmostLCAs(t)
-	usage := wl.Usage()
-	revertSimulation := t.targetCq.SimulateUsageRemoval(usage)
-	drs := almostLCA.DominantResourceShare()
-	revertSimulation()
-	return TargetNewShare(drs)
+	return TargetNewShare(almostLCA.DominantResourceShare())
 }

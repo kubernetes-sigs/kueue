@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // PodWrapper wraps a Pod.
@@ -73,6 +74,16 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod.Obj())
+	}
+	return pods
+}
+
+func (p *PodWrapper) MakePodGroupWrappers(count int) []*PodWrapper {
+	var pods []*PodWrapper
+	for i := 0; i < count; i++ {
+		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod)
 	}
 	return pods
 }
@@ -178,7 +189,7 @@ func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
 // Gate adds kueue scheduling gate to the Pod by the gate name
 func (p *PodWrapper) Gate(gateNames ...string) *PodWrapper {
 	for _, gate := range gateNames {
-		p.Pod.Spec.SchedulingGates = append(p.Pod.Spec.SchedulingGates, corev1.PodSchedulingGate{
+		p.Spec.SchedulingGates = append(p.Spec.SchedulingGates, corev1.PodSchedulingGate{
 			Name: gate,
 		})
 	}
@@ -187,10 +198,10 @@ func (p *PodWrapper) Gate(gateNames ...string) *PodWrapper {
 
 // Finalizer adds a finalizer to the Pod
 func (p *PodWrapper) Finalizer(f string) *PodWrapper {
-	if p.ObjectMeta.Finalizers == nil {
-		p.ObjectMeta.Finalizers = make([]string, 0)
+	if p.Finalizers == nil {
+		p.Finalizers = make([]string, 0)
 	}
-	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, f)
+	p.Finalizers = append(p.Finalizers, f)
 	return p
 }
 
@@ -245,17 +256,7 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	p.ObjectMeta.OwnerReferences = append(
-		p.ObjectMeta.OwnerReferences,
-		metav1.OwnerReference{
-			APIVersion: ownerGVK.GroupVersion().String(),
-			Kind:       ownerGVK.Kind,
-			Name:       ownerName,
-			UID:        types.UID(ownerName),
-			Controller: ptr.To(true),
-		},
-	)
-
+	testing.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return p
 }
 
@@ -267,19 +268,19 @@ func (p *PodWrapper) UID(uid string) *PodWrapper {
 
 // StatusConditions updates status conditions of the Pod.
 func (p *PodWrapper) StatusConditions(conditions ...corev1.PodCondition) *PodWrapper {
-	p.Pod.Status.Conditions = conditions
+	p.Status.Conditions = conditions
 	return p
 }
 
 // StatusPhase updates status phase of the Pod.
 func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
-	p.Pod.Status.Phase = ph
+	p.Status.Phase = ph
 	return p
 }
 
 // StatusMessage updates status message of the Pod.
 func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
-	p.Pod.Status.Message = msg
+	p.Status.Message = msg
 	return p
 }
 
@@ -306,7 +307,7 @@ func (p *PodWrapper) Delete() *PodWrapper {
 
 // Volume adds a new volume for the pod object
 func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
-	p.Pod.Spec.Volumes = append(p.Pod.Spec.Volumes, v)
+	p.Spec.Volumes = append(p.Spec.Volumes, v)
 	return p
 }
 

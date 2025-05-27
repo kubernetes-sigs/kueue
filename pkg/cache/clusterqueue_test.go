@@ -73,14 +73,15 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cq, err := cache.newClusterQueue(cq)
+			cq, err := cache.newClusterQueue(log, cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}
 
 			cq.Status = tc.curStatus
-			cq.UpdateWithFlavors(tc.flavors)
+			cq.UpdateWithFlavors(log, tc.flavors)
 
 			if cq.Status != tc.wantStatus {
 				t.Fatalf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
@@ -145,7 +146,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					utiltesting.MakeNamespace("default"),
@@ -155,12 +156,12 @@ func TestClusterQueueUpdate(t *testing.T) {
 			cqCache := New(cl)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, rf := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(rf)
+				cqCache.AddOrUpdateResourceFlavor(log, rf)
 			}
 			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
 				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
 			}
-			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
+			if err := cqCache.UpdateClusterQueue(log, tc.newcq); err != nil {
 				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
 			}
 			snapshot, err := cqCache.Snapshot(ctx)
@@ -188,27 +189,20 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
-	cqWithACPerFlavor := utiltesting.MakeClusterQueue("cq3").
-		AdmissionCheckStrategy(
-			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1", "flavor2", "flavor3").Obj(),
-		).
-		Obj()
-
 	testcases := []struct {
-		name                     string
-		cq                       *kueue.ClusterQueue
-		cqStatus                 metrics.ClusterQueueStatus
-		admissionChecks          map[string]AdmissionCheck
-		wantStatus               metrics.ClusterQueueStatus
-		wantReason               string
-		wantMessage              string
-		acValidationRulesEnabled bool
+		name            string
+		cq              *kueue.ClusterQueue
+		cqStatus        metrics.ClusterQueueStatus
+		admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck
+		wantStatus      metrics.ClusterQueueStatus
+		wantReason      string
+		wantMessage     string
 	}{
 		{
 			name:     "Pending clusterQueue updated valid AC list",
 			cq:       cqWithAC,
 			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -227,33 +221,10 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: "Can admit new workloads",
 		},
 		{
-			name:     "Pending clusterQueue updated valid AC list - AdmissionCheckValidationRules enabled",
-			cq:       cqWithAC,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:     true,
-					Controller: "controller1",
-				},
-				"check2": {
-					Active:     true,
-					Controller: "controller2",
-				},
-				"check3": {
-					Active:     true,
-					Controller: "controller3",
-				},
-			},
-			wantStatus:               active,
-			wantReason:               "Ready",
-			wantMessage:              "Can admit new workloads",
-			acValidationRulesEnabled: true,
-		},
-		{
 			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
 			cq:       cqWithACStrategy,
 			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -275,7 +246,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Active clusterQueue updated with not found AC",
 			cq:       cqWithAC,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -287,13 +258,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckNotFound",
-			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with not found AC",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -305,13 +276,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckNotFound",
-			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue updated with inactive AC",
 			cq:       cqWithAC,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -327,13 +298,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckInactive",
-			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -349,63 +320,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "AdmissionCheckInactive",
-			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
-		},
-		{
-			name:     "Active clusterQueue updated with duplicate single instance AC Controller - AdmissionCheckValidationRules enabled",
-			cq:       cqWithAC,
-			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:                       true,
-					Controller:                   "controller1",
-					SingleInstanceInClusterQueue: true,
-				},
-				"check2": {
-					Active:     true,
-					Controller: "controller2",
-				},
-				"check3": {
-					Active:                       true,
-					Controller:                   "controller2",
-					SingleInstanceInClusterQueue: true,
-				},
-			},
-			wantStatus:               pending,
-			wantReason:               "MultipleSingleInstanceControllerAdmissionChecks",
-			wantMessage:              `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
-			acValidationRulesEnabled: true,
-		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated with duplicate single instance AC Controller - AdmissionCheckValidationRules enabled",
-			cq:       cqWithACStrategy,
-			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:                       true,
-					Controller:                   "controller1",
-					SingleInstanceInClusterQueue: true,
-				},
-				"check2": {
-					Active:     true,
-					Controller: "controller2",
-				},
-				"check3": {
-					Active:                       true,
-					Controller:                   "controller2",
-					SingleInstanceInClusterQueue: true,
-				},
-			},
-			wantStatus:               pending,
-			wantReason:               "MultipleSingleInstanceControllerAdmissionChecks",
-			wantMessage:              `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
-			acValidationRulesEnabled: true,
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
 		{
 			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: kueue.MultiKueueControllerName,
@@ -424,25 +345,10 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
 		{
-			name:     "Pending clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
-			cq:       cqWithACPerFlavor,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:            true,
-					Controller:        "controller1",
-					FlavorIndependent: true,
-				},
-			},
-			wantStatus:  active,
-			wantReason:  "Ready",
-			wantMessage: "Can admit new workloads",
-		},
-		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -464,7 +370,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -486,7 +392,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue updated with not found AC",
 			cq:       cqWithAC,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -504,7 +410,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
 					Active:     true,
 					Controller: "controller1",
@@ -519,69 +425,34 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
 		{
-			name:     "Active clusterQueue with an AC strategy updated with AdmissionCheckValidationRules disabled and no MultiKueue",
+			name:     "Active clusterQueue with an AC strategy updated",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
-			admissionChecks: map[string]AdmissionCheck{
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
 				"check1": {
-					Active:                       true,
-					Controller:                   "controller1",
-					SingleInstanceInClusterQueue: true,
+					Active:     true,
+					Controller: "controller1",
 				},
 				"check2": {
 					Active:     true,
 					Controller: "controller2",
 				},
 				"check3": {
-					Active:                       true,
-					Controller:                   "controller2",
-					SingleInstanceInClusterQueue: true,
+					Active:     true,
+					Controller: "controller2",
 				},
 			},
 			wantStatus:  active,
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor - AdmissionCheckValidationRules enabled",
-			cq:       cqWithACPerFlavor,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:            true,
-					Controller:        "controller1",
-					FlavorIndependent: true,
-				},
-			},
-			wantStatus:               pending,
-			wantReason:               "FlavorIndependentAdmissionCheckAppliedPerFlavor",
-			wantMessage:              "Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level.",
-			acValidationRulesEnabled: true,
-		},
-		{
-			name:     "Active clusterQueue with a FlavorIndependent MultiKueue AC applied per ResourceFlavor",
-			cq:       cqWithACPerFlavor,
-			cqStatus: pending,
-			admissionChecks: map[string]AdmissionCheck{
-				"check1": {
-					Active:            true,
-					Controller:        kueue.MultiKueueControllerName,
-					FlavorIndependent: true,
-				},
-			},
-			wantStatus:  pending,
-			wantReason:  "MultiKueueAdmissionCheckAppliedPerFlavor",
-			wantMessage: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
-		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.acValidationRulesEnabled {
-				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
-			}
+			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cq, err := cache.newClusterQueue(tc.cq)
+			cq, err := cache.newClusterQueue(log, tc.cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}
@@ -590,20 +461,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 			// Align the admission check related internals to the desired Status.
 			if tc.cqStatus == active {
-				cq.multipleSingleInstanceControllersChecks = nil
 				cq.missingAdmissionChecks = nil
 				cq.inactiveAdmissionChecks = nil
-				cq.flavorIndependentAdmissionCheckAppliedPerFlavor = nil
 			} else {
-				cq.missingAdmissionChecks = []string{"missing-ac"}
-				cq.inactiveAdmissionChecks = []string{"inactive-ac"}
-				// can only be cleaned up when feature gate is enabled
-				if tc.acValidationRulesEnabled {
-					cq.multipleSingleInstanceControllersChecks = map[string][]string{"c1": {"ac1", "ac2"}}
-					cq.flavorIndependentAdmissionCheckAppliedPerFlavor = []string{"not-on-flavor"}
-				}
+				cq.missingAdmissionChecks = []kueue.AdmissionCheckReference{"missing-ac"}
+				cq.inactiveAdmissionChecks = []kueue.AdmissionCheckReference{"inactive-ac"}
 			}
-			cq.updateWithAdmissionChecks(tc.admissionChecks)
+			cq.updateWithAdmissionChecks(log, tc.admissionChecks)
 
 			if cq.Status != tc.wantStatus {
 				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
@@ -700,23 +564,6 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
 		},
 		{
-			name: "TAS do not support ProvisioningRequest AdmissionCheck",
-			cq: utiltesting.MakeClusterQueue("cq").
-				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
-						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
-				).Obj(),
-			updatedCq: utiltesting.MakeClusterQueue("cq").
-				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
-						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
-				).AdmissionChecks("pr-check").Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported with ProvisioningRequest admission check.",
-		},
-		{
 			name:         "Referenced TAS flavor without topology",
 			skipTopology: true,
 			cq: utiltesting.MakeClusterQueue("cq").
@@ -734,7 +581,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder()
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
@@ -745,24 +592,24 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
 			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
-			cqCache.AddOrUpdateResourceFlavor(rf)
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
 
 			if !tc.skipTopology {
-				cqCache.AddOrUpdateTopologyForFlavor(topology, rf)
+				cqCache.AddOrUpdateTopology(log, topology)
 			}
 
 			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
-			cqCache.AddOrUpdateAdmissionCheck(mkAC)
+			cqCache.AddOrUpdateAdmissionCheck(log, mkAC)
 
 			acWithPR := utiltesting.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
-			cqCache.AddOrUpdateAdmissionCheck(acWithPR)
+			cqCache.AddOrUpdateAdmissionCheck(log, acWithPR)
 
 			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
 				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
 			}
 
 			if tc.updatedCq != nil {
-				if err := cqCache.UpdateClusterQueue(tc.updatedCq); err != nil {
+				if err := cqCache.UpdateClusterQueue(log, tc.updatedCq); err != nil {
 					t.Fatalf("Updating clusterQueue %s in cache: %v", tc.updatedCq.Name, err)
 				}
 			}

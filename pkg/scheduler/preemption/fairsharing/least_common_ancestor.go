@@ -33,27 +33,26 @@ func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
 func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
-	cohort := t.targetCq.Parent()
-	for {
-		if t.ordering.onPathFromRootToPreemptorCQ(cohort) {
-			return cohort
+	for ancestor := range t.targetCq.PathParentToRoot() {
+		if t.ordering.onPathFromRootToPreemptorCQ(ancestor) {
+			return ancestor
 		}
-		cohort = cohort.Parent()
 	}
+	// to make the compiler happy
+	panic("serious bug: could not find LeastCommonAncestor")
 }
 
 // getAlmostLCA traverses from a ClusterQueue towards the root,
 // returning the first Cohort or ClusterQueue that has the
 // LeastCommonAncestor as its parent.
 func getAlmostLCA(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) almostLCA {
-	if cq.Parent() == lca {
-		return cq
-	}
-	cohort := cq.Parent()
-	for {
-		if cohort.Parent() == lca {
-			return cohort
+	var aLca almostLCA = cq
+	for ancestor := range cq.PathParentToRoot() {
+		if ancestor == lca {
+			return aLca
 		}
-		cohort = cohort.Parent()
+		aLca = ancestor
 	}
+	// to make the compiler happy
+	panic("serious bug: could not find AlmostLeastCommonAncestor")
 }

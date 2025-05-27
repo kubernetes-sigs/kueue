@@ -63,12 +63,16 @@ var _ = ginkgo.BeforeSuite(func() {
 	restClient = util.CreateRestClient(cfg)
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
-	ctx = context.Background()
+	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue, JobSet, LeaderWorkerSet and AppWrapper operators are available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
+	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in the cluster",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
 })

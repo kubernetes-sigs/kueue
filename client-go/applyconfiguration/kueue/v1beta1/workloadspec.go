@@ -17,16 +17,20 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	PodSets                     []PodSetApplyConfiguration `json:"podSets,omitempty"`
-	QueueName                   *string                    `json:"queueName,omitempty"`
-	PriorityClassName           *string                    `json:"priorityClassName,omitempty"`
-	Priority                    *int32                     `json:"priority,omitempty"`
-	PriorityClassSource         *string                    `json:"priorityClassSource,omitempty"`
-	Active                      *bool                      `json:"active,omitempty"`
-	MaximumExecutionTimeSeconds *int32                     `json:"maximumExecutionTimeSeconds,omitempty"`
+	PodSets                     []PodSetApplyConfiguration   `json:"podSets,omitempty"`
+	QueueName                   *kueuev1beta1.LocalQueueName `json:"queueName,omitempty"`
+	PriorityClassName           *string                      `json:"priorityClassName,omitempty"`
+	Priority                    *int32                       `json:"priority,omitempty"`
+	PriorityClassSource         *string                      `json:"priorityClassSource,omitempty"`
+	Active                      *bool                        `json:"active,omitempty"`
+	MaximumExecutionTimeSeconds *int32                       `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -51,7 +55,7 @@ func (b *WorkloadSpecApplyConfiguration) WithPodSets(values ...*PodSetApplyConfi
 // WithQueueName sets the QueueName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the QueueName field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithQueueName(value string) *WorkloadSpecApplyConfiguration {
+func (b *WorkloadSpecApplyConfiguration) WithQueueName(value kueuev1beta1.LocalQueueName) *WorkloadSpecApplyConfiguration {
 	b.QueueName = &value
 	return b
 }

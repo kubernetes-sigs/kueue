@@ -21,10 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,6 +49,8 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	admissionFairSharing        *config.AdmissionFairSharing
+	clock                       clock.WithDelayedExecution
 }
 
 // Option configures the manager.
@@ -55,6 +59,22 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+	clock:                       clock.RealClock{},
+}
+
+// WithClock allows to specify a custom clock
+func WithClock(c clock.WithDelayedExecution) Option {
+	return func(o *options) {
+		o.clock = c
+	}
+}
+
+func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		if features.Enabled(features.AdmissionFairSharing) {
+			o.admissionFairSharing = cfg
+		}
+	}
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -87,9 +107,10 @@ type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
+	clock         clock.WithDelayedExecution
 	client        client.Client
 	statusChecker StatusChecker
-	localQueues   map[string]*LocalQueue
+	localQueues   map[LocalQueueReference]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
 	snapshots      map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload
@@ -101,6 +122,9 @@ type Manager struct {
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 
 	topologyUpdateWatchers []TopologyUpdateWatcher
+
+	admissionFairSharingConfig *config.AdmissionFairSharing
+	secondPassQueue            *secondPassQueue
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -109,9 +133,10 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		opt(&options)
 	}
 	m := &Manager{
+		clock:          options.clock,
 		client:         client,
 		statusChecker:  checker,
-		localQueues:    make(map[string]*LocalQueue),
+		localQueues:    make(map[LocalQueueReference]*LocalQueue),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
 		workloadOrdering: workload.Ordering{
@@ -120,7 +145,9 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		workloadInfoOptions: options.workloadInfoOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
-		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
+		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
+		admissionFairSharingConfig: options.admissionFairSharing,
+		secondPassQueue:            newSecondPassQueue(),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -162,7 +189,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	cqImpl, err := newClusterQueue(cq, m.workloadOrdering)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig)
 	if err != nil {
 		return err
 	}
@@ -233,6 +260,17 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		}
 		m.Broadcast()
 	}
+	return nil
+}
+
+func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+	if cqImpl == nil {
+		return ErrClusterQueueDoesNotExist
+	}
+	cqImpl.Heapify(lqName)
 	return nil
 }
 
@@ -319,7 +357,11 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ClearLocalQueueMetrics(metrics.LQRefFromLocalQueueKey(key))
+		namespace, lqName := MustParseLocalQueueReference(key)
+		metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
+			Name:      lqName,
+			Namespace: namespace,
+		})
 	}
 	delete(m.localQueues, key)
 }
@@ -351,7 +393,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 	m.RLock()
 	defer m.RUnlock()
-	_, ok := m.localQueues[workload.QueueKey(wl)]
+	_, ok := m.localQueues[KeyFromWorkload(wl)]
 	return ok
 }
 
@@ -361,7 +403,7 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	q, ok := m.localQueues[workload.QueueKey(wl)]
+	q, ok := m.localQueues[KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
 	}
@@ -378,7 +420,7 @@ func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
-	qKey := workload.QueueKey(w)
+	qKey := KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
@@ -413,7 +455,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	q := m.localQueues[workload.QueueKey(&w)]
+	q := m.localQueues[KeyFromWorkload(&w)]
 	if q == nil {
 		return false
 	}
@@ -437,11 +479,12 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Lock()
-	m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(w))
-	m.Unlock()
+	defer m.Unlock()
+	m.deleteWorkloadFromQueueAndClusterQueue(w, KeyFromWorkload(w))
+	m.DeleteSecondPassWithoutLock(w)
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey string) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey LocalQueueReference) {
 	q := m.localQueues[qKey]
 	if q == nil {
 		return
@@ -470,7 +513,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		action()
 	}
 
-	q := m.localQueues[workload.QueueKey(w)]
+	q := m.localQueues[KeyFromWorkload(w)]
 	if q == nil {
 		return
 	}
@@ -568,7 +611,7 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(w, KeyFromWorkload(oldW))
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
@@ -604,6 +647,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
+	workloads = append(workloads, m.secondPassQueue.takeAllReady()...)
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -617,7 +661,7 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
-		q := m.localQueues[workload.QueueKey(wl.Obj)]
+		q := m.localQueues[KeyFromWorkload(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
 		if features.Enabled(features.LocalQueueMetrics) {
 			m.reportLQPendingWorkloads(q)
@@ -637,7 +681,11 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 		inadmissible += active
 		active = 0
 	}
-	metrics.ReportLocalQueuePendingWorkloads(metrics.LQRefFromLocalQueueKey(lq.Key), active, inadmissible)
+	namespace, lqName := MustParseLocalQueueReference(lq.Key)
+	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
+		Name:      lqName,
+		Namespace: namespace,
+	}, active, inadmissible)
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
@@ -677,17 +725,13 @@ func (m *Manager) PendingWorkloadsInfo(cqName kueue.ClusterQueueReference) []*wo
 
 // ClusterQueueFromLocalQueue returns ClusterQueue name and whether it's found,
 // given a QueueKey(namespace/localQueueName) as the parameter
-func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey LocalQueueReference) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if lq, ok := m.localQueues[localQueueKey]; ok {
 		return lq.ClusterQueue, true
 	}
 	return "", false
-}
-
-func QueueKey(namespace, name string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the
@@ -734,4 +778,37 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
+}
+
+// DeleteSecondPassWithoutLock deletes the pending workload from the second
+// pass queue.
+func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
+	m.secondPassQueue.deleteByKey(workload.Key(w))
+}
+
+// QueueSecondPassIfNeeded queues for the second pass of scheduling with 1s
+// delay.
+func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
+	if workload.NeedsSecondPass(w) {
+		m.clock.AfterFunc(time.Second, func() {
+			m.queueSecondPass(ctx, w)
+		})
+		return true
+	}
+	return false
+}
+
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	m.queueSecondPassWithoutLock(ctx, w)
+}
+
+func (m *Manager) queueSecondPassWithoutLock(ctx context.Context, w *kueue.Workload) {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+
+	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	m.secondPassQueue.offer(wInfo)
+	m.Broadcast()
 }

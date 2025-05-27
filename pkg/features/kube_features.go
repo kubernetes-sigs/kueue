@@ -116,18 +116,6 @@ const (
 	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 
-	// owner: @mszadkow
-	// kep: https://github.com/kubernetes-sigs/kueue/issues/3094
-	//
-	// Enable additional AdmissionCheck validation rules that will appear in status conditions.
-	AdmissionCheckValidationRules featuregate.Feature = "AdmissionCheckValidationRules"
-
-	// owner: @pbundyra
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
-	//
-	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
-	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
-
 	// owner: @dgrove-oss
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -163,6 +151,30 @@ const (
 	//
 	// Enable to set use LeastAlloactedFit algorithm for TAS
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
+
+	// owner: @mwielgus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/79-hierarchical-cohorts
+	//
+	// Enable hierarchical cohorts
+	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
+	//
+	// Enable admission fair sharing
+	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
+
+	// owner: @mwysokin @mykysha @mbobrovskyi
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1618-optional-gc-of-workloads
+	//
+	// Enable object retentions
+	ObjectRetentionPolicies featuregate.Feature = "ObjectRetentionPolicies"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable replacement of failed node in TAS.
+	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
 )
 
 func init() {
@@ -228,12 +240,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
-	AdmissionCheckValidationRules: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
-	},
-	KeepQuotaForProvReqRetry: {
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
-	},
 	ManagedJobsNamespaceSelector: {
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -242,6 +248,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	LocalQueueDefaulting: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASProfileMostFreeCapacity: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
@@ -251,6 +258,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+	HierarchicalCohorts: {
+		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AdmissionFairSharing: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ObjectRetentionPolicies: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASFailedNodeReplacement: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

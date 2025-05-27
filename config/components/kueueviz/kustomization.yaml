@@ -1,0 +1,19 @@
+resources:
+- clusterrole.yaml
+- cluster-role-binding.yaml
+- backend-deployment.yaml
+- frontend-deployment.yaml
+- backend-service.yaml
+- frontend-service.yaml
+- backend-ingress.yaml
+- frontend-ingress.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: backend
+  newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend
+  newTag: main
+- name: frontend
+  newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend
+  newTag: main

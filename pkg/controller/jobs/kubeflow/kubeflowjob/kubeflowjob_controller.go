@@ -106,8 +106,11 @@ func (j *KubeflowJob) PodSets() ([]kueue.PodSet, error) {
 			Name:     kueue.NewPodSetReference(string(replicaType)),
 			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
-				ptr.To(kftraining.ReplicaIndexLabel), nil, nil),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[index].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta).PodIndexLabel(
+				ptr.To(kftraining.ReplicaIndexLabel)).Build()
 		}
 	}
 	return podSets, nil

@@ -1,0 +1,38 @@
+apiVersion: workload.codeflare.dev/v1beta2
+kind: AppWrapper
+metadata:
+  name: sample-appwrapper-deployment
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  suspend: true
+  components:
+  - podSets:
+    - path: "template.spec.template"
+      replicas: 3
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nginx-deployment
+        labels:
+          app: nginx
+      spec:
+        replicas: 3
+        selector:
+          matchLabels:
+            app: nginx
+        template:
+          metadata:
+            labels:
+              app: nginx
+          spec:
+            containers:
+              - name: nginx
+                image: registry.k8s.io/nginx-slim:0.27
+                ports:
+                  - containerPort: 80
+                resources:
+                  requests:
+                    cpu: "100m"
+

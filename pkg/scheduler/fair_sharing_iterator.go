@@ -192,8 +192,8 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // root-1.  During the tournament, these values are used to compare
 // all children the parentCohort, to select the child with the lowest
 // DRS after admission of its nominated workload.
-func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry map[*cache.ClusterQueueSnapshot]*entry) {
-	ec.drsValues = make(map[drsKey]int)
+func (e *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry map[*cache.ClusterQueueSnapshot]*entry) {
+	e.drsValues = make(map[drsKey]int)
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
@@ -201,29 +201,26 @@ func (ec *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry 
 		}
 		// We add workload's usage to CQ, so that all
 		// subsequent DRS include the admission of workload.
-		cq.AddUsage(entry.assignmentUsage())
+		revert := cq.SimulateUsageAddition(entry.assignmentUsage())
 
 		// calculate DRS, with workload, for CQ.
 		dominantResourceShare := cq.DominantResourceShare()
-		ec.drsValues[drsKey{parentCohort: cq.Parent().GetName(), workloadKey: workload.Key(entry.Obj)}] = dominantResourceShare
 
 		// calculate DRS, with workload, for all Cohorts on
 		// path to root.
-		cohort := cq.Parent()
-		for cohort.HasParent() {
-			dominantResourceShare := cohort.DominantResourceShare()
-			ec.drsValues[drsKey{parentCohort: cohort.Parent().GetName(), workloadKey: workload.Key(entry.Obj)}] = dominantResourceShare
-			cohort = cohort.Parent()
+		for ancestor := range cq.PathParentToRoot() {
+			e.drsValues[drsKey{parentCohort: ancestor.GetName(), workloadKey: workload.Key(entry.Obj)}] = dominantResourceShare
+			dominantResourceShare = ancestor.DominantResourceShare()
 		}
 
-		cq.RemoveUsage(entry.assignmentUsage())
+		revert()
 	}
 }
 
-func (ec *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
+func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(5); logV.Enabled() {
-		serializableDrs := make([]string, 0, len(ec.drsValues))
-		for k, v := range ec.drsValues {
+		serializableDrs := make([]string, 0, len(e.drsValues))
+		for k, v := range e.drsValues {
 			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %d}", k.parentCohort, k.workloadKey, v))
 		}
 		logV.Info("DominantResourceShare values used during tournament", "drsValues", serializableDrs)

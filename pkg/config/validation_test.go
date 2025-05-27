@@ -624,6 +624,65 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid admissionFairSharing configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: time.Second},
+					UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+					ResourceWeights: map[corev1.ResourceName]float64{
+						corev1.ResourceCPU:    0.5,
+						corev1.ResourceMemory: 0.5,
+					},
+				},
+			},
+		},
+		"invalid admissionFairSharing.usageHalfLifeTime configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: -time.Second},
+					UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "admissionFairSharing.usageHalfLifeTime",
+				},
+			},
+		},
+		"invalid admissionFairSharing.usageSamplingInterval configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageSamplingInterval: metav1.Duration{Duration: -time.Second},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "admissionFairSharing.usageSamplingInterval",
+				},
+			},
+		},
+		"invalid admissionFairSharing.resourceWeights configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+					ResourceWeights: map[corev1.ResourceName]float64{
+						corev1.ResourceCPU: -0.5,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "admissionFairSharing.resourceWeights[cpu]",
+				},
+			},
+		},
 		"invalid .internalCertManagement.webhookSecretName": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -734,6 +793,78 @@ func TestValidate(t *testing.T) {
 							Input:    corev1.ResourceMemory,
 							Strategy: ptr.To(configapi.Replace),
 						},
+					},
+				},
+			},
+		},
+		"negative afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "objectRetentionPolicies.workloads.afterFinished",
+				},
+			},
+		},
+		"zero afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+					},
+				},
+			},
+		},
+		"positive afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+					},
+				},
+			},
+		},
+		"negative afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "objectRetentionPolicies.workloads.afterDeactivatedByKueue",
+				},
+			},
+		},
+		"zero afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+					},
+				},
+			},
+		},
+		"positive afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
 					},
 				},
 			},

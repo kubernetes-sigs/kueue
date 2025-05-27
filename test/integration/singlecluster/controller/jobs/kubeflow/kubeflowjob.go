@@ -40,10 +40,10 @@ import (
 )
 
 const (
-	instanceKey       = "cloud.provider.com/instance"
-	priorityClassName = "test-priority-class"
-	priorityValue     = 10
-	jobQueueName      = "test-queue"
+	instanceKey                            = "cloud.provider.com/instance"
+	priorityClassName                      = "test-priority-class"
+	priorityValue                          = 10
+	jobQueueName      kueue.LocalQueueName = "test-queue"
 )
 
 type PodsReadyTestSpec struct {
@@ -60,14 +60,13 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	ginkgo.By("checking the job gets suspended when created unsuspended")
 	priorityClass := testing.MakePriorityClass(priorityClassName).
 		PriorityValue(int32(priorityValue)).Obj()
-	gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, priorityClass)
 
 	if job.KFJobControl.RunPolicy().SchedulingPolicy == nil {
 		job.KFJobControl.RunPolicy().SchedulingPolicy = &kftraining.SchedulingPolicy{}
 	}
 	job.KFJobControl.RunPolicy().SchedulingPolicy.PriorityClass = priorityClassName
-	err := k8sClient.Create(ctx, job.Object())
-	gomega.Expect(err).To(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, job.Object())
 
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 
@@ -84,14 +83,14 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	ginkgo.By("checking the workload is created without queue assigned")
 	createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob.Object())
 	util.VerifyWorkloadPriority(createdWorkload, priorityClassName, priorityValue)
-	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 
 	ginkgo.By("checking the workload is created with priority and priorityName")
 	gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
 	gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 
 	ginkgo.By("checking the workload is updated with queue name when the job does")
-	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})
+	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
 	gomega.Expect(k8sClient.Update(ctx, createdJob.Object())).Should(gomega.Succeed())
 	util.AwaitAndVerifyWorkloadQueueName(ctx, k8sClient, createdWorkload, wlLookupKey, jobQueueName)
 
@@ -106,7 +105,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 	secondWl.Spec.PodSets[0].Count++
 
-	gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, secondWl)
 	gomega.Eventually(func(g gomega.Gomega) {
 		wl := &kueue.Workload{}
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(testing.BeNotFoundError())
@@ -118,9 +117,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 	ginkgo.By("checking the job is unsuspended when workload is assigned")
 	onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-	gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, onDemandFlavor)
 	spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
-	gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, spotFlavor)
 	defer func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
@@ -206,8 +205,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob) {
 	ginkgo.By("checking the job gets suspended when created unsuspended")
-	err := k8sClient.Create(ctx, job.Object())
-	gomega.Expect(err).To(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, job.Object())
 
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 	wlLookupKey := types.NamespacedName{
@@ -224,8 +222,8 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
 	ginkgo.By("Create a job")
-	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: jobQueueName})
-	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, job.Object())).Should(gomega.Succeed())
+	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
+	util.MustCreate(ctx, k8sClient, job.Object())
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 
@@ -302,7 +300,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 
 func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, clusterQueue *kueue.ClusterQueue, podSetsResources []PodSetsResource) {
 	ginkgo.By("checking a job starts")
-	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, job.Object())).Should(gomega.Succeed())
+	util.MustCreate(ctx, k8sClient, job.Object())
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job.Object()), createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())

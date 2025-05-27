@@ -25,6 +25,7 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+  - [Changes to metrics](#changes-to-metrics)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -36,7 +37,7 @@
 
 ## Summary
 
-Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being after being evicted due to readiness checks.
+Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being evicted due to readiness checks.
 
 ## Motivation
 
@@ -175,7 +176,7 @@ const (
 
 #### Workload
 
-Add a new field, "requeueState", to the Workload to allow recording the following items: 
+Add a new field, "requeueState", to the WorkloadStatus to allow recording the following items: 
 
 1. the number of times a workload is re-queued
 2. when the workload was re-queued or will be re-queued
@@ -205,6 +206,56 @@ type RequeueState struct {
 	//
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+}
+```
+
+Add a new field, `schedulingStats`, to the WorkloadStatus struct to track the number of scheduling statistics.
+SchedulingState serves as a history of the Workload thus will not be reset.
+First sub field to be a part of the `schedulingStats` will be `eviction` a struct to track the number of evictions by reason.
+
+```go
+type WorkloadStatus struct {
+	// schedulingStats tracks scheduling statistics (e.g. evictions)
+	//
+	// +optional
+	SchedulingStats *SchedulingStats `json:"schedulingStats,omitempty"`
+}
+
+type SchedulingStats struct {
+	// evictions tracks eviction statistics by reason and underlyingCause.
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=reason
+	// +listMapKey=underlyingCause
+	// +patchStrategy=merge
+	// +patchMergeKey=reason
+	// +patchMergeKey=underlyingCause
+	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
+}
+
+type WorkloadSchedulingStatsEviction struct {
+    // reason specifies the programmatic identifier for the eviction cause.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MaxLength=316
+    Reason string `json:"reason"`
+
+    // underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+    // This may be an empty string.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MaxLength=316
+    UnderlyingCause string `json:"underlyingCause"`
+
+    // count tracks the number of evictions for this reason and detailed reason.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:Minimum=0
+    Count int32 `json:"count"`
 }
 ```
 
@@ -299,6 +350,26 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
+
+### Changes to metrics
+
+Introduce a new metric `evicted_workloads_once_total` to count total unique number of evictions per 'cluster_queue'.
+
+```go
+	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "evicted_workloads_once_total",
+			Help: `The number of unique workload evictions per 'cluster_queue',
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+		}, []string{"cluster_queue", "reason", "underlying_cause"},
+	)
+```
 
 ## Implementation History
 

@@ -17,6 +17,7 @@
       - [JobSet](#jobset)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
+    - [Provisioning request and required mode](#provisioning-request-and-required-mode)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Non-exclusive use of nodes](#non-exclusive-use-of-nodes)
     - [Node topology changes](#node-topology-changes)
@@ -27,10 +28,15 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
   - [Internal APIs](#internal-apis)
+    - [Node failures](#node-failures)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
   - [Enforcing the assignment](#enforcing-the-assignment)
+  - [Support for ProvisioningRequests](#support-for-provisioningrequests)
+    - [Determining the need for second pass](#determining-the-need-for-second-pass)
+    - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
+    - [Error handling](#error-handling)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -50,6 +56,7 @@
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
+  - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
 <!-- /toc -->
 
 ## Summary
@@ -92,11 +99,12 @@ block.
 - allow a user to express that a workload prefers to schedule all of its pods
   within the same level of hierarchy, but automatically relax the constraint if
   not possible.
+- support Cluster Autoscaler via ProvisioningRequest
 
 ### Non-Goals
 
 - support MultiKueue at the management cluster
-- support Cluster Autoscaler (ProvisioningRequest in particular)
+- support Cluster Autoscaler without ProvisioningRequest
 
 The above features might be pursued in the future in follow up KEPs.
 
@@ -271,6 +279,23 @@ Pods to "rack1" and "rack2". In the meanwhile, there is "workload2" admitted,
 requiring "rack". It gets assigned to "rack1", but cannot be scheduled since the
 nodes of "rack1" are already in use.
 
+#### Provisioning request and required mode
+
+When using [ProvisioningRequest with TAS](#support-for-provisioningrequests)
+the newly provisioned nodes may or may not respect the topology requested in the
+TAS "required" annotations.
+
+For example, a user may request Kueue to schedule Pods on a single rack with the
+"kueue.x-k8s.io/podset-required-topology: rack" annotation, but the cloud
+provider may or may not have support for such "compact placement" provisioning
+of nodes. If the newly created nodes are scattered across racks, then TAS will
+fail to schedule the workload.
+
+However, the workload will not get stuck forever. After a while (10min by default)
+the BookingExpired condition is added by ClusterAutoscaler, which in turn will
+result in releasing quota for the workload and retrying. After a couple of
+retries the workload will get deactivated.
+
 ### Risks and Mitigations
 
 #### Non-exclusive use of nodes
@@ -300,12 +325,13 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-A more involving approach would be to recompute the TopologyAdmission, however,
-until now we don't modify the workload's admission while the workload is
-scheduled, so it would require extra investigation and effort. We will consider
-this before graduation to GA based on investigation if feasible and feedback
-from users.
-
+We also propose to recompute the TopologyAdmission upon node removal and/or 
+failure, to find matching replacements for missing nodes. If no such 
+replacement exists, the workload has to be evicted and rescheduled again.
+This mechanism requires kueue to keep track of any failed or missing nodes 
+affecting the scheduled TAS workloads. We propose to initially handle only
+a single node failure and extend it to multiple depending on the feedback
+from the users.
 #### Race condition when accounting for DaemonSet pods
 
 There is a risk that workloads are scheduled before the DaemonSet pods are
@@ -626,11 +652,6 @@ const (
   // annotation is set when starting the Job, and removed on stopping the Job.
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
-  // PodSetLabel is a label set on the Job's PodTemplate to indicate the name
-  // of the PodSet of the admitted Workload corresponding to the PodTemplate.
-  // The label is set when starting the Job, and removed on stopping the Job.
-  PodSetLabel = "kueue.x-k8s.io/podset"
-
   // TASLabel is a label set on the Job's PodTemplate to indicate that the
   // PodSet is admitted using TopologyAwareScheduling, and all Pods created
   // from the Job's PodTemplate also have the label.
@@ -642,6 +663,31 @@ The above API does not support [Story 2](#story-2). We will defer the support
 for [Beta](#beta). The initial approach for the design is left in the
 [Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
 section.
+
+#### Node failures
+
+Initially we plan to support node becoming not ready (as indicated in Node 
+`status.conditions.ready` field) and node being deleted. A new controller will 
+monitor nodes and will update each affected TAS workload with the information 
+about the failed nodes. This information will then be consumed by a new mechanism
+in scheduler where we will try to find a new topology assignment and replace the
+failed node(s) (by changing the assignment only on the affected pods). 
+If no replacement is possible, the workload will be evicted. Initially we plan
+to only replace in the case of a single node failure and if no preemption/reclamation
+is neccessary to fit the workload. Since this mechanism is dedicated
+to only replace nodes, it will only work for Topologies which specify
+`kubernetes.io/hostname` at the lowest level.
+
+We propose to introduce a new Annotation at a Workload level:
+
+```golang
+const (
+	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
+	// name of a failed node running at least one pod of this workload.
+	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
+)
+```
+
 
 ### Implicit defaulting of TAS annotations
 
@@ -729,9 +775,13 @@ reconciler which lists all pods for a given TAS PodSet, and ensures that the
 pods in the expected number are un-gated to a given value.
 
 Along with the scheduling gate, to each pod template the
-`kueue.x-k8s.io/workload` and `kueue.x-k8s.io/podset` labels / annotations are
+`kueue.x-k8s.io/workload` label / annotation is
 added to facilitate quick lookup (List request) for all pods corresponding to
 the workload (and more specifically PodSetAssignment) by `TopologyAssigner`.
+
+The `kueue.x-k8s.io/podset` is the label that was extracted and moved to general usage regardless of TAS feature.
+This label serves as a link between the Job's PodTemplate and the name of the PodSet associated with the admitted Workload.
+Also it is indication of the Job in progress as it is added when it starts and it is removed when it's stopped.
 
 The TopologyUngater watches for pod events which trigger the reconciliation
 loop. The reconciliations are batched by 1s periods to make sure multiple
@@ -742,6 +792,91 @@ use the expectations mechanism. The expectations are set for when we are about
 to ungate a Pod. The expectation is fulfilled if the Pod is observed as ungated
 or the ungating request fails. We hold ungating if there are pending ungatings
 within the PodSet.
+
+### Support for ProvisioningRequests
+
+We are going to support autoscaling via ProvisioningRequest AdmissionCheck.
+
+The key assumptions of the solution:
+- When there is ProvisioningRequest on the list of AdmissionChecks Kueue
+  Scheduler only reserves quota, but skips TAS assignment until all
+  AdmissionChecks (including the ProvisioningRequest) are `Ready` (green).
+- When all AdmissionChecks are `Ready` Kueue Scheduler does "second pass" on the
+  workload to extend the "TAS" assignment, but respecting the previously
+  selected resource flavor.
+- In order to do "second pass" for such workloads Kueue Scheduler maintains a
+  dedicated "secondPassQueue" queue of workloads ready for the second pass -
+  with QuotaReservation and all AdmissionChecks `Ready`, but without required
+  TopologyAssignments.
+
+#### Determining the need for second pass
+
+In order to determine if the "second pass" is needed, and thus if
+`TopologyAssignment` is required, Kueue sets the following field as true
+at the moment of QuotaReservation (first pass).
+
+```golang
+// DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
+// +enum
+type DelayedTopologyRequestState string
+
+const (
+   // This state indicates the delayed TopologyRequest is waiting for determining.
+   DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
+
+   // This state indicates the delayed TopologyRequest was requested and completed.
+   DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
+)
+
+type PodSetAssignment struct {
+  ...
+  // delayedTopologyRequest indicates the topology assignment is delayed.
+  // Topology assignment might be delayed in case there is ProvisioningRequest
+  // AdmissionCheck used.
+  // Kueue schedules the second pass of scheduling for each workload with at
+  // least one PodSet which has delayedTopologyRequest=Pending and without
+  // topologyAssignment. Once the TopologyAssignment is determined the state is
+  // set to Ready.
+  //
+  // +optional
+  DelayedTopologyRequest *DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+}
+```
+
+This field will be particularly useful to implement functions such as
+[SyncAdmittedCondition](https://github.com/kubernetes-sigs/kueue/blob/f61f8e9549801e0f92c4f38fa06649cccfcc8d7d/pkg/workload/admissionchecks.go#L33)
+without the need to inspect the status of other objects (such as the
+ResourceFlavor and ClusterQueue in case of implicit defaulting).
+
+#### Targeting the newly provisioned nodes
+
+Some classes of provisioning requests may be always provisioning new nodes.
+In that case we need to give TAS the information about the node selector which
+should be used to target the newly provision nodes. We propose all the necessary
+information is contained in the ProvisioningRequest status, in the
+[provisioningClassDetails](https://github.com/kubernetes/autoscaler/blob/79a1375afe82416c528e72448ca5d5d96e6ad4ba/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1/types.go#L169)
+field.
+
+See the details of the API extension in the [Provisioning Request Support KEP](/keps/1136-provisioning-request-support).
+
+#### Error handling
+
+For some ProvisioningRequest classes, even if `Provisioned=true`, the nodes may
+still not allow for scheduling for a while, several minutes, and remain NotReady,
+for example, waiting for installation of some GPU drivers.
+
+To solve this complication, when the "second pass" fails scheduler keeps quota
+for the workload and retries with exponential delay.
+
+The exact base delay and limit are subject to implementation decision, but they
+should be of order of magnitude: base delay of 10s, and limit of 5min. Once the
+time limit is exceeded the workload is evicted.
+
+We keep the retry counter in memory for simplicity of the implementation, and
+because the time limit is assumed small (several minutes), and Kueue is expected
+to be restarted rarely. If Kueue is restarted the consequences are limited - the
+workload may need to repeat a couple of attempts. We may revisit this decision
+based on user feedback.
 
 ### Test Plan
 
@@ -811,6 +946,11 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   or explicit level added by webhook.
 - introduce configuration for setting TAS profiles/algorithms
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
+- re-evaluate the need for admin-facing configuration of the second phase
+  requeuing for ProvisioningRequests based on user feedback
+- add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
+- change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
+- handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 
 #### Stable
 
@@ -1006,3 +1146,25 @@ fulfilled with a dedicated indexed virtual field.
 
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
+
+### Failed nodes in WorkloadStatus
+
+Alternatively, the information about failed nodes could be stored in a dedicated 
+field in WorkloadStatus.
+
+```golang
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+  ...
+  // nodesToReplace lists the names of failed nodes running pods associated 
+  // with this workload. This field is populated by the node failure controller.
+  // +optional
+  // +listType=set
+  NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
+```
+**Reasons for discarding/deferring**
+
+Uncertanity about the final shape of the feature and the required format.
+We will decide on the format of this field based on the feedback from the 
+customers on the MVP.

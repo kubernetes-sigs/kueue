@@ -28,12 +28,16 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
 	testTime := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
+		enableTopologyAwareScheduling bool
+
+		admission        *kueue.Admission
 		checkStates      []kueue.AdmissionCheckState
 		conditions       []metav1.Condition
 		pastAdmittedTime int32
@@ -252,11 +256,95 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange:       true,
 			wantAdmittedTime: 2,
 		},
+		"pending delayed topology request; flip from Admitted=true": {
+			enableTopologyAwareScheduling: true,
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name:                   kueue.DefaultPodSetName,
+						Count:                  ptr.To[int32](1),
+						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+					},
+				},
+			},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadAdmitted,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "PendingDelayedTopologyRequests",
+					ObservedGeneration: 1,
+				},
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+			},
+			wantChange: true,
+		},
+		"pending delayed topology request; already Admitted=false": {
+			enableTopologyAwareScheduling: true,
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name:                   kueue.DefaultPodSetName,
+						Count:                  ptr.To[int32](1),
+						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+					},
+				},
+			},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					ObservedGeneration: 1,
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: false,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			builder := utiltesting.MakeWorkload("foo", "bar").
+				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
 				Generation(1)

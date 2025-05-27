@@ -19,7 +19,7 @@ Please do not remove items from the checklist
   - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
   - [ ] An OWNER pushes the new release branch with
-        `git push release-$MAJ.$MIN`
+        `git push upstream release-$MAJ.$MIN`
 - [ ] Update the release branch:
   - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
   - [ ] Update the `CHANGELOG`
@@ -39,12 +39,11 @@ Please do not remove items from the checklist
       `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
       to generate the artifacts in the `artifacts` folder.
   - [ ] Upload the files in the `artifacts` folder to the draft release - either
-      via UI or `gh release --repo kubernetes-sigs/kueue upload <tag> artifacts/*`.
-- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to 
+      via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION artifacts/*`.
+- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to
       [promote the container images and Helm Chart](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
-      to production: <!-- example kubernetes/k8s.io#3612 and kubernetes/k8s.io#7817 -->
+      to production: <!-- example kubernetes/k8s.io#7899 -->
   - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`.
-  - [ ] Update `registry.k8s.io/images/charts/images.yaml`.
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
@@ -62,13 +61,14 @@ Please do not remove items from the checklist
   - [ ] Create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
          branch has been created (presumably the README update commit above), and, push the tag:
-        `DEVEL=v$MAJ.$(($MIN+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
+        `DEVEL=v$MAJ.$(($MIN+1)).0-devel; git tag $DEVEL main && git push upstream $DEVEL`
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and the periodic jobs for the next patch release:
-        <!-- example presubmit: https://github.com/kubernetes/test-infra/pull/33107 -->
-        <!-- example periodic: https://github.com/kubernetes/test-infra/pull/33833 -->
+        <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
+  - [ ] Drop CI Jobs for testing the out-of-support branch:
+        <!-- example: https://github.com/kubernetes/test-infra/pull/34562 -->
 
 
 ## Changelog

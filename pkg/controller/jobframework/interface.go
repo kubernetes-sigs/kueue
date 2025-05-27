@@ -164,16 +164,24 @@ type JobWithManagedBy interface {
 	SetManagedBy(*string)
 }
 
-func QueueName(job GenericJob) string {
+// TopLevelJob interface is an optional interface used to indicate
+// that the Job owns/manages the Workload object, regardless of the Job
+// owner references.
+type TopLevelJob interface {
+	// IsTopLevel returns true if the Job owns/manages the Workload.
+	IsTopLevel() bool
+}
+
+func QueueName(job GenericJob) kueue.LocalQueueName {
 	return QueueNameForObject(job.Object())
 }
 
-func QueueNameForObject(object client.Object) string {
+func QueueNameForObject(object client.Object) kueue.LocalQueueName {
 	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
-		return queueLabel
+		return kueue.LocalQueueName(queueLabel)
 	}
 	// fallback to the annotation (deprecated)
-	return object.GetAnnotations()[constants.QueueAnnotation]
+	return kueue.LocalQueueName(object.GetAnnotations()[constants.QueueAnnotation])
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {

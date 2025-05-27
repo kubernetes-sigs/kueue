@@ -78,7 +78,7 @@ On the other hand, the Worker cluster should install the full kubeflow operator.
 
 ## Plain Pods
 
-MultiKueue supports the remote creation and management of Plain Pods.
+MultiKueue supports the remote creation and management of Plain Pods and Group of Pods.
 
 ## Deployments
 

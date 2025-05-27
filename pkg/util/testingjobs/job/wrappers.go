@@ -27,7 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a Job.
@@ -76,6 +78,16 @@ func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
+	j.Spec.BackoffLimitPerIndex = ptr.To(limit)
+	return j
+}
+
+func (j *JobWrapper) CompletionMode(mode batchv1.CompletionMode) *JobWrapper {
+	j.Spec.CompletionMode = &mode
+	return j
+}
+
 func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
 	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
@@ -121,8 +133,8 @@ func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
 }
 
 // Queue updates the queue name of the job
-func (j *JobWrapper) Queue(queue string) *JobWrapper {
-	return j.Label(constants.QueueLabel, queue)
+func (j *JobWrapper) Queue(queue kueue.LocalQueueName) *JobWrapper {
+	return j.Label(constants.QueueLabel, string(queue))
 }
 
 // Label sets the label key and value
@@ -199,15 +211,7 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
-		{
-			APIVersion: ownerGVK.GroupVersion().String(),
-			Kind:       ownerGVK.Kind,
-			Name:       ownerName,
-			UID:        types.UID(ownerName),
-			Controller: ptr.To(true),
-		},
-	}
+	testing.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
 

@@ -97,15 +97,6 @@ const (
 	// AdmissionCheckActive indicates that the controller of the admission check is
 	// ready to evaluate the checks states
 	AdmissionCheckActive string = "Active"
-
-	// AdmissionChecksSingleInstanceInClusterQueue indicates if the AdmissionCheck should be the only
-	// one managed by the same controller (as determined by the controllerName field) in a ClusterQueue.
-	// Having multiple AdmissionChecks managed by the same controller where at least one has this condition
-	// set to true will cause the ClusterQueue to be marked as Inactive.
-	AdmissionChecksSingleInstanceInClusterQueue string = "SingleInstanceInClusterQueue"
-
-	// FlavorIndependentAdmissionCheck indicates if the AdmissionCheck cannot be applied at ResourceFlavor level.
-	FlavorIndependentAdmissionCheck string = "FlavorIndependent"
 )
 
 // +genclient

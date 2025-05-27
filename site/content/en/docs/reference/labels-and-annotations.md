@@ -136,6 +136,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate how many Pods to expect in the group.
 
+### kueue.x-k8s.io/podset
+
+Type: Label
+
+Example: `kueue.x-k8s.io/podset: "main"`
+
+Used on: Kueue-managed Jobs.
+
+The label key is used on the Job's PodTemplate to indicate the name 
+of the PodSet of the admitted Workload corresponding to the PodTemplate.
+The label is set when starting the Job, and removed on stopping the Job.
 
 ### kueue.x-k8s.io/pod-suspending-parent
 

@@ -95,6 +95,9 @@ type Configuration struct {
 	// FairSharing controls the Fair Sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
+	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
+	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
+
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 
@@ -103,6 +106,11 @@ type Configuration struct {
 	// with passing the list of features via the command line argument "--feature-gates"
 	// for the Kueue Deployment.
 	FeatureGates map[string]bool `json:"featureGates,omitempty"`
+
+	// ObjectRetentionPolicies provides configuration options for automatic deletion
+	// of Kueue-managed objects. A nil value disables all automatic deletions.
+	// +optional
+	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
 }
 
 type ControllerManager struct {
@@ -360,6 +368,7 @@ type Integrations struct {
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
 	//  - "kubeflow.org/xgboostjob"
+	//  - "kubeflow.org/jaxjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
 	//  - "deployment" (requires enabling pod integration)
@@ -471,4 +480,50 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+}
+
+type AdmissionFairSharing struct {
+	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
+	// If set to 0, usage will be reset to 0 immediately.
+	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime"`
+
+	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
+	// Defaults to 5min.
+	UsageSamplingInterval metav1.Duration `json:"usageSamplingInterval"`
+
+	// resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
+	// resource usage and order Workloads.
+	// Defaults to 1.
+	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
+}
+
+// ObjectRetentionPolicies holds retention settings for different object types.
+type ObjectRetentionPolicies struct {
+	// Workloads configures retention for Workloads.
+	// A nil value disables automatic deletion of Workloads.
+	// +optional
+	Workloads *WorkloadRetentionPolicy `json:"workloads,omitempty"`
+}
+
+// WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.
+type WorkloadRetentionPolicy struct {
+	// AfterFinished is the duration to wait after a Workload finishes
+	// before deleting it.
+	// A duration of 0 will delete immediately.
+	// A nil value disables automatic deletion.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +optional
+	AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
+
+	// AfterDeactivatedByKueue is the duration to wait after *any* Kueue-managed Workload
+	// (such as a Job, JobSet, or other custom workload types) has been marked
+	// as deactivated by Kueue before automatically deleting it.
+	// Deletion of deactivated workloads may cascade to objects not created by
+	// Kueue, since deleting the parent Workload owner (e.g. JobSet) can trigger
+	// garbage-collection of dependent resources.
+	// A duration of 0 will delete immediately.
+	// A nil value disables automatic deletion.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +optional
+	AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivatedByKueue,omitempty"`
 }

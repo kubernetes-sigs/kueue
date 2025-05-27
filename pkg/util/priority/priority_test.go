@@ -17,7 +17,6 @@ limitations under the License.
 package priority
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -141,7 +140,7 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.priorityClassList)
 			client := builder.Build()
 
-			name, source, value, err := GetPriorityFromPriorityClass(context.Background(), client, tt.priorityClassName)
+			name, source, value, err := GetPriorityFromPriorityClass(t.Context(), client, tt.priorityClassName)
 			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
@@ -205,7 +204,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
 			client := builder.Build()
 
-			name, source, value, err := GetPriorityFromWorkloadPriorityClass(context.Background(), client, tt.workloadPriorityClassName)
+			name, source, value, err := GetPriorityFromWorkloadPriorityClass(t.Context(), client, tt.workloadPriorityClassName)
 			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}

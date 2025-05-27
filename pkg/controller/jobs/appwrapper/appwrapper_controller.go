@@ -20,12 +20,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -57,20 +55,19 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		NewJob:                 NewJob,
-		GVK:                    gvk,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupAppWrapperWebhook,
-		JobType:                &awv1beta2.AppWrapper{},
-		SetupIndexes:           SetupIndexes,
-		AddToScheme:            awv1beta2.AddToScheme,
-		IsManagingObjectsOwner: isAppWrapper,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		NewJob:            NewJob,
+		GVK:               gvk,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupAppWrapperWebhook,
+		JobType:           &awv1beta2.AppWrapper{},
+		SetupIndexes:      SetupIndexes,
+		AddToScheme:       awv1beta2.AddToScheme,
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
-// +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -83,10 +80,6 @@ func init() {
 
 func NewJob() jobframework.GenericJob {
 	return &AppWrapper{}
-}
-
-func isAppWrapper(owner *metav1.OwnerReference) bool {
-	return owner.Kind == awv1beta2.AppWrapperKind && strings.HasPrefix(owner.APIVersion, gvk.Group)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
@@ -102,30 +95,30 @@ func fromObject(o runtime.Object) *AppWrapper {
 	return (*AppWrapper)(o.(*awv1beta2.AppWrapper))
 }
 
-func (aw *AppWrapper) Object() client.Object {
-	return (*awv1beta2.AppWrapper)(aw)
+func (j *AppWrapper) Object() client.Object {
+	return (*awv1beta2.AppWrapper)(j)
 }
 
-func (aw *AppWrapper) IsSuspended() bool {
-	return aw.Spec.Suspend
+func (j *AppWrapper) IsSuspended() bool {
+	return j.Spec.Suspend
 }
 
-func (aw *AppWrapper) IsActive() bool {
-	return meta.IsStatusConditionTrue(aw.Status.Conditions, string(awv1beta2.QuotaReserved))
+func (j *AppWrapper) IsActive() bool {
+	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.QuotaReserved))
 }
 
-func (aw *AppWrapper) Suspend() {
-	aw.Spec.Suspend = true
+func (j *AppWrapper) Suspend() {
+	j.Spec.Suspend = true
 }
 
-func (aw *AppWrapper) GVK() schema.GroupVersionKind {
+func (j *AppWrapper) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
-	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(aw))
+func (j *AppWrapper) PodSets() ([]kueue.PodSet, error) {
+	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {
-		ctrl.Log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", aw)
+		ctrl.Log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", j)
 		return nil, err
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
@@ -149,16 +142,20 @@ func (aw *AppWrapper) PodSets() ([]kueue.PodSet, error) {
 			}
 		}
 		podSets[psIndex] = kueue.PodSet{
-			Name:            kueue.NewPodSetReference(fmt.Sprintf("%s-%v", aw.Name, psIndex)),
-			Template:        *podSpecTemplates[psIndex],
-			Count:           awutils.Replicas(awPodSets[psIndex]),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&(podSpecTemplates[psIndex].ObjectMeta), podIndexLabel, subGroupIndexLabel, subGroupCount),
+			Name:     kueue.NewPodSetReference(fmt.Sprintf("%s-%v", j.Name, psIndex)),
+			Template: *podSpecTemplates[psIndex],
+			Count:    awutils.Replicas(awPodSets[psIndex]),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			podSets[psIndex].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+				&(podSpecTemplates[psIndex].ObjectMeta)).
+				PodIndexLabel(podIndexLabel).SubGroup(subGroupIndexLabel, subGroupCount).Build()
 		}
 	}
 	return podSets, nil
 }
 
-func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	awPodSetsInfo := make([]awv1beta2.AppWrapperPodSetInfo, len(podSetsInfo))
 	for idx := range podSetsInfo {
 		awPodSetsInfo[idx].Annotations = podSetsInfo[idx].Annotations
@@ -168,24 +165,24 @@ func (aw *AppWrapper) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error 
 		awPodSetsInfo[idx].SchedulingGates = podSetsInfo[idx].SchedulingGates
 	}
 
-	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(aw), awPodSetsInfo); err != nil {
+	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(j), awPodSetsInfo); err != nil {
 		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
-	aw.Spec.Suspend = false
+	j.Spec.Suspend = false
 	return nil
 }
 
-func (aw *AppWrapper) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	return awutils.ClearPodSetInfos((*awv1beta2.AppWrapper)(aw))
+func (j *AppWrapper) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+	return awutils.ClearPodSetInfos((*awv1beta2.AppWrapper)(j))
 }
 
-func (aw *AppWrapper) Finished() (message string, success, finished bool) {
-	switch aw.Status.Phase {
+func (j *AppWrapper) Finished() (message string, success, finished bool) {
+	switch j.Status.Phase {
 	case awv1beta2.AppWrapperSucceeded:
 		return "AppWrapper finished successfully", true, true
 
 	case awv1beta2.AppWrapperFailed:
-		if meta.IsStatusConditionTrue(aw.Status.Conditions, string(awv1beta2.ResourcesDeployed)) {
+		if meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.ResourcesDeployed)) {
 			return "Still deleting resources for failed AppWrapper", false, false
 		} else {
 			return "AppWrapper failed", false, true
@@ -194,8 +191,8 @@ func (aw *AppWrapper) Finished() (message string, success, finished bool) {
 	return "", false, false
 }
 
-func (aw *AppWrapper) PodsReady() bool {
-	return meta.IsStatusConditionTrue(aw.Status.Conditions, string(awv1beta2.PodsReady))
+func (j *AppWrapper) PodsReady() bool {
+	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 
 func (j *AppWrapper) CanDefaultManagedBy() bool {

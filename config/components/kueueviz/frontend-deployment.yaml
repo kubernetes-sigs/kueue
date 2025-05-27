@@ -1,0 +1,32 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueueviz-frontend
+  namespace: system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueueviz-frontend
+  template:
+    metadata:
+      labels:
+        app: kueueviz-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: frontend:lastest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "wss://backend.kueueviz.local"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 500m
+              memory: 512Mi

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: cohorts.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -237,6 +237,31 @@ spec:
                   when participating in Fair Sharing.
                   The is recorded only when Fair Sharing is enabled in the Kueue configuration.
                 properties:
+                  admissionFairSharingStatus:
+                    description: admissionFairSharingStatus represents information
+                      relevant to the Admission Fair Sharing
+                    properties:
+                      consumedResources:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          ConsumedResources represents the aggregated usage of resources over time,
+                          with decaying function applied.
+                          The value is populated if usage consumption functionality is enabled in Kueue config.
+                        type: object
+                      lastUpdate:
+                        description: LastUpdate is the time when share and consumed
+                          resources were updated.
+                        format: date-time
+                        type: string
+                    required:
+                    - consumedResources
+                    - lastUpdate
+                    type: object
                   weightedShare:
                     description: |-
                       WeightedShare represents the maximum of the ratios of usage
@@ -244,8 +269,8 @@ spec:
                       Cohort, among all the resources provided by the Node, and
                       divided by the weight.  If zero, it means that the usage of
                       the Node is below the nominal quota.  If the Node has a
-                      weight of zero, this will return 9223372036854775807, the
-                      maximum possible share value.
+                      weight of zero and is borrowing, this will return
+                      9223372036854775807, the maximum possible share value.
                     format: int64
                     type: integer
                 required:

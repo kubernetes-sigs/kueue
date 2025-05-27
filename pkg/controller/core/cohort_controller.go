@@ -110,8 +110,7 @@ func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.log.WithValues("cohort", klog.KObj(e.ObjectNew))
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec.ResourceGroups, e.ObjectNew.Spec.ResourceGroups) &&
-		e.ObjectOld.Spec.Parent == e.ObjectNew.Spec.Parent {
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -128,6 +127,7 @@ func (r *CohortReconciler) Generic(event.TypedGenericEvent[*kueue.Cohort]) bool 
 }
 
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts/status,verbs=get;update;patch
 
 func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -137,8 +137,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
-			r.cache.DeleteCohort(v1beta1.CohortReference(req.NamespacedName.Name))
-			r.qManager.DeleteCohort(v1beta1.CohortReference(req.NamespacedName.Name))
+			r.cache.DeleteCohort(v1beta1.CohortReference(req.Name))
+			r.qManager.DeleteCohort(v1beta1.CohortReference(req.Name))
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}

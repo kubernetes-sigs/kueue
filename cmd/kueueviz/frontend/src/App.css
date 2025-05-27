@@ -1,0 +1,131 @@
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+  margin: 0;
+  padding: 0;
+}
+
+h2 {
+  color: #333;
+  margin-top: 20px;
+}
+
+
+/* Apply bold font style to all table headers */
+th.MuiTableCell-head {
+  font-weight: bold;
+}
+
+th {
+  font-weight: bold;
+}
+
+tbody.tr.td {
+  padding: 8px;
+}
+
+.MuiPaper-root {
+  text-align: center;
+  color: #333;
+  padding: 8px;
+}
+
+
+.navbar-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  /* Makes the image circular */
+  margin-right: 16px;
+  /* Space between the icon and the title */
+  background-color: white;
+}
+
+.navbar-link {
+  text-decoration: none;
+  color: white;
+  display: flex;
+  align-items: center;
+}
+
+.icon-column {
+  width: 5%;
+}
+
+.name-column,
+.pods-count-column,
+.queue-name-column,
+.admission-status-column,
+.cluster-queue-column,
+.preempted-column,
+.priority-column,
+.priority-class-column {
+  width: auto;
+}
+
+.tree-indicator-column {
+  width: 5%;
+}
+
+.pod-name-column {
+  width: 30%;
+}
+
+.pod-status-column {
+  width: 20%;
+}
+
+.pod-reason-column {
+  width: 40%;
+}
+
+.error-message {
+  padding: 20px;
+  margin: 20px;
+  background-color: #ffe6e6;
+  text-align: left;
+  border: 1px solid red;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(255, 0, 0, 0.1);
+}
+
+.error-details-container {
+  margin-top: 8px;
+  text-align: left;
+  background-color: #ffe6e6;
+  border-radius: 5px;
+  overflow: -moz-scrollbars-vertical;
+  overflow-y: scroll;
+}
+
+.error-details-content {
+  margin-top: 8px;
+  padding: 16px;
+  background-color: #ffe6e6;
+  border-radius: 4px;
+  border: 1px solid #EEE;
+  max-height: 300px;
+  overflow: auto;
+  text-align: left;
+}
+
+.error-details-text {
+  font-family: monospace;
+  white-space: pre-wrap;
+  text-align: left;
+}
+
+.tableContainerWithBorder {
+  border: 1px solid ghostwhite border-radius: 8px;
+  overflow: auto;
+  margin: 10px;
+  max-width: 95%;
+  width: 100%;
+}
+
+.parentContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 20px;
+}

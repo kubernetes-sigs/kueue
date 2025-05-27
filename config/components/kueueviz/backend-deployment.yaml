@@ -1,0 +1,29 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueueviz-backend
+  namespace: system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kueueviz-backend
+  template:
+    metadata:
+      labels:
+        app: kueueviz-backend
+    spec:
+      containers:
+        - name: backend
+          image: backend:lastest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 500m
+              memory: 512Mi

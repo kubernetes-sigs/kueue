@@ -17,7 +17,6 @@ limitations under the License.
 package leaderworkerset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +48,25 @@ func TestDefault(t *testing.T) {
 		enableIntegrations         []string
 		want                       *leaderworkersetv1.LeaderWorkerSet
 	}{
+		"LeaderWorkerSet with WorkloadPriorityClass": {
+			localQueueDefaulting: true,
+			defaultLqExist:       true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("default").
+				WorkloadPriorityClass("high-priority").
+				LeaderTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
@@ -267,7 +285,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change priority class": {
+		"change priority class when suspended": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
@@ -278,10 +296,24 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
+		},
+		"change priority class when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				ReadyReplicas(int32(1)).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: priorityClassNamePath.String(),
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
 				},
 			}.ToAggregate(),
 		},
@@ -641,7 +673,7 @@ func TestValidateUpdate(t *testing.T) {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			wh := &Webhook{}
 

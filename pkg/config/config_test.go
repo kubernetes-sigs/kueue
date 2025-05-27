@@ -328,6 +328,18 @@ webhook:
 		t.Fatal(err)
 	}
 
+	objectRetentionPoliciesConfig := filepath.Join(tmpDir, "objectRetentionPolicies.yaml")
+	if err := os.WriteFile(objectRetentionPoliciesConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+objectRetentionPolicies:
+  workloads: 
+    afterFinished: 30m
+    afterDeactivatedByKueue: 30m
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -931,6 +943,31 @@ webhook:
 				errors.New("unknown field \"namespaces\""),
 			}),
 		},
+		{
+			name:       "objectRetentionPolicies config",
+			configFile: objectRetentionPoliciesConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName:   false,
+				InternalCertManagement:       enableDefaultInternalCertManagement,
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				QueueVisibility:              defaultQueueVisibility,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
+					},
+				},
+			},
+			wantOptions: defaultControlOptions,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1049,7 +1086,7 @@ func TestEncode(t *testing.T) {
 			if err != nil {
 				t.Errorf("Unexpected error:%s", err)
 			}
-			gotMap := map[string]interface{}{}
+			gotMap := map[string]any{}
 			err = yaml.Unmarshal([]byte(got), &gotMap)
 			if err != nil {
 				t.Errorf("Unable to unmarshal result:%s", err)

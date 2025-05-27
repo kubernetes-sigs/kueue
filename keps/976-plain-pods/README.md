@@ -390,6 +390,10 @@ their finalizers are removed), the Workload will be automatically cleaned up.
 If individual Pods in the group fail and a replacement Pod comes in, the replacement Pod will be
 added as an owner of the Workload as well.
 
+When the user's workload (such as Pod, Job, etc.) is started, its PodTemplate gets a label `kueue.x-k8s.io/podset`.
+This label helps identify which PodSet is associated with the Workload being executed by the Job.
+The label is automatically removed when the Job stops.
+
 #### Single Pods
 
 The simplest case we want to support is single Pod jobs. These Pods only have the label

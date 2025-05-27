@@ -87,7 +87,7 @@ func TestMultiKueue(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"Multikueue Suite",
+		"MultiKueue Suite",
 	)
 }
 
@@ -327,7 +327,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
-	gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managersConfigNamespace)).To(gomega.Succeed())
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
 })
 
 var _ = ginkgo.AfterSuite(func() {

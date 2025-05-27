@@ -27,6 +27,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -40,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -308,7 +310,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(queueNameLabelPath, "queue", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue"), apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
@@ -322,7 +324,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(queueNameLabelPath, "queue2", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
@@ -405,9 +407,14 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:   "workloadPriorityClassName is immutable",
+			name:   "workloadPriorityClassName is mutable when job is suspended",
 			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
 			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
+		},
+		{
+			name:   "workloadPriorityClassName is immutable when job is running",
+			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Suspend(false).Obj(),
+			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
 			},
@@ -434,7 +441,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Label(constants.QueueLabel, "new-queue").
 				Obj(),
-			wantErr: apivalidation.ValidateImmutableField("new-queue", "old-queue", queueNameLabelPath),
+			wantErr: apivalidation.ValidateImmutableField(kueue.LocalQueueName("new-queue"), "old-queue", queueNameLabelPath),
 		},
 		{
 			name: "queue name can changes when it is  suspend",
@@ -549,6 +556,7 @@ func TestValidateUpdate(t *testing.T) {
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
 		job                                    *batchv1.Job
+		objs                                   []runtime.Object
 		queues                                 []kueue.LocalQueue
 		clusterQueues                          []kueue.ClusterQueue
 		admissionCheck                         *kueue.AdmissionCheck
@@ -675,6 +683,9 @@ func TestDefault(t *testing.T) {
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
+			objs: []runtime.Object{
+				testingmpijob.MakeMPIJob("owner", "default").UID("owner").Obj(),
+			},
 			want: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
@@ -697,12 +708,11 @@ func TestDefault(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				)
+			clientBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace("default")).
+				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
 			cqCache := cache.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
@@ -723,7 +733,7 @@ func TestDefault(t *testing.T) {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
 				if tc.admissionCheck != nil {
-					cqCache.AddOrUpdateAdmissionCheck(tc.admissionCheck)
+					cqCache.AddOrUpdateAdmissionCheck(log, tc.admissionCheck)
 					if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
 						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 					}

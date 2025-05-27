@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 	ginkgo.BeforeEach(func() {
 		ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
-		gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, ac)
 		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
@@ -96,10 +96,10 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				*testing.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
 			).
 			Cohort("cohort").
-			AdmissionChecks(ac.Name).
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 			Obj()
 		queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, queue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating a clusterQueue")
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedQueue kueue.LocalQueue
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
@@ -152,7 +152,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Creating resourceFlavors")
 		for _, rf := range resourceFlavors {
-			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, &rf)
 		}
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					},
 				},
 				FlavorsReservation: emptyUsage,
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
 		ginkgo.By("Creating resourceFlavors")
 		for _, rf := range resourceFlavors {
-			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, &rf)
 		}
 
 		// LQ metrics should all be 0 here
@@ -221,22 +221,22 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 0)
 
 		ginkgo.By("Creating a clusterQueue")
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 
 		util.ExpectLQByStatusMetric(queue, metav1.ConditionTrue)
 
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakeWorkload("two", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakeWorkload("three", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}
@@ -251,7 +251,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Creating workloads")
 		for _, w := range workloads {
-			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, w)
 		}
 
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					},
 				},
 				FlavorsReservation: emptyUsage,
@@ -336,7 +336,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					},
 				},
 				FlavorsReservation: fullUsage,
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads admission checks")
 		for _, w := range workloads {
-			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
 		}
 
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -381,7 +381,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					},
 				},
 				FlavorsReservation: fullUsage,
@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 						Type:    kueue.LocalQueueActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Ready",
-						Message: "Can submit new workloads to clusterQueue",
+						Message: "Can submit new workloads to localQueue",
 					},
 				},
 				FlavorsReservation: emptyUsage,
@@ -452,25 +452,25 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	ginkgo.It("Should update status when ClusterQueue are forcefully deleted", framework.SlowSpec, func() {
 		ginkgo.By("Creating resourceFlavors", func() {
 			for _, rf := range resourceFlavors {
-				gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, &rf)
 			}
 		})
 
 		ginkgo.By("Creating a clusterQueue", func() {
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 		})
 
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakeWorkload("two", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakeWorkload("three", ns.Name).
-				Queue(queue.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}
@@ -485,7 +485,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Creating workloads", func() {
 			for _, w := range workloads {
-				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, w)
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -500,7 +500,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 							Type:    kueue.LocalQueueActive,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Ready",
-							Message: "Can submit new workloads to clusterQueue",
+							Message: "Can submit new workloads to localQueue",
 						},
 					},
 					FlavorsReservation: emptyUsage,
@@ -564,7 +564,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 							Type:    kueue.LocalQueueActive,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Ready",
-							Message: "Can submit new workloads to clusterQueue",
+							Message: "Can submit new workloads to localQueue",
 						},
 					},
 					FlavorsReservation: fullUsage,
@@ -588,7 +588,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads admission checks", func() {
 			for _, w := range workloads {
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -603,7 +603,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 							Type:    kueue.LocalQueueActive,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Ready",
-							Message: "Can submit new workloads to clusterQueue",
+							Message: "Can submit new workloads to localQueue",
 						},
 					},
 					FlavorsReservation: fullUsage,

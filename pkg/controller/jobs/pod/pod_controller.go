@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -160,6 +161,7 @@ var (
 	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
+	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 )
 
 type options struct {
@@ -319,6 +321,10 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 	})
 }
 
+func (p *Pod) IsTopLevel() bool {
+	return true
+}
+
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
@@ -334,6 +340,10 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
 func (p *Pod) Finished() (message string, success, finished bool) {
+	if p.isServing() {
+		return "", true, false
+	}
+
 	finished = true
 	success = true
 
@@ -641,14 +651,19 @@ func constructPodSets(p *corev1.Pod) []kueue.PodSet {
 }
 
 func constructPodSet(p *corev1.Pod) kueue.PodSet {
-	return kueue.PodSet{
+	podSet := kueue.PodSet{
 		Name:  kueue.DefaultPodSetName,
 		Count: 1,
 		Template: corev1.PodTemplateSpec{
 			Spec: *p.Spec.DeepCopy(),
 		},
-		TopologyRequest: jobframework.PodSetTopologyRequest(&p.ObjectMeta, ptr.To(kueuealpha.PodGroupPodIndexLabel), nil, nil),
 	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			&p.ObjectMeta).PodIndexLabel(
+			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
+	}
+	return podSet
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
@@ -770,7 +785,7 @@ func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	if p.DeletionTimestamp != nil && len(p.Spec.NodeName) == 0 {
+	if !p.DeletionTimestamp.IsZero() && len(p.Spec.NodeName) == 0 {
 		return false
 	}
 	return p.Status.Phase != corev1.PodFailed

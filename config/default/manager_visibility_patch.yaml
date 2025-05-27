@@ -13,3 +13,11 @@ spec:
           - containerPort: 8082
             name: visibility
             protocol: TCP
+          # Visibility mounts certificates to this location
+          # this is hard coded.
+          volumeMounts:
+          - mountPath: /visibility
+            name: visibility
+      volumes:
+      - name: visibility
+        emptyDir: {}

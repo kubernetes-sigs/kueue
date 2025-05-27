@@ -32,25 +32,33 @@ HELM=${HELM:-./bin/helm}
 YQ=${YQ:-./bin/yq}
 
 readonly k8s_registry="registry.k8s.io/kueue"
-readonly semver_regex='^v([0-9]+)(\.[0-9]+){1,2}$'
+readonly semver_regex='^v([0-9]+)(\.[0-9]+){1,2}(-rc\.[0-9]+)?$'
 
 image_repository=${IMAGE_REPO}
-chart_version=${GIT_TAG}
+app_version=${GIT_TAG}
 if [[ ${EXTRA_TAG} =~ ${semver_regex} ]]
 then
 	image_repository=${k8s_registry}/kueue
-	chart_version=${EXTRA_TAG}
+	app_version=${EXTRA_TAG}
 fi
+# Strip leading v from version
+chart_version="${app_version/#v/}"
 
 default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
 readonly default_image_repo
 
 # Update the image repo, tag and policy
-${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${chart_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${app_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
-${HELM} package --version "${chart_version}" --app-version "${chart_version}" charts/kueue -d "${DEST_CHART_DIR}"
+# Update the KueueViz images in values.yaml
+${YQ} e ".kueueViz.backend.image = \"${image_repository}/kueueviz-backend:${app_version}\" | .kueueViz.frontend.image = \"${image_repository}/kueueviz-frontend:${app_version}\"" -i charts/kueue/values.yaml
+
+${HELM} package --version "${chart_version}" --app-version "${app_version}" charts/kueue -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"main\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
+
+# Revert the KueueViz image changes
+${YQ} e ".kueueViz.backend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main\" | .kueueViz.frontend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main\"" -i charts/kueue/values.yaml
 
 ${HELM} push "bin/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"

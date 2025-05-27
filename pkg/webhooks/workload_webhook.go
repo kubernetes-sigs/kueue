@@ -184,7 +184,7 @@ func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, 
 
 func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) string { return f.Name })
+	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return f.Name })
 	for i := range oldObj.Status.AdmissionChecks {
 		oldAc := &oldObj.Status.AdmissionChecks[i]
 		newAc, found := newAcs[oldAc.Name]
@@ -288,6 +288,18 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
 	if old == nil || new == nil {
 		return nil
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
+			return apivalidation.ValidateImmutableField(new, old, path)
+		}
+		// Allow to update (set) TopologyAssignment when DelayedTopologyRequest
+		// transitions from Pending to Ready.
+		for i := range new.PodSetAssignments {
+			// allow to update TopologyAssignments
+			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
+			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
+		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }

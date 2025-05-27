@@ -38,7 +38,7 @@ const (
 	TestNamespace = "ns"
 )
 
-func getClientBuilder() (*fake.ClientBuilder, context.Context) {
+func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
@@ -51,10 +51,9 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 		return nil
 	}))
 
-	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
 	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace)
-	return builder, ctx
+	return builder
 }
 
 func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
@@ -91,17 +90,17 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder()
+			builder := getClientBuilder(t.Context())
 			k8sclient := builder.Build()
 			for _, req := range tc.clusters {
-				if err := k8sclient.Create(ctx, req); err != nil {
+				if err := k8sclient.Create(t.Context(), req); err != nil {
 					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
 			lst := &kueue.MultiKueueClusterList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
+			gotListErr := k8sclient.List(t.Context(), lst, tc.filter)
 			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
@@ -148,17 +147,17 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder()
+			builder := getClientBuilder(t.Context())
 			k8sclient := builder.Build()
 			for _, config := range tc.configs {
-				if err := k8sclient.Create(ctx, config); err != nil {
+				if err := k8sclient.Create(t.Context(), config); err != nil {
 					t.Fatalf("Unable to create %q config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 
 			lst := &kueue.MultiKueueConfigList{}
 
-			gotListErr := k8sclient.List(ctx, lst, tc.filter)
+			gotListErr := k8sclient.List(t.Context(), lst, tc.filter)
 			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}

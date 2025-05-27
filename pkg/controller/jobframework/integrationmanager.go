@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -74,10 +75,6 @@ type IntegrationCallbacks struct {
 	// AddToScheme adds any additional types to the controllers manager's scheme
 	// (this callback is optional)
 	AddToScheme func(s *runtime.Scheme) error
-	// Returns true if the provided owner reference identifies an object
-	// managed by this integration
-	// (this callback is optional)
-	IsManagingObjectsOwner func(ref *metav1.OwnerReference) bool
 	// CanSupportIntegration returns true if the integration meets any additional condition
 	// like the Kubernetes version.
 	CanSupportIntegration func(opts ...Option) (bool, error)
@@ -85,6 +82,21 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
+}
+
+func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
+	if i.NewJob != nil {
+		return i.NewJob().GVK()
+	}
+	return i.GVK
+}
+
+func (i *IntegrationCallbacks) matchingGVK(gvk schema.GroupVersionKind) bool {
+	return i.getGVK() == gvk
+}
+
+func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerReference) bool {
+	return ownerReferenceMatchingGVK(ownerRef, i.getGVK())
 }
 
 type integrationManager struct {
@@ -187,16 +199,32 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
+func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool {
+	for _, cbs := range m.integrations {
+		if cbs.matchingOwnerReference(ownerRef) {
+			return true
+		}
+	}
+	for _, jt := range m.externalIntegrations {
+		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
+			return true
+		}
+	}
+	// ReplicaSet is an interim owner from Pod to Deployment. We call it known
+	// so that the users don't need to list	it explicitly in their configs.
+	// Note that Kueue provides RBAC permissions allowing for traversal over it.
+	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == "apps/v1"
+}
+
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
 	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
-		if found && cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
+		if found && cbs.matchingOwnerReference(ownerRef) {
 			return cbs.JobType
 		}
 	}
 	for _, jt := range m.externalIntegrations {
-		apiVersion, kind := jt.GetObjectKind().GroupVersionKind().ToAPIVersionAndKind()
-		if ownerRef.Kind == kind && ownerRef.APIVersion == apiVersion {
+		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
 			return jt
 		}
 	}
@@ -219,27 +247,6 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 		}
 	}
 	return nil
-}
-
-// isOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
-func (m *integrationManager) isOwnerIntegrationEnabled(owner *metav1.OwnerReference) bool {
-	ownerGV, err := schema.ParseGroupVersion(owner.APIVersion)
-	if err != nil {
-		return false
-	}
-	gvk := ownerGV.WithKind(owner.Kind)
-	for jobKey := range m.getEnabledIntegrations() {
-		cbs, found := m.integrations[jobKey]
-		if found && matchingGVK(cbs, gvk) {
-			return true
-		}
-	}
-	for _, jt := range m.externalIntegrations {
-		if jt.GetObjectKind().GroupVersionKind() == gvk {
-			return true
-		}
-	}
-	return false
 }
 
 // RegisterIntegration registers a new framework, returns an error when
@@ -281,6 +288,23 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 	}
 }
 
+// EnableExternalIntegrationsForTest - should be used only in tests
+// Mark the frameworks identified by names and return a revert function.
+func EnableExternalIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := maps.Clone(manager.externalIntegrations)
+	for _, name := range names {
+		if err := manager.registerExternal(name); err != nil {
+			tb.Fatalf("failed to register external framework: %q", name)
+		}
+	}
+	return func() {
+		manager.mu.Lock()
+		manager.externalIntegrations = old
+		manager.mu.Unlock()
+	}
+}
+
 // GetIntegration looks-up the framework identified by name in the currently registered
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
@@ -292,19 +316,16 @@ func GetIntegration(name string) (IntegrationCallbacks, bool) {
 func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
 	for _, name := range manager.getList() {
 		integration, ok := GetIntegration(name)
-		if ok && matchingGVK(integration, gvk) {
+		if ok && integration.matchingGVK(gvk) {
 			return integration, true
 		}
 	}
 	return IntegrationCallbacks{}, false
 }
 
-func matchingGVK(integration IntegrationCallbacks, gvk schema.GroupVersionKind) bool {
-	if integration.NewJob != nil {
-		return gvk == integration.NewJob().GVK()
-	} else {
-		return gvk == integration.GVK
-	}
+func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.
@@ -312,33 +333,18 @@ func GetIntegrationsList() []string {
 	return manager.getList()
 }
 
-// IsOwnerManagedByKueue returns true if the provided owner can be managed by
-// kueue.
-func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {
-	return manager.getJobTypeForOwner(owner) != nil
-}
-
 // IsOwnerManagedByKueueForObject returns true if the provided object has an owner,
 // and this owner can be managed by Kueue.
 func IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	if owner := metav1.GetControllerOf(obj); owner != nil {
-		return IsOwnerManagedByKueue(owner)
+		return manager.getJobTypeForOwner(owner) != nil
 	}
 	return false
 }
 
-// IsOwnerIntegrationEnabled returns true if the provided owner is managed by an enabled integration.
-func IsOwnerIntegrationEnabled(owner *metav1.OwnerReference) bool {
-	// This function should be redundant with IsOwnerManagedByKueue, but currently is not.
-	// The difference is caused because the Deployment and StatefulState integrations do not register
-	// an IsManagingObjectsOwner function.  We should attempt to register these integrations properly,
-	// adjust GenericJobReconciler to handle this, and go back to only one function to answer this question.
-	return manager.isOwnerIntegrationEnabled(owner)
-}
-
-// GetEmptyOwnerObject returns an empty object of the owner's type,
+// getEmptyOwnerObject returns an empty object of the owner's type,
 // returns nil if the owner is not manageable by kueue.
-func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+func getEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 	if jt := manager.getJobTypeForOwner(owner); jt != nil {
 		return jt.DeepCopyObject().(client.Object)
 	}

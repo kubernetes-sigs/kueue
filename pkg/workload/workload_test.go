@@ -17,7 +17,6 @@ limitations under the License.
 package workload
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -35,7 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -423,7 +422,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			workload := utiltesting.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClientSSAAsSM(workload)
-			ctx := context.Background()
+			ctx := t.Context()
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)
@@ -828,7 +827,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	cases := map[string]struct {
 		cq                  *kueue.ClusterQueue
 		wl                  *kueue.Workload
-		wantAdmissionChecks sets.Set[string]
+		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
 	}{
 		"AdmissionCheckStrategy with a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -837,7 +836,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -855,7 +854,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -866,7 +865,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
-			wantAdmissionChecks: sets.New("ac1", "ac2"),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
 		"Workload has no QuotaReserved": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
@@ -882,10 +881,206 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, utilac.NewAdmissionChecks(tc.cq))
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq))
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPropagateResourceRequests(t *testing.T) {
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		info *Info
+		want bool
+	}{
+		"one podset, no diff": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Name: "ps1",
+					Requests: resources.Requests{
+						corev1.ResourceCPU:    10000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+						"nvidia.com/gpu":      1,
+					},
+				}},
+			},
+			want: false,
+		},
+		"one podset, memory missing diff": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Name: "ps1",
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 5000,
+						"nvidia.com/gpu":   1,
+					},
+				}},
+			},
+			want: true,
+		},
+		"one podset, cpu diff": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Name: "ps1",
+					Requests: resources.Requests{
+						corev1.ResourceCPU:    5000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+						"nvidia.com/gpu":      1,
+					},
+				}},
+			},
+			want: true,
+		},
+		"one podset, memory diff": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Gi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Name: "ps1",
+					Requests: resources.Requests{
+						corev1.ResourceCPU:    10000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+						"nvidia.com/gpu":      1,
+					},
+				}},
+			},
+			want: true,
+		},
+		"one podset, gpu (extended resource) diff": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Name: "ps1",
+					Requests: resources.Requests{
+						corev1.ResourceCPU:    10000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+						"nvidia.com/gpu":      2,
+					},
+				}},
+			},
+			want: true,
+		},
+		"two podset, no diff ": {
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ResourceRequests: []kueue.PodSetRequest{
+						{
+							Name: "ps1",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								"nvidia.com/gpu":      resource.MustParse("1"),
+							},
+						},
+						{
+							Name: "ps2",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("20"),
+								corev1.ResourceMemory: resource.MustParse("20Mi"),
+								"nvidia.com/gpu":      resource.MustParse("2"),
+							},
+						},
+					},
+				},
+			},
+			info: &Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "ps1",
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    10000,
+							corev1.ResourceMemory: 10 * 1024 * 1024,
+							"nvidia.com/gpu":      1,
+						},
+					},
+					{
+						Name: "ps2",
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    20000,
+							corev1.ResourceMemory: 20 * 1024 * 1024,
+							"nvidia.com/gpu":      2,
+						},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := PropagateResourceRequests(tc.wl, tc.info)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
 			}
 		})
 	}

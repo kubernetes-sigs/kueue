@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -36,7 +37,7 @@ import (
 
 func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
-	ctx := context.Background()
+	ctx := t.Context()
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -71,7 +72,7 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
-	ctx := context.Background()
+	ctx := t.Context()
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -108,7 +109,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		WithObjects(cohortA, cohortB).
 		WithStatusSubresource(&kueue.Cohort{}).
 		Build()
-	ctx := context.Background()
+	ctx := t.Context()
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -146,7 +147,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 }
 
 func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	funcs := interceptor.Funcs{
 		Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			return errors.New("error")
@@ -185,7 +186,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 }
 
 func TestCohortReconcileLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
 		utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").FlavorQuotas,
 	).Obj()
@@ -338,6 +339,21 @@ func TestCohortReconcilerFilters(t *testing.T) {
 		"deleting parent returns true": {
 			old:  utiltesting.MakeCohort("cohort").Parent("parent").Obj(),
 			new:  utiltesting.MakeCohort("cohort").Obj(),
+			want: true,
+		},
+		"adding weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").Obj(),
+			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			want: true,
+		},
+		"deleting weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltesting.MakeCohort("cohort").Obj(),
+			want: true,
+		},
+		"updating weight returns true": {
+			old:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
+			new:  utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("2")).Obj(),
 			want: true,
 		},
 	}

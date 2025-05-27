@@ -64,7 +64,7 @@ func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) 
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "tensorflow"
 
 		if rs.Annotations != nil {
-			j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
+			j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Annotations = rs.Annotations
 		}
 	}
 

@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -88,13 +89,14 @@ func TestPodSets(t *testing.T) {
 		Obj()
 
 	testCases := map[string]struct {
-		job         *awv1beta2.AppWrapper
-		wantPodSets []kueue.PodSet
+		job                           *awv1beta2.AppWrapper
+		wantPodSets                   []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(pytorchJob).
-				Component(batchJob).
+				Component(testingappwrapper.Component{Template: pytorchJob}).
+				Component(testingappwrapper.Component{Template: batchJob}).
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet("aw-0", 1).
@@ -107,10 +109,11 @@ func TestPodSets(t *testing.T) {
 					PodSpec(batchJob.Spec.Template.Spec).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required and preferred topology annotation": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(pytorchJobTAS).
+				Component(testingappwrapper.Component{Template: pytorchJobTAS}).
 				Obj(),
 
 			wantPodSets: []kueue.PodSet{
@@ -127,11 +130,32 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
 			},
+
+			enableTopologyAwareScheduling: true,
+		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{Template: pytorchJobTAS}).
+				Obj(),
+
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Obj(),
+				*utiltesting.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+
+			enableTopologyAwareScheduling: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := fromObject(tc.job).PodSets()
 			if err != nil {
 				t.Fatalf("failed to get pod sets: %v", err)
@@ -174,10 +198,14 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("aw", "ns").
@@ -194,14 +222,18 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Annotations(map[string]string{
 					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
 					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
 				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Annotations(map[string]string{
 					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
 					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
@@ -222,10 +254,14 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(false),
 			},
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
@@ -330,12 +366,16 @@ func TestReconciler(t *testing.T) {
 
 		"workload shouldn't be recreated for completed job": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Queue("foo").
 				SetPhase(awv1beta2.AppWrapperSucceeded).
 				Obj(),
 			wantJob: testingappwrapper.MakeAppWrapper("aw", "ns").
-				Component(utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj()).
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").Parallelism(2).SetTypeMeta().Obj(),
+				}).
 				Queue("foo").
 				SetPhase(awv1beta2.AppWrapperSucceeded).
 				Obj(),

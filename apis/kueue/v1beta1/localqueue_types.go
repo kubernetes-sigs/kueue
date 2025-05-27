@@ -22,6 +22,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// LocalQueueName is the name of the LocalQueue.
+// It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
+//
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type LocalQueueName string
+
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
@@ -41,12 +48,13 @@ type LocalQueueSpec struct {
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
-}
 
-// ClusterQueueReference is the name of the ClusterQueue.
-// +kubebuilder:validation:MaxLength=253
-// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-type ClusterQueueReference string
+	// fairSharing defines the properties of the LocalQueue when
+	// participating in AdmissionFairSharing.  The values are only relevant
+	// if AdmissionFairSharing is enabled in the Kueue configuration.
+	// +optional
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+}
 
 type LocalQueueFlavorStatus struct {
 	// name of the flavor.
@@ -80,10 +88,10 @@ type LocalQueueFlavorStatus struct {
 	// feature gate.
 	//
 	// +optional
-	Topology *Topology `json:"topology,omitempty"`
+	Topology *TopologyInfo `json:"topology,omitempty"`
 }
 
-type Topology struct {
+type TopologyInfo struct {
 	// name is the name of the topology.
 	//
 	// +required
@@ -147,6 +155,10 @@ type LocalQueueStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
+
+	// FairSharing contains the information about the current status of fair sharing.
+	// +optional
+	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
 const (

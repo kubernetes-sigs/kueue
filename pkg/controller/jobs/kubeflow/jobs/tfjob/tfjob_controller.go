@@ -19,10 +19,8 @@ package tfjob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,20 +48,19 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupTFJobWebhook,
-		JobType:                &kftraining.TFJob{},
-		AddToScheme:            kftraining.AddToScheme,
-		IsManagingObjectsOwner: isTFJob,
-		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject),
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupTFJobWebhook,
+		JobType:           &kftraining.TFJob{},
+		AddToScheme:       kftraining.AddToScheme,
+		MultiKueueAdapter: kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject),
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -79,10 +76,6 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
 })
-
-func isTFJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == kftraining.TFJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
-}
 
 type JobControl kftraining.TFJob
 

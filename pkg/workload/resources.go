@@ -38,7 +38,7 @@ var (
 )
 
 const (
-	RequestsMustNotExceedLimitMessage = "requests must not exceed it's limits"
+	RequestsMustNotExceedLimitMessage = "requests must not exceed its limits"
 )
 
 // We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.

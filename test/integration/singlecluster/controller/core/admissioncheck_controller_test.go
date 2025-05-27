@@ -57,13 +57,13 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 				AdmissionChecks("check1").
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, admissionCheck)
 
 			ginkgo.By("Activating the admission check", func() {
 				util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 			})
 
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 
 			ginkgo.By("Wait for the queue to become active", func() {
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			ginkgo.By("Change clusterQueue's checks")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).Should(gomega.Succeed())
-				cq.Spec.AdmissionChecks = []string{"check2"}
+				cq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check2"}
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

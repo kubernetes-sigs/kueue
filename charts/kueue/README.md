@@ -73,10 +73,9 @@ The following table lists the configurable parameters of the kueue chart and the
 | `fullnameOverride`                                     | override the resource name                             | ``                                          |
 | `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
-| `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
-| `kueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-backend:main-latest` |
-| `kueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-viz-frontend:main-latest` |
+| `KueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main` |
+| `KueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
 | `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
@@ -96,5 +95,6 @@ The following table lists the configurable parameters of the kueue chart and the
 | `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
 | `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
 | `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
+| `mutatingWebhook.reinvocationPolicy`                   | Webhook's reinvocation policy                          | `Never`                                     |
 | `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
 | `metrics.serviceMonitor.tlsConfig`                     | service monitor for prometheus                         | abbr.                                       |

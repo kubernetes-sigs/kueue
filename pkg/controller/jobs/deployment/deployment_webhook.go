@@ -28,7 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -53,7 +54,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	obj := &appsv1.Deployment{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
+		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
@@ -81,12 +82,13 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		if deployment.Spec.Template.Labels == nil {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
+		deployment.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if queueName != "" {
-			deployment.Spec.Template.Labels[constants.QueueLabel] = queueName
+			deployment.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(deployment.Object()); priorityClass != "" {
-			deployment.Spec.Template.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
+			deployment.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
 		}
 	}
 
@@ -110,7 +112,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 
 var (
 	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
+	queueNameLabelPath = labelsPath.Key(controllerconstants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -124,14 +126,16 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
 	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldDeployment.Object(), newDeployment.Object())...)
 
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.
-	if oldDeployment.Status.ReadyReplicas > 0 || newQueueName == "" {
+	isSuspended := oldDeployment.Status.ReadyReplicas == 0
+	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
-
+	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newDeployment.Object()) {
+		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldDeployment.Object(), newDeployment.Object())...)
+	}
 	return warnings, allErrs.ToAggregate()
 }
 

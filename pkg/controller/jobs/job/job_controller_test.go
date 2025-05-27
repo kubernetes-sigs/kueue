@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -330,8 +331,9 @@ func TestPodSets(t *testing.T) {
 	jobTemplate := utiltestingjob.MakeJob("job", "ns")
 
 	cases := map[string]struct {
-		job         *Job
-		wantPodSets []kueue.PodSet
+		job                           *Job
+		wantPodSets                   []kueue.PodSet
+		enableTopologyAwareScheduling bool
 	}{
 		"no partial admission": {
 			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
@@ -340,6 +342,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"partial admission": {
 			job: (*Job)(
@@ -354,6 +357,7 @@ func TestPodSets(t *testing.T) {
 					SetMinimumCount(2).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
 			job: (*Job)(
@@ -370,6 +374,7 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
 			job: (*Job)(
@@ -386,10 +391,42 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
+			enableTopologyAwareScheduling: true,
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"without required topology annotation if TAS is disabled": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			gotPodSets, err := tc.job.PodSets()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -459,6 +496,9 @@ func TestReconciler(t *testing.T) {
 	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
 
+	highWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc-high").
+		PriorityValue(200)
+
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
 
@@ -467,6 +507,7 @@ func TestReconciler(t *testing.T) {
 	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{Enable: true}
 
 	cases := map[string]struct {
+		enableObjectRetentionPolicies bool
 		enableTopologyAwareScheduling bool
 
 		reconcilerOptions []jobframework.Option
@@ -805,7 +846,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
-				PodLabel(kueuealpha.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodAnnotation(kueuealpha.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -900,6 +941,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel("ac-key", "ac-value").
+				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1023,6 +1065,467 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "Stopped",
 					Message:   "The workload is deactivated",
+				},
+			},
+		},
+		"when workload is active after deactivation; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
+			enableObjectRetentionPolicies: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 0},
+					},
+				}),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					Active(true).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message:            "The workload is deactivated",
+						LastTransitionTime: metav1.NewTime(testStartTime),
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(1).
+					Active(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+			},
+		},
+		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
+			enableObjectRetentionPolicies: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 0},
+					},
+				}),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload is deactivated",
+						LastTransitionTime: metav1.NewTime(testStartTime),
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(1).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDeactivated,
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadDeactivated,
+						Message: "The workload is deactivated",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+			},
+		},
+		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
+			enableObjectRetentionPolicies: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 0},
+					},
+				}),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message:            "The workload is deactivated",
+						LastTransitionTime: metav1.NewTime(testStartTime),
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(1).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Deleted",
+					Message:   "Deleted job: deactivation retention period expired",
+				},
+			},
+		},
+		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has not expired": {
+			enableObjectRetentionPolicies: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: 2 * time.Minute},
+					},
+				}),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message:            "The workload is deactivated",
+						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(120).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+			},
+		},
+		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has expired": {
+			enableObjectRetentionPolicies: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: time.Minute},
+					},
+				}),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message:            "The workload is deactivated",
+						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(120).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Deleted",
+					Message:   "Deleted job: deactivation retention period expired",
 				},
 			},
 		},
@@ -1743,6 +2246,7 @@ func TestReconciler(t *testing.T) {
 				PodAnnotation("annotation-key1", "common-value").
 				PodAnnotation("annotation-key2", "only-in-check1").
 				PodLabel("label-key1", "common-value").
+				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				NodeSelector("node-selector-key1", "common-value").
 				NodeSelector("node-selector-key2", "only-in-check2").
 				Obj(),
@@ -1849,6 +2353,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1935,6 +2440,7 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
+				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
@@ -2084,19 +2590,25 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(true).
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
-					Priority(0).
-					PriorityClass("new-priority-class").
+					Priority(baseWPCWrapper.Value).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PriorityClass(baseWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -2107,12 +2619,21 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
-					Priority(0).
-					PriorityClass("new-priority-class").
+					Priority(highWPCWrapper.Value).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PriorityClass(highWPCWrapper.Name).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/job",
+				},
 			},
 		},
 		"the workload without uid label is created when job's uid is longer than 63 characters": {
@@ -2171,6 +2692,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
+					UID("parent").
 					Queue("queue").
 					Obj(),
 			},
@@ -3191,6 +3713,8 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -3236,7 +3760,7 @@ func TestReconciler(t *testing.T) {
 			}
 
 			var gotJob batchv1.Job
-			if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
+			if err := kClient.Get(ctx, jobKey, &gotJob); client.IgnoreNotFound(err) != nil {
 				t.Fatalf("Could not get Job after reconcile: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {

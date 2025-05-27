@@ -104,7 +104,7 @@ func TestConfigHelper(t *testing.T) {
 				builder = builder.WithObjects(tc.config)
 			}
 			client := builder.Build()
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			helper, err := NewConfigHelper[*kueue.ProvisioningRequestConfig](client)
@@ -113,7 +113,7 @@ func TestConfigHelper(t *testing.T) {
 				t.Fatalf("cannot built the helper: %s", err)
 			}
 
-			gotConfig, gotError := helper.ConfigForAdmissionCheck(ctx, tc.targetAdmissionCheck)
+			gotConfig, gotError := helper.ConfigForAdmissionCheck(ctx, kueue.AdmissionCheckReference(tc.targetAdmissionCheck))
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected config (-want/+got):\n%s", diff)
 			}
@@ -172,11 +172,10 @@ func TestFilterCheckStates(t *testing.T) {
 	cases := map[string]struct {
 		admissionchecks []kueue.AdmissionCheck
 		states          []kueue.AdmissionCheckState
-		wantResult      []string
+		wantResult      []kueue.AdmissionCheckReference
 	}{
 		"empty": {},
 		"no match": {
-
 			states: []kueue.AdmissionCheckState{
 				{Name: "check1"},
 				{Name: "check2"},
@@ -194,7 +193,7 @@ func TestFilterCheckStates(t *testing.T) {
 				{Name: "check2"},
 				{Name: "check3"},
 			},
-			wantResult: []string{"check1", "check3"},
+			wantResult: []kueue.AdmissionCheckReference{"check1", "check3"},
 		},
 	}
 
@@ -208,7 +207,7 @@ func TestFilterCheckStates(t *testing.T) {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionchecks})
 			}
 			client := builder.Build()
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")

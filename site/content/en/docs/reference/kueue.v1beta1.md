@@ -374,6 +374,24 @@ when this workloadPriorityClass should be used.</p>
 </tbody>
 </table>
 
+## `AdmissionCheckReference`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [AdmissionCheckState](#kueue-x-k8s-io-v1beta1-AdmissionCheckState)
+
+- [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule)
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+<p>AdmissionCheckReference is the name of an AdmissionCheck.</p>
+
+
+
+
 ## `AdmissionCheckSpec`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec}
     
 
@@ -434,7 +452,7 @@ check.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckReference"><code>AdmissionCheckReference</code></a>
 </td>
 <td>
    <p>name identifies the admission check.</p>
@@ -516,7 +534,7 @@ current state.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckReference"><code>AdmissionCheckReference</code></a>
 </td>
 <td>
    <p>name is an AdmissionCheck's name.</p>
@@ -554,6 +572,80 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </td>
 <td>
    <p>admissionChecks is a list of strategies for AdmissionChecks</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `AdmissionFairSharingStatus`     {#kueue-x-k8s-io-v1beta1-AdmissionFairSharingStatus}
+    
+
+**Appears in:**
+
+- [FairSharingStatus](#kueue-x-k8s-io-v1beta1-FairSharingStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>consumedResources</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>ConsumedResources represents the aggregated usage of resources over time,
+with decaying function applied.
+The value is populated if usage consumption functionality is enabled in Kueue config.</p>
+</td>
+</tr>
+<tr><td><code>lastUpdate</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>LastUpdate is the time when share and consumed resources were updated.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `AdmissionMode`     {#kueue-x-k8s-io-v1beta1-AdmissionMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [AdmissionScope](#kueue-x-k8s-io-v1beta1-AdmissionScope)
+
+
+
+
+
+## `AdmissionScope`     {#kueue-x-k8s-io-v1beta1-AdmissionScope}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>admissionMode</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionMode"><code>AdmissionMode</code></a>
+</td>
+<td>
+   <p>AdmissionMode indicates which mode for AdmissionFairSharing should be used
+in the AdmissionScope. Possible values are:</p>
+<ul>
+<li>UsageBasedAdmissionFairSharing</li>
+<li>NoAdmissionFairSharing</li>
+</ul>
 </td>
 </tr>
 </tbody>
@@ -788,7 +880,8 @@ and are newer than the pending workload.</li>
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 
-<p>ClusterQueueReference is the name of the ClusterQueue.</p>
+<p>ClusterQueueReference is the name of the ClusterQueue.
+It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 
 
 
@@ -879,7 +972,7 @@ before borrowing or preempting in the flavor being evaluated.</p>
    <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>admissionChecks</code><br/>
-<code>[]string</code>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckReference"><code>[]AdmissionCheckReference</code></a>
 </td>
 <td>
    <p>admissionChecks lists the AdmissionChecks required by this ClusterQueue.
@@ -915,6 +1008,13 @@ made.</p>
    <p>fairSharing defines the properties of the ClusterQueue when
 participating in FairSharing.  The values are only relevant
 if FairSharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+<tr><td><code>admissionScope</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionScope"><code>AdmissionScope</code></a>
+</td>
+<td>
+   <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1023,12 +1123,28 @@ subdomain in DNS (RFC 1123).</p>
 
 
 
+## `DelayedTopologyRequestState`     {#kueue-x-k8s-io-v1beta1-DelayedTopologyRequestState}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
+
+
+<p>DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 
 <p>FairSharing contains the properties of the ClusterQueue or Cohort,
@@ -1069,6 +1185,8 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
 
 <p>FairSharingStatus contains the information about the current status of Fair Sharing.</p>
 
@@ -1087,8 +1205,15 @@ above nominal quota to the lendable resources in the
 Cohort, among all the resources provided by the Node, and
 divided by the weight.  If zero, it means that the usage of
 the Node is below the nominal quota.  If the Node has a
-weight of zero, this will return 9223372036854775807, the
-maximum possible share value.</p>
+weight of zero and is borrowing, this will return
+9223372036854775807, the maximum possible share value.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharingStatus</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AdmissionFairSharingStatus"><code>AdmissionFairSharingStatus</code></a>
+</td>
+<td>
+   <p>admissionFairSharingStatus represents information relevant to the Admission Fair Sharing</p>
 </td>
 </tr>
 </tbody>
@@ -1296,7 +1421,7 @@ have.</p>
 </td>
 </tr>
 <tr><td><code>topology</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-Topology"><code>Topology</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyInfo"><code>TopologyInfo</code></a>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
@@ -1337,6 +1462,21 @@ feature gate.</p>
 </tr>
 </tbody>
 </table>
+
+## `LocalQueueName`     {#kueue-x-k8s-io-v1beta1-LocalQueueName}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta1-WorkloadSpec)
+
+
+<p>LocalQueueName is the name of the LocalQueue.
+It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
+
+
+
 
 ## `LocalQueueResourceUsage`     {#kueue-x-k8s-io-v1beta1-LocalQueueResourceUsage}
     
@@ -1404,6 +1544,15 @@ no new reservation being made.</p>
 <li>HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.</li>
 <li>Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the LocalQueue when
+participating in AdmissionFairSharing.  The values are only relevant
+if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 </tbody>
@@ -1477,6 +1626,13 @@ workloads assigned to this LocalQueue.</p>
 </td>
 <td>
    <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
+</td>
+</tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
+</td>
+<td>
+   <p>FairSharing contains the information about the current status of fair sharing.</p>
 </td>
 </tr>
 </tbody>
@@ -1746,6 +1902,18 @@ count: 2</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>delayedTopologyRequest</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-DelayedTopologyRequestState"><code>DelayedTopologyRequestState</code></a>
+</td>
+<td>
+   <p>delayedTopologyRequest indicates the topology assignment is delayed.
+Topology assignment might be delayed in case there is ProvisioningRequest
+AdmissionCheck used.
+Kueue schedules the second pass of scheduling for each workload with at
+least one PodSet which has delayedTopologyRequest=true and without
+topologyAssignment.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1945,6 +2113,18 @@ result in failure during workload admission.</p>
 
 
 
+## `ProvisioningRequestConfigPodSetMergePolicy`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigPodSetMergePolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+
+
 ## `ProvisioningRequestConfigSpec`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec}
     
 
@@ -1999,6 +2179,79 @@ backoffBaseSeconds: 60 - 1 min
 backoffMaxSeconds:  1800 - 30 mins</p>
 <p>To switch off retry mechanism
 set retryStrategy.backoffLimitCount to 0.</p>
+</td>
+</tr>
+<tr><td><code>podSetUpdates</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates"><code>ProvisioningRequestPodSetUpdates</code></a>
+</td>
+<td>
+   <p>podSetUpdates specifies the update of the workload's PodSetUpdates which
+are used to target the provisioned nodes.</p>
+</td>
+</tr>
+<tr><td><code>podSetMergePolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigPodSetMergePolicy"><code>ProvisioningRequestConfigPodSetMergePolicy</code></a>
+</td>
+<td>
+   <p>podSetMergePolicy specifies the policy for merging PodSets before being passed
+to the cluster autoscaler.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdates`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>nodeSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector"><code>[]ProvisioningRequestPodSetUpdatesNodeSelector</code></a>
+</td>
+<td>
+   <p>nodeSelector specifies the list of updates for the NodeSelector.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestPodSetUpdatesNodeSelector`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdatesNodeSelector}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestPodSetUpdates](#kueue-x-k8s-io-v1beta1-ProvisioningRequestPodSetUpdates)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>key</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>key specifies the key for the NodeSelector.</p>
+</td>
+</tr>
+<tr><td><code>valueFromProvisioningClassDetail</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>valueFromProvisioningClassDetail specifies the key of the
+ProvisioningRequest.status.provisioningClassDetails from which the value
+is used for the update.</p>
 </td>
 </tr>
 </tbody>
@@ -2380,6 +2633,30 @@ words, it's the used quota that is over the nominalQuota.</p>
 </tbody>
 </table>
 
+## `SchedulingStats`     {#kueue-x-k8s-io-v1beta1-SchedulingStats}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>evictions</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction"><code>[]WorkloadSchedulingStatsEviction</code></a>
+</td>
+<td>
+   <p>evictions tracks eviction statistics by reason and underlyingCause.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `StopPolicy`     {#kueue-x-k8s-io-v1beta1-StopPolicy}
     
 (Alias of `string`)
@@ -2393,37 +2670,6 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 
 
-
-## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
-    
-
-**Appears in:**
-
-- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
-</td>
-<td>
-   <p>name is the name of the topology.</p>
-</td>
-</tr>
-<tr><td><code>levels</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>levels define the levels of topology.</p>
-</td>
-</tr>
-</tbody>
-</table>
 
 ## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
     
@@ -2493,6 +2739,37 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
+## `TopologyInfo`     {#kueue-x-k8s-io-v1beta1-TopologyInfo}
+    
+
+**Appears in:**
+
+- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
+</td>
+<td>
+   <p>name is the name of the topology.</p>
+</td>
+</tr>
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
     
 (Alias of `string`)
@@ -2501,13 +2778,52 @@ domain indicated by the values field.</p>
 
 - [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec)
 
-- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
+- [TopologyInfo](#kueue-x-k8s-io-v1beta1-TopologyInfo)
 
 
 <p>TopologyReference is the name of the Topology.</p>
 
 
 
+
+## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction}
+    
+
+**Appears in:**
+
+- [SchedulingStats](#kueue-x-k8s-io-v1beta1-SchedulingStats)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>reason</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>reason specifies the programmatic identifier for the eviction cause.</p>
+</td>
+</tr>
+<tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.
+This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>count</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count tracks the number of evictions for this reason and detailed reason.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     
@@ -2536,7 +2852,7 @@ podSets cannot be changed.</p>
 </td>
 </tr>
 <tr><td><code>queueName</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-LocalQueueName"><code>LocalQueueName</code></a>
 </td>
 <td>
    <p>queueName is the name of the LocalQueue the Workload is associated with.
@@ -2680,6 +2996,13 @@ admission.resourceUsage contains the detailed information.</p>
 <td>
    <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
+<tr><td><code>schedulingStats</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-SchedulingStats"><code>SchedulingStats</code></a>
+</td>
+<td>
+   <p>schedulingStats tracks scheduling statistics</p>
 </td>
 </tr>
 </tbody>

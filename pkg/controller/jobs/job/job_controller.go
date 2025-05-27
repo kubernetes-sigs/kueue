@@ -59,19 +59,18 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewJob:                 NewJob,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupWebhook,
-		JobType:                &batchv1.Job{},
-		IsManagingObjectsOwner: isJob,
-		MultiKueueAdapter:      &multiKueueAdapter{},
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupWebhook,
+		JobType:           &batchv1.Job{},
+		MultiKueueAdapter: &multiKueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -87,10 +86,6 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
 })
-
-func isJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()
-}
 
 type parentWorkloadHandler struct {
 	client client.Client
@@ -174,11 +169,11 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	if !j.IsSuspended() {
 		if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
 			j.Suspend()
-			if j.ObjectMeta.Annotations == nil {
-				j.ObjectMeta.Annotations = map[string]string{}
+			if j.Annotations == nil {
+				j.Annotations = map[string]string{}
 			}
 			// We are using annotation to be sure that all updates finished successfully.
-			j.ObjectMeta.Annotations[StoppingAnnotation] = "true"
+			j.Annotations[StoppingAnnotation] = "true"
 			return true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
@@ -198,7 +193,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
-		delete(j.ObjectMeta.Annotations, StoppingAnnotation)
+		delete(j.Annotations, StoppingAnnotation)
 		return true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
@@ -249,15 +244,19 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 }
 
 func (j *Job) PodSets() ([]kueue.PodSet, error) {
+	podSet := kueue.PodSet{
+		Name:     kueue.DefaultPodSetName,
+		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Count:    j.podsCount(),
+		MinCount: j.minPodsCount(),
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			&j.Spec.Template.ObjectMeta).PodIndexLabel(
+			ptr.To(batchv1.JobCompletionIndexAnnotation)).Build()
+	}
 	return []kueue.PodSet{
-		{
-			Name:     kueue.DefaultPodSetName,
-			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
-			Count:    j.podsCount(),
-			MinCount: j.minPodsCount(),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta,
-				ptr.To(batchv1.JobCompletionIndexAnnotation), nil, nil),
-		},
+		podSet,
 	}, nil
 }
 

@@ -25,27 +25,46 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func PodSetTopologyRequest(meta *metav1.ObjectMeta, podIndexLabel *string, subGroupIndexLabel *string, subGroupCount *int32) *kueue.PodSetTopologyRequest {
+type podSetTopologyRequestBuilder struct {
+	request *kueue.PodSetTopologyRequest
+}
+
+func (p *podSetTopologyRequestBuilder) Build() *kueue.PodSetTopologyRequest {
+	return p.request
+}
+
+func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *podSetTopologyRequestBuilder {
+	if p.request != nil {
+		p.request.PodIndexLabel = podIndexLabel
+	}
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
+	if p.request != nil {
+		p.request.SubGroupIndexLabel = subGroupIndexLabel
+		p.request.SubGroupCount = subGroupCount
+	}
+	return p
+}
+
+func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBuilder {
+	psTopologyReq := &kueue.PodSetTopologyRequest{}
 	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
-
-	if requiredFound || preferredFound || unconstrainedFound {
-		psTopologyReq := &kueue.PodSetTopologyRequest{
-			PodIndexLabel:      podIndexLabel,
-			SubGroupIndexLabel: subGroupIndexLabel,
-			SubGroupCount:      subGroupCount,
-		}
-		switch {
-		case requiredFound:
-			psTopologyReq.Required = &requiredValue
-		case preferredFound:
-			psTopologyReq.Preferred = &preferredValue
-		case unconstrainedFound:
-			unconstrained, _ := strconv.ParseBool(unconstrained)
-			psTopologyReq.Unconstrained = &unconstrained
-		}
-		return psTopologyReq
+	switch {
+	case requiredFound:
+		psTopologyReq.Required = &requiredValue
+	case preferredFound:
+		psTopologyReq.Preferred = &preferredValue
+	case unconstrainedFound:
+		unconstrained, _ := strconv.ParseBool(unconstrained)
+		psTopologyReq.Unconstrained = &unconstrained
+	default:
+		psTopologyReq = nil
 	}
-	return nil
+
+	builder := &podSetTopologyRequestBuilder{request: psTopologyReq}
+	return builder
 }

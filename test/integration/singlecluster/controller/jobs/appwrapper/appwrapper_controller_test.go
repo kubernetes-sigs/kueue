@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
-		gomega.Expect(k8sClient.Create(ctx, unmanagedNamespace)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
@@ -95,13 +95,13 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 					*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 				).Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 			onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			spotFlavor = testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
-			gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, spotFlavor)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -114,15 +114,19 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			ginkgo.By("checking the AppWrapper gets suspended when created unsuspended")
 			priorityClass := testing.MakePriorityClass(priorityClassName).
 				PriorityValue(priorityValue).Obj()
-			gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, priorityClass)
 
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -136,7 +140,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+			gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 			gomega.Expect(metav1.IsControlledBy(createdWorkload, createdAppWrapper)).To(gomega.BeTrue(), "The Workload should be owned by the AppWrapper")
 
 			ginkgo.By("checking the workload is created with priority and priorityName")
@@ -149,7 +153,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			gomega.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(awQueueName))
+				g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName(awQueueName)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking a second non-matching workload is deleted")
@@ -162,7 +166,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			}
 			gomega.Expect(ctrl.SetControllerReference(createdAppWrapper, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 			secondWl.Spec.PodSets[0].Count++
-			gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, secondWl)
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
@@ -209,12 +213,16 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		ginkgo.It("An appwrapper created in an unmanaged namespace is not suspended and a workload is not created", func() {
 			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
 			aw := testingaw.MakeAppWrapper(awName, "unmanaged-ns").
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
@@ -228,7 +236,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.It("Should finish the preemption when the appwrapper no longer has resources deployed", func() {
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
+				}).
 				Suspend(false).
 				Queue(localQueue.Name).
 				Obj()
@@ -237,7 +247,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			var wlLookupKey types.NamespacedName
 
 			ginkgo.By("create the appwrapper and admit the workload", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).To(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 				wlLookupKey = types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -323,17 +333,17 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.BeforeEach(func() {
 			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
-			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, admissionCheck)
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
 				).AdmissionChecks("check").Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueueAc)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, clusterQueueAc)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, localQueue)
 			testFlavor = testing.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
-			gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, testFlavor)
 
 			jobLookupKey = &types.NamespacedName{Name: awName, Namespace: ns.Name}
 		})
@@ -349,17 +359,21 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			createdWorkload := &kueue.Workload{}
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
-					Request(corev1.ResourceCPU, "1").
-					Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
-					Request(corev1.ResourceCPU, "1").
-					Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				}).
 				Queue("queue").
 				Obj()
 
 			ginkgo.By("creating the job", func() {
-				gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+				util.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("fetch the job and verify it is suspended as the checks are not ready", func() {
@@ -520,12 +534,16 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj()).
-			Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj(),
+			}).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj(),
+			}).
 			Suspend(false).
 			Obj()
 
-		gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, aw)
 		lookupKey := types.NamespacedName{Name: awName, Namespace: ns.Name}
 		createdAppWrapper := &awv1beta2.AppWrapper{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
@@ -565,7 +583,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
 
 		ginkgo.By("Create a resource flavor")
-		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, defaultFlavor)
 	})
 
 	ginkgo.AfterAll(func() {
@@ -588,12 +606,16 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			ginkgo.By("Create a job")
 			awQueueName := "test-queue"
 			aw := testingaw.MakeAppWrapper(awName, ns.Name).
-				Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj()).
-				Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj()).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().Obj(),
+				}).
+				Component(testingaw.Component{
+					Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().Obj(),
+				}).
 				Queue(awQueueName).
 				Obj()
 
-			gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 			lookupKey := types.NamespacedName{Name: awName, Namespace: ns.Name}
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
@@ -766,17 +788,17 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
-		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "1").Obj(),
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -788,20 +810,24 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	ginkgo.It("Should schedule AppWrappers as they fit in their ClusterQueue", func() {
 		ginkgo.By("creating localQueue")
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 
 		ginkgo.By("checking a dev job starts")
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
-			Component(utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
-				Request(corev1.ResourceCPU, "1").
-				Parallelism(3).
-				Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			}).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job-1", ns.Name).SetTypeMeta().
+					Request(corev1.ResourceCPU, "1").
+					Parallelism(3).
+					Obj(),
+			}).
 			Queue(localQueue.Name).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, aw)
 		createdAppWrapper := &awv1beta2.AppWrapper{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aw.Name, Namespace: aw.Namespace}, createdAppWrapper)).
@@ -860,21 +886,21 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = testing.MakeTopology("default").Levels(tasBlockLabel).Obj()
-		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 			NodeLabel(nodeGroupLabel, "tas").
 			TopologyName("default").Obj()
-		gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -889,16 +915,18 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
-			Component(utiltestingjob.MakeJob("job", ns.Name).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
-				Request(corev1.ResourceCPU, "1").
-				SetTypeMeta().
-				Obj()).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+					Request(corev1.ResourceCPU, "1").
+					SetTypeMeta().
+					Obj(),
+			}).
 			Queue(localQueue.Name).
 			Suspend(false).
 			Obj()
 		ginkgo.By("creating a job which requires block", func() {
-			gomega.Expect(k8sClient.Create(ctx, aw)).Should(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, aw)
 		})
 
 		wl := &kueue.Workload{}

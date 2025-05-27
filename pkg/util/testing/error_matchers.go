@@ -64,19 +64,20 @@ func BeError(errorType ErrorType) types.GomegaMatcher {
 	}
 }
 
-func (matcher *errorMatcher) Match(actual interface{}) (success bool, err error) {
+func (matcher *errorMatcher) Match(actual any) (success bool, err error) {
 	err, ok := actual.(error)
 	if !ok {
+		//nolint:staticcheck // We keep the error capitalized for consistency with built-in matchers.
 		return false, fmt.Errorf("Error matcher expects an error.  Got:\n%s", format.Object(actual, 1))
 	}
 
 	return err != nil && matcher.errorType.IsError(err), nil
 }
 
-func (matcher *errorMatcher) FailureMessage(actual interface{}) (message string) {
+func (matcher *errorMatcher) FailureMessage(actual any) (message string) {
 	return fmt.Sprintf("Expected %s, but got:\n%s", matcher.errorType.String(), format.Object(actual, 1))
 }
 
-func (matcher *errorMatcher) NegatedFailureMessage(interface{}) (message string) {
+func (matcher *errorMatcher) NegatedFailureMessage(any) (message string) {
 	return fmt.Sprintf("Expected not to be %s", matcher.errorType.String())
 }

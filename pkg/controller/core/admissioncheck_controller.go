@@ -99,7 +99,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(ac, kueue.ResourceInUseFinalizerName) {
-			if cqs := r.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) != 0 {
+			if cqs := r.cache.ClusterQueuesUsingAdmissionCheck(kueue.AdmissionCheckReference(ac.Name)); len(cqs) != 0 {
 				log.V(3).Info("admissionCheck is still in use", "ClusterQueues", cqs)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
 				// Instead, we drive the removal of finalizer by ClusterQueue Update/Delete events
@@ -128,7 +128,7 @@ func (r *AdmissionCheckReconciler) AddUpdateWatchers(watchers ...AdmissionCheckU
 func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
@@ -140,7 +140,7 @@ func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.Admiss
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
-	if cqNames := r.cache.AddOrUpdateAdmissionCheck(e.ObjectNew); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateAdmissionCheck(r.log, e.ObjectNew); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -150,7 +150,7 @@ func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.Admiss
 	defer r.notifyWatchers(e.Object, nil)
 	r.log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
 
-	if cqNames := r.cache.DeleteAdmissionCheck(e.Object); len(cqNames) > 0 {
+	if cqNames := r.cache.DeleteAdmissionCheck(r.log, e.Object); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return true
@@ -200,7 +200,7 @@ func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workq
 		if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac); len(cqs) == 0 {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name: ac,
+					Name: string(ac),
 				},
 			}
 			q.Add(req)

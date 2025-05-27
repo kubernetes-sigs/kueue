@@ -218,6 +218,9 @@ func main() {
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
 	}
+	if cfg.AdmissionFairSharing != nil {
+		queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
@@ -355,6 +358,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
+		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 	}
 	if cfg.Integrations.PodOptions != nil {
 		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))

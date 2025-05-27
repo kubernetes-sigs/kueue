@@ -105,6 +105,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs/status", "get"),
 			policyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
 			policyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
 			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
@@ -267,7 +269,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	worker1RestClient = util.CreateRestClient(worker1Cfg)
 	worker2RestClient = util.CreateRestClient(worker2Cfg)
 
-	ctx = context.Background()
+	ctx = ginkgo.GinkgoT().Context()
 
 	worker1Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, "kueue-system", "mksa", worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -301,7 +303,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 
-	ginkgo.GinkgoLogr.Info("Kueue and all integration operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in all the clusters",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)

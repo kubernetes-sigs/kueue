@@ -92,6 +92,5 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {
 		return fmt.Errorf("setting index resource flavor topology name: %w", err)
 	}
-
 	return nil
 }

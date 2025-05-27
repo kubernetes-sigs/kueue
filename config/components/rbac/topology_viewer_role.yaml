@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: topology-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - topologies
+  verbs:
+  - get
+  - list
+  - watch

@@ -724,7 +724,7 @@ func podTableObjBody(codec runtime.Codec, pods ...corev1.Pod) io.ReadCloser {
 		_ = codec.Encode(&pods[i], b)
 		table.Rows = append(table.Rows, metav1.TableRow{
 			Object: runtime.RawExtension{Raw: b.Bytes()},
-			Cells:  []interface{}{pods[i].Name, "1/1", "Running", int64(0), "<unknown>", "<none>", "<none>", "<none>", "<none>"},
+			Cells:  []any{pods[i].Name, "1/1", "Running", int64(0), "<unknown>", "<none>", "<none>", "<none>", "<none>"},
 		})
 	}
 

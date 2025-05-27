@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,7 +86,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
+		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
@@ -164,19 +163,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
-		if owner := metav1.GetControllerOf(pod.Object()); owner != nil {
-			if owner.Kind == "ReplicaSet" && owner.APIVersion == "apps/v1" {
-				// ReplicaSet is an implementation detail; skip over it to the user-facing framework
-				rs := &appsv1.ReplicaSet{}
-				err := w.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: pod.pod.GetNamespace()}, rs)
-				if err != nil {
-					return fmt.Errorf("failed to get replicaset: %w", err)
-				}
-				owner = metav1.GetControllerOf(rs)
-			}
-			if owner != nil && jobframework.IsOwnerIntegrationEnabled(owner) {
-				return nil
-			}
+		ancestorJob, err := jobframework.FindAncestorJobManagedByKueue(ctx, w.client, pod.Object(), w.manageJobsWithoutQueueName)
+		if err != nil || ancestorJob != nil {
+			return err
 		}
 
 		// Local queue defaulting
@@ -186,24 +175,27 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			if pod.pod.Labels == nil {
 				pod.pod.Labels = make(map[string]string)
 			}
-			pod.pod.Labels[ctrlconstants.QueueLabel] = ctrlconstants.DefaultLocalQueueName
+			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
+		if suspend {
+			if pod.pod.Labels == nil {
+				pod.pod.Labels = make(map[string]string)
+			}
+			pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+		}
 	}
 
 	if suspend {
 		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
-
-		if pod.pod.Labels == nil {
-			pod.pod.Labels = make(map[string]string)
-		}
-		pod.pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if val, ok := pod.pod.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation]; ok {
+				if pod.pod.Labels == nil {
+					pod.pod.Labels = make(map[string]string, 1)
+				}
 				pod.pod.Labels[kueuealpha.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)

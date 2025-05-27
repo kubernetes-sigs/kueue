@@ -139,6 +139,8 @@ Additionally, to enable the previous behavior of keeping the quota, in 0.9.0 we 
 will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time.
 The feature gate is deprecated and will be removed in 0.10 unless we get feedback from users indicating that the old behavior is needed.
 
+The PodSetMergePolicy feature gives the ability to merge similar or identical PodSets into a single PodTemplate within the ProvisioningRequestConfig. This functionality is designed to overcome limitations in certain cloud providers that only allow provisioning one PodTemplate at a time. By merging PodSets, workloads such as PyTorch (which often use similar resources for leader and worker pods) can be efficiently provisioned, reducing overhead and optimizing scaling decisions.
+
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
 
@@ -193,6 +195,40 @@ type ProvisioningRequestConfigSpec struct {
 	// +optional
 	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+
+	// podSetUpdates specifies the update of the workload's PodSetUpdates which
+	// are used to target the provisioned nodes.
+	//
+	// +optional
+	PodSetUpdates *ProvisioningRequestPodSetUpdates `json:"podSetUpdates,omitempty"`
+
+	// podSetMergePolicy specifies the policy for merging PodSets before being passed
+	// to the cluster autoscaler.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=IdenticalPodTemplates;IdenticalWorkloadSchedulingRequirements
+	PodSetMergePolicy *ProvisioningRequestConfigPodSetMergePolicy `json:"podSetMergePolicy,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdates struct {
+	// nodeSelector specifies the list of updates for the NodeSelector.
+	//
+	// +optional
+	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
+}
+
+type ProvisioningRequestPodSetUpdatesNodeSelector struct {
+	// key specifies the key for the NodeSelector.
+	//
+	//  +required
+	Key string `json:"key"`
+
+	// ValueFromProvisioningClassDetail specifies the key of the
+	// ProvisioningRequest.status.provisioningClassDetails from which the value
+	// is used for the update.
+	//
+	// +required
+	ValueFromProvisioningClassDetail string `json:"ValueFromProvisioningClassDetail"`
 }
 
 type ProvisioningRequestRetryStrategy struct {

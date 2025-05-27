@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -37,9 +36,8 @@ func TestReconcile(t *testing.T) {
 		reconcileFor string
 		configs      []kueue.MultiKueueConfig
 
-		wantChecks               []kueue.AdmissionCheck
-		wantError                error
-		acValidationRulesEnabled bool
+		wantChecks []kueue.AdmissionCheck
+		wantError  error
 	}{
 		"missing admissioncheck": {
 			reconcileFor: "missing-ac",
@@ -226,8 +224,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
@@ -237,50 +233,12 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
-		},
-		"extra status conditions of SingleInstance and FlavorIndependent when AdmissionCheckValidationRules is enabled": {
-			reconcileFor: "ac1",
-			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					Generation(1).
-					Obj(),
-			},
-			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
-			},
-			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
-					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
-					Obj(),
-			},
-			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
-					Condition(metav1.Condition{
-						Type:               kueue.AdmissionCheckActive,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Active",
-						Message:            `The admission check is active`,
-						ObservedGeneration: 1,
-					}).
-					Obj(),
-			},
-			acValidationRulesEnabled: true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.acValidationRulesEnabled {
-				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
-			}
-			builder, ctx := getClientBuilder()
+			builder := getClientBuilder(t.Context())
 
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},
@@ -297,13 +255,13 @@ func TestReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			_, gotErr := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
 			checks := &kueue.AdmissionCheckList{}
-			listErr := c.List(ctx, checks)
+			listErr := c.List(t.Context(), checks)
 
 			if listErr != nil {
 				t.Errorf("unexpected list checks error: %s", listErr)

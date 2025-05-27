@@ -19,9 +19,11 @@ package fairsharing
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -32,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -68,16 +71,27 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
-	fairSharing := &config.FairSharing{Enable: true}
+	fairSharing := &config.FairSharing{
+		Enable: true,
+	}
+	admissionFairSharing := &config.AdmissionFairSharing{
+		UsageHalfLifeTime: metav1.Duration{
+			Duration: 250 * time.Microsecond,
+		},
+		UsageSamplingInterval: metav1.Duration{
+			Duration: 250 * time.Millisecond,
+		},
+	}
 
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	_ = features.SetEnable(features.AdmissionFairSharing, true)
 	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithAdmissionFairSharing(admissionFairSharing))
 
-	configuration := &config.Configuration{FairSharing: fairSharing}
-	configuration.ControllerManager.Metrics.EnableClusterQueueResources = true
+	configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
+	configuration.Metrics.EnableClusterQueueResources = true
 	mgr.GetScheme().Default(configuration)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)

@@ -7,8 +7,6 @@ fullnameOverride: ""
 enablePrometheus: false
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
-# Enable API Priority and Fairness configuration for the visibility API
-enableVisibilityAPF: false
 # Customize controllerManager
 controllerManager:
   #featureGates:
@@ -17,7 +15,7 @@ controllerManager:
   manager:
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
-      # This should be set to 'IfNotPresent' for released version      
+      # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
     podAnnotations: {}
     resources:
@@ -32,6 +30,7 @@ controllerManager:
       seccompProfile:
         type: RuntimeDefault
     containerSecurityContext:
+      readOnlyRootFilesystem: true
       allowPrivilegeEscalation: false
       capabilities:
         drop:
@@ -113,6 +112,7 @@ managerConfig:
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
+      - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
     #  - "pod"
     #  - "deployment" (requires enabling pod integration)
@@ -131,10 +131,14 @@ managerConfig:
     #   outputs:
     #     example.com/accelerator-memory: 5Gi
     #     example.com/accelerator-gpc: 4
+    #objectRetentionPolicies:
+    #  workloads:
+    #    afterFinished: null # null indicates infinite retention, 0s means no retention at all
+    #    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
-    - name: metrics
+    - name: https
       port: 8443
       protocol: TCP
       targetPort: 8443
@@ -150,10 +154,15 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
-
-# kueue-viz dashboard
+mutatingWebhook:
+  reinvocationPolicy: Never
+# kueueviz dashboard
 enableKueueViz: false
-
+kueueViz:
+  backend:
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main"
+  frontend:
+    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
 metrics:
   prometheusNamespace: monitoring
   serviceMonitor:

@@ -20,6 +20,10 @@ Pods created on the manager cluster are automatically gated and receive live sta
 
 ## Example
 
-Once the setup is complete you can test it by running the example below:
+Once the setup is complete you can test it by running the examples below:
 
+1. Single plain pod
 {{< include "examples/pods-kueue/kueue-pod.yaml" "yaml" >}}
+
+2. Group of pods
+{{< include "examples/pods-kueue/kueue-pod-group.yaml" "yaml" >}}
