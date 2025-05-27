@@ -1,0 +1,14 @@
+# This overlay builds the APF components to be used in combination
+# with other overlays.
+
+namespace: kueue-system
+namePrefix: kueue-
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: controller
+      control-plane: controller-manager
+
+resources:
+  - ../components/visibility-apf/

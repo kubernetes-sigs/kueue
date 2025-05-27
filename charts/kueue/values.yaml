@@ -7,6 +7,8 @@ fullnameOverride: ""
 enablePrometheus: false
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
+# Enable API Priority and Fairness configuration for the visibility API
+enableVisibilityAPF: false
 # Customize controllerManager
 controllerManager:
   #featureGates:
