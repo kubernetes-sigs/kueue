@@ -123,6 +123,13 @@ managerConfig:
     #fairSharing:
     #  enable: true
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+    #admissionFairSharing:
+    #  usageHalfLifeTime: "168h" # 7 days
+    #  usageSamplingInterval: "5m"
+    #  resourceWeights: # optional, defaults to 1 for all resources if not specified
+    #    cpu: 0    # if you want to completely ignore cpu usage
+    #    memory: 0 # ignore completely memory usage
+    #    example.com/gpu: 100 # and you care only about GPUs usage
     #resources:
     #  excludeResourcePrefixes: []
     # transformations:
