@@ -1,5 +1,8 @@
 ## v0.12.0
 
+> [!NOTE]
+> This release is not deployable on GKE. GKE users should use Kueue 0.11.4 until 0.12.1 comes out.
+
 Changes since `v0.11.0`:
 
 ## Urgent Upgrade Notes
