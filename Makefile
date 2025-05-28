@@ -341,6 +341,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/KUEUE_VERSION="[0-9]+\.[0-9]+\.[0-9]+/KUEUE_VERSION="$(CHART_VERSION)/g' -i cmd/kueueviz/INSTALL.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
+	@$(call clean-kueueviz-manifests)
 
 .PHONY: update-security-insights
 update-security-insights: yq
