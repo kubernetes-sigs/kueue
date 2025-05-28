@@ -55,7 +55,6 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
-CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
 
 # Versions for external controllers
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
@@ -271,4 +270,4 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 	@echo Starting kueueviz end to end test in containers
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	CYPRESS_IMAGE_NAME=$(CYPRESS_IMAGE_NAME) ${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh
+	${PROJECT_DIR}/hack/e2e-kueueviz-backend.sh
