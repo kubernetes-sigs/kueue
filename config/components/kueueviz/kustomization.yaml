@@ -13,7 +13,7 @@ kind: Kustomization
 images:
 - name: backend
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend
-  newTag: main
+  newTag: release-0.12
 - name: frontend
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend
-  newTag: main
+  newTag: release-0.12
