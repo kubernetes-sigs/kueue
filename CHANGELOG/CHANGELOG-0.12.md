@@ -1,3 +1,17 @@
+## v0.12.1
+
+Changes since `v0.12.0`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- Move the API Priority and Fairness configuration for the visibility endpoint to a separate manifest file.
+  This fixes the installation issues on GKE.
+
+  If you relied on the configuration in 0.12.0, then consider installing it as opt-in from
+  the visibility-apf.yaml manifest. (#5380, @mbobrovskyi)
+
 ## v0.12.0
 
 > [!NOTE]
