@@ -582,11 +582,19 @@ files:
     operations:
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.backend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main\" }}"'
+        value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-backend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.backend.image.pullPolicy }}"'
         onFileCondition: '.metadata.name == "kueueviz-backend"'
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.frontend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main\" }}"'
+        value: '"{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-frontend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.frontend.image.pullPolicy }}"'
         onFileCondition: '.metadata.name == "kueueviz-frontend"'
       - type: APPEND
         key: .metadata.name
