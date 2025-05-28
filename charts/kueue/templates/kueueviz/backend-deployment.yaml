@@ -16,8 +16,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: '{{ .Values.kueueViz.backend.image | default "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main" }}'
-          imagePullPolicy: IfNotPresent
+          image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'
+          imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'
           ports:
             - containerPort: 8080
           resources:
