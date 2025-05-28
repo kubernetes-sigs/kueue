@@ -169,9 +169,15 @@ mutatingWebhook:
 enableKueueViz: false
 kueueViz:
   backend:
-    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main"
+    image:
+      repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
+      # This should be set to 'IfNotPresent' for released version
+      pullPolicy: Always
   frontend:
-    image: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main"
+    image:
+      repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
+      # This should be set to 'IfNotPresent' for released version
+      pullPolicy: Always
 metrics:
   prometheusNamespace: monitoring
   serviceMonitor:
