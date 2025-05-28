@@ -59,6 +59,15 @@ updates:
       - "ok-to-test"
       - "release-note-none"
 
+  # Maintain kueue cypress dependency
+  - package-ecosystem: "docker"
+    directory: "/hack/cypress"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+
   # Maintain go dependencies for KueueViz backend
   - package-ecosystem: "gomod"
     directories:

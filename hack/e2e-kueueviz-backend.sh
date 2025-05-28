@@ -76,9 +76,9 @@ if [ -z "$WORKSPACE_VOLUME" ]; then
 fi
 echo "Workspace Volume: $WORKSPACE_VOLUME"
 
-# if CYPRESS_IMAGE_NAME is not set, set it to cypress/base:22.14.0
+# if CYPRESS_IMAGE_NAME is not set, extract it from ./hack/cypress/Dockerfile
 if [ -z "$CYPRESS_IMAGE_NAME" ]; then
-  CYPRESS_IMAGE_NAME="cypress/base:22.14.0"
+  CYPRESS_IMAGE_NAME=$(grep '^FROM' "${ROOT_DIR}/hack/cypress/Dockerfile" | awk '{print $2}')
 fi
 
 # Start KueueViz frontend and cypress in a container
