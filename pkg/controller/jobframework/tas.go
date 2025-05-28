@@ -76,7 +76,7 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 		}
 		if chunkSizeFound {
 			chunkSizeIntValue, _ := strconv.ParseInt(chunkSizeValue, 10, 32)
-			// TODO error handling
+			// TODO Error handling. For simplicity of reviewing a PR, it will be implemented in a follow-up
 			psTopologyReq.PodSetChunkSize = ptr.To(int32(chunkSizeIntValue))
 		}
 	}

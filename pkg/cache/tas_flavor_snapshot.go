@@ -335,7 +335,6 @@ type TASPodSetRequests struct {
 	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
 	Count             int32
-	ChunkSize         int32
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
 }
@@ -526,15 +525,16 @@ func deleteDomain(currentTopologyAssignment *kueue.TopologyAssignment, nodeToRep
 // Algorithm overview:
 // Phase 1:
 //
-//	determine pod counts for each topology domain. Start at the lowest level
+//	determine pod counts and chunk count for each topology domain. Start at the lowest level
 //	and bubble up the numbers to the top level
 //
 // Phase 2:
 //
-//	a) select the domain at requested level with count >= requestedCount
-//	b) traverse the structure down level-by-level optimizing the number of used
-//	  domains at each level
-//	c) build the assignment for the lowest level in the hierarchy
+//	a) sort domains using chosen strategy (i.e. starting from the highest free capacity)
+//	b) select consecutive domains at requested level that can fit the workload
+//	c) traverse the structure down level-by-level optimizing the number of used
+//	domains at each level
+//	d) build the assignment for the lowest level in the hierarchy
 func (s *TASFlavorSnapshot) findTopologyAssignment(
 	tasPodSetRequests TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
@@ -550,13 +550,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	podSetTolerations := info.Tolerations
 	podSetNodeSelectors := info.NodeSelector
 	count := tasPodSetRequests.Count
-	chunkSize := getChunkSize(tasPodSetRequests.PodSet.TopologyRequest)
+	chunkSize := getChunkSizeWithDefault(tasPodSetRequests.PodSet.TopologyRequest)
 
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	chunkTopologyRequired := isChunkRequired(tasPodSetRequests.PodSet.TopologyRequest)
 
 	topologyKey := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
-	chunkTopologyKey := s.chunkLevelKey(&tasPodSetRequests)
+	chunkTopologyKey := s.chunkLevelKeyWithDefault(&tasPodSetRequests, s.lowestLevel())
 
 	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
 
@@ -568,12 +568,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
 	}
 
-	chunkLevelIdx := len(s.levelKeys) - 1
-	if chunkTopologyKey != nil {
-		chunkLevelIdx, found = s.resolveLevelIdx(*chunkTopologyKey)
-		if !found {
-			return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
-		}
+	chunkLevelIdx, found := s.resolveLevelIdx(*chunkTopologyKey)
+	if !found {
+		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
+	}
+
+	if levelIdx > chunkLevelIdx {
+		return nil, fmt.Sprintf("podset chunk topology level: %d is above the podset topology: %d", chunkLevelIdx, levelIdx)
 	}
 
 	var selector labels.Selector
@@ -586,7 +587,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	} else {
 		selector = labels.Everything()
 	}
-	// phase 1 - determine the number of pods which can fit in each topology domain
+	// phase 1 - determine the number of pods and chunks which can fit in each topology domain
 	s.fillInCounts(
 		requests,
 		assumedUsage,
@@ -599,7 +600,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	)
 
 	// phase 2a: determine the level at which the assignment is done along with
-	// the domains which can accommodate all pods
+	// the domains which can accommodate all pods/chunks
 	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, chunkTopologyRequired, count, chunkSize, unconstrained)
 	if len(reason) > 0 {
 		return nil, reason
@@ -630,10 +631,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return s.buildAssignment(currFitDomain), ""
 }
 
-func getChunkSize(podSetTopologyRequest *kueue.PodSetTopologyRequest) int32 {
+func getChunkSizeWithDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) int32 {
 	if podSetTopologyRequest != nil && podSetTopologyRequest.PodSetChunkSize != nil {
 		return *podSetTopologyRequest.PodSetChunkSize
 	}
+	// If chunk topology is not requested then we can assume that chunk is a single pod
 	return 1
 }
 
@@ -721,16 +723,16 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	}
 }
 
-func (s *TASFlavorSnapshot) chunkLevelKey(tasRequests *TASPodSetRequests) *string {
+func (s *TASFlavorSnapshot) chunkLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultChunkLevelKey string) *string {
 	if tasRequests.PodSet.TopologyRequest == nil {
-		return nil
+		return &defaultChunkLevelKey
 	}
 	topologyRequest := tasRequests.PodSet.TopologyRequest
 	switch {
 	case topologyRequest.PodSetChunkRequiredTopology != nil:
 		return topologyRequest.PodSetChunkRequiredTopology
 	default:
-		return nil
+		return &defaultChunkLevelKey
 	}
 }
 
@@ -970,7 +972,7 @@ func sortDomainsForMostFreeCapacity(a, b *domain) int {
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	chunkSize int32,
-	chunkLevelId int,
+	chunkLevelIdx int,
 	simulateEmpty bool,
 	tolerations []corev1.Toleration,
 	selector labels.Selector,
@@ -1019,14 +1021,14 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 
 		// if this is where chunks topology is requested then we calculate the number of chunks
 		// that can fit. Otherwise we assign 0 and this value won't be used.
-		if (len(s.levelKeys) - 1) == chunkLevelId {
+		if (len(s.levelKeys) - 1) == chunkLevelIdx {
 			leaf.chunkState = leaf.state / chunkSize
 		} else {
 			leaf.chunkState = 0
 		}
 	}
 	for _, root := range s.roots {
-		root.state, root.chunkState = s.fillInCountsHelper(root, chunkSize, chunkLevelId, 0)
+		root.state, root.chunkState = s.fillInCountsHelper(root, chunkSize, chunkLevelIdx, 0)
 	}
 }
 

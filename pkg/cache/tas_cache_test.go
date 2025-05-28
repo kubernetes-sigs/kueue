@@ -2638,6 +2638,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
 		"block preferred for podset; host required for chunks; LeastFreeCapacity": {
+			//nolint:dupword // suppress duplicate r1 word
 			//        b1                b2
 			//         |                 |
 			//        r1                r1
@@ -2738,6 +2739,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
 		"block preferred for podset; host required for chunks; 2 blocks with unbalanced subdomains; BestFit": {
+			//nolint:dupword // suppress duplicate r1 word
 			//        b1                b2
 			//         |                 |
 			//        r1                r1
