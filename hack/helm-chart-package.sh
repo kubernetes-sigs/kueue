@@ -20,7 +20,7 @@ set -o pipefail
 
 DEST_CHART_DIR=${DEST_CHART_DIR:-bin/}
 
-EXTRA_TAG=${EXTRA_TAG:-$(git branch --show-current)} 
+EXTRA_TAG=${EXTRA_TAG:-$(git branch --show-current)}
 GIT_TAG=${GIT_TAG:-$(git describe --tags --dirty --always)}
 
 STAGING_IMAGE_REGISTRY=${STAGING_IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images}
@@ -53,6 +53,8 @@ ${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\"
 ${HELM} package --version "${chart_version}" --app-version "${app_version}" charts/kueue -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
-${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"main\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | del(.controllerManager.manager.image.tag) | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 
-${HELM} push "bin/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
+if [ "$HELM_CHART_PUSH" = "true" ]; then
+  ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
+fi
