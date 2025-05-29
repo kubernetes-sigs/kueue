@@ -2822,6 +2822,20 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
+		"chunk required topology level cannot be above the main required topology level": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(corev1.LabelHostname),
+				PodSetChunkRequiredTopology: ptr.To(tasBlockLabel),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "podset chunk topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

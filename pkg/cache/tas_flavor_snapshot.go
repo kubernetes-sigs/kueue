@@ -574,7 +574,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	if levelIdx > chunkLevelIdx {
-		return nil, fmt.Sprintf("podset chunk topology level: %d is above the podset topology: %d", chunkLevelIdx, levelIdx)
+		return nil, fmt.Sprintf("podset chunk topology %s is above the podset topology %s", *chunkTopologyKey, *topologyKey)
 	}
 
 	var selector labels.Selector
@@ -626,7 +626,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 			currFitDomain = newCurrFitDomain
 		}
-
 	}
 	return s.buildAssignment(currFitDomain), ""
 }
