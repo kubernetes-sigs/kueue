@@ -20,7 +20,7 @@ variable "project_id" {
 variable "location_manager" {
   type        = string
   description = "Location of GKE cluster"
-  default     = "europe-west4"
+  default     = "europe-west4-a"
 }
 variable "cluster_manager_name_prefix" {
   type        = string
@@ -28,9 +28,9 @@ variable "cluster_manager_name_prefix" {
   default     = "manager"
 }
 
-variable "regions_workers" {
-  type    = list(string)
-  default = ["asia-southeast1", "us-east4"]
+variable "region_worker" {
+  type    = string
+  default = "us-east4-a"
 }
 
 variable "cluster_worker_names_prefix" {

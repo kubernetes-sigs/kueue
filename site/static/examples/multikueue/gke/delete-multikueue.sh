@@ -11,10 +11,9 @@ CUSTOM_INSTALL="${KUEUE_CUSTOM_INSTALL:-false}"
 
 function uninstall_kueue() {
     if [[ "$CUSTOM_INSTALL" == "true" ]]; then
-        pushd ../.. > /dev/null
+        pushd ../../.. > /dev/null
         make undeploy
         popd > /dev/null
-        cd examples/multikueue/gke
     else
         kubectl delete --ignore-not-found -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
     fi
