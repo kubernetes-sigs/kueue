@@ -550,13 +550,17 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	podSetTolerations := info.Tolerations
 	podSetNodeSelectors := info.NodeSelector
 	count := tasPodSetRequests.Count
-	chunkSize := getChunkSizeWithDefault(tasPodSetRequests.PodSet.TopologyRequest)
+
+	// If chunk topology is not requested then we can assume that chunk is a single pod
+	chunkSize, reason := getChunkSizeWithDefault(tasPodSetRequests.PodSet.TopologyRequest, 1)
+	if len(reason) > 0 {
+		return nil, reason
+	}
 
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
-	chunkTopologyRequired := isChunkRequired(tasPodSetRequests.PodSet.TopologyRequest)
 
 	topologyKey := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
-	chunkTopologyKey := s.chunkLevelKeyWithDefault(&tasPodSetRequests, s.lowestLevel())
+	chunkTopologyKey := s.chunkLevelKeyWithDefault(&tasPodSetRequests, ptr.To(s.lowestLevel()))
 
 	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
 
@@ -570,7 +574,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	chunkLevelIdx, found := s.resolveLevelIdx(*chunkTopologyKey)
 	if !found {
-		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
+		return nil, fmt.Sprintf("no requested topology level: %s", *chunkTopologyKey)
 	}
 
 	if levelIdx > chunkLevelIdx {
@@ -601,7 +605,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/chunks
-	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, chunkTopologyRequired, count, chunkSize, unconstrained)
+	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, chunkSize, unconstrained)
 	if len(reason) > 0 {
 		return nil, reason
 	}
@@ -609,19 +613,19 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
 	// topology domains at each level
 	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateChunkCountsToMinimum(currFitDomain, count, fitLevelIdx > chunkLevelIdx, chunkSize, unconstrained)
-	for nLevelIdx := fitLevelIdx; nLevelIdx+1 < len(s.domainsPerLevel); nLevelIdx++ {
-		if nLevelIdx < chunkLevelIdx {
+	currFitDomain = s.updateChunkCountsToMinimum(currFitDomain, count, chunkSize, unconstrained)
+	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
+		if levelIdx < chunkLevelIdx {
 			lowerFitDomains := s.lowerLevelDomains(currFitDomain)
 			sortedLowerDomains := s.sortedDomains(lowerFitDomains, unconstrained)
-			currFitDomain = s.updateChunkCountsToMinimum(sortedLowerDomains, count, nLevelIdx > chunkLevelIdx, chunkSize, unconstrained)
+			currFitDomain = s.updateChunkCountsToMinimum(sortedLowerDomains, count, chunkSize, unconstrained)
 		} else {
 			newCurrFitDomain := make([]*domain, 0)
 			for _, domain := range currFitDomain {
 				lowerFitDomains := domain.children
 				sortedLowerDomains := s.sortedDomains(lowerFitDomains, unconstrained)
 
-				addCurrFitDomain := s.updateCountsToMinimum(sortedLowerDomains, domain.state, nLevelIdx > chunkLevelIdx, chunkSize, unconstrained)
+				addCurrFitDomain := s.updateCountsToMinimum(sortedLowerDomains, domain.state, unconstrained)
 				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
 			}
 			currFitDomain = newCurrFitDomain
@@ -630,16 +634,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	return s.buildAssignment(currFitDomain), ""
 }
 
-func getChunkSizeWithDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) int32 {
-	if podSetTopologyRequest != nil && podSetTopologyRequest.PodSetChunkSize != nil {
-		return *podSetTopologyRequest.PodSetChunkSize
+func getChunkSizeWithDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest, defaultChunkSize int32) (int32, string) {
+	if podSetTopologyRequest != nil && podSetTopologyRequest.PodSetChunkRequiredTopology != nil {
+		if podSetTopologyRequest.PodSetChunkSize != nil {
+			return *podSetTopologyRequest.PodSetChunkSize, ""
+		} else {
+			return defaultChunkSize, "chunk topology requested, but chunk size not provided"
+		}
 	}
-	// If chunk topology is not requested then we can assume that chunk is a single pod
-	return 1
-}
 
-func isChunkRequired(tr *kueue.PodSetTopologyRequest) bool {
-	return tr != nil && tr.PodSetChunkRequiredTopology != nil
+	return defaultChunkSize, ""
 }
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
@@ -722,16 +726,16 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	}
 }
 
-func (s *TASFlavorSnapshot) chunkLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultChunkLevelKey string) *string {
+func (s *TASFlavorSnapshot) chunkLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultChunkLevelKey *string) *string {
 	if tasRequests.PodSet.TopologyRequest == nil {
-		return &defaultChunkLevelKey
+		return defaultChunkLevelKey
 	}
 	topologyRequest := tasRequests.PodSet.TopologyRequest
 	switch {
 	case topologyRequest.PodSetChunkRequiredTopology != nil:
 		return topologyRequest.PodSetChunkRequiredTopology
 	default:
-		return &defaultChunkLevelKey
+		return defaultChunkLevelKey
 	}
 }
 
@@ -755,7 +759,7 @@ func findBestFitDomainIdx(domains []*domain, count int32) int {
 	return bestFitIdx
 }
 
-func findBestFitDomainIdxBasedOnChunks(domains []*domain, chunkCount int32) int {
+func findBestFitDomainIdxForChunks(domains []*domain, chunkCount int32) int {
 	bestFitIdx := 0
 	for i, domain := range domains {
 		if domain.chunkState >= chunkCount && domain.chunkState < domains[bestFitIdx].chunkState {
@@ -767,7 +771,7 @@ func findBestFitDomainIdxBasedOnChunks(domains []*domain, chunkCount int32) int 
 	return bestFitIdx
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, chunkRequired bool, podsetSize int32, chunkSize int32, unconstrained bool) (int, []*domain, string) {
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podsetSize int32, chunkSize int32, unconstrained bool) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
@@ -775,16 +779,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
-	if useBestFitAlgorithm(unconstrained) && topDomain.chunkState >= podsetSize/chunkSize {
+	chunkCount := podsetSize / chunkSize
+	if useBestFitAlgorithm(unconstrained) && topDomain.chunkState >= chunkCount {
 		// optimize the potentially last domain
-		topDomain = sortedDomain[findBestFitDomainIdxBasedOnChunks(sortedDomain, podsetSize/chunkSize)]
+		topDomain = sortedDomain[findBestFitDomainIdxForChunks(sortedDomain, chunkCount)]
 	}
-	if topDomain.chunkState < podsetSize/chunkSize {
+	if topDomain.chunkState < chunkCount {
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, podsetSize)
 		}
 		if levelIdx > 0 && !unconstrained {
-			return s.findLevelWithFitDomains(levelIdx-1, required, chunkRequired, podsetSize, chunkSize, unconstrained)
+			return s.findLevelWithFitDomains(levelIdx-1, required, podsetSize, chunkSize, unconstrained)
 		}
 		results := []*domain{}
 		remainingCount := podsetSize
@@ -792,7 +797,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			offset := 0
 			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].chunkState >= remainingCount/chunkSize {
 				// optimize the last domain
-				offset = findBestFitDomainIdxBasedOnChunks(sortedDomain[idx:], remainingCount/chunkSize)
+				offset = findBestFitDomainIdxForChunks(sortedDomain[idx:], remainingCount/chunkSize)
 			}
 			results = append(results, sortedDomain[idx+offset])
 			remainingCount -= (sortedDomain[idx+offset].state / chunkSize) * chunkSize
@@ -824,41 +829,27 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	return false
 }
 
-func (s *TASFlavorSnapshot) updateChunkCountsToMinimum(domains []*domain, count int32, isBelowChunkLevel bool, chunkSize int32, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) updateChunkCountsToMinimum(domains []*domain, count int32, chunkSize int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
 		if useBestFitAlgorithm(unconstrained) && domain.chunkState >= remainingCount/chunkSize {
 			// optimize the last domain
 			mostAllocatedIdx := 0
-			if isBelowChunkLevel {
-				mostAllocatedIdx = findBestFitDomainIdx(domains[i:], remainingCount)
-			} else {
-				mostAllocatedIdx = findBestFitDomainIdxBasedOnChunks(domains[i:], remainingCount/chunkSize)
-			}
+			mostAllocatedIdx = findBestFitDomainIdxForChunks(domains[i:], remainingCount/chunkSize)
 			domain = domains[i+mostAllocatedIdx]
 		}
 
-		if isBelowChunkLevel {
-			if domain.state >= remainingCount {
-				domain.state = remainingCount
-				result = append(result, domain)
-				return result
-			}
-			remainingCount -= domain.state
+		remainingChunks := remainingCount / chunkSize
+		if domain.chunkState >= remainingChunks {
+			domain.state = remainingCount
+			domain.chunkState = remainingChunks
 			result = append(result, domain)
-		} else {
-			remainingChunks := remainingCount / chunkSize
-			if domain.chunkState >= remainingChunks {
-				domain.state = remainingCount
-				domain.chunkState = remainingChunks
-				result = append(result, domain)
-				return result
-			}
-			domain.state = domain.chunkState * chunkSize
-			remainingCount -= domain.state
-			result = append(result, domain)
+			return result
 		}
+		domain.state = domain.chunkState * chunkSize
+		remainingCount -= domain.state
+		result = append(result, domain)
 	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingCount,
@@ -867,7 +858,7 @@ func (s *TASFlavorSnapshot) updateChunkCountsToMinimum(domains []*domain, count 
 	return nil
 }
 
-func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, isBelowChunkLevel bool, chunkSize int32, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingCount := count
 	for i, domain := range domains {
@@ -933,10 +924,9 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 
 	switch {
 	case useBestFitAlgorithm(unconstrained):
-		slices.SortFunc(result, sortDomainsForBestFit)
-	case useLeastFreeCapacityAlgorithm(unconstrained):
 		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
-		slices.Reverse(result)
+	case useLeastFreeCapacityAlgorithm(unconstrained):
+		slices.SortFunc(result, sortDomainsForLeastFreeCapacity)
 	default:
 		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
 	}
@@ -944,28 +934,29 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	return result
 }
 
-func sortDomainsForBestFit(a, b *domain) int {
-	if a.chunkState == b.chunkState {
-		if a.state == b.state {
-			return slices.Compare(a.levelValues, b.levelValues)
-		}
-		// ascending order within the same chunk capacity, to possibly get the tight fit in first domain
-		return cmp.Compare(a.state, b.state)
-	}
-	// descending order
-	return cmp.Compare(b.chunkState, a.chunkState)
-}
-
 func sortDomainsForMostFreeCapacity(a, b *domain) int {
 	if a.chunkState == b.chunkState {
 		if a.state == b.state {
 			return slices.Compare(a.levelValues, b.levelValues)
 		}
-		// descending order within the same chunk capacity, to possibly get the tight fit in first domain
-		return cmp.Compare(b.state, a.state)
+		// ascending order within the same chunk capacity, to possibly get the tight fit in the first domain
+		return cmp.Compare(a.state, b.state)
 	}
-	// descending order
+	// descending order to prioritize most free capacity
 	return cmp.Compare(b.chunkState, a.chunkState)
+}
+
+func sortDomainsForLeastFreeCapacity(a, b *domain) int {
+	if a.chunkState == b.chunkState {
+		if a.state == b.state {
+			// reversed order for backwards compatibility
+			return slices.Compare(b.levelValues, a.levelValues)
+		}
+		// ascending order within the same chunk capacity, to possibly get the tight fit in the first domain
+		return cmp.Compare(a.state, b.state)
+	}
+	// ascending order to prioritize domains with least free capacity
+	return cmp.Compare(a.chunkState, b.chunkState)
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
@@ -1057,8 +1048,6 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, chunkSize int32, 
 	domain.state = childrenCapacity
 	if level == chunkLevelIdx {
 		chunkCapacity = domain.state / chunkSize
-	} else {
-		domain.chunkState = chunkCapacity
 	}
 	domain.chunkState = chunkCapacity
 

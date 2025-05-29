@@ -2506,7 +2506,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:3, x2:2, x3:2
+			// x1:6, x2:4, x3:2
 			//
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -2514,7 +2514,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourceCPU:  resource.MustParse("6"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
@@ -2524,7 +2524,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
@@ -2549,12 +2549,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count: 4,
+			count: 8,
 			wantAssignment: &kueue.TopologyAssignment{
 				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
 					{
-						Count: 2,
+						Count: 6,
 						Values: []string{
 							"x1",
 						},
@@ -2827,6 +2827,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(corev1.LabelHostname),
 				PodSetChunkRequiredTopology: ptr.To(tasBlockLabel),
+				PodSetChunkSize:             ptr.To(int32(1)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2834,6 +2835,35 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			count:              1,
 			wantReason:         "podset chunk topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
+		"chunk size is required when chunk topology is requested": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "chunk topology requested, but chunk size not provided",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
+		"cannot request not existing chunk topology": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(string(tasBlockLabel)),
+				PodSetChunkRequiredTopology: ptr.To("not-existing-topology-level"),
+				PodSetChunkSize:             ptr.To(int32(1)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "no requested topology level: not-existing-topology-level",
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
 		},
 	}

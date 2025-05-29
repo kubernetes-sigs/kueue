@@ -47,13 +47,16 @@ const (
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 
 	// PodSetChunkRequiredTopologyAnnotation indicates that a PodSet requires
-	// Topology Aware Scheduling, and requires scheduling PodSet chunks on nodes
-	// within the same topology domain corresponding to the topology level
+	// Topology Aware Scheduling, and requires scheduling each PodSet chunk on nodes
+	// within the topology domain corresponding to the topology level
 	// indicated by the annotation value (e.g. within a rack or within a block).
 	PodSetChunkRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-chunk-required-topology"
 
 	// PodSetChunkSizeAnnotation describes the requested size of a podset chunk
 	// for which Kueue finds a requested topology domain
+	//
+	// This annotation is required if `kueue.x-k8s.io/podset-chunk-required-topology`
+	// is defined
 	PodSetChunkSizeAnnotation = "kueue.x-k8s.io/podset-chunk-size"
 
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
