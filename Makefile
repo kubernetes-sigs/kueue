@@ -137,7 +137,10 @@ update-helm: manifests yq yaml-processor
 	$(PROJECT_DIR)/bin/yaml-processor hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download controller-gen generate-apiref generate-kueuectl-docs ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
+generate: gomod-download generate-apiref generate-code generate-kueuectl-docs
+
+.PHONY: generate-code
+generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
