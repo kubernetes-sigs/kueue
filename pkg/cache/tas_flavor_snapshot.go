@@ -1041,7 +1041,7 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
-func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, chunkSize int32, chunkLevelId int, level int) (int32, int32) {
+func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, chunkSize int32, chunkLevelIdx int, level int) (int32, int32) {
 	// logic for a leaf
 	if len(domain.children) == 0 {
 		return domain.state, domain.chunkState
@@ -1051,12 +1051,12 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, chunkSize int32, 
 	chunkCapacity := int32(0)
 
 	for _, child := range domain.children {
-		addChildrenCapacity, addChildrenChunkCapacity := s.fillInCountsHelper(child, chunkSize, chunkLevelId, level+1)
+		addChildrenCapacity, addChildrenChunkCapacity := s.fillInCountsHelper(child, chunkSize, chunkLevelIdx, level+1)
 		childrenCapacity += addChildrenCapacity
 		chunkCapacity += addChildrenChunkCapacity
 	}
 	domain.state = childrenCapacity
-	if level == chunkLevelId {
+	if level == chunkLevelIdx {
 		chunkCapacity = domain.state / chunkSize
 	} else {
 		domain.chunkState = chunkCapacity
