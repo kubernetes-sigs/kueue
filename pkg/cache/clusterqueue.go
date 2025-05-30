@@ -53,8 +53,8 @@ var (
 type clusterQueue struct {
 	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
+	Workloads         map[workload.WorkloadReference]*workload.Info
+	WorkloadsNotReady sets.Set[workload.WorkloadReference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FairWeight        resource.Quantity
@@ -88,7 +88,7 @@ type clusterQueue struct {
 
 	tasCache *tasCache
 
-	workloadsNotAccountedForTAS sets.Set[string]
+	workloadsNotAccountedForTAS sets.Set[workload.WorkloadReference]
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {

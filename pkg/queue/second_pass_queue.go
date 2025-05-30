@@ -25,12 +25,12 @@ import (
 type secondPassQueue struct {
 	sync.RWMutex
 
-	state map[string]*workload.Info
+	state map[workload.WorkloadReference]*workload.Info
 }
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
-		state: make(map[string]*workload.Info),
+		state: make(map[workload.WorkloadReference]*workload.Info),
 	}
 }
 
@@ -42,7 +42,7 @@ func (q *secondPassQueue) takeAllReady() []workload.Info {
 	for _, v := range q.state {
 		result = append(result, *v)
 	}
-	q.state = make(map[string]*workload.Info)
+	q.state = make(map[workload.WorkloadReference]*workload.Info)
 	return result
 }
 
@@ -53,7 +53,7 @@ func (q *secondPassQueue) offer(w *workload.Info) {
 	q.state[workload.Key(w.Obj)] = w
 }
 
-func (q *secondPassQueue) deleteByKey(key string) {
+func (q *secondPassQueue) deleteByKey(key workload.WorkloadReference) {
 	q.Lock()
 	defer q.Unlock()
 

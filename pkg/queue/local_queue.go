@@ -66,13 +66,13 @@ type LocalQueue struct {
 	Key          LocalQueueReference
 	ClusterQueue kueue.ClusterQueueReference
 
-	items map[string]*workload.Info
+	items map[workload.WorkloadReference]*workload.Info
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
 		Key:   Key(q),
-		items: make(map[string]*workload.Info),
+		items: make(map[workload.WorkloadReference]*workload.Info),
 	}
 	qImpl.update(q)
 	return qImpl
@@ -99,7 +99,7 @@ func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
 			result++
 		}
 	}
-	if c.inflight != nil && workloadKey(c.inflight) == string(lq.Key) {
+	if c.inflight != nil && string(workloadKey(c.inflight)) == string(lq.Key) {
 		result++
 	}
 	return result

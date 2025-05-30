@@ -2787,7 +2787,7 @@ func TestFairPreemptions(t *testing.T) {
 	}
 }
 
-func targetKeyReason(key, reason string) string {
+func targetKeyReason(key workload.WorkloadReference, reason string) string {
 	return fmt.Sprintf("%s:%s", key, reason)
 }
 func TestCandidatesOrdering(t *testing.T) {
@@ -2825,11 +2825,11 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 	}
 	sort.Slice(candidates, CandidatesOrdering(candidates, "self", now))
-	gotNames := make([]string, len(candidates))
+	gotNames := make([]workload.WorkloadReference, len(candidates))
 	for i, c := range candidates {
 		gotNames[i] = workload.Key(c.Obj)
 	}
-	wantCandidates := []string{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
+	wantCandidates := []workload.WorkloadReference{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
 	if diff := cmp.Diff(wantCandidates, gotNames); diff != "" {
 		t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
 	}

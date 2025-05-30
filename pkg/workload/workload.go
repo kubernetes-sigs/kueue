@@ -69,6 +69,13 @@ var (
 	}
 )
 
+// WorkloadReference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
+type WorkloadReference string
+
+func NewWorkloadReference(namespace, name string) WorkloadReference {
+	return WorkloadReference(namespace + "/" + name)
+}
+
 func Status(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return StatusFinished
@@ -386,8 +393,8 @@ func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 	return false
 }
 
-func Key(w *kueue.Workload) string {
-	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
+func Key(w *kueue.Workload) WorkloadReference {
+	return NewWorkloadReference(w.Namespace, w.Name)
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
