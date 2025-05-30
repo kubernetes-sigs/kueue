@@ -84,8 +84,7 @@ For each workload coming to a ClusterQueue (with the MultiKueue AdmissionCheck e
 in the management cluster, and getting past the preadmission phase in the 
 two-phase admission process (meaning that the global quota - total amount resources
 that can be consumed across all clusters - is ok), 
-MultiKueue controller will clone it in the defined worker clusters and wait 
-until some Kueue running there admits the workload.
+the MultiKueue controller will attempt to dispatch the workload to worker clusters based on the configured dispatcher strategy.
 If a remote workload is admitted first, the job will be created 
 in the remote cluster with a `kueue.x-k8s.io/prebuilt-workload-name` label pointing to that clone.
 Then it will remove the workloads from the remaining worker clusters and allow the
@@ -304,6 +303,19 @@ type MultiKueue struct {
 	GCInterval *metav1.Duration `json:"gcInterval"`
 	Origin *string `json:"origin,omitempty"`
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+  Dispatcher *MultiKueueWorkloadDispatcher `json:"multiKueueWorkloadDispatcher,omitempty"`
+}
+
+type MultiKueueWorkloadDispatcher struct {
+  // Strategy defines the strategy for selecting a worker cluster to handle the workload.
+  // - All: The initial MultiKueue behavior where the workload is distributed to all workers simultaneously,
+  //        and the first worker to successfully reserve the workload's required resources is selected.
+  // - RoundRobin: Distributes the workload to one worker at a time in a circular order.
+  Strategy MultiKueueWorkloadDispatcherStrategy `json:"strategy"`
+
+  // Timeout specifies the duration given to a selected worker to attempt to reserve the workload's required resources.
+  // This field is only applicable when the Strategy is set to RoundRobin.
+  Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 ```
 
@@ -315,6 +327,7 @@ This is used by multikueue in components like its [garbage collector](#garbage-c
 that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
 - `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.
+- `Dispatcher` -  configures the mechanism that determines how worker clusters are selected and attempted for processing a workload.
 
 ### Follow ups ideas
 
