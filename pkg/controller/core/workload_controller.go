@@ -427,7 +427,8 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	return 0, nil
 }
 
-// reconcileCheckBasedEviction returns true if Workload has been deactivated or evicted
+// reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
+// Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
