@@ -30,21 +30,15 @@ import (
 	"sigs.k8s.io/kueue/internal/tools/yaml-processor/yamlproc"
 )
 
+type options struct {
+	LogLevel       string
+	ProcessingPlan string
+}
+
 func main() {
-	var logLevel string
+	opts := parseOptions()
 
-	flag.StringVar(&logLevel, "zap-log-level", "info", "Minimum enabled logging level")
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: yaml-processor <processing-plan.yaml>\n")
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	if flag.NArg() != 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	logger, err := newLogger(logLevel)
+	logger, err := newLogger(opts.LogLevel)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
@@ -59,7 +53,7 @@ func main() {
 	}()
 	yamlproc.SetLogger(logger)
 
-	processingPlan, err := yamlproc.LoadProcessingPlan(flag.Arg(0))
+	processingPlan, err := yamlproc.LoadProcessingPlan(opts.ProcessingPlan)
 	if err != nil {
 		logger.Fatal("Failed to load processing plan", zap.Error(err))
 	}
@@ -69,6 +63,26 @@ func main() {
 	fileProcessor := yamlproc.NewProcessor(yqClient, textInserter)
 
 	fileProcessor.ProcessPlan(*processingPlan)
+}
+
+func parseOptions() *options {
+	opts := &options{}
+
+	flag.StringVar(&opts.LogLevel, "zap-log-level", "info", "Minimum enabled logging level")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: yaml-processor <processing-plan.yaml>\n")
+		flag.PrintDefaults()
+	}
+
+	flag.Parse()
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	opts.ProcessingPlan = flag.Arg(0)
+
+	return opts
 }
 
 func newLogger(logLevel string) (*zap.Logger, error) {

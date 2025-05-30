@@ -68,7 +68,7 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
 CGO_ENABLED ?= 0
 
-PROCESSING_PLAN_LOG_LEVEL ?= info
+YAML_PROCESSOR_LOG_LEVEL ?= info
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -136,7 +136,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor
-	$(PROJECT_DIR)/bin/yaml-processor -zap-log-level=$(PROCESSING_PLAN_LOG_LEVEL) hack/processing-plan.yaml
+	$(PROJECT_DIR)/bin/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
 generate: gomod-download generate-apiref generate-code generate-kueuectl-docs
