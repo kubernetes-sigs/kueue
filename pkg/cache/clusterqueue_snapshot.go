@@ -18,6 +18,7 @@ package cache
 
 import (
 	"iter"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -215,9 +216,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, simulateEmpty, wl)
-		for psName, psAssignment := range flvResult {
-			result[psName] = psAssignment
-		}
+		maps.Copy(result, flvResult)
 	}
 	return result
 }

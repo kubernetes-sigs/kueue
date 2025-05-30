@@ -93,7 +93,7 @@ func concurrent[T any](set T, count func(T) int, call func(int) error) error {
 	}()
 	total := count(set)
 	wg.Add(total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		go func() {
 			defer wg.Done()
 			err := call(i)
@@ -112,7 +112,7 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 	log.Info("Start generation")
 	defer log.Info("End generation")
 
-	for si := 0; si < wlSet.Count; si++ {
+	for si := range wlSet.Count {
 		for i, wlt := range wlSet.Workloads {
 			<-time.After(delay)
 			wl := utiltesting.MakeWorkload(fmt.Sprintf("%s-%d-%d-%d", wlt.ClassName, wlSetIdx, si, i), namespace).

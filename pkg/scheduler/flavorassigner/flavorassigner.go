@@ -19,6 +19,7 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -496,9 +497,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 }
 
 func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) {
-	for resource, assignment := range flavors {
-		psa.Flavors[resource] = assignment
-	}
+	maps.Copy(psa.Flavors, flavors)
 	if psa.Status == nil {
 		psa.Status = status
 	} else if status != nil {

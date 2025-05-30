@@ -52,7 +52,7 @@ func TestHeapBasic(t *testing.T) {
 
 	// Make sure that the numbers are popped in ascending order.
 	prevNum := 0
-	for i := 0; i < amount; i++ {
+	for range amount {
 		obj := h.Pop()
 		num := obj.val
 		// All the items must be sorted.

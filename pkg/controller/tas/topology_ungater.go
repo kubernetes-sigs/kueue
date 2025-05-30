@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -208,9 +209,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 			}
-			for labelKey, labelValue := range podWithUngateInfo.nodeLabels {
-				podWithUngateInfo.pod.Spec.NodeSelector[labelKey] = labelValue
-			}
+			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
 			return true, nil
 		})
 		if e != nil {

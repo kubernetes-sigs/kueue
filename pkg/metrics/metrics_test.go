@@ -27,7 +27,7 @@ import (
 
 func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
 	labels := prometheus.Labels{}
-	for i := 0; i < len(kvs)/2; i++ {
+	for i := range len(kvs) / 2 {
 		labels[kvs[i*2]] = kvs[i*2+1]
 	}
 	all := metrics.CollectFilteredGaugeVec(vec, labels)

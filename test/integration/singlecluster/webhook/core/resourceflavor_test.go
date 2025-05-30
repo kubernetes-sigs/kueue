@@ -84,13 +84,13 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 
 	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
 		rf := testing.MakeResourceFlavor("resource-flavor")
-		for i := 0; i < taintsCount; i++ {
+		for i := range taintsCount {
 			rf = rf.Taint(corev1.Taint{
 				Key:    fmt.Sprintf("t%d", i),
 				Effect: corev1.TaintEffectNoExecute,
 			})
 		}
-		for i := 0; i < nodeSelectorCount; i++ {
+		for i := range nodeSelectorCount {
 			rf = rf.NodeLabel(fmt.Sprintf("l%d", i), "")
 		}
 		resourceFlavor := rf.Obj()
