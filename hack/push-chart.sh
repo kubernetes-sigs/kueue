@@ -47,18 +47,26 @@ chart_version="${app_version/#v/}"
 default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
 readonly default_image_repo
 
+default_kueueviz_backend_image_repo=$(${YQ} ".kueueViz.backend.image.repository" charts/kueue/values.yaml)
+readonly default_kueueviz_backend_image_repo
+
+default_kueueviz_frontend_image_repo=$(${YQ} ".kueueViz.frontend.image.repository" charts/kueue/values.yaml)
+readonly default_kueueviz_frontend_image_repo
+
 # Update the image repo, tag and policy
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${app_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
-# Update the KueueViz images in values.yaml
-${YQ} e ".kueueViz.backend.image = \"${image_repository}/kueueviz-backend:${app_version}\" | .kueueViz.frontend.image = \"${image_repository}/kueueviz-frontend:${app_version}\"" -i charts/kueue/values.yaml
+# Update the KueueViz images repo, tag and policy in values.yaml
+${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.tag = \"${app_version}\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.tag = \"${app_version}\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 ${HELM} package --version "${chart_version}" --app-version "${app_version}" charts/kueue -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
-${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"main\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | del(.controllerManager.manager.image.tag) | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 
 # Revert the KueueViz image changes
-${YQ} e ".kueueViz.backend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main\" | .kueueViz.frontend.image = \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.backend.image.repository = \"${default_kueueviz_backend_image_repo}\" | del(.kueueViz.backend.image.tag) | .kueueViz.backend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.frontend.image.repository = \"${default_kueueviz_frontend_image_repo}\" | del(.kueueViz.frontend.image.tag) | .kueueViz.frontend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
 
 ${HELM} push "bin/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
