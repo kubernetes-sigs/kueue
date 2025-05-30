@@ -56,7 +56,11 @@ Where:
 - **retryStrategy.backoffLimitCount** - indicates how many times ProvisioningRequest should be retried in case of failure. Defaults to 3.
 - **retryStrategy.backoffBaseSeconds** - provides the base for calculating backoff time that ProvisioningRequest waits before being retried. Defaults to 60.
 - **retryStrategy.backoffMaxSeconds** - indicates the maximum backoff time (in seconds) before retrying a ProvisioningRequest. Defaults to 1800.
-- **podSetMergePolicy** - allows to merge similar PodSets into a single PodTemplate used by the ProvisioningRequest. 
+- **podSetMergePolicy** - allows to merge similar PodSets into a single PodTemplate used by the ProvisioningRequest.
+- **podSetUpdates** - allows to update the Workload's PodSets with nodeSelectors based on the successful ProvisioningRequest.
+  This allows to restrict scheduling of the PodSets' pods to the newly provisioned nodes.
+
+#### PodSet merge policy
 
 {{% alert title="Note" color="primary" %}}
 `podSetMergePolicy` feature is available in Kueue v0.12.0 version or newer.
@@ -81,6 +85,8 @@ For example, setting the field as either `IdenticalPodTemplates` or `IdenticalWo
 allows to create a ProvisioningRequest with a single PodTemplate when using PyTorchJob as in this sample: [`sample-pytorchjob.yaml`](/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob). 
 {{% /alert %}}
 
+#### Retry strategy
+
 If a ProvisioningRequest fails, it may be retried after a backoff period.
 The backoff time (in seconds) is calculated using the following formula, where `n` is the retry number (starting at 1):
 
@@ -90,6 +96,31 @@ time = min(backoffBaseSeconds^n, backoffMaxSeconds)
 
 When a ProvisioningRequest fails, the quota reserved for a Workload is released, and the Workload needs to restart the
 admission cycle.
+
+#### PodSet updates
+
+In order to restrict scheduling of the workload's Pods to the newly provisioned
+nodes you can use the "podSetUpdates" API which allows to inject node selectors
+to target the nodes.
+
+For example:
+
+```yaml
+podSetUpdates:
+  nodeSelector:
+  - key: autoscaling.cloud-provider.com/provisioning-request
+    valueFromProvisioningClassDetail: RequestKey
+```
+
+This snippet in ProvisioningRequestConfig instructs Kueue to update the Job's
+PodTemplate, after provisioning, to target the newly provisioned nodes which
+have the label: `autoscaling.cloud-provider.com/provisioning-request` with the
+value coming from the [ProvisiongClassDetails](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1/types.go#L169) map, under the "RequestKey" key.
+
+Note that, this assumes the provisioning class (which can be cloud-provider
+specific) supports setting unique node label on the newly provisioned nodes.
+
+#### Reference
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
 
