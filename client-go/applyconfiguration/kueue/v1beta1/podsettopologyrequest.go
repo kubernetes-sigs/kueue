@@ -20,12 +20,14 @@ package v1beta1
 // PodSetTopologyRequestApplyConfiguration represents a declarative configuration of the PodSetTopologyRequest type for use
 // with apply.
 type PodSetTopologyRequestApplyConfiguration struct {
-	Required           *string `json:"required,omitempty"`
-	Preferred          *string `json:"preferred,omitempty"`
-	Unconstrained      *bool   `json:"unconstrained,omitempty"`
-	PodIndexLabel      *string `json:"podIndexLabel,omitempty"`
-	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
-	SubGroupCount      *int32  `json:"subGroupCount,omitempty"`
+	Required                    *string `json:"required,omitempty"`
+	Preferred                   *string `json:"preferred,omitempty"`
+	Unconstrained               *bool   `json:"unconstrained,omitempty"`
+	PodIndexLabel               *string `json:"podIndexLabel,omitempty"`
+	SubGroupIndexLabel          *string `json:"subGroupIndexLabel,omitempty"`
+	SubGroupCount               *int32  `json:"subGroupCount,omitempty"`
+	PodSetChunkRequiredTopology *string `json:"podSetChunkRequiredTopology,omitempty"`
+	PodSetChunkSize             *int32  `json:"podSetChunkSize,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with
@@ -79,5 +81,21 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupIndexLabel(value s
 // If called multiple times, the SubGroupCount field is set to the value of the last call.
 func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupCount(value int32) *PodSetTopologyRequestApplyConfiguration {
 	b.SubGroupCount = &value
+	return b
+}
+
+// WithPodSetChunkRequiredTopology sets the PodSetChunkRequiredTopology field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetChunkRequiredTopology field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetChunkRequiredTopology(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetChunkRequiredTopology = &value
+	return b
+}
+
+// WithPodSetChunkSize sets the PodSetChunkSize field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetChunkSize field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetChunkSize(value int32) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetChunkSize = &value
 	return b
 }
