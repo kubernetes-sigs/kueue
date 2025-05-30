@@ -184,14 +184,9 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
-	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
-	workload.ResetChecksOnEviction(w, p.clock.Now())
-	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
 	workload.SetPreemptedCondition(w, reason, message)
-	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
-	}
-	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
+	err := workload.EvictWorkload(ctx, p.client, p.clock, p.recorder, w, w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, kueue.WorkloadEvictedByPreemption, message, "")
+	return err
 }
 
 type preemptionAttemptOpts struct {
