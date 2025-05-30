@@ -18,6 +18,7 @@ package testing
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -1449,9 +1450,7 @@ func (prc *ProvisioningRequestConfigWrapper) Parameters(parameters map[string]ku
 		prc.Spec.Parameters = make(map[string]kueue.Parameter, len(parameters))
 	}
 
-	for key, value := range parameters {
-		prc.Spec.Parameters[key] = value
-	}
+	maps.Copy(prc.Spec.Parameters, parameters)
 
 	return prc
 }

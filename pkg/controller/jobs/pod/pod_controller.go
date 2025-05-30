@@ -225,11 +225,9 @@ func (p *Pod) isUnretriableGroup() bool {
 		return *p.unretriableGroup
 	}
 
-	for _, pod := range p.list.Items {
-		if isUnretriablePod(pod) {
-			p.unretriableGroup = ptr.To(true)
-			return true
-		}
+	if slices.ContainsFunc(p.list.Items, isUnretriablePod) {
+		p.unretriableGroup = ptr.To(true)
+		return true
 	}
 
 	p.unretriableGroup = ptr.To(false)

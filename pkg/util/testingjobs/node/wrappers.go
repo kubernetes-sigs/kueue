@@ -17,6 +17,8 @@ limitations under the License.
 package node
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -72,9 +74,7 @@ func (n *NodeWrapper) StatusAllocatable(resources corev1.ResourceList) *NodeWrap
 	if n.Status.Allocatable == nil {
 		n.Status.Allocatable = make(corev1.ResourceList, len(resources))
 	}
-	for rName, rQuantity := range resources {
-		n.Status.Allocatable[rName] = rQuantity
-	}
+	maps.Copy(n.Status.Allocatable, resources)
 	return n
 }
 

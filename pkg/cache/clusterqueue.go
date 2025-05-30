@@ -592,10 +592,8 @@ func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 
 func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	for _, rg := range c.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			if flavor == fName {
-				return true
-			}
+		if slices.Contains(rg.Flavors, flavor) {
+			return true
 		}
 	}
 	return false

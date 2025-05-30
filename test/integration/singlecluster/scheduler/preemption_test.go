@@ -420,7 +420,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority", func() {
 			var betaWls []*kueue.Workload
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				wl := testing.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
 					Queue(kueue.LocalQueueName(betaLQ.Name)).
 					Request(corev1.ResourceCPU, "2").

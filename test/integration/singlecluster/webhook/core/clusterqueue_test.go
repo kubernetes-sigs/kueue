@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			ginkgo.Entry("Should have valid resources quantity",
 				func() *kueue.ClusterQueue {
 					flvQuotas := testing.MakeFlavorQuotas("flavor")
-					for i := 0; i < resourcesMaxItems+1; i++ {
+					for i := range resourcesMaxItems + 1 {
 						flvQuotas = flvQuotas.Resource(corev1.ResourceName(fmt.Sprintf("r%d", i)))
 					}
 					return testing.MakeClusterQueue("cluster-queue").ResourceGroup(*flvQuotas.Obj()).Obj()

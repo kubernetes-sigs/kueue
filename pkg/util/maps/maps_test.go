@@ -53,9 +53,7 @@ func TestToRefMap(t *testing.T) {
 			}
 
 			if len(tc.updatesMap) > 0 {
-				for k, v := range tc.updatesMap {
-					result[k] = v
-				}
+				maps.Copy(result, tc.updatesMap)
 				if diff := cmp.Diff(tc.orig, result); diff == "" {
 					t.Errorf("changing the result should not alter the original")
 				}
