@@ -35,10 +35,11 @@ func main() {
 	}
 	defer func() {
 		// Sync logger and handle errors, ignoring specific non-critical errors for console outputs.
-		// Ignores syscall.ENOTTY (MacOS: "inappropriate ioctl for device") and syscall.EINVAL (Linux: "invalid argument")
-		// when syncing to non-file descriptors like /dev/stderr or /dev/stdout.
-		if err := logger.Sync(); err != nil && !errors.Is(err, syscall.ENOTTY) && !errors.Is(err, syscall.EINVAL) {
-			log.Printf("Error syncing logger: %v", err)
+		// Ignores syscall.ENOTTY (MacOS: "inappropriate ioctl for device"), syscall.EBADF (MacOS: "bad file descriptor")
+		// and syscall.EINVAL (Linux: "invalid argument") when syncing to non-file descriptors like
+		// /dev/stderr or /dev/stdout.
+		if err := logger.Sync(); err != nil && !errors.Is(err, syscall.ENOTTY) && !errors.Is(err, syscall.EBADF) && !errors.Is(err, syscall.EINVAL) {
+			log.Fatalf("Error syncing logger: %v", err)
 		}
 	}()
 	yamlproc.SetLogger(logger)
