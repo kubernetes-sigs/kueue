@@ -1059,7 +1059,7 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "launcher",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+							corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
@@ -1345,8 +1345,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
-						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9"),
@@ -1760,8 +1760,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
-						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9"),
