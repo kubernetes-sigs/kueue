@@ -18,6 +18,8 @@ package main
 
 import (
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"syscall"
@@ -29,7 +31,20 @@ import (
 )
 
 func main() {
-	logger, err := newLogger()
+	var logLevel string
+
+	flag.StringVar(&logLevel, "zap-log-level", "info", "Minimum enabled logging level")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: yaml-processor <processing-plan.yaml>\n")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	logger, err := newLogger(logLevel)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
@@ -44,12 +59,7 @@ func main() {
 	}()
 	yamlproc.SetLogger(logger)
 
-	if len(os.Args) < 2 {
-		logger.Fatal("Usage: ./yaml-processor <processing-plan.yaml>")
-	}
-
-	planPath := os.Args[1]
-	processingPlan, err := yamlproc.LoadProcessingPlan(planPath)
+	processingPlan, err := yamlproc.LoadProcessingPlan(flag.Arg(0))
 	if err != nil {
 		logger.Fatal("Failed to load processing plan", zap.Error(err))
 	}
@@ -61,8 +71,14 @@ func main() {
 	fileProcessor.ProcessPlan(*processingPlan)
 }
 
-func newLogger() (*zap.Logger, error) {
+func newLogger(logLevel string) (*zap.Logger, error) {
+	atomicLevel, err := zap.ParseAtomicLevel(logLevel)
+	if err != nil {
+		return nil, err
+	}
+
 	loggerConfig := zap.NewProductionConfig()
+	loggerConfig.Level = atomicLevel
 	loggerConfig.Encoding = "console"
 	loggerConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
