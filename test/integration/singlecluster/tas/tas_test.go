@@ -1318,8 +1318,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
-					// We set quota above what is physically available to hit
-					// the topology requirements rather quota.
+					// We set the quota above what is physically available to meet
+					// the topology requirements rather than the quota.
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).
 						Resource(corev1.ResourceCPU, "20").
 						Resource(corev1.ResourceMemory, "20Gi").Obj()).
@@ -1502,9 +1502,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("creating a workload in CQB which reclaims its quota", func() {
-					// Note that workload wl2 would still fit within regular quota
-					// without preempting wl1. However, there is only 1CPU left
-					// on both nodes, and so wl1 needs to be preempted  to allow
+					// Note that workload wl2 would still fit within the regular quota
+					// without preempting wl1. However, there is only 1 CPU left
+					// on both nodes, so wl1 needs to be preempted to allow
 					// scheduling of wl2.
 					wl2 = testing.MakeWorkload("wl2", ns.Name).
 						Priority(2).
