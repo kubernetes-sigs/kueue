@@ -28,9 +28,11 @@ GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 # Image URL to use all building/pushing image targets
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
-PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+PLATFORMS ?= linux/amd64,linux/arm64
+MULTIARCH_PLATFORMS ?= linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
-VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+VIZ_PLATFORMS ?= linux/amd64,linux/arm64
+VIZ_PLATFORMS_MULTIARCH ?= linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
@@ -251,6 +253,18 @@ image-build:
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
+.PHONY: image-build-multiarch
+image-build-multiarch:
+	$(IMAGE_BUILD_CMD) -t $(IMAGE_TAG) \
+		--platform=$(MULTIARCH_PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) ./
+
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
@@ -394,6 +408,28 @@ importer-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
+# Build the kueueviz dashboard multiarch images (frontend and backend)
+.PHONY: kueueviz-multiarch-image-build
+kueueviz-multiarch-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG_KUEUEVIZ_BACKEND) \
+		--platform=$(VIZ_PLATFORMS_MULTIARCH) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_BACKEND) \
+		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend; \
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
+		--platform=$(VIZ_PLATFORMS_MULTIARCH) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS_KUEUEVIZ_FRONTEND) \
+		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend; \
+
+.PHONY: kueueviz-multiarch-image-push
+kueueviz-multiarch-image-push: PUSH=--push
+kueueviz-multiarch-image-push: kueueviz-multiarch-image-build
 
 # Build the kueueviz dashboard images (frontend and backend)
 .PHONY: kueueviz-image-build
