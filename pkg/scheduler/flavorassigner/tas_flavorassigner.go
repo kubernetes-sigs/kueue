@@ -44,7 +44,12 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// we add it to the list of TASRequests
 				continue
 			}
-			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {
+			tasFlvr, err := onlyFlavor(psAssignment.Flavors)
+			if err != nil {
+				psAssignment.error(err)
+				continue
+			}
+			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr) {
 				psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
 				continue
 			}

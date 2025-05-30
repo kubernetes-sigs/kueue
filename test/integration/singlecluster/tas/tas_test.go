@@ -2339,6 +2339,206 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.When("Two TAS Flavors, ProvisioningRequest is used in second TAS flavor", func() {
+		var (
+			tasReservationFlavor  *kueue.ResourceFlavor
+			tasProvisioningFlavor *kueue.ResourceFlavor
+			topology              *kueuealpha.Topology
+			localQueue            *kueue.LocalQueue
+			clusterQueue          *kueue.ClusterQueue
+			nodes                 []corev1.Node
+			ac                    *kueue.AdmissionCheck
+			prc                   *kueue.ProvisioningRequestConfig
+			createdRequest        autoscaling.ProvisioningRequest
+		)
+
+		ginkgo.BeforeEach(func() {
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("node-group", "tas-reservation").
+					Label(testing.DefaultBlockTopologyLevel, "b1").
+					Label(testing.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+
+			topology = testing.MakeDefaultThreeLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasReservationFlavor = testing.MakeResourceFlavor("tas-reservation-flavor").
+				NodeLabel("node-group", "tas-reservation").
+				TopologyName("default").
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasReservationFlavor)
+
+			tasProvisioningFlavor = testing.MakeResourceFlavor("tas-provisioning-flavor").
+				NodeLabel("node-group", "tas-provisioning").
+				TopologyName("default").
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasProvisioningFlavor)
+
+			prc = testing.MakeProvisioningRequestConfig("prov-config").
+				ProvisioningClass("provisioning-class").
+				RetryLimit(1).
+				BaseBackoff(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, prc)
+
+			ac = testing.MakeAdmissionCheck("provisioning").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, ac)
+			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			clusterQueue = testing.MakeClusterQueue("cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(tasReservationFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+					*testing.MakeFlavorQuotas(tasProvisioningFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).AdmissionCheckStrategy(kueue.AdmissionCheckStrategyRule{
+				Name: kueue.AdmissionCheckReference(ac.Name),
+				OnFlavors: []kueue.ResourceFlavorReference{
+					kueue.ResourceFlavorReference(tasProvisioningFlavor.Name),
+				},
+			}).Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasReservationFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasProvisioningFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &createdRequest, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			}
+		})
+
+		ginkgo.It("should admit workload to reservation when available capacity and fallback to provisioning if not", func() {
+			var (
+				wl1, wl2 *kueue.Workload
+			)
+
+			ginkgo.By("creating a workload1 which can fit into reservation", func() {
+				wl1 = testing.MakeWorkload("wl1", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+				wl1.Spec.PodSets[0] = *testing.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").
+					PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+					Image("image").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("verify the workload reserves the quota and gets admitted", func() {
+				util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, 1)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			})
+
+			ginkgo.By("creating a workload1 which fallbacks to the provisioning flavor", func() {
+				wl2 = testing.MakeWorkload("wl2", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+				wl2.Spec.PodSets[0] = *testing.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").
+					PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+					Image("image").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl2)
+			})
+
+			wlKey := client.ObjectKeyFromObject(wl2)
+			provReqKey := apitypes.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("provision the nodes which are ready", func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas-provisioning").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:  resource.MustParse("5"),
+							corev1.ResourcePods: resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			})
+
+			ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify admission for the workload contains the TopologyAssignment", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl2)).To(gomega.Succeed())
+					g.Expect(wl2.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(wl2.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeEquivalentTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{
+								corev1.LabelHostname,
+							},
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 5,
+									Values: []string{
+										"x2",
+									},
+								},
+							},
+						},
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			})
+		})
+	})
+
 	ginkgo.When("Multiple TAS Resource Flavors in queue", func() {
 		var (
 			tasGPUFlavor *kueue.ResourceFlavor
