@@ -1,0 +1,16 @@
+# permissions for end users to view cohorts.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cohort-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - cohorts
+  verbs:
+  - get
+  - list
+  - watch

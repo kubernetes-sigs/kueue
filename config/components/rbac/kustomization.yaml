@@ -33,6 +33,8 @@ resources:
 - topology_viewer_role.yaml
 - workload_editor_role.yaml
 - workload_viewer_role.yaml
+- cohort_editor_role.yaml
+- cohort_viewer_role.yaml
 
 # ClusterRoles for Kueue integrations
 - job_editor_role.yaml
