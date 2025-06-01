@@ -354,7 +354,8 @@ objectRetentionPolicies:
 		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
-				Port: configapi.DefaultWebhookPort,
+				Port:    configapi.DefaultWebhookPort,
+				CertDir: configapi.DefaultWebhookCertDir,
 			},
 		},
 	}
@@ -444,7 +445,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -518,7 +520,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: 9444,
+						Port:    9444,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -598,7 +601,8 @@ objectRetentionPolicies:
 				LeaderElection:                false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -646,7 +650,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -760,7 +765,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -801,7 +807,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -861,7 +868,8 @@ objectRetentionPolicies:
 				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
-						Port: configapi.DefaultWebhookPort,
+						Port:    configapi.DefaultWebhookPort,
+						CertDir: configapi.DefaultWebhookCertDir,
 					},
 				},
 			},
@@ -1031,7 +1039,8 @@ func TestEncode(t *testing.T) {
 				"kind":       "Configuration",
 				"namespace":  configapi.DefaultNamespace,
 				"webhook": map[string]any{
-					"port": int64(configapi.DefaultWebhookPort),
+					"port":    int64(configapi.DefaultWebhookPort),
+					"certDir": configapi.DefaultWebhookCertDir,
 				},
 				"metrics": map[string]any{
 					"bindAddress": configapi.DefaultMetricsBindAddress,
