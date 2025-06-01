@@ -35,6 +35,7 @@ const (
 	DefaultWebhookServiceName                           = "kueue-webhook-service"
 	DefaultWebhookSecretName                            = "kueue-webhook-server-cert"
 	DefaultWebhookPort                                  = 9443
+	DefaultWebhookCertDir                               = "/tmp/k8s-webhook-server/serving-certs"
 	DefaultHealthProbeBindAddress                       = ":8081"
 	DefaultMetricsBindAddress                           = ":8443"
 	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
@@ -73,6 +74,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.Webhook.Port == nil {
 		cfg.Webhook.Port = ptr.To(DefaultWebhookPort)
+	}
+	if cfg.Webhook.CertDir == "" {
+		cfg.Webhook.CertDir = DefaultWebhookCertDir
 	}
 	if len(cfg.Metrics.BindAddress) == 0 {
 		cfg.Metrics.BindAddress = DefaultMetricsBindAddress

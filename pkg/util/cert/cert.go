@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	certDir        = "/tmp/k8s-webhook-server/serving-certs"
 	vwcName        = "kueue-validating-webhook-configuration"
 	mwcName        = "kueue-mutating-webhook-configuration"
 	caName         = "kueue-ca"
@@ -49,7 +48,7 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 			Namespace: *cfg.Namespace,
 			Name:      *cfg.InternalCertManagement.WebhookSecretName,
 		},
-		CertDir:        certDir,
+		CertDir:        cfg.Webhook.CertDir,
 		CAName:         caName,
 		CAOrganization: caOrganization,
 		DNSName:        dnsName,
