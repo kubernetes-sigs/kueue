@@ -1086,7 +1086,7 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 			condition.Status = newCondition.Status
 			condition.LastTransitionTime = newCondition.LastTransitionTime
 			changed = true
-		case condition.LastTransitionTime != newCondition.LastTransitionTime:
+		case (condition.LastTransitionTime != newCondition.LastTransitionTime) && !newCondition.LastTransitionTime.IsZero():
 			condition.LastTransitionTime = newCondition.LastTransitionTime
 			changed = true
 		}
