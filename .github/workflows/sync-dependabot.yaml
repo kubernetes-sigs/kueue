@@ -36,7 +36,7 @@ jobs:
             - name: Sync controller-tools version
               if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
               run: |
-                make manifests
+                make manifests update-helm
                 if ! git diff --exit-code; then
                   git add .
                   git commit -m "Sync controller-tools version"
