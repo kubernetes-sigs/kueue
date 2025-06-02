@@ -175,6 +175,12 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+
+	// owner: @mykysha
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
+	//
+	// Finalizers are removed using a strict patch not to cause race conditions.
+	RemoveFinalizersWithStrictPatch featuregate.Feature = "RemoveFinalizersWithStrictPatch"
 )
 
 func init() {
@@ -273,6 +279,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RemoveFinalizersWithStrictPatch: {
+		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
