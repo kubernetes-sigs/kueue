@@ -993,9 +993,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
 					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
-						Type:               corev1.NodeReady,
-						Status:             corev1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(time.Now()),
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionFalse,
 					})
 				})
 
