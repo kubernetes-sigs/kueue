@@ -915,6 +915,43 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
 		},
+		"host required; single Pod fits in the largest host; LeastFreeCapacityFit": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 2,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 2,
+					Values: []string{
+					"x6",
+					},
+				},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+		},
+		"host required; no single host fits all pods, expect notFitMessage; LeastFreeCapacityFit": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 3,
+			wantAssignment: nil,
+			wantReason:         `topology "default" allows to fit only 2 out of 3 pod(s)`,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+	},
 		"host preferred; single Pod fits in the host; BestFit; TASProfileMixed": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
