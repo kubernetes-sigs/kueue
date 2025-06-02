@@ -1072,7 +1072,6 @@ func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectK
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-// conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, time time.Time
 func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, newCondition *corev1.NodeCondition) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var updatedNode corev1.Node
@@ -1084,6 +1083,9 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 			changed = true
 		} else if condition.Status != newCondition.Status {
 			condition.Status = newCondition.Status
+			condition.LastTransitionTime = newCondition.LastTransitionTime
+			changed = true
+		} else if condition.LastTransitionTime != newCondition.LastTransitionTime {
 			condition.LastTransitionTime = newCondition.LastTransitionTime
 			changed = true
 		}
