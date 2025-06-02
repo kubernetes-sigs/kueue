@@ -137,9 +137,8 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 			ginkgo.DeferCleanup(func() {
 				ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name))
 				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(time.Now()),
+					Type:   corev1.NodeReady,
+					Status: corev1.ConditionTrue,
 				})
 			})
 
@@ -191,9 +190,8 @@ var _ = ginkgo.Describe("NodeFailure Controller", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, originalNode)
 
 				util.SetNodeCondition(ctx, k8sClient, originalNode, &corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(time.Now()),
+					Type:   corev1.NodeReady,
+					Status: corev1.ConditionTrue,
 				})
 			})
 
