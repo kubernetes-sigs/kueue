@@ -149,19 +149,19 @@ const (
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// Enable to set use LeastAlloactedFit algorithm for TAS
+	// Enable to set use MostFreeCapacity algorithm for TAS
 	TASProfileMostFreeCapacity featuregate.Feature = "TASProfileMostFreeCapacity"
 
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// Enable to set use LeastAlloactedFit algorithm for TAS
+	// Enable to set use LeastFreeCapacity algorithm for TAS
 	TASProfileLeastFreeCapacity featuregate.Feature = "TASProfileLeastFreeCapacity"
 
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// Enable to set use LeastAlloactedFit algorithm for TAS
+	// Enable to set use Mixed algorithm (BestFit or LeastFreeCapacity) for TAS which switch the algorithm based on TAS requirements level.
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
 
 	// owner: @mwielgus
