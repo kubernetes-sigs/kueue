@@ -51,6 +51,10 @@ A mechanism allowing internal or external components to influence the timing of 
 A mechanism allowing to schedule Workloads optimizing Pod placement for
 network throughput between the Pods.
 
+### [Admission Fair Sharing](/docs/concepts/admission_fair_sharing)
+
+A mechanism allowing to ordering Workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
+
 ## Glossary
 
 ### Quota Reservation
