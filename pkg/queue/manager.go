@@ -791,6 +791,9 @@ func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
 	if workload.NeedsSecondPass(w) {
 		m.clock.AfterFunc(time.Second, func() {
+			if ctx.Err() != nil {
+				return
+			}
 			m.queueSecondPass(ctx, w)
 		})
 		return true
