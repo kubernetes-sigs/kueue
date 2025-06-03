@@ -914,44 +914,27 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
+	slices.SortFunc(result, func(a, b *domain) int {
+		if a.state == b.state {
+			return slices.Compare(a.levelValues, b.levelValues)
+		}
+		if a.chunkState == b.chunkState {
+			return cmp.Compare(a.state, b.state)
+		}
 
-	switch {
-	case useBestFitAlgorithm(unconstrained):
-		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
-	case useLeastFreeCapacityAlgorithm(unconstrained):
-		slices.SortFunc(result, sortDomainsForLeastFreeCapacity)
-	default:
-		slices.SortFunc(result, sortDomainsForMostFreeCapacity)
-	}
+		if isLeastFreeCapacity {
+			// Start from the domain with the least amount of free resources.
+			// Ascending order.
+			return cmp.Compare(a.chunkState, b.chunkState)
+		}
+
+		// Descending order.
+		return cmp.Compare(b.chunkState, a.chunkState)
+	})
 
 	return result
-}
-
-func sortDomainsForMostFreeCapacity(a, b *domain) int {
-	if a.chunkState == b.chunkState {
-		if a.state == b.state {
-			return slices.Compare(a.levelValues, b.levelValues)
-		}
-
-		// ascending order within the same chunk capacity, to possibly get the tight fit in the first domain
-		return cmp.Compare(a.state, b.state)
-	}
-	// descending order to prioritize most free capacity
-	return cmp.Compare(b.chunkState, a.chunkState)
-}
-
-func sortDomainsForLeastFreeCapacity(a, b *domain) int {
-	if a.chunkState == b.chunkState {
-		if a.state == b.state {
-			// reversed order for backwards compatibility
-			return slices.Compare(a.levelValues, b.levelValues)
-		}
-		// ascending order within the same chunk capacity, to possibly get the tight fit in the first domain
-		return cmp.Compare(a.state, b.state)
-	}
-	// ascending order to prioritize domains with least free capacity
-	return cmp.Compare(a.chunkState, b.chunkState)
 }
 
 func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
