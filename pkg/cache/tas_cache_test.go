@@ -2725,7 +2725,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 2,
 						Values: []string{
-							"x4",
+							"x1",
 						},
 					},
 					{

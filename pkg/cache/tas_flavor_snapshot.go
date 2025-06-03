@@ -945,7 +945,7 @@ func sortDomainsForLeastFreeCapacity(a, b *domain) int {
 	if a.chunkState == b.chunkState {
 		if a.state == b.state {
 			// reversed order for backwards compatibility
-			return slices.Compare(b.levelValues, a.levelValues)
+			return slices.Compare(a.levelValues, b.levelValues)
 		}
 		// ascending order within the same chunk capacity, to possibly get the tight fit in the first domain
 		return cmp.Compare(a.state, b.state)
