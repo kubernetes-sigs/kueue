@@ -808,18 +808,20 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 }
 
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		if a.state == b.state {
 			return slices.Compare(a.levelValues, b.levelValues)
 		}
-		// descending order.
+		if isLeastFreeCapacity {
+			// Start from the domain with the least amount of free resources.
+			// Ascending order.
+			return cmp.Compare(a.state, b.state)
+		}
+		// Descending order.
 		return cmp.Compare(b.state, a.state)
 	})
-	if useLeastFreeCapacityAlgorithm(unconstrained) {
-		// start from the domain with the least amount of free resources
-		slices.Reverse(result)
-	}
 	return result
 }
 
