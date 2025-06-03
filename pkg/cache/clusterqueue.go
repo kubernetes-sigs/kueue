@@ -638,6 +638,20 @@ func (c *clusterQueue) isTASOnly() bool {
 	return true
 }
 
-func (c *clusterQueue) hasProvRequestAdmissionCheck() bool {
-	return len(c.provisioningAdmissionChecks) > 0
+func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
+	flvs := sets.New[kueue.ResourceFlavorReference]()
+	for _, ac := range c.provisioningAdmissionChecks {
+		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
+	}
+	return flvs
+}
+
+func (c *clusterQueue) flavorsForAdmissionCheck(ac kueue.AdmissionCheckReference) sets.Set[kueue.ResourceFlavorReference] {
+	flvs := sets.New(c.AdmissionChecks[ac].UnsortedList()...)
+	if len(c.AdmissionChecks[ac]) == 0 {
+		for _, rg := range c.ResourceGroups {
+			flvs.Insert(rg.Flavors...)
+		}
+	}
+	return flvs
 }

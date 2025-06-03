@@ -4643,6 +4643,83 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 		},
+		"workload in CQ with two TAS flavors, only the second is using Provisioning Admission Check": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-group", "reservation").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltesting.MakeResourceFlavor("tas-reservation").
+					NodeLabel("tas-group", "reservation").
+					TopologyName("tas-single-level").
+					Obj(),
+				*utiltesting.MakeResourceFlavor("tas-provisioning").
+					NodeLabel("tas-group", "provisioning").
+					TopologyName("tas-single-level").
+					Obj()},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("tas-reservation").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+						*utiltesting.MakeFlavorQuotas("tas-provisioning").
+							Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionCheckStrategy(kueue.AdmissionCheckStrategyRule{
+						Name: "prov-check",
+						OnFlavors: []kueue.ResourceFlavorReference{
+							kueue.ResourceFlavorReference("tas-provisioning"),
+						},
+					}).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-reservation", "1000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 		"workload with nodeToReplace annotation; second pass; baseline scenario": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
