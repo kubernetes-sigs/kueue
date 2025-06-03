@@ -1,3 +1,15 @@
+## v0.11.6
+
+Changes since `v0.11.5`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix a bug that would allow a user to bypass localQueueDefaulting. (#5478, @dgrove-oss)
+- RBAC permissions for the Cohort API to update & read by admins are now created out of the box. (#5434, @vladikkuzn)
+- TAS: Fix a bug that LeastFreeCapacity Algorithm does not respect level ordering (#5468, @tenzen-y)
+
 ## v0.11.5
 
 Changes since `v0.11.4`:
