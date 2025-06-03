@@ -1,3 +1,17 @@
+## v0.12.2
+
+Changes since `v0.12.1`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix a bug that would allow a user to bypass localQueueDefaulting. (#5460, @dgrove-oss)
+- Helm: Fix a templating bug when configuring managedJobsNamespaceSelector. (#5396, @mtparet)
+- RBAC permissions for the Cohort API to update & read by admins are now created out of the box. (#5433, @vladikkuzn)
+- TAS: Fix a bug that LeastFreeCapacity Algorithm does not respect level ordering (#5470, @tenzen-y)
+- TAS: Fix bug which prevented admitting any workloads if the first resource flavor is reservation, and the fallback is using ProvisioningRequest. (#5462, @mimowo)
+
 ## v0.12.1
 
 Changes since `v0.12.0`:
