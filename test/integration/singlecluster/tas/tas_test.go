@@ -992,14 +992,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("making the node NotReady", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
-					for i, cond := range nodeToUpdate.Status.Conditions {
-						if cond.Type == corev1.NodeReady {
-							nodeToUpdate.Status.Conditions[i].Status = corev1.ConditionFalse
-							nodeToUpdate.Status.Conditions[i].LastTransitionTime = metav1.NewTime(time.Now())
-							break
-						}
-					}
-					gomega.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionFalse,
+					})
 				})
 
 				ginkgo.By("verify the workload does not have the NodeToReplaceAnnotation", func() {

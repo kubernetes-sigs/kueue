@@ -1078,16 +1078,19 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
 		condition := utilnode.GetNodeCondition(&updatedNode, newCondition.Type)
 		changed := false
-		switch {
-		case condition == nil:
+		if condition == nil {
 			updatedNode.Status.Conditions = append(updatedNode.Status.Conditions, *newCondition)
 			changed = true
-		case condition.Status != newCondition.Status:
-			condition.Status = newCondition.Status
+		}
+		if newCondition.LastTransitionTime.IsZero() {
+			condition.LastTransitionTime = metav1.Now()
+			changed = true
+		} else if condition.LastTransitionTime != newCondition.LastTransitionTime {
 			condition.LastTransitionTime = newCondition.LastTransitionTime
 			changed = true
-		case (condition.LastTransitionTime != newCondition.LastTransitionTime) && !newCondition.LastTransitionTime.IsZero():
-			condition.LastTransitionTime = newCondition.LastTransitionTime
+		}
+		if condition.Status != newCondition.Status {
+			condition.Status = newCondition.Status
 			changed = true
 		}
 		if changed {
