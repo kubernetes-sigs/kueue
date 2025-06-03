@@ -556,13 +556,13 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"x3",
+							"x2",
 						},
 					},
 					{
 						Count: 1,
 						Values: []string{
-							"x5",
+							"x3",
 						},
 					},
 				},
@@ -712,7 +712,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"x5",
+							"x1",
 						},
 					},
 				},
@@ -735,7 +735,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"x5",
+							"x1",
 						},
 					},
 				},
@@ -863,7 +863,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"x5",
+							"x1",
 						},
 					},
 				},
@@ -979,7 +979,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 					{
 						Count: 1,
 						Values: []string{
-							"x5",
+							"x1",
 						},
 					},
 				},
