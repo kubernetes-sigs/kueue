@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -366,7 +367,7 @@ objectRetentionPolicies:
 	}
 
 	ctrlOptsCmpOpts := cmp.Options{
-		cmpopts.IgnoreUnexported(ctrl.Options{}),
+		cmpopts.IgnoreUnexported(ctrl.Options{}, logr.Logger{}),
 		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
 		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
 		cmpopts.IgnoreUnexported(net.ListenConfig{}),
