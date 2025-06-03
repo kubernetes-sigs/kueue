@@ -928,12 +928,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 			wantAssignment: &kueue.TopologyAssignment{
 				Levels: defaultOneLevel,
 				Domains: []kueue.TopologyDomainAssignment{
-				{
-					Count: 2,
-					Values: []string{
-					"x6",
+					{
+						Count: 2,
+						Values: []string{
+							"x6",
+						},
 					},
-				},
 				},
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
@@ -947,11 +947,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count: 3,
-			wantAssignment: nil,
+			count:              3,
+			wantAssignment:     nil,
 			wantReason:         `topology "default" allows to fit only 2 out of 3 pod(s)`,
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
-	},
+		},
 		"host preferred; single Pod fits in the host; BestFit; TASProfileMixed": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{

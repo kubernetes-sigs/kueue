@@ -697,18 +697,18 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	levelDomains := slices.Collect(maps.Values(domains))
 	sortedDomain := s.sortedDomains(levelDomains, unconstrained)
 
-    if required && useLeastFreeCapacityAlgorithm(unconstrained) {
-        for _, candidateDomain := range sortedDomain {
-            if candidateDomain.state >= count {
-                return levelIdx, []*domain{candidateDomain}, ""
-            }
-        }
-        var maxCapacityFound int32 = 0
-        if len(sortedDomain) > 0 {
-             maxCapacityFound = sortedDomain[len(sortedDomain)-1].state
-        }
-        return 0, nil, s.notFitMessage(maxCapacityFound, count)
-    }
+	if required && useLeastFreeCapacityAlgorithm(unconstrained) {
+		for _, candidateDomain := range sortedDomain {
+			if candidateDomain.state >= count {
+				return levelIdx, []*domain{candidateDomain}, ""
+			}
+		}
+		var maxCapacityFound int32 = 0
+		if len(sortedDomain) > 0 {
+			maxCapacityFound = sortedDomain[len(sortedDomain)-1].state
+		}
+		return 0, nil, s.notFitMessage(maxCapacityFound, count)
+	}
 
 	topDomain := sortedDomain[0]
 	if useBestFitAlgorithm(unconstrained) && topDomain.state >= count {
