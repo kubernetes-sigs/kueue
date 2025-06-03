@@ -37,8 +37,8 @@ import (
 type ClusterQueueSnapshot struct {
 	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
+	Workloads         map[workload.WorkloadReference]*workload.Info
+	WorkloadsNotReady sets.Set[workload.WorkloadReference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FairWeight        resource.Quantity
