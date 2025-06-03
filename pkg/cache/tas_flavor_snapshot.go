@@ -728,22 +728,14 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 }
 
 func useBestFitAlgorithm(unconstrained bool) bool {
-	if features.Enabled(features.TASProfileMostFreeCapacity) ||
-		features.Enabled(features.TASProfileLeastFreeCapacity) ||
-		(unconstrained && features.Enabled(features.TASProfileMixed)) {
-		// following the matrix from KEP#2724
-		return false
-	}
-	return true
+	// following the matrix from KEP#2724
+	return !features.Enabled(features.TASProfileMostFreeCapacity) && !useLeastFreeCapacityAlgorithm(unconstrained)
 }
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
-	if features.Enabled(features.TASProfileLeastFreeCapacity) ||
-		(unconstrained && features.Enabled(features.TASProfileMixed)) {
-		// following the matrix from KEP#2724
-		return true
-	}
-	return false
+	// following the matrix from KEP#2724
+	return features.Enabled(features.TASProfileLeastFreeCapacity) ||
+		(unconstrained && features.Enabled(features.TASProfileMixed))
 }
 
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, unconstrained bool) []*domain {
