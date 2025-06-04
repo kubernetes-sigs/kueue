@@ -103,16 +103,15 @@ to a TAS ResourceFlavor.
 TAS integrates with the [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 through the [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/).
 
-When a workload is assigned to the TAS Resource Flavor with Provisioning
+When a workload is assigned to the TAS ResourceFlavor with Provisioning
 AdmissionCheck, then its admission flow has the following stages:
-1. **Quota reservation**: quota is reserved, and the workload obtains the
-  `QuotaReserved` condtion. Preemptions are evaluated if configured.
-2. **Admission checks**: waiting for all AdmissionChecks, including the
-  Provisioning one, to report `Ready`.
-3. **Topology assignment**: TAS, in the second pass of the Kueue scheduler,
-  calculates available capacity, including any newly provisioned nodes, and
-  updates the assignment with the assignment of topology domains. Once done the
-  `Admitted` condition is set on the Workload.
+1. **Quota reservation**: quota is reserved, and the Workload obtains the
+  `QuotaReserved` condition. Preemptions are evaluated if configured.
+2. **Admission checks**: Kueue waits for all AdmissionChecks, including the
+  Provisioning one, to report `Ready` inside the Workload's
+  `status.admissionChecks` field.
+3. **Topology assignment**: Kueue sets topology assignment, on the Workload
+  object, calculated taking into account any newly provisioned nodes.
 
 Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/admission-check-controllers/provisioning.md)
 to see how you can configure Kueue if you want to restrict scheduling to the
@@ -125,8 +124,8 @@ features, including:
 - some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
 - the "podset-required-topology" annotation may fail if the underlying
   ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
-- a ClusterQueue referencing a TAS Resource Flavor (with the `.spec.topologyName`
-field) is marked as inactive if also using [MultiKueue](multikueue.md).
+- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
+with Topology name (`.spec.topologyName`) is marked as inactive.
 
 These usage scenarios are considered to be supported in the future releases
 of Kueue.
