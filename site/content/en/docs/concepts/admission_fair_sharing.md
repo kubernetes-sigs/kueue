@@ -3,7 +3,7 @@ title: "Admission Fair Sharing"
 date: 2025-05-28
 weight: 6
 description: >
-  A mechanism allowing to ordering Workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
+  A mechanism for ordering workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed fewer resources over time.
 ---
 
 # Admission Fair Sharing
