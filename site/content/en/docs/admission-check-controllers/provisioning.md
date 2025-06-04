@@ -61,9 +61,19 @@ Where:
 {{% alert title="Note" color="primary" %}}
 `podSetMergePolicy` feature is available in Kueue v0.12.0 version or newer.
 
-It offers two options: 
-- `IdenticalPodTemplates` - merges only identical PodTemplates 
-- `IdenticalWorkloadSchedulingRequirements`  - merges PodTemplates which have identical fields which are considered for defining the workload scheduling requirements.
+It offers two options:
+- `IdenticalPodTemplates` - merges only identical PodTemplates
+- `IdenticalWorkloadSchedulingRequirements` - merges PodTemplates which have
+  identical fields which are considered for defining the workload scheduling
+  requirements. The PodTemplate fields which are considered as workload
+  scheduling requirements: 
+  - `spec.containers[*].resources.requests`
+  - `spec.initContainers[*].resources.requests`
+  - `spec.resources`
+  - `spec.nodeSelector`
+  - `spec.tolerations`
+  - `spec.affinity`
+  - `resourceClaims`
 
 When the field is not set, the PodTemplates are not merged when creating the ProvisioningRequest, even if identical.
 
