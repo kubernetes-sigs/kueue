@@ -9,6 +9,7 @@ bin
 artifacts
 testbin/*
 .DS_Store
+go.work
 # Test binary, build with `go test -c`
 *.test
 
