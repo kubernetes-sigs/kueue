@@ -63,7 +63,7 @@ Where:
 
 It offers two options:
 - `IdenticalPodTemplates` - merges only identical PodTemplates
-- `IdenticalWorkloadSchedulingRequirements`  - merges PodTemplates which have
+- `IdenticalWorkloadSchedulingRequirements` - merges PodTemplates which have
   identical fields which are considered for defining the workload scheduling
   requirements. The PodTemplate fields which are considered as workload
   scheduling requirements: `spec.containers[*].resources.requests`,
