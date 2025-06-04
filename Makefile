@@ -224,9 +224,17 @@ image-build:
 image-push: PUSH=--push
 image-push: image-build
 
+.PHONY: helm-chart-package
+helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
+	DEST_CHART_DIR=$(DEST_CHART_DIR) \
+	HELM="$(HELM)" YQ="$(YQ)" EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" \
+	IMAGE_REGISTRY="$(IMAGE_REGISTRY)" IMAGE_REPO="$(IMAGE_REPO)" \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) HELM_CHART_REPO=$(HELM_CHART_REPO) \
+	./hack/helm-chart-package.sh
+
 .PHONY: helm-chart-push
-helm-chart-push: yq helm
-	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
+helm-chart-push: HELM_CHART_PUSH=true
+helm-chart-push: helm-chart-package
 
 # Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
@@ -269,8 +277,13 @@ site-server: hugo
 	(cd site; $(HUGO) server)
 
 ##@ Release
+.PHONY: clean-artifacts
+clean-artifacts:
+	if [ -d artifacts ]; then rm -rf artifacts; fi
+
 .PHONY: artifacts
-artifacts: kustomize yq helm ## Generate release artifacts.
+artifacts: DEST_CHART_DIR="artifacts"
+artifacts: clean-artifacts kustomize helm-chart-package ## Generate release artifacts.
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 	mkdir -p artifacts
@@ -280,13 +293,6 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	$(KUSTOMIZE) build config/visibility-apf -o artifacts/visibility-apf.yaml
 	@$(call clean-manifests)
-	# Update the image tag and policy
-	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
-	# create the package. TODO: consider signing it
-	$(HELM) package --version $(GIT_TAG) --app-version $(GIT_TAG) charts/kueue -d artifacts/
-	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
-	# Revert the image changes
-	$(YQ)  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/kueue/$(IMAGE_NAME)" | del(.controllerManager.manager.image.tag) | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
