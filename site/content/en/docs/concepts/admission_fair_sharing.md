@@ -8,7 +8,7 @@ description: >
 
 # Admission Fair Sharing
 
-Admission Fair Sharing is a mechanism introduced in Kueue v0.12.0 that helps distribute resources fairly between multiple LocalQueues targeting the same ClusterQueue. It orders workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
+Admission Fair Sharing is an alpha feature introduced in Kueue v0.12.0 that helps distribute resources fairly between multiple LocalQueues targeting the same ClusterQueue. It orders workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
 
 ## How it works
 
@@ -23,7 +23,7 @@ When multiple workloads compete for resources within a ClusterQueue:
 
 ### Feature Gate
 
-To use Admission Fair Sharing, the `AdmissionFairSharing` feature gate must be enabled. You can enable it by:
+Admission Fair Sharing is an alpha feature, in order to use it a feature gate must be enabled. You can enable it by:
 
 1. Setting the feature gate flag when starting kueue-controller:
 ```bash
