@@ -6,9 +6,18 @@ description: >
   A mechanism for ordering workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed fewer resources over time.
 ---
 
+{{< feature-state state="alpha" for_version="v0.12" >}}
+
+{{% alert title="Note" color="primary" %}}
+`AdmissionFairSharing` is currently an alpha feature and is not enabled by default.
+
+You can enable it by editing the `AdmissionFairSharing` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
+
+
 # Admission Fair Sharing
 
-Admission Fair Sharing is an alpha feature introduced in Kueue v0.12.0 that helps distribute resources fairly between multiple LocalQueues targeting the same ClusterQueue. It orders workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
+Admission Fair Sharing helps distribute resources fairly between multiple LocalQueues targeting the same ClusterQueue. It orders workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
 
 ## How it works
 
@@ -19,16 +28,6 @@ When multiple workloads compete for resources within a ClusterQueue:
 3. Usage values decay over time based on configurable parameters
 
 ## Configuration
-
-
-### Feature Gate
-
-Admission Fair Sharing is an alpha feature, in order to use it a feature gate must be enabled. You can enable it by:
-
-1. Setting the feature gate flag when starting kueue-controller:
-```bash
---feature-gates=AdmissionFairSharing=true
-```
 
 ### Kueue's configuration
 
@@ -91,5 +90,5 @@ kubectl get lq user-queue -o jsonpath={.status.fairSharing}
 Output should be similar to:
 
 ```
-{"admissionFairSharingStatus":{"consumedResources":{"cpu":"31999m"},"lastUpdate":"XYZ"},"weightedShare":0}
+{"admissionFairSharingStatus":{"consumedResources":{"cpu":"31999m"},"lastUpdate":"2025-06-03T14:25:15Z"},"weightedShare":0}
 ```
