@@ -26,8 +26,8 @@ type PodSetTopologyRequestApplyConfiguration struct {
 	PodIndexLabel               *string `json:"podIndexLabel,omitempty"`
 	SubGroupIndexLabel          *string `json:"subGroupIndexLabel,omitempty"`
 	SubGroupCount               *int32  `json:"subGroupCount,omitempty"`
-	PodSetChunkRequiredTopology *string `json:"podSetChunkRequiredTopology,omitempty"`
-	PodSetChunkSize             *int32  `json:"podSetChunkSize,omitempty"`
+	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
+	PodSetSliceSize             *int32  `json:"podSetSliceSize,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with
@@ -84,18 +84,18 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupCount(value int32)
 	return b
 }
 
-// WithPodSetChunkRequiredTopology sets the PodSetChunkRequiredTopology field in the declarative configuration to the given value
+// WithPodSetSliceRequiredTopology sets the PodSetSliceRequiredTopology field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PodSetChunkRequiredTopology field is set to the value of the last call.
-func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetChunkRequiredTopology(value string) *PodSetTopologyRequestApplyConfiguration {
-	b.PodSetChunkRequiredTopology = &value
+// If called multiple times, the PodSetSliceRequiredTopology field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceRequiredTopology(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetSliceRequiredTopology = &value
 	return b
 }
 
-// WithPodSetChunkSize sets the PodSetChunkSize field in the declarative configuration to the given value
+// WithPodSetSliceSize sets the PodSetSliceSize field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PodSetChunkSize field is set to the value of the last call.
-func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetChunkSize(value int32) *PodSetTopologyRequestApplyConfiguration {
-	b.PodSetChunkSize = &value
+// If called multiple times, the PodSetSliceSize field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceSize(value int32) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetSliceSize = &value
 	return b
 }

@@ -2045,21 +2045,21 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
 </td>
 </tr>
-<tr><td><code>podSetChunkRequiredTopology</code><br/>
+<tr><td><code>podSetSliceRequiredTopology</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>PodSetChunkRequiredTopology indicates the topology level required by the PodSet chunk, as
-indicated by the <code>kueue.x-k8s.io/podset-chunk-required-topology</code> annotation.</p>
+   <p>PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+indicated by the <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
 </td>
 </tr>
-<tr><td><code>podSetChunkSize</code><br/>
+<tr><td><code>podSetSliceSize</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>PodSetChunkSize indicates the size of a subgroup of pods in a PodSet for which
+   <p>PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
 Kueue finds a requested topology domain on a level defined
-in <code>kueue.x-k8s.io/podset-chunk-required-topology</code> annotation.</p>
+in <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
 </td>
 </tr>
 </tbody>

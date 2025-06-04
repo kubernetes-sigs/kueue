@@ -1138,13 +1138,13 @@ func (in *PodSetTopologyRequest) DeepCopyInto(out *PodSetTopologyRequest) {
 		*out = new(int32)
 		**out = **in
 	}
-	if in.PodSetChunkRequiredTopology != nil {
-		in, out := &in.PodSetChunkRequiredTopology, &out.PodSetChunkRequiredTopology
+	if in.PodSetSliceRequiredTopology != nil {
+		in, out := &in.PodSetSliceRequiredTopology, &out.PodSetSliceRequiredTopology
 		*out = new(string)
 		**out = **in
 	}
-	if in.PodSetChunkSize != nil {
-		in, out := &in.PodSetChunkSize, &out.PodSetChunkSize
+	if in.PodSetSliceSize != nil {
+		in, out := &in.PodSetSliceSize, &out.PodSetSliceSize
 		*out = new(int32)
 		**out = **in
 	}
