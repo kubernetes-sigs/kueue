@@ -53,7 +53,7 @@ network throughput between the Pods.
 
 ### [Admission Fair Sharing](/docs/concepts/admission_fair_sharing)
 
-A mechanism allowing to ordering Workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed less resources over time.
+A mechanism for ordering workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed fewer resources over time.
 
 ## Glossary
 
