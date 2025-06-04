@@ -46,18 +46,18 @@ const (
 	// +kubebuilder:validation:Type=boolean
 	PodSetUnconstrainedTopologyAnnotation = "kueue.x-k8s.io/podset-unconstrained-topology"
 
-	// PodSetChunkRequiredTopologyAnnotation indicates that a PodSet requires
-	// Topology Aware Scheduling, and requires scheduling each PodSet chunk on nodes
+	// PodSetSliceRequiredTopologyAnnotation indicates that a PodSet requires
+	// Topology Aware Scheduling, and requires scheduling each PodSet slice on nodes
 	// within the topology domain corresponding to the topology level
 	// indicated by the annotation value (e.g. within a rack or within a block).
-	PodSetChunkRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-chunk-required-topology"
+	PodSetSliceRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-slice-required-topology"
 
-	// PodSetChunkSizeAnnotation describes the requested size of a podset chunk
+	// PodSetSliceSizeAnnotation describes the requested size of a podset slice
 	// for which Kueue finds a requested topology domain
 	//
-	// This annotation is required if `kueue.x-k8s.io/podset-chunk-required-topology`
+	// This annotation is required if `kueue.x-k8s.io/podset-slice-required-topology`
 	// is defined
-	PodSetChunkSizeAnnotation = "kueue.x-k8s.io/podset-chunk-size"
+	PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
 
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected

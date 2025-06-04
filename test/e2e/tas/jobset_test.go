@@ -162,8 +162,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
 							kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetChunkRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetChunkSizeAnnotation:             "3",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
 				).

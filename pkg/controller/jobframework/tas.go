@@ -55,8 +55,8 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
 
-	chunkRequiredTopologyValue, chunkRequiredTopologyFound := meta.Annotations[kueuealpha.PodSetChunkRequiredTopologyAnnotation]
-	chunkSizeValue, chunkSizeFound := meta.Annotations[kueuealpha.PodSetChunkSizeAnnotation]
+	sliceRequiredTopologyValue, sliceRequiredTopologyFound := meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
 
 	switch {
 	case requiredFound:
@@ -70,14 +70,14 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 		psTopologyReq = nil
 	}
 
-	if chunkRequiredTopologyFound {
-		if chunkRequiredTopologyFound {
-			psTopologyReq.PodSetChunkRequiredTopology = &chunkRequiredTopologyValue
+	if sliceRequiredTopologyFound {
+		if sliceRequiredTopologyFound {
+			psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
 		}
-		if chunkSizeFound {
-			chunkSizeIntValue, _ := strconv.ParseInt(chunkSizeValue, 10, 32)
+		if sliceSizeFound {
+			sliceSizeIntValue, _ := strconv.ParseInt(sliceSizeValue, 10, 32)
 			// TODO Error handling. For simplicity of reviewing a PR, it will be implemented in a follow-up
-			psTopologyReq.PodSetChunkSize = ptr.To(int32(chunkSizeIntValue))
+			psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
 		}
 	}
 

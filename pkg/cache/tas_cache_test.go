@@ -2056,7 +2056,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for chunks; BestFit": {
+		"block required for podset; host required for slices; BestFit": {
 			//        b1
 			//         |
 			//        r1
@@ -2097,8 +2097,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2129,7 +2129,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for chunks; prioritize more free chunk capacity first and then tight fit; BestFit": {
+		"block required for podset; host required for slices; prioritize more free slice capacity first and then tight fit; BestFit": {
 			//           b1
 			//            |
 			//           r1
@@ -2180,8 +2180,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2212,7 +2212,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for chunks; select domains with tight fit; BestFit": {
+		"block required for podset; host required for slices; select domains with tight fit; BestFit": {
 			//        b1
 			//         |
 			//        r1
@@ -2253,8 +2253,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2279,7 +2279,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; rack required for chunks; BestFit": {
+		"block required for podset; rack required for slices; BestFit": {
 
 			//        b1            b2
 			//    /       \          |
@@ -2360,8 +2360,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(tasRackLabel),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2398,12 +2398,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block preferred for podset; rack required for chunks; BestFit": {
+		"block preferred for podset; rack required for slices; BestFit": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred:                   ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(tasRackLabel),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2434,7 +2434,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for chunks; optimize last domain; BestFit": {
+		"block required for podset; host required for slices; optimize last domain; BestFit": {
 			//        b1
 			//         |
 			//        r1
@@ -2475,8 +2475,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2501,7 +2501,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for chunks; MostFreeCapacity": {
+		"block required for podset; host required for slices; MostFreeCapacity": {
 			//        b1
 			//         |
 			//        r1
@@ -2542,8 +2542,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2569,7 +2569,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
 		},
-		"block required for podset; host required for chunks; LeastFreeCapacity": {
+		"block required for podset; host required for slices; LeastFreeCapacity": {
 			//        b1
 			//         |
 			//        r1
@@ -2610,8 +2610,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2637,7 +2637,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
-		"block preferred for podset; host required for chunks; LeastFreeCapacity": {
+		"block preferred for podset; host required for slices; LeastFreeCapacity": {
 			//nolint:dupword // suppress duplicate r1 word
 			//        b1                b2
 			//         |                 |
@@ -2699,8 +2699,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred:                   ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(2)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2738,7 +2738,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
-		"block preferred for podset; host required for chunks; 2 blocks with unbalanced subdomains; BestFit": {
+		"block preferred for podset; host required for slices; 2 blocks with unbalanced subdomains; BestFit": {
 			//nolint:dupword // suppress duplicate r1 word
 			//        b1                b2
 			//         |                 |
@@ -2790,8 +2790,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Preferred:                   ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetChunkSize:             ptr.To(int32(3)),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(3)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
@@ -2822,41 +2822,41 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"chunk required topology level cannot be above the main required topology level": {
+		"slice required topology level cannot be above the main required topology level": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(corev1.LabelHostname),
-				PodSetChunkRequiredTopology: ptr.To(tasBlockLabel),
-				PodSetChunkSize:             ptr.To(int32(1)),
+				PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
+				PodSetSliceSize:             ptr.To(int32(1)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:              1,
-			wantReason:         "podset chunk topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
+			wantReason:         "podset slice topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
 		},
-		"chunk size is required when chunk topology is requested": {
+		"slice size is required when slice topology is requested": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(tasBlockLabel),
-				PodSetChunkRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
 			count:              1,
-			wantReason:         "chunk topology requested, but chunk size not provided",
+			wantReason:         "slice topology requested, but slice size not provided",
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
 		},
-		"cannot request not existing chunk topology": {
+		"cannot request not existing slice topology": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
 				Required:                    ptr.To(string(tasBlockLabel)),
-				PodSetChunkRequiredTopology: ptr.To("not-existing-topology-level"),
-				PodSetChunkSize:             ptr.To(int32(1)),
+				PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
+				PodSetSliceSize:             ptr.To(int32(1)),
 			},
 			levels: defaultThreeLevels,
 			requests: resources.Requests{
