@@ -46,9 +46,10 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Resource Claim By Count](#resourceclaim-by-count)
+  - [ResourceClaim By Count](#resourceclaim-by-count)
   - [Using devices in ResourceSlice to Count](#using-devices-in-resourceslice-to-count)
   - [Using a CEL expression](#using-a-cel-expression)
+  - [Defining DeviceClass mapping in ClusterQuota](#defining-deviceclass-mapping-in-clusterquota)
 <!-- /toc -->
 
 ## Summary
@@ -282,7 +283,10 @@ When a user submits a workload and KueueDynamicResourceAllocation feature gate i
     1. Retrieving the LocalQueue and ClusterQueue for the workload
       1. Getting all ResourceFlavors used in the ClusterQueue
         1. For each ResourceFlavor, extracting its DynamicResources section
-          1. Creating a map from DeviceClass names to the Kueue resource names
+           1. Creating a map from DeviceClass names to the Kueue resource names
+              1. For every ResourceClaim that does not have an owner reference to a resourceclaimtemplate, the name/uuid
+                  of the ResourceClaim will be stored. This resourceclaim will not be counted again and workloads using it
+                  will automatically be admitted
   2. for each device class the canonical quota name will be looked up and resource will be counted against it.
 5. Once the Kueue counts and admits the workloads, it saves the count in workload status. This does not require any API
    change
@@ -435,11 +439,12 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 
 #### Feature Gate
 
-We will introduce a KueueDynamicResourceAllocation feature gate.
+A new feature gate KueueDynamicResourceAllocation will be introduced, allowing users to test it in dev environments
+while making the changes dormant for production users.
 
-This feature gate will go beta depending on community feedback of functionality in alpha.
-
-The goal will be limit changes only if this feature gate is enabled in combination with the DRA feature.
+This feature gate will be considered for beta if:
+1. There is at-least one user adoption success story
+2. There are no additional use-cases requested by users that cannot be implemented by this design
 
 ## Implementation History
 
@@ -547,3 +552,35 @@ devices:
   - cel:
       expression: device.attributes["memory"] <= 80g
 ```
+
+### Defining DeviceClass mapping in ClusterQuota
+
+The definition of what DeviceClasses construct a DRA device could be in ClusterQuota just before declaring the nominal
+count for the device.
+
+```golang
+type DynamicResourceMapping struct {
+	// Name is the canonical name of this mapping. This will be referred in ClusterQueue
+	// and Workload status
+	Name corev1.ResourceName `json:"name"`
+
+	// deviceClassNames lists the names of all the device classes that will count against
+	// the quota defined in this resource
+	// +listType=atomic
+	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+}
+
+type ResourceFlavorSpec struct {
+	// dynamicResources defines Kubernetes Dynamic Resource Allocation resources
+	// +optional
+	// +featureGate=DynamicResourceStructuredParameters
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	DynamicResources []DynamicResourceMapping `json:"dynamicResources,omitempty"`
+}
+```
+
+This presents a problem where the same canonical name could be used to define DeviceClasses A and B in one ClusterQueue
+and DeviceClasses C, D and E in another ClusterQueue leading to conflicts. Since the mapping canonical name to list of
+DeviceClasses is not shared, it is hard to implement borrowing as it becomes very non-deterministic. Hence, this approach
+is not feasible.
