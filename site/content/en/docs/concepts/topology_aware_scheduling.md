@@ -98,14 +98,34 @@ to a TAS ResourceFlavor.
 
 {{< include "examples/tas/sample-job-preferred.yaml" "yaml" >}}
 
+### ClusterAutoscaler support
+
+TAS integrates with the [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
+through the [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/).
+
+When a workload is assigned to the TAS ResourceFlavor with Provisioning
+AdmissionCheck, then its admission flow has the following stages:
+1. **Quota reservation**: quota is reserved, and the Workload obtains the
+  `QuotaReserved` condition. Preemptions are evaluated if configured.
+2. **Admission checks**: Kueue waits for all AdmissionChecks, including the
+  Provisioning one, to report `Ready` inside the Workload's
+  `status.admissionChecks` field.
+3. **Topology assignment**: Kueue sets topology assignment, on the Workload
+  object, calculated taking into account any newly provisioned nodes.
+
+Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/admission-check-controllers/provisioning.md)
+to see how you can configure Kueue if you want to restrict scheduling to the
+newly provisioned nodes (assuming the provisioning class supports it).
+
 ### Limitations
 
 Currently, there are limitations for the compatibility of TAS with other
-features. In particular, a ClusterQueue referencing a TAS Resource
-Flavor (with the `.spec.topologyName` field) is marked as inactive if also
-using [MultiKueue](multikueue.md) or
-[ProvisioningRequest](/docs/admission-check-controllers/provisioning/) admission
-checks.
+features, including:
+- some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
+- the "podset-required-topology" annotation may fail if the underlying
+  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
+- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
+with Topology name (`.spec.topologyName`) is marked as inactive.
 
 These usage scenarios are considered to be supported in the future releases
 of Kueue.
