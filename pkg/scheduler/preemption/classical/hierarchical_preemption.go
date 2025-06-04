@@ -58,11 +58,11 @@ func (m preemptionVariant) PreemptionReason() string {
 }
 
 type HierarchicalPreemptionCtx struct {
-	Wl                *kueue.Workload
-	Cq                *cache.ClusterQueueSnapshot
-	FrsNeedPreemption sets.Set[resources.FlavorResource]
-	Requests          resources.FlavorResourceQuantities
-	WorkloadOrdering  workload.Ordering
+	Wl                         *kueue.Workload
+	Cq                         *cache.ClusterQueueSnapshot
+	FrsNeedPreemption          sets.Set[resources.FlavorResource]
+	Requests                   resources.FlavorResourceQuantities
+	WorkloadOrdering           workload.Ordering
 }
 
 func IsBorrowingWithinCohortForbidden(cq *cache.ClusterQueueSnapshot) (bool, *int32) {
