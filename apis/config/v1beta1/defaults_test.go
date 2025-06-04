@@ -30,6 +30,7 @@ import (
 const (
 	overwriteNamespace              = "kueue-tenant-a"
 	overwriteWebhookPort            = 9444
+	overwriteWebhookCertDir         = "/tmp/test"
 	overwriteMetricBindAddress      = ":38081"
 	overwriteHealthProbeBindAddress = ":38080"
 	overwriteLeaderElectionID       = "foo.kueue.x-k8s.io"
@@ -46,7 +47,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 		},
 		Webhook: ControllerWebhook{
-			Port: ptr.To(DefaultWebhookPort),
+			Port:    ptr.To(DefaultWebhookPort),
+			CertDir: DefaultWebhookCertDir,
 		},
 		Metrics: ControllerMetrics{
 			BindAddress: DefaultMetricsBindAddress,
@@ -139,7 +141,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: ptr.To(DefaultWebhookPort),
+						Port:    ptr.To(DefaultWebhookPort),
+						CertDir: DefaultWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
@@ -170,7 +173,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: ptr.To(overwriteWebhookPort),
+						Port:    ptr.To(overwriteWebhookPort),
+						CertDir: overwriteWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
@@ -197,7 +201,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: ptr.To(overwriteWebhookPort),
+						Port:    ptr.To(overwriteWebhookPort),
+						CertDir: overwriteWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
@@ -239,7 +244,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: ptr.To(DefaultWebhookPort),
+						Port:    ptr.To(DefaultWebhookPort),
+						CertDir: DefaultWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
