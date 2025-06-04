@@ -7,7 +7,7 @@ description: >
 ---
 
 ## Hello, Cohorts
-Cohorts give you the ability to organize your Quotas. ClusterQueues within the same Cohort (or same CohortTree for [Hieararchical Cohorts](#hierarchical-cohorts)) can share resources with each other. The simplest possible Cohort is the following:
+Cohorts give you the ability to organize your Quotas. ClusterQueues within the same Cohort (or same CohortTree for [Hierarchical Cohorts](#hierarchical-cohorts)) can share resources with each other. The simplest possible Cohort is the following:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1alpha1
