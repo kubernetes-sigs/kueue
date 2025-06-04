@@ -66,9 +66,14 @@ It offers two options:
 - `IdenticalWorkloadSchedulingRequirements` - merges PodTemplates which have
   identical fields which are considered for defining the workload scheduling
   requirements. The PodTemplate fields which are considered as workload
-  scheduling requirements: `spec.containers[*].resources.requests`,
-  `spec.initContainers[*].resources.requests`, `spec.resources`,
-  `spec.nodeSelector`, `spec.tolerations`, `spec.affinity`, `resourceClaims`.
+  scheduling requirements: 
+  - `spec.containers[*].resources.requests`
+  - `spec.initContainers[*].resources.requests`
+  - `spec.resources`
+  - `spec.nodeSelector`
+  - `spec.tolerations`
+  - `spec.affinity`
+  - `resourceClaims`
 
 When the field is not set, the PodTemplates are not merged when creating the ProvisioningRequest, even if identical.
 
