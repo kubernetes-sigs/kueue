@@ -546,6 +546,34 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 		},
+		"multiKueue origin is an empty value": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To(""),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To(DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+			},
+		},
 		"multiKueue GCInterval 0": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
@@ -639,6 +667,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Transformations: []ResourceTransformation{
 						{Input: corev1.ResourceCPU},
 						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
+						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To[ResourceTransformationStrategy]("")},
 					},
 				},
 			},
@@ -657,6 +686,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Transformations: []ResourceTransformation{
 						{Input: corev1.ResourceCPU, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
 						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
+						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
 					},
 				},
 			},
