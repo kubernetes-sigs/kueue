@@ -19,10 +19,12 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -36,10 +38,18 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK)[:hashLength]
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, nil)[:hashLength]
 }
 
-func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind) string {
+func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
+	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
+	if len(prefixedName) > maxPrefixLength {
+		prefixedName = prefixedName[:maxPrefixLength]
+	}
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, &generation)[:hashLength]
+}
+
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -48,5 +58,9 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind) 
 	h.Write([]byte(ownerName))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
+	if generation != nil {
+		h.Write([]byte("\n"))
+		h.Write([]byte(strconv.FormatInt(ptr.Deref(generation, 0), 10)))
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
