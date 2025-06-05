@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,9 +29,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -413,9 +416,6 @@ func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	})
 }
 
-// podSetsCounts returns a PodSetsCounts map from the given Workload.
-//
-// DEPRECATED: This function will be removed in a future release. Use the workload.ExtractPodSetCountsFromWorkload directly instead.
 func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
@@ -1137,4 +1137,24 @@ func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 		return true
 	}
 	return false
+}
+
+// ValidateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
+func ValidateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+	new.Count = old.Count
+	return validation.ValidateImmutableField(new, old, path)
+}
+
+// ValidateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
+func ValidateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+	if len(new) != len(old) {
+		return field.ErrorList{field.Invalid(path, new, validation.FieldImmutableErrorMsg)}
+	}
+	allErrs := make(field.ErrorList, 0, len(new))
+	for i := range new {
+		if errs := ValidateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+		}
+	}
+	return allErrs
 }
