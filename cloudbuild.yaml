@@ -14,7 +14,7 @@ steps:
       - kueueviz-image-push
     env:
       - IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue
-      - EXTRA_TAG=$_PULL_BASE_REF
+      - IMAGE_EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
 substitutions:
