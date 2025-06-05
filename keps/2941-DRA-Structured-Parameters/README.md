@@ -32,6 +32,8 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 1](#story-1)
     - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+    - [Device Class Mapping Ambiguity](#device-class-mapping-ambiguity)
+    - [Same Canonical Name Across Different Device Classes](#same-canonical-name-across-different-device-classes)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Resource Quota API](#resource-quota-api)
@@ -247,16 +249,61 @@ When a workload requests `gpus.example.com`, Kueue faces ambiguity at admission 
 This ambiguity exists **before** the scheduler performs node selection, so ResourceFlavor node labels cannot resolve it during admission.
 
 **Potential Issues:**
-1. **Incorrect quota accounting**: Workloads might be admitted against the wrong ResourceFlavor's quota  
 1. **Resource waste**: One flavor's quota might be exhausted while another remains unused
-1. **Scheduling failures**: Workloads might be admitted but fail to schedule if counted against the wrong flavor
 
 **Mitigation:**
 To avoid this scenario:
 - ensure that within a single ClusterQueue, each device class name maps to exactly one canonical name across a
   ResourceFlavors. 
 - cluster admins should create separate deviceclasses to account for the dynamic resources that are being requested
-  in the resource flavor. 
+  in the resource flavor.
+
+#### Same Canonical Name Across Different Device Classes
+
+The following configuration is **NOT** problematic because each device class maps to exactly one ResourceFlavor/canonical-name combination:
+
+```yaml
+# ResourceFlavor 1: fancy-gpu-flavor maps gpu.example.com → GPUs
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: fancy-gpu-flavor
+spec:
+  nodeLabels:
+    gpu-tier: fancy
+  dynamicResources:
+  - name: GPUs  # canonical name
+    deviceClassNames:
+    - gpu.example.com  # device class maps to this flavor's "GPUs"
+
+---
+# ResourceFlavor 2: new-gpu-flavor maps new-gpu.example.com → GPUs  
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: new-gpu-flavor
+spec:
+  nodeLabels:
+    gpu-tier: new
+  dynamicResources:
+  - name: GPUs  # same canonical name, different device class
+    deviceClassNames:
+    - new-gpu.example.com  # different device class maps to this flavor's "GPUs"
+```
+
+When a workload requests `gpu.example.com`, Kueue can unambiguously determine the mapping path:
+1. **Device class lookup**: `gpu.example.com` appears only in fancy-gpu-flavor's deviceClassNames
+2. **ResourceFlavor identification**: fancy-gpu-flavor
+3. **Canonical name determination**: "GPUs" (from fancy-gpu-flavor's dynamicResources)
+4. **Quota accounting**: Count against fancy-gpu-flavor's "GPUs" quota
+
+Similarly, when a workload requests `new-gpu.example.com`:
+1. **Device class lookup**: `new-gpu.example.com` appears only in new-gpu-flavor's deviceClassNames  
+2. **ResourceFlavor identification**: new-gpu-flavor
+3. **Canonical name determination**: "GPUs" (from new-gpu-flavor's dynamicResources)
+4. **Quota accounting**: Count against new-gpu-flavor's "GPUs" quota
+
+The fact that both flavors use the same canonical name "GPUs" doesn't create ambiguity because the device class name uniquely identifies which ResourceFlavor (and therefore which quota pool) should be used.
 
 ### Risks and Mitigations
 
