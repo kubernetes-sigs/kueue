@@ -584,7 +584,7 @@ func PreemptibleWorkloadSliceTargets(snapshot *cache.Snapshot, workloadInfo *wor
 	if sliceKey == "" {
 		return nil
 	}
-	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[sliceKey]
+	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[workload.WorkloadReference(sliceKey)]
 	if !found {
 		return nil
 	}

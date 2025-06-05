@@ -1224,7 +1224,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	case 1:
 		oldSlice := workloadSlices[0]
 		// Annotate new workload slice with the preemptible (old) workload slice.
-		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, workload.Key(&oldSlice))
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, string(workload.Key(&oldSlice)))
 		if err := r.client.Update(ctx, &oldSlice); err != nil {
 			return fmt.Errorf("failed to annotate preemptabe workload slice: %w", err)
 		}
