@@ -614,6 +614,10 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+
+	// WorkloadSlicePreemptionReason indicates the Workload was preempted due to
+	// the workload slice succession (roll-up/aggregation).
+	WorkloadSlicePreemptionReason string = "WorkloadSlicePreemption"
 )
 
 const (
@@ -644,6 +648,10 @@ const (
 	// WorkloadEvictedDueToNodeFailures indicates that the workload was evicted
 	// due to non-recoverable node failures.
 	WorkloadEvictedDueToNodeFailures = "NodeFailures"
+
+	// WorkloadEvictedByWorkloadSliceAggregation indicates that the workload was
+	// deactivated as a result of workload slice aggregation.
+	WorkloadEvictedByWorkloadSliceAggregation = "WorkloadSliceAggregation"
 
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
