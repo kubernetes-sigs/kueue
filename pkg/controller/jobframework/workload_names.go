@@ -104,6 +104,9 @@ func WorkloadName(owner client.Object, ownerGVK schema.GroupVersionKind) string 
 			strconv.FormatInt(owner.GetGeneration(), 10))
 }
 
+// GetOwnerKey returns an index key based on the workload owner's GroupVersionKind and Name.
+//
+// DEPRECATED: This function will be removed in a future release. Use the core/indexer.IndexWorkloadOwnerKey directly instead.
 func GetOwnerKey(ownerGVK schema.GroupVersionKind) string {
-	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
+	return fmt.Sprintf(indexer.OwnerReferenceGroupKindFmt, ownerGVK.Group, ownerGVK.Kind)
 }

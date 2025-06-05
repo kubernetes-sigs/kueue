@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,6 +39,7 @@ const (
 	WorkloadQuotaReservedKey   = "status.quotaReserved"
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 	OwnerReferenceUID          = "metadata.ownerReferences.uid"
+	OwnerReferenceGroupKindFmt = ".metadata.ownerReferences[%s.%s]"
 )
 
 func IndexQueueClusterQueue(obj client.Object) []string {
@@ -140,4 +142,33 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
 	return nil
+}
+
+// IndexWorkloadOwnerKey returns an index key based on the workload owner's GroupVersionKind and Name.
+func IndexWorkloadOwnerKey(ownerGVK schema.GroupVersionKind) string {
+	return fmt.Sprintf(OwnerReferenceGroupKindFmt, ownerGVK.Group, ownerGVK.Kind)
+}
+
+// IndexWorkloadOwner returns an IndexerFunc that extracts the names of workload owners
+// matching the provided GroupVersionKind (GVK).
+func IndexWorkloadOwner(gvk schema.GroupVersionKind) client.IndexerFunc {
+	return func(object client.Object) []string {
+		wl, ok := object.(*kueue.Workload)
+		if !ok || len(wl.OwnerReferences) == 0 {
+			return nil
+		}
+		owners := make([]string, 0, len(wl.OwnerReferences))
+		for i := range wl.OwnerReferences {
+			owner := &wl.OwnerReferences[i]
+			if owner.Kind == gvk.Kind && owner.APIVersion == gvk.GroupVersion().String() {
+				owners = append(owners, owner.Name)
+			}
+		}
+		return owners
+	}
+}
+
+// SetupWorkloadOwnerIndex for a provided owner job's GroupVersionKind.
+func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
+	return indexer.IndexField(ctx, &kueue.Workload{}, IndexWorkloadOwnerKey(gvk), IndexWorkloadOwner(gvk))
 }
