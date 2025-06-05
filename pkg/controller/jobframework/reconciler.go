@@ -61,6 +61,7 @@ import (
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
 )
 
 const (
@@ -382,9 +383,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	log.V(2).Info("Reconciling Job")
 
-	// 1. make sure there is only a single existing instance of the workload.
-	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
-	wl, err := r.ensureOneWorkload(ctx, job, object)
+	// 1. Attempt to retrieve an existing workload (if any) for this job.
+	wl, err := r.ensureWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -589,13 +589,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 8. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
-		// the job must be suspended if the workload is not yet admitted.
+		// The job must be suspended if the workload is not yet admitted,
+		// unless this job is workload-slicing enabled. In workload-slicing we rely
+		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
+		if workloadslicing.Enabled(object) {
+			return ctrl.Result{}, nil
+		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
 		return ctrl.Result{}, err
+	}
+
+	if WorkloadSliceEnabled(job) {
+		// Finish reconciliation for workload-slice-enabled job.
+		log.V(3).Info("Job running with admitted workload slice, process slice.")
+		return workloadslicing.ReconcileWorkloadSlices(ctx, r.client, object)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -752,6 +763,38 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			return nil, ErrManagedOwnersChainLimitReached
 		}
 	}
+}
+
+// ensureWorkload ensures that a corresponding Kueue Workload exists for the given job.
+//
+// If workload slicing is enabled for the job, it attempts to manage the job using workload slices.
+// In this mode, only changes to PodSet.Count are considered compatible. Structural or semantic changes
+// to the pod sets result in an "incompatible" slice, and the function falls back to managing the job
+// using the standard "one workload per job" approach.
+//
+// Returns the associated workload (whether slice-based or not), or an error.
+func (r *JobReconciler) ensureWorkload(ctx context.Context, job GenericJob, jobObject client.Object) (*kueue.Workload, error) {
+	// If workload slicing is enabled for this job, use the slice-based processing path.
+	if WorkloadSliceEnabled(job) {
+		podSets, err := job.PodSets()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+		}
+
+		// Workload slices allow modifications only to PodSet.Count.
+		// Any other changes will result in the slice being marked as incompatible,
+		// and the workload will fall back to being processed by the original ensureOneWorkload function.
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, jobObject, job.GVK())
+		if err != nil {
+			return nil, err
+		}
+		if compatible {
+			return wl, nil
+		}
+		// Fallback.
+	}
+
+	return r.ensureOneWorkload(ctx, job, jobObject)
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1129,7 +1172,12 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	wl := NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
+	var wl *kueue.Workload
+	if workloadslicing.Enabled(job.Object()) {
+		wl = NewWorkload(GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration()), object, podSets, labelKeysToCopy)
+	} else {
+		wl = NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
+	}
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
@@ -1161,9 +1209,31 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
 	wl.Spec.PriorityClassSource = source
-
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
+	if !workloadslicing.Enabled(job.Object()) {
+		return nil
+	}
+	workloadSlices, err := workloadslicing.FindActiveSlices(ctx, r.client, job.Object(), job.GVK())
+	if err != nil {
+		return fmt.Errorf("failure looking up workload slices: %w", err)
+	}
+	switch len(workloadSlices) {
+	case 0:
+		// No previous slices, noop.
+	case 1:
+		oldSlice := workloadSlices[0]
+		// Annotate new workload slice with the preemptible (old) workload slice.
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, workload.Key(&oldSlice))
+		if err := r.client.Update(ctx, &oldSlice); err != nil {
+			return fmt.Errorf("failed to annotate preemptabe workload slice: %w", err)
+		}
+	default:
+		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
+		// Failing here, would trigger job re-processing, and hopefully giving a chance to clear up (preempt/deactivate)
+		// old slice.
+		return fmt.Errorf("unexpected workload slices count: %d", len(workloadSlices))
+	}
 	return nil
 }
 
@@ -1240,8 +1310,9 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		}
 	}
 
-	// Wait until there are no active pods.
-	if job.IsActive() {
+	// Wait until there are no active pods, unless this is a workload-slice job.
+	// For workload-slice enabled job we allow for job to be "Active".
+	if job.IsActive() && !workloadslicing.Enabled(object) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}
@@ -1388,4 +1459,20 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 		in[i].MinCount = nil
 	}
 	return in
+}
+
+// WorkloadSliceEnabled returns true if all the following conditions are met:
+//   - The WorkloadSlices feature is enabled.
+//   - The provided job is not nil.
+//   - The job's underlying object is not nil.
+//   - The job's object has opted in for WorkloadSlice processing.
+func WorkloadSliceEnabled(job GenericJob) bool {
+	if !features.Enabled(features.WorkloadSlices) || job == nil {
+		return false
+	}
+	jobObject := job.Object()
+	if jobObject == nil {
+		return false
+	}
+	return workloadslicing.Enabled(jobObject)
 }

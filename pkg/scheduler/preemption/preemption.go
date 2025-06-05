@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
 )
 
 const parallelPreemptions = 8
@@ -135,7 +136,8 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
-	"": "UNKNOWN",
+	kueue.WorkloadSlicePreemptionReason:       "workload slice aggregation",
+	"":                                        "UNKNOWN",
 }
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
@@ -567,4 +569,29 @@ func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 		return now
 	}
 	return cond.LastTransitionTime.Time
+}
+
+// PreemptibleWorkloadSliceTargets identifies the preemption target for a given workload slice.
+//
+// A newly created workload slice may preempt at most one existing slice, and this function
+// returns a list containing that potential target (if any). The target is determined using
+// an annotation on the given workload slice, which is set at creation time to indicate
+// the slice it may preempt.
+//
+// If no preemptible target is found, the returned list is empty.
+func PreemptibleWorkloadSliceTargets(snapshot *cache.Snapshot, workloadInfo *workload.Info) []*Target {
+	sliceKey := workloadslicing.PreemptibleSliceKey(workloadInfo.Obj)
+	if sliceKey == "" {
+		return nil
+	}
+	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[sliceKey]
+	if !found {
+		return nil
+	}
+	return []*Target{
+		{
+			WorkloadInfo: preemptibleWorkloadSlice,
+			Reason:       kueue.WorkloadSlicePreemptionReason,
+		},
+	}
 }

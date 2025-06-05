@@ -273,7 +273,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptedWorkloads.Insert(e.preemptionTargets)
 		cq.AddUsage(usage)
 
-		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+		// When placing a workload slice it is possible for a new workload to "Fit" and
+		// still have a preempted workload (old slice).
+		if mode := e.assignment.RepresentativeMode(); mode == flavorassigner.Preempt ||
+			(mode == flavorassigner.Fit && len(preemptedWorkloads) > 0) {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
 			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
@@ -462,20 +465,69 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	return assignment, targets
 }
 
+// workloadSliceAssignmentScale computes the scaled pod counts for each PodSet in a new workload slice.
+//
+// It returns a slice of pod counts obtained by subtracting the pod counts of any preempted
+// (target) slices from those in the new slice `wl`. The result reflects the net pod allocation
+// after accounting for preempted resources.
+//
+// Note: The new slice (`wl`) and all preemptible target slices are expected to have symmetric PodSets—
+// meaning the same number and order of PodSet entries. Violating this assumption may cause
+// out-of-range panics or incorrect results.
+func workloadSliceAssignmentScale(wl *workload.Info, targets []*preemption.Target) []int32 {
+	if len(targets) == 0 {
+		return nil
+	}
+	scales := make([]int32, len(wl.TotalRequests))
+	for i := range scales {
+		scales[i] = wl.TotalRequests[i].Count
+		for t := range targets {
+			// Do not scale below 0.
+			scales[i] = max(0, scales[i]-targets[t].WorkloadInfo.TotalRequests[i].Count)
+		}
+	}
+	return scales
+}
+
+// getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
+// for a workload slice.
+//
+// The function attempts to assign resources to the provided workload slice using the current
+// snapshot of the scheduling state. It proceeds in the following steps:
+//
+//  1. It first checks for any preemptible workload slices that workload may replace, using an annotation-based lookup.
+//  2. It creates a flavor assigner to compute a full assignment scale-adjusted for preemptable workload slice targets
+//     based on either:
+//     - direct fit (no preemption needed), or
+//     - preemption (if needed and possible).
+//  3. If direct assignment isn't possible but preemption is enabled and viable, it includes any additional
+//     preemption targets obtained through the configured preemptor.
+//  4. If partial admission is enabled and the workload allows it, the function attempts to reduce pod counts
+//     across PodSets to find an assignable configuration—again checking for preemption if needed.
+//
+// Returns:
+//   - A flavorassigner.Assignment representing the selected (possibly reduced) flavor allocation.
+//   - A slice of preemption targets, which may include both explicitly annotated slices and those
+//     identified during scheduling.
+//
+// If no valid assignment can be made, returns the original full assignment with no preemption targets.
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
+
+	preemptableWorkloadSliceTargets := preemption.PreemptibleWorkloadSliceTargets(snap, wl)
+
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
-	fullAssignment := flvAssigner.Assign(log, nil)
+	fullAssignment := flvAssigner.Assign(log, workloadSliceAssignmentScale(wl, preemptableWorkloadSliceTargets))
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
-		return fullAssignment, nil
+		return fullAssignment, preemptableWorkloadSliceTargets
 	}
 
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, faPreemptionTargets
+			return fullAssignment, append(preemptableWorkloadSliceTargets, faPreemptionTargets...)
 		}
 	}
 
@@ -496,7 +548,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 			return nil, false
 		})
 		if pa, found := reducer.Search(); found {
-			return pa.assignment, pa.preemptionTargets
+			return pa.assignment, append(preemptableWorkloadSliceTargets, pa.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
