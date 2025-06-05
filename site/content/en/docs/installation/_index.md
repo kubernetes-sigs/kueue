@@ -295,6 +295,7 @@ spec:
 | `HierarchicalCohort`                  | `true`  | Beta  | 0.11  |       |
 | `ObjectRetentionPolicies`             | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
+| `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 
 ### Feature gates for graduated or deprecated features
 
