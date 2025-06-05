@@ -145,7 +145,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	cfg.MultiKueue = cmp.Or(cfg.MultiKueue, &MultiKueue{})
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
-	cfg.MultiKueue.Origin = cmp.Or(cfg.MultiKueue.Origin, ptr.To(DefaultMultiKueueOrigin))
+	cfg.MultiKueue.Origin = ptr.To(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
@@ -157,7 +157,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Resources != nil {
 		for idx := range cfg.Resources.Transformations {
-			cfg.Resources.Transformations[idx].Strategy = cmp.Or(cfg.Resources.Transformations[idx].Strategy, ptr.To(DefaultResourceTransformationStrategy))
+			cfg.Resources.Transformations[idx].Strategy = ptr.To(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
 		}
 	}
 }
