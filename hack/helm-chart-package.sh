@@ -20,7 +20,6 @@ set -o pipefail
 
 DEST_CHART_DIR=${DEST_CHART_DIR:-bin/}
 
-EXTRA_TAG=${EXTRA_TAG:-$(git branch --show-current)}
 GIT_TAG=${GIT_TAG:-$(git describe --tags --dirty --always)}
 
 STAGING_IMAGE_REGISTRY=${STAGING_IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images}
@@ -33,14 +32,12 @@ YQ=${YQ:-./bin/yq}
 readonly k8s_registry="registry.k8s.io/kueue"
 readonly semver_regex='^v([0-9]+)(\.[0-9]+){1,2}(-rc\.[0-9]+)?$'
 
-app_version=${GIT_TAG}
-if [[ ${EXTRA_TAG} =~ ${semver_regex} ]]
+if [[ ${GIT_TAG} =~ ${semver_regex} ]]
 then
 	IMAGE_REGISTRY=${k8s_registry}
-	app_version=${EXTRA_TAG}
 fi
 # Strip leading v from version
-chart_version="${app_version/#v/}"
+chart_version="${GIT_TAG/#v/}"
 
 default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
 readonly default_image_repo
@@ -52,14 +49,14 @@ default_kueueviz_frontend_image_repo=$(${YQ} ".kueueViz.frontend.image.repositor
 readonly default_kueueviz_frontend_image_repo
 
 # Update the image repo, tag and policy
-${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"${app_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"${GIT_TAG}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 # Update the KueueViz images repo, tag and policy in values.yaml
-${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.tag = \"${app_version}\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
-${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.tag = \"${app_version}\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.tag = \"${GIT_TAG}\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.tag = \"${GIT_TAG}\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 # TODO: consider signing it
-${HELM} package --version "${chart_version}" --app-version "${app_version}" charts/kueue -d "${DEST_CHART_DIR}"
+${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" charts/kueue -d "${DEST_CHART_DIR}"
 
 # Revert the image changes
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | del(.controllerManager.manager.image.tag) | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
