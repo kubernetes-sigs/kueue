@@ -9,6 +9,8 @@ description: >
 <!-- toc -->
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
+  - [Install by kubectl](#install-by-kubectl)
+  - [Install by Helm](#install-by-helm)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall)
@@ -20,6 +22,8 @@ description: >
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
+  - [Feature gates for alpha and beta features](#feature-gates-for-alpha-and-beta-features)
+  - [Feature gates for graduated or deprecated features](#feature-gates-for-graduated-or-deprecated-features)
 - [What's next](#whats-next)
 
 <!-- /toc -->
@@ -291,6 +295,7 @@ spec:
 | `HierarchicalCohort`                  | `true`  | Beta  | 0.11  |       |
 | `ObjectRetentionPolicies`             | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
+| `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 
 ### Feature gates for graduated or deprecated features
 
