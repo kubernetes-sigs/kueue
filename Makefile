@@ -256,7 +256,7 @@ image-push: image-build
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
 	DEST_CHART_DIR=$(DEST_CHART_DIR) \
 	HELM="$(HELM)" YQ="$(YQ)" EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" \
-	IMAGE_REGISTRY="$(IMAGE_REGISTRY)" IMAGE_REPO="$(IMAGE_REPO)" \
+	IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
 	HELM_CHART_PUSH=$(HELM_CHART_PUSH) HELM_CHART_REPO=$(HELM_CHART_REPO) \
 	./hack/helm-chart-package.sh
 
