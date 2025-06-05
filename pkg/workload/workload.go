@@ -413,6 +413,9 @@ func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	})
 }
 
+// podSetsCounts returns a PodSetsCounts map from the given Workload.
+//
+// DEPRECATED: This function will be removed in a future release. Use the workload.ExtractPodSetCountsFromWorkload directly instead.
 func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
