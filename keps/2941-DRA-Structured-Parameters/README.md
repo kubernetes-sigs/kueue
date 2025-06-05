@@ -181,6 +181,82 @@ queuing, quota management and preemptable workloads for cluster users.
 
 ### Notes/Constraints/Caveats (Optional)
 
+#### Device Class Mapping Ambiguity
+
+A problematic scenario can arise when multiple ResourceFlavors map the same device class to different canonical names within the same ClusterQueue. This creates ambiguity at admission time about which quota should be consumed.
+
+**Problematic Configuration Example:**
+
+```yaml
+# ResourceFlavor 1: Zone A configuration
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: zone-a-flavor
+spec:
+  nodeLabels:
+    zone: zone-a
+  dynamicResources:
+  - name: zone-a-gpus
+    deviceClassNames:
+    - gpus.example.com  # Maps to zone-a-gpus
+
+---
+# ResourceFlavor 2: Zone B configuration  
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: zone-b-flavor
+spec:
+  nodeLabels:
+    zone: zone-b
+  dynamicResources:
+  - name: zone-b-gpus
+    deviceClassNames:
+    - gpus.example.com  # CONFLICT: Same device class mapped to zone-b-gpus
+
+---
+# ClusterQueue using both flavors
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: multi-zone-queue
+spec:
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "zone-a-gpus", "zone-b-gpus"]
+    flavors:
+    - name: zone-a-flavor
+      resources:
+      - name: zone-a-gpus
+        nominalQuota: 2
+      - name: zone-b-gpus
+        nominalQuota: 0
+    - name: zone-b-flavor  
+      resources:
+      - name: zone-a-gpus
+        nominalQuota: 0
+      - name: zone-b-gpus
+        nominalQuota: 3
+```
+
+**The Problem:**
+When a workload requests `gpus.example.com`, Kueue faces ambiguity at admission time:
+- Should it count against `zone-a-gpus` quota (from zone-a-flavor)?
+- Should it count against `zone-b-gpus` quota (from zone-b-flavor)?
+
+This ambiguity exists **before** the scheduler performs node selection, so ResourceFlavor node labels cannot resolve it during admission.
+
+**Potential Issues:**
+1. **Incorrect quota accounting**: Workloads might be admitted against the wrong ResourceFlavor's quota  
+1. **Resource waste**: One flavor's quota might be exhausted while another remains unused
+1. **Scheduling failures**: Workloads might be admitted but fail to schedule if counted against the wrong flavor
+
+**Mitigation:**
+To avoid this scenario:
+- ensure that within a single ClusterQueue, each device class name maps to exactly one canonical name across a
+  ResourceFlavors. 
+- cluster admins should create separate deviceclasses to account for the dynamic resources that are being requested
+  in the resource flavor. 
 
 ### Risks and Mitigations
 
