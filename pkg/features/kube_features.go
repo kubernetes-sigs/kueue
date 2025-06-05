@@ -175,6 +175,12 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+
+	// owner: @ichekrygin
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// WorkloadSlices enables workload-slices support.
+	WorkloadSlices featuregate.Feature = "WorkloadSlices"
 )
 
 func init() {
@@ -273,6 +279,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadSlices: {
+		// TODO(ichekrygin): Version is TBD, using "0.13" as a placeholder.
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
