@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -54,9 +55,6 @@ type AdmissionCheckReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
 func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-
-	// TODO(user): your logic here
-
 	log := log.FromContext(ctx)
 
 	var ac kueueapi.AdmissionCheck

@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,12 +22,9 @@ import (
 	"os"
 	"time"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -35,12 +32,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1" // from step by step
 
-	"k8s.io/client-go/kubernetes"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1" // from step by step
 	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/internal/controller"
-	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resource_monitor"
-	// +kubebuilder:scaffold:imports
+	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resourcemonitor"
+
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 var (
@@ -56,7 +55,6 @@ func init() {
 }
 
 func main() {
-
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
@@ -124,7 +122,7 @@ func main() {
 	}
 
 	// resource monitoring
-	snapshotManager := resource_monitor.NewSnapshotManager()
+	snapshotManager := resourcemonitor.NewSnapshotManager()
 
 	go func() {
 		clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())

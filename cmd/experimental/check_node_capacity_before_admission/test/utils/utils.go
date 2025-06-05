@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"os/exec"
 	"strings"
 
-	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
+	ginkgo "github.com/onsi/ginkgo/v2"
 )
 
 const (
@@ -37,7 +37,7 @@ const (
 )
 
 func warnError(err error) {
-	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
+	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "warning: %v\n", err)
 }
 
 // Run executes the provided command within this context
@@ -46,12 +46,12 @@ func Run(cmd *exec.Cmd) (string, error) {
 	cmd.Dir = dir
 
 	if err := os.Chdir(cmd.Dir); err != nil {
-		_, _ = fmt.Fprintf(GinkgoWriter, "chdir dir: %s\n", err)
+		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "chdir dir: %s\n", err)
 	}
 
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
-	_, _ = fmt.Fprintf(GinkgoWriter, "running: %s\n", command)
+	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "running: %s\n", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("%s failed with error: (%v) %s", command, err, string(output))
@@ -92,7 +92,7 @@ func IsPrometheusCRDsInstalled() bool {
 	if err != nil {
 		return false
 	}
-	crdList := GetNonEmptyLines(string(output))
+	crdList := GetNonEmptyLines(output)
 	for _, crd := range prometheusCRDs {
 		for _, line := range crdList {
 			if strings.Contains(line, crd) {
@@ -153,7 +153,7 @@ func IsCertManagerCRDsInstalled() bool {
 	}
 
 	// Check if any of the Cert Manager CRDs are present
-	crdList := GetNonEmptyLines(string(output))
+	crdList := GetNonEmptyLines(output)
 	for _, crd := range certManagerCRDs {
 		for _, line := range crdList {
 			if strings.Contains(line, crd) {
@@ -197,15 +197,14 @@ func GetProjectDir() (string, error) {
 	if err != nil {
 		return wd, err
 	}
-	wd = strings.Replace(wd, "/test/e2e", "", -1)
+	wd = strings.ReplaceAll(wd, "/test/e2e", "")
 	return wd, nil
 }
 
 // UncommentCode searches for target in the file and remove the comment prefix
 // of the target content. The target content may span multiple lines.
 func UncommentCode(filename, target, prefix string) error {
-	// false positive
-	// nolint:gosec
+	//nolint:gosec // false positive
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return err
@@ -245,7 +244,7 @@ func UncommentCode(filename, target, prefix string) error {
 	if err != nil {
 		return err
 	}
-	// false positive
-	// nolint:gosec
+
+	//nolint:gosec // false positive
 	return os.WriteFile(filename, out.Bytes(), 0644)
 }

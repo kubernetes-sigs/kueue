@@ -1,27 +1,44 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package evaluator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-
-	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resource_monitor"
+	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resourcemonitor"
 )
-
-// As a first implementation we decided the following scheduling logic:
-// 1. only consider Guaranteed pods: For every Container in the Pod, the resource limit must equal the resource request.
-// 2. the above rule applies to both workloads and the logic for counting the available capacity of nodes
-// 		2.1 i.e. if a Node has a running pod that states a resource limit for CPU but only a resource request for Memory, then the available capacity of such Node will remain untouched for both CPU and Memory by not considering the entire pod
-// 3. If a workload does not fit the bill for bullet 1, the evaluator prints an info message and accepts it.
-// 		3.1 i.e. if a Job has a resource request for 3 CPUs but doesn't specify the CPU resource limit, then it gets accepted by the evaluator (without comparing it with the snapshot) and Kueue will take care of it.
-// 4. If a workload lists in its limits a resource that is not present in the limits of ANY node, the evaluator prints an info message and accepts it.
 
 // evaluate checks if a workload can be scheduled on any node in the snapshot.
 // Returns true if it can be scheduled, false otherwise, along with any scheduling errors.
-func Evaluate(ctx context.Context, wl kueueapi.Workload, snapshot resource_monitor.Snapshot, gang bool) (bool, error) {
+func Evaluate(ctx context.Context, wl kueueapi.Workload, snapshot resourcemonitor.Snapshot, gang bool) (bool, error) {
+	// As a first implementation we decided the following scheduling logic:
+	// 1. only consider Guaranteed pods: For every Container in the Pod, the resource limit must equal the resource request.
+	// 2. the above rule applies to both workloads and the logic for counting the available capacity of nodes
+	// 		2.1 i.e. if a Node has a running pod that states a resource limit for CPU but only a resource request for Memory, then the available capacity of such Node will remain untouched for both CPU and Memory by not considering the entire pod
+	// 3. If a workload does not fit the bill for bullet 1, the evaluator prints an info message and accepts it.
+	// 		3.1 i.e. if a Job has a resource request for 3 CPUs but doesn't specify the CPU resource limit, then it gets accepted by the evaluator (without comparing it with the snapshot) and Kueue will take care of it.
+	// 4. If a workload lists in its limits a resource that is not present in the limits of ANY node, the evaluator prints an info message and accepts it.
+
 	// Initialize the logger for the evaluator
 	log := ctrl.LoggerFrom(ctx)
 
@@ -29,8 +46,7 @@ func Evaluate(ctx context.Context, wl kueueapi.Workload, snapshot resource_monit
 
 	var messages string // Collect messages for nodes that failed
 	if gang {           // if gang scheduling is enabled
-
-		canFit, nodes, err := gang_fitOnNodes(wl, snapshot)
+		canFit, nodes, err := gangFitOnNodes(wl, snapshot)
 		if err != nil {
 			log.Info("Gang scheduling did not find a suitable: ", "error", err.Error())
 			return false, err
@@ -69,13 +85,13 @@ func Evaluate(ctx context.Context, wl kueueapi.Workload, snapshot resource_monit
 
 // workloadCanRunOnNode checks if the workload's tolerations allow it to run on a node.
 // It also checks for nodeSelector labels
-func workloadCanRunOnNode(wl kueueapi.Workload, node resource_monitor.NodeUsage) bool {
-	//log := logger.GetLogger().WithField("component", "evaluator")
+func workloadCanRunOnNode(wl kueueapi.Workload, node resourcemonitor.NodeUsage) bool {
+	// log := logger.GetLogger().WithField("component", "evaluator")
 	workloadTolerations := getWorkloadTolerations(wl)
 
 	// Check if the node matches the workload's nodeSelector
 	if !nodeSelectorMatches(wl, node) {
-		///log.Info("doesn't match the workload's nodeSelector constraints")
+		// log.Info("doesn't match the workload's nodeSelector constraints")
 		return false
 	}
 
@@ -97,8 +113,7 @@ func workloadCanRunOnNode(wl kueueapi.Workload, node resource_monitor.NodeUsage)
 
 // nodeSelectorMatches checks if the node satisfies the workload's nodeSelector constraints.
 // A nodeSelector defines hard constraints that must match for a workload to run on a node.
-func nodeSelectorMatches(wl kueueapi.Workload, node resource_monitor.NodeUsage) bool {
-
+func nodeSelectorMatches(wl kueueapi.Workload, node resourcemonitor.NodeUsage) bool {
 	// Ensure the workload has at least one PodSet
 	if len(wl.Spec.PodSets) == 0 {
 		// If no PodSet is defined, assume it matches all nodes
@@ -145,11 +160,11 @@ func getWorkloadTolerations(wl kueueapi.Workload) []corev1.Toleration {
 }
 
 // nodeCanFitWorkload checks if a node has sufficient resources to accommodate the workload.
-func nodeCanFitWorkload(wl kueueapi.Workload, node resource_monitor.NodeUsage) (bool, error) {
+func nodeCanFitWorkload(wl kueueapi.Workload, node resourcemonitor.NodeUsage) (bool, error) {
 	// Aggregate resource limits for the workload
 	aggregatedLimits, status := aggregateResources(wl)
 	if !status {
-		return false, fmt.Errorf("workload has resource request but no resource limit")
+		return false, errors.New("workload has resource request but no resource limit")
 	}
 
 	// Check each required resource against the node's available resources
@@ -181,7 +196,7 @@ func aggregateResources(wl kueueapi.Workload) (corev1.ResourceList, bool) {
 				limit, hasLimit := container.Resources.Limits[resourceName]
 				if !hasLimit || !request.Equal(limit) {
 					validWorkload = false // workload not Guaranteed QoS
-					return nil, false
+					return nil, validWorkload
 				}
 			}
 			for resourceName, quantity := range container.Resources.Limits {
@@ -197,11 +212,11 @@ func aggregateResources(wl kueueapi.Workload) (corev1.ResourceList, bool) {
 	return aggregatedLimits, validWorkload
 }
 
-// Gang scheduling: If there are enough resources to host all the pods across a subset of the available nodes, then the workload should be accepted.
-
-// gang_fitOnNodes checks if all pods in a workload can fit across multiple nodes simultaneously.
+// gangFitOnNodes checks if all pods in a workload can fit across multiple nodes simultaneously.
 // It returns true and the list of node names if the workload can be scheduled; otherwise, it returns false and an error.
-func gang_fitOnNodes(wl kueueapi.Workload, snapshot resource_monitor.Snapshot) (bool, []string, error) {
+func gangFitOnNodes(wl kueueapi.Workload, snapshot resourcemonitor.Snapshot) (bool, []string, error) {
+	// Gang scheduling: If there are enough resources to host all the pods across a subset of the available nodes, then the workload should be accepted.
+
 	// Clone the current snapshot to simulate resource consumption during scheduling
 	simulatedSnapshot := cloneSnapshot(snapshot)
 
@@ -244,16 +259,15 @@ func gang_fitOnNodes(wl kueueapi.Workload, snapshot resource_monitor.Snapshot) (
 }
 
 // nodeCanFitWorkloadPod checks if a single pod can fit on a specific node.
-func nodeCanFitWorkloadPod(podSpec corev1.PodSpec, node resource_monitor.NodeUsage) (bool, error) {
+func nodeCanFitWorkloadPod(podSpec corev1.PodSpec, node resourcemonitor.NodeUsage) (bool, error) {
 	aggregatedLimits := corev1.ResourceList{}
 
 	for _, container := range podSpec.Containers {
-
 		// Check if resource limits and requests are the same for each container
 		for resourceName, request := range container.Resources.Requests {
 			limit, hasLimit := container.Resources.Limits[resourceName]
 			if !hasLimit || !request.Equal(limit) {
-				return false, fmt.Errorf("QoS not Guaranteed")
+				return false, errors.New("QoS not Guaranteed")
 			} else {
 				if existing, exists := aggregatedLimits[resourceName]; exists {
 					existing.Add(limit)
@@ -279,7 +293,7 @@ func nodeCanFitWorkloadPod(podSpec corev1.PodSpec, node resource_monitor.NodeUsa
 }
 
 // allocatePodResources updates the node's available resources to simulate the allocation of a pod.
-func allocatePodResources(podSpec corev1.PodSpec, node resource_monitor.NodeUsage) resource_monitor.NodeUsage {
+func allocatePodResources(podSpec corev1.PodSpec, node resourcemonitor.NodeUsage) resourcemonitor.NodeUsage {
 	for _, container := range podSpec.Containers {
 		for resourceName, quantity := range container.Resources.Limits {
 			if remaining, exists := node.Remaining[resourceName]; exists {
@@ -292,16 +306,16 @@ func allocatePodResources(podSpec corev1.PodSpec, node resource_monitor.NodeUsag
 }
 
 // cloneSnapshot creates a deep copy of a Snapshot to simulate resource consumption.
-func cloneSnapshot(snapshot resource_monitor.Snapshot) resource_monitor.Snapshot {
-	clonedNodes := make([]resource_monitor.NodeUsage, len(snapshot.Nodes))
+func cloneSnapshot(snapshot resourcemonitor.Snapshot) resourcemonitor.Snapshot {
+	clonedNodes := make([]resourcemonitor.NodeUsage, len(snapshot.Nodes))
 	for i, node := range snapshot.Nodes {
-		clonedNode := resource_monitor.NodeUsage{
+		clonedNode := resourcemonitor.NodeUsage{
 			NodeName:  node.NodeName,
 			UUID:      node.UUID,
 			Taints:    append([]corev1.Taint{}, node.Taints...),
 			Labels:    map[string]string{},
 			Remaining: corev1.ResourceList{},
-			Pods:      append([]resource_monitor.PodInfo{}, node.Pods...),
+			Pods:      append([]resourcemonitor.PodInfo{}, node.Pods...),
 		}
 		for k, v := range node.Labels {
 			clonedNode.Labels[k] = v
@@ -312,7 +326,7 @@ func cloneSnapshot(snapshot resource_monitor.Snapshot) resource_monitor.Snapshot
 		clonedNodes[i] = clonedNode
 	}
 
-	return resource_monitor.Snapshot{
+	return resourcemonitor.Snapshot{
 		LastCheck: snapshot.LastCheck,
 		Nodes:     clonedNodes,
 	}

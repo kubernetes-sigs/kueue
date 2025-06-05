@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,10 +22,10 @@ import (
 	"os/exec"
 	"testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/test/utils"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/test/utils"
 )
 
 var (
@@ -47,7 +47,7 @@ var (
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
-// temporary environment to validate project changes with the the purposed to be used in CI jobs.
+// temporary environment to validate project changes with the purposed to be used in CI jobs.
 // The default setup requires Kind, builds/loads the Manager Docker image locally, and installs
 // CertManager and Prometheus.
 func TestE2E(t *testing.T) {

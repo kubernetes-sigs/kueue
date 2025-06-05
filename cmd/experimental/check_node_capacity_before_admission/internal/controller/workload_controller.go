@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 // update design
 // [x] in resource monitor use field Limits corev1.ResourceList instead of custom struct
 // iterate thourgh the Limit map, interpret them as integers (otherwise raise an exception). We already know CPU and Memory, but there may be others like GPU
@@ -40,7 +41,7 @@ import (
 	// from step by step
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/evaluator"
-	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resource_monitor"
+	"sigs.k8s.io/kueue/cmd/experimental/check_node_capacity_before_admission/pkg/resourcemonitor"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -54,7 +55,7 @@ const (
 type WorkloadReconciler struct {
 	client.Client
 	Scheme          *runtime.Scheme
-	SnapshotManager *resource_monitor.SnapshotManager // add a pointer to snapshot manager in the workload reconciler, the snapshot manager runs in a thread
+	SnapshotManager *resourcemonitor.SnapshotManager // add a pointer to snapshot manager in the workload reconciler, the snapshot manager runs in a thread
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -180,12 +181,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		// // Log the current snapshot
-		// snapshot := r.SnapshotManager.GetSnapshot()
-		// log.Info("Current Resource Snapshot", "snapshot", snapshot)
-
-		// return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil
