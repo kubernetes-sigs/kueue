@@ -2636,7 +2636,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		})
-		ginkgo.It("finds correct flavor", func() {
+		ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
 			fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
 			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
