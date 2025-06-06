@@ -819,29 +819,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
 		},
-		"rack required; single Pod fits in a rack; LeastFreeCapacityFit": {
-			nodes: defaultNodes,
-			topologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasRackLabel),
-			},
-			levels: defaultThreeLevels,
-			requests: resources.Requests{
-				corev1.ResourceCPU: 1000,
-			},
-			count: 1,
-			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultOneLevel,
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Count: 1,
-						Values: []string{
-							"x1",
-						},
-					},
-				},
-			},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
-		},
 		"rack required; single Pod fits in a rack; BestFit": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
@@ -864,6 +841,29 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+		},
+		"rack required; single Pod fits in a rack; LeastFreeCapacityFit": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
 		},
 		"rack preferred; multiple Pods fits in multiple racks; LeastFreeCapacityFit": {
 			nodes: defaultNodes,
