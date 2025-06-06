@@ -25,21 +25,26 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -142,60 +147,60 @@ var _ = ginkgo.FDescribe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		managerTopology = utiltesting.MakeDefaultOneLevelTopology("default")
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTopology)
-		managerTasFlavor = testing.MakeResourceFlavor("tas-flavor").
-			NodeLabel("node-group", "tas").
-			TopologyName(managerTopology.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTasFlavor)
+		// managerTopology = utiltesting.MakeDefaultOneLevelTopology("default")
+		// util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTopology)
+		// managerTasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		// 	NodeLabel("node-group", "tas").
+		// 	TopologyName(managerTopology.Name).Obj()
+		// util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTasFlavor)
 
-		worker1Topology = utiltesting.MakeDefaultOneLevelTopology("default")
-		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Topology)
-		worker1TasFlavor = testing.MakeResourceFlavor("tas-flavor").
-			NodeLabel("node-group", "tas").
-			TopologyName(worker1Topology.Name).Obj()
-		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1TasFlavor)
+		// worker1Topology = utiltesting.MakeDefaultOneLevelTopology("default")
+		// util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Topology)
+		// worker1TasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		// 	NodeLabel("node-group", "tas").
+		// 	TopologyName(worker1Topology.Name).Obj()
+		// util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1TasFlavor)
 
-		worker2Topology = utiltesting.MakeDefaultOneLevelTopology("default")
-		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Topology)
-		worker2TasFlavor = testing.MakeResourceFlavor("tas-flavor").
-			NodeLabel("node-group", "tas").
-			TopologyName(worker2Topology.Name).Obj()
-		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2TasFlavor)
+		// worker2Topology = utiltesting.MakeDefaultOneLevelTopology("default")
+		// util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Topology)
+		// worker2TasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		// 	NodeLabel("node-group", "tas").
+		// 	TopologyName(worker2Topology.Name).Obj()
+		// util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2TasFlavor)
 
-		managerCq = utiltesting.MakeClusterQueue("cluster-queue").
-			ResourceGroup(
-				*testing.MakeFlavorQuotas(managerTasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-			).
-			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
-			Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
-		util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+		// managerCq = utiltesting.MakeClusterQueue("cluster-queue").
+		// 	ResourceGroup(
+		// 		*testing.MakeFlavorQuotas(managerTasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+		// 	).
+		// 	AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+		// 	Obj()
+		// gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
+		// util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
-		managerLq = utiltesting.MakeLocalQueue("local-queue", managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerLq)).Should(gomega.Succeed())
+		// managerLq = utiltesting.MakeLocalQueue("local-queue", managerNs.Name).ClusterQueue(managerCq.Name).Obj()
+		// gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerLq)).Should(gomega.Succeed())
 
-		worker1Cq = utiltesting.MakeClusterQueue("cluster-queue").
-			ResourceGroup(
-				*testing.MakeFlavorQuotas(worker1TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-			).
-			Obj()
-		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Cq)).Should(gomega.Succeed())
-		util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+		// worker1Cq = utiltesting.MakeClusterQueue("cluster-queue").
+		// 	ResourceGroup(
+		// 		*testing.MakeFlavorQuotas(worker1TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+		// 	).
+		// 	Obj()
+		// gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Cq)).Should(gomega.Succeed())
+		// util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 
-		worker1Lq = utiltesting.MakeLocalQueue("local-queue", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
+		// worker1Lq = utiltesting.MakeLocalQueue("local-queue", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
+		// gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
 
-		worker2Cq = utiltesting.MakeClusterQueue("cluster-queue").
-			ResourceGroup(
-				*testing.MakeFlavorQuotas(worker2TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-			).
-			Obj()
-		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
-		util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+		// worker2Cq = utiltesting.MakeClusterQueue("cluster-queue").
+		// 	ResourceGroup(
+		// 		*testing.MakeFlavorQuotas(worker2TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+		// 	).
+		// 	Obj()
+		// gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
+		// util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 
-		worker2Lq = utiltesting.MakeLocalQueue("local-queue", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+		// worker2Lq = utiltesting.MakeLocalQueue("local-queue", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
+		// gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -296,6 +301,235 @@ var _ = ginkgo.FDescribe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						},
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+	})
+
+	ginkgo.FWhen("ProvisioningRequest is used", func() {
+		var (
+			nodes          []corev1.Node
+			worker1Ac      *kueue.AdmissionCheck
+			worker2Ac      *kueue.AdmissionCheck
+			worker1Prc     *kueue.ProvisioningRequestConfig
+			worker2Prc     *kueue.ProvisioningRequestConfig
+			createdRequest autoscaling.ProvisioningRequest
+		)
+
+		ginkgo.BeforeEach(func() {
+
+			managerTopology = utiltesting.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTopology)
+			managerTasFlavor = testing.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName(managerTopology.Name).Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTasFlavor)
+
+			worker1Topology = utiltesting.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Topology)
+			worker1TasFlavor = testing.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName(worker1Topology.Name).Obj()
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1TasFlavor)
+
+			worker2Topology = utiltesting.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Topology)
+			worker2TasFlavor = testing.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName(worker2Topology.Name).Obj()
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2TasFlavor)
+
+			managerCq = utiltesting.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(managerTasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+				Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+
+			managerLq = utiltesting.MakeLocalQueue("local-queue", managerNs.Name).ClusterQueue(managerCq.Name).Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerLq)).Should(gomega.Succeed())
+
+			worker1Prc = testing.MakeProvisioningRequestConfig("prov-config").
+				ProvisioningClass("provisioning-class").
+				RetryLimit(1).
+				BaseBackoff(1).
+				PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
+					NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{{
+						Key:                              "dedicated-selector-key",
+						ValueFromProvisioningClassDetail: "dedicated-selector-detail",
+					}},
+				}).
+				Obj()
+
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Prc)
+			worker2Prc = testing.MakeProvisioningRequestConfig("prov-config").
+				ProvisioningClass("provisioning-class").
+				RetryLimit(1).
+				BaseBackoff(1).
+				PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
+					NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{{
+						Key:                              "dedicated-selector-key",
+						ValueFromProvisioningClassDetail: "dedicated-selector-detail",
+					}},
+				}).
+				Obj()
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Prc)
+
+			worker1Ac = testing.MakeAdmissionCheck("provisioning").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker1Prc.Name).
+				Obj()
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ac)
+
+			worker2Ac = testing.MakeAdmissionCheck("provisioning").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker1Prc.Name).
+				Obj()
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ac)
+			util.SetAdmissionCheckActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ac, metav1.ConditionTrue)
+			util.SetAdmissionCheckActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ac, metav1.ConditionTrue)
+
+			worker1Cq = utiltesting.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(worker1TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(worker1Ac.Name)).
+				Obj()
+			gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Cq)).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+
+			worker1Lq = utiltesting.MakeLocalQueue("local-queue", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
+			gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1Lq)).Should(gomega.Succeed())
+
+			worker2Cq = utiltesting.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(worker2TasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(worker2Ac.Name)).
+				Obj()
+			gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+
+			worker2Lq = utiltesting.MakeLocalQueue("local-queue", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
+			gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ac, true)
+			util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ac, true)
+			util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Prc, true)
+			util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Prc, true)
+			util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, &createdRequest, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, &node, true)
+			}
+		})
+
+		ginkgo.It("should admit workload when nodes are provisioned; manager restart", func() {
+			var (
+				wl1 *kueue.Workload
+			)
+
+			job := testingjob.MakeJob("job", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("creating a job which requires block", func() {
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+			})
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("verify the workload reserves the quota", func() {
+				util.ExpectQuotaReservedWorkloadsTotalMetric(managerCq, 1)
+				util.ExpectReservingActiveWorkloadsMetric(managerCq, 1)
+			})
+
+			provReqKey := apitypes.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(worker1Ac.Name), 1),
+			}
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("provision the nodes", func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(managerTestCluster.ctx, managerTestCluster.client, nodes)
+			})
+
+			ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the check to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, wl1)).To(gomega.Succeed())
+					state := workload.FindAdmissionCheck(wl1.Status.AdmissionChecks, kueue.AdmissionCheckReference(worker1Ac.Name))
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
+				}, util.Timeout, time.Millisecond).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("restart Kueue manager", func() {
+				managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+				managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, managerSetup)
+			})
+
+			ginkgo.By("verify admission for the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, wl1)).To(gomega.Succeed())
+					g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeEquivalentTo(
+						&kueue.TopologyAssignment{
+							Levels: []string{
+								corev1.LabelHostname,
+							},
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x1",
+									},
+								},
+							},
+						},
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the workload is admitted", func() {
+				util.ExpectReservingActiveWorkloadsMetric(managerCq, 1)
+				util.ExpectPendingWorkloadsMetric(managerCq, 0, 0)
+				util.ExpectWorkloadsToBeAdmitted(managerTestCluster.ctx, managerTestCluster.client, wl1)
 			})
 		})
 
