@@ -243,7 +243,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$(RELEASE_BRANCH))
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -254,8 +254,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+deploy: manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
 	@$(call clean-manifests)
 
@@ -276,12 +275,13 @@ site-server: hugo
 clean-artifacts:
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 
+.PHONY: prepare-manifests
+prepare-manifests:
+	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="artifacts"
-artifacts: clean-artifacts kustomize helm-chart-package ## Generate release artifacts.
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
-	if [ -d artifacts ]; then rm -rf artifacts; fi
-	mkdir -p artifacts
+artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate release artifacts.
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
@@ -296,7 +296,6 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(CHART_VERSION)/g' -i site/hugo.toml
 	$(SED) -r 's/--version="v?[0-9]+\.[0-9]+\.[0-9]+/--version="$(CHART_VERSION)/g' -i charts/kueue/README.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
-	@$(call clean-manifests)
 
 .PHONY: update-security-insights
 update-security-insights: yq
