@@ -1179,7 +1179,12 @@ requirement) starting from the one with the most free capacity.
 The difference from `BestFit` algorithm is in the lack of optimization of
 the last domain.
 
-This algorithm was enabled by the `TASProfileMostFreeCapacity` feature flag
+This algorithm was enabled by the `TASProfileMostFreeCapacity` feature flag and it
+was independent of PodSet's annotations:
+
+| featuregate/annotation     | preferred         | required          | unconstrained     |
+| -------------------------- | ----------------- | ----------------- | ----------------- |
+| TASProfileMostFreeCapacity | MostFreeCapacity  | MostFreeCapacity  | MostFreeCapacity  |
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively.
