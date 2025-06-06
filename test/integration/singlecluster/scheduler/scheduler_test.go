@@ -2598,7 +2598,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
-	ginkgo.When("Preemption in the first flavor is not possible", func() {
+	ginkgo.When("Multiple flavors can be considered for preemption", func() {
 		var (
 			ns *corev1.Namespace
 
