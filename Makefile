@@ -33,15 +33,18 @@ CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
-STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
-IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
+
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
+
 IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
 IMAGE_REPO_KUEUEVIZ_BACKEND := $(IMAGE_REGISTRY)/kueueviz-backend
 IMAGE_REPO_KUEUEVIZ_FRONTEND := $(IMAGE_REGISTRY)/kueueviz-frontend
-IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
-IMAGE_TAG_KUEUEVIZ_BACKEND ?= $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
-IMAGE_TAG_KUEUEVIZ_FRONTEND ?= $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
-HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+
+IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
+
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
 
@@ -243,7 +246,7 @@ image-push: image-build
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
 	DEST_CHART_DIR=$(DEST_CHART_DIR) \
 	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
-	HELM_CHART_PUSH=$(HELM_CHART_PUSH) HELM_CHART_REPO=$(HELM_CHART_REPO) \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
 	./hack/helm-chart-package.sh
 
 .PHONY: helm-chart-push
@@ -269,10 +272,10 @@ endif
 
 clean-manifests = \
 	(cd config/components/manager && \
-		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue/kueue:$(RELEASE_BRANCH)) && \
+		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
 	(cd config/components/kueueviz && \
-  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueue/kueueviz-backend:$(RELEASE_BRANCH) && \
-  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueue/kueueviz-frontend:$(RELEASE_BRANCH))
+  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
+  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
