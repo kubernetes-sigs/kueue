@@ -1165,3 +1165,32 @@ type WorkloadStatus struct {
 Uncertanity about the final shape of the feature and the required format.
 We will decide on the format of this field based on the feedback from the 
 customers on the MVP.
+
+### MostFreeCapacity algorithm
+
+Alongside the `BestFit` and `LeastFreeCapacity` algorithms, the `MostFreeCapacity`
+had been implemented and was present in Kueue until it was dropped in version 0.13.
+
+The algorithm worked by selecting as many domains as needed (if it meets the user's
+requirement) starting from the one with the most free capacity.
+
+The difference from `BestFit` algorithm is in the lack of optimization of
+the last domain.
+
+This algorithm was enabled by the `TASProfileMostFreeCapacity` feature flag
+
+#### Example
+Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively.
+A PodSet consists of 7 pods.
+
+Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes 
+and select the first two, each with 3 available pods, as they possess the most
+free capacity. With 1 pod remaining to schedule, the difference between the algorithms 
+becomes apparent:
+- The `BestFit` algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
+- The `MostFreeCapacity` algorithm simply selects the node with the most remaining free capacity, which is 2 in this case.
+
+**Reasons for discarding/deferring**
+Due to code simplicity concerns and a lack of use cases for the algorithm,
+the decision was made to remove it in favor of `BestFit`.
+
