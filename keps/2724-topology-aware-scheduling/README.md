@@ -61,7 +61,7 @@
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
   - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
-    - [Example](#example-1)
+    - [Example](#example-2)
 <!-- /toc -->
 
 ## Summary
