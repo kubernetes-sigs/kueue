@@ -22,9 +22,9 @@ DEST_CHART_DIR=${DEST_CHART_DIR:-bin/}
 
 GIT_TAG=${GIT_TAG:-$(git describe --tags --dirty --always)}
 
-STAGING_IMAGE_REGISTRY=${STAGING_IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images}
-IMAGE_REGISTRY=${IMAGE_REGISTRY:-${STAGING_IMAGE_REGISTRY}/kueue}
-HELM_CHART_REPO=${HELM_CHART_REPO:-${STAGING_IMAGE_REGISTRY}/kueue/charts}
+STAGING_IMAGE_REGISTRY=${STAGING_IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/kueue}
+IMAGE_REGISTRY=${IMAGE_REGISTRY:-${STAGING_IMAGE_REGISTRY}}
+HELM_CHART_REPO=${HELM_CHART_REPO:-${STAGING_IMAGE_REGISTRY}/charts}
 
 HELM=${HELM:-./bin/helm}
 YQ=${YQ:-./bin/yq}

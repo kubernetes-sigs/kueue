@@ -31,11 +31,13 @@ CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
-STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
-IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
+
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
+
 IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
-HELM_CHART_REPO := $(STAGING_IMAGE_REGISTRY)/kueue/charts
+
 RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
 
@@ -221,7 +223,7 @@ image-push: image-build
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
 	DEST_CHART_DIR=$(DEST_CHART_DIR) \
 	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
-	HELM_CHART_PUSH=$(HELM_CHART_PUSH) HELM_CHART_REPO=$(HELM_CHART_REPO) \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
 	./hack/helm-chart-package.sh
 
 .PHONY: helm-chart-push
@@ -240,7 +242,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue/kueue:$(RELEASE_BRANCH))
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
