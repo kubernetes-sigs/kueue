@@ -30,9 +30,11 @@ HELM=${HELM:-./bin/helm}
 YQ=${YQ:-./bin/yq}
 
 readonly k8s_registry="registry.k8s.io/kueue"
-readonly semver_regex='^v([0-9]+)(\.[0-9]+){1,2}(-rc\.[0-9]+)?$'
+# This regex matches only Kueue versions for which the images are
+# going to be promoted to registry.k8s.io.
+readonly promoted_version_regex='^v([0-9]+)(\.[0-9]+){1,2}$'
 
-if [[ ${GIT_TAG} =~ ${semver_regex} ]]
+if [[ ${GIT_TAG} =~ ${promoted_version_regex} ]]
 then
 	IMAGE_REGISTRY=${k8s_registry}
 fi
