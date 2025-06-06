@@ -272,10 +272,12 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$(RELEASE_BRANCH))
-clean-kueueviz-manifests = (cd config/components/kueueviz && \
-  $(KUSTOMIZE) edit set image backend=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:$(RELEASE_BRANCH) && \
-  $(KUSTOMIZE) edit set image frontend=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:$(RELEASE_BRANCH))
+clean-manifests = \
+	(cd config/components/manager && \
+		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue/kueue:$(RELEASE_BRANCH)) && \
+	(cd config/components/kueueviz && \
+  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueue/kueueviz-backend:$(RELEASE_BRANCH) && \
+  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueue/kueueviz-frontend:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -286,8 +288,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+deploy: manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
 	@$(call clean-manifests)
 
@@ -308,12 +309,15 @@ site-server: hugo
 clean-artifacts:
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 
-.PHONY: artifacts
-artifacts: DEST_CHART_DIR="artifacts"
-artifacts: clean-artifacts kustomize helm-chart-package ## Generate release artifacts.
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+.PHONY: prepare-manifests
+prepare-manifests:
+	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+
+.PHONY: artifacts
+artifacts: DEST_CHART_DIR="artifacts"
+artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate release artifacts.
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
@@ -321,7 +325,6 @@ artifacts: clean-artifacts kustomize helm-chart-package ## Generate release arti
 	$(KUSTOMIZE) build config/visibility-apf -o artifacts/visibility-apf.yaml
 	$(KUSTOMIZE) build config/kueueviz -o artifacts/kueueviz.yaml
 	@$(call clean-manifests)
-	@$(call clean-kueueviz-manifests)
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
@@ -331,8 +334,6 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/--version="v?[0-9]+\.[0-9]+\.[0-9]+/--version="$(CHART_VERSION)/g' -i charts/kueue/README.md
 	$(SED) -r 's/KUEUE_VERSION="[0-9]+\.[0-9]+\.[0-9]+/KUEUE_VERSION="$(CHART_VERSION)/g' -i cmd/kueueviz/INSTALL.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
-	@$(call clean-manifests)
-	@$(call clean-kueueviz-manifests)
 
 .PHONY: update-security-insights
 update-security-insights: yq
