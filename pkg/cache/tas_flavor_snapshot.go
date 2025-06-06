@@ -729,7 +729,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 
 func useBestFitAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return !features.Enabled(features.TASProfileMostFreeCapacity) && !useLeastFreeCapacityAlgorithm(unconstrained)
+	return !useLeastFreeCapacityAlgorithm(unconstrained)
 }
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {

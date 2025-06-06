@@ -309,7 +309,6 @@ spec:
 | `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9   | 0.10  |
 | `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10  | 0.11  |
 | `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11  |       |
-| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  |       |
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
 
