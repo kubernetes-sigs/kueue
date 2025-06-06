@@ -40,6 +40,36 @@ Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.2" --create-namespace --namespace=kueue-system
 ```
 
+For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
+
+```yaml
+controllerManager:
+  replicas: 2
+  manager:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi 
+      requests:
+        cpu: "2"
+        memory: 2Gi
+```
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.2" \
+  --create-namespace --namespace=kueue-system \
+  --values overrides.yaml
+```
+
+You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.2" \
+  --create-namespace --namespace=kueue-system \
+  --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
+  --set "controllerManager.featureGates[0].enabled=true"
+```
+
 ##### Verify that controller pods are running properly.
 
 ```bash
@@ -75,8 +105,9 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
 | `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
-| `KueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main` |
-| `KueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
+| `kueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main`  |
+| `kueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
+| `controllerManager.manager.featureGates`               | controllerManager.manager's feature gates              | `[]`                                                                         |
 | `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
