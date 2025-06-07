@@ -12,17 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
 BIN_DIR ?= $(PROJECT_DIR)/bin
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
-
-ifeq (,$(shell go env GOBIN))
-	GOBIN=$(shell go env GOPATH)/bin
-else
-	GOBIN=$(shell go env GOBIN)
-endif
-GO_CMD ?= go
 
 # Use go.mod go version as source.
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)

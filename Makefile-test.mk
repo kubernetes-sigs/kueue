@@ -50,15 +50,9 @@ E2E_RUN_ONLY_ENV ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
-STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
-IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
-IMAGE_NAME := kueue
-IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
-IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
 
 # Versions for external controllers
-APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
 KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
