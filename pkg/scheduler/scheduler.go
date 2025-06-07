@@ -263,6 +263,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
+
+			log.V(5).Info("Attempt to preempt workloads", "e.preemptionTargets", e.preemptionTargets)
 			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
