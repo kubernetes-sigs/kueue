@@ -241,7 +241,7 @@ INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .new
 export INITIAL_IMAGE
 
 function restore_managers_image {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
 }
 
 function determine_kuberay_ray_image {
