@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1081,6 +1082,107 @@ func TestPropagateResourceRequests(t *testing.T) {
 			got := PropagateResourceRequests(tc.wl, tc.info)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateImmutablePodSet(t *testing.T) {
+	type args struct {
+		new  kueue.PodSet
+		old  kueue.PodSet
+		path *field.Path
+	}
+	tests := map[string]struct {
+		args      args
+		wantError bool
+	}{
+		"SamePodSets_SameCount": {
+			args: args{
+				new: kueue.PodSet{Count: 3},
+				old: kueue.PodSet{Count: 3},
+			},
+		},
+		"SamePodSets_DifferentCount": {
+			args: args{
+				new: kueue.PodSet{Count: 3},
+				old: kueue.PodSet{Count: 4},
+			},
+		},
+		"DifferentPodSets_SameCount": {
+			args: args{
+				new: kueue.PodSet{Count: 3, Name: "foo"},
+				old: kueue.PodSet{Count: 3, Name: "bar"},
+			},
+			wantError: true,
+		},
+		"DifferentPodSets_DifferentCount": {
+			args: args{
+				new: kueue.PodSet{Count: 3, Name: "foo"},
+				old: kueue.PodSet{Count: 4, Name: "bar"},
+			},
+			wantError: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateImmutablePodSet(tt.args.new, tt.args.old, tt.args.path)
+			if len(err) > 0 != tt.wantError {
+				t.Errorf("ValidateImmutablePodSet() wantError: %v, got: %v", tt.wantError, err)
+			}
+		})
+	}
+}
+
+func TestValidateImmutablePodSets(t *testing.T) {
+	type args struct {
+		new  []kueue.PodSet
+		old  []kueue.PodSet
+		path *field.Path
+	}
+	tests := map[string]struct {
+		args      args
+		wantError bool
+	}{
+		"SamePodSets_SameCount": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
+				old: []kueue.PodSet{{Count: 3}, {Count: 42}},
+			},
+		},
+		"SamePodSets_DifferentCount": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
+				old: []kueue.PodSet{{Count: 4}, {Count: 5}},
+			},
+		},
+		"DifferentPodSets_SameCount": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3, Name: "foo"}, {Count: 42}},
+				old: []kueue.PodSet{{Count: 3}, {Count: 42}},
+			},
+			wantError: true,
+		},
+		"DifferentPodSets_AddedPodSet": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
+				old: []kueue.PodSet{{Count: 3}},
+			},
+			wantError: true,
+		},
+		"DifferentPodSets_RemovedPodSet": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3}},
+				old: []kueue.PodSet{{Count: 4}, {Count: 42}},
+			},
+			wantError: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateImmutablePodSets(tt.args.new, tt.args.old, tt.args.path)
+			if len(err) > 0 != tt.wantError {
+				t.Errorf("ValidateImmutablePodSets() wantError: %v, got: %v", tt.wantError, err)
 			}
 		})
 	}
