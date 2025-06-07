@@ -1860,6 +1860,816 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
+		"block required for podset; host required for slices; BestFit": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:3, x2:3, x3:3
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
+		"block required for podset; host required for slices; prioritize more free slice capacity first and then tight fit; BestFit": {
+			//           b1
+			//            |
+			//           r1
+			//    /    /    \    \
+			// x1:6  x2:5   x3:4  x4:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 12,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 6,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 4,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
+		"block required for podset; host required for slices; select domains with tight fit; BestFit": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:3, x2:2, x3:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+				},
+			},
+		},
+		"block required for podset; rack required for slices; BestFit": {
+
+			//        b1            b2
+			//    /       \          |
+			//   r1        r2       r1
+			//  / \     /  / \     /  \
+			// x1 x2  x3 x4  x5   x6   x7
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x6").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x7").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
+		"block preferred for podset; rack required for slices; BestFit": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Preferred:                   ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x6",
+						},
+					},
+				},
+			},
+		},
+		"block required for podset; host required for slices; optimize last domain; BestFit": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:4, x2:3, x3:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 4,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+				},
+			},
+		},
+		"block required for podset; host required for slices; MostFreeCapacity": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:6, x2:4, x3:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 8,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 6,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
+		"block required for podset; host required for slices; LeastFreeCapacity": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:4, x2:3, x3:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+		},
+		"block preferred for podset; host required for slices; LeastFreeCapacity": {
+			//nolint:dupword // suppress duplicate r1 word
+			//        b1                b2
+			//         |                 |
+			//        r1                r1
+			//    /    |    \        /   |
+			// x1:4, x2:3, x3:2   x4:4  x5:2
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x5").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Preferred:                   ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 8,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x5",
+						},
+					},
+				},
+			},
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+		},
+		"block preferred for podset; host required for slices; 2 blocks with unbalanced subdomains; BestFit": {
+			//nolint:dupword // suppress duplicate r1 word
+			//        b1                b2
+			//         |                 |
+			//        r1                r1
+			//    /    |    \            |
+			// x1:3, x2:3, x3:3   		x4:6
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Preferred:                   ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(3)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 12,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 3,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 3,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 6,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
+		"slice required topology level cannot be above the main required topology level": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(corev1.LabelHostname),
+				PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
+				PodSetSliceSize:             ptr.To(int32(1)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "podset slice topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
+		"slice size is required when slice topology is requested": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "slice topology requested, but slice size not provided",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
+		"cannot request not existing slice topology": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(string(tasBlockLabel)),
+				PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
+				PodSetSliceSize:             ptr.To(int32(1)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:              1,
+			wantReason:         "no requested topology level: not-existing-topology-level",
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

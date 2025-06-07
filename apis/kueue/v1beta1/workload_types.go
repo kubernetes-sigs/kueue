@@ -124,6 +124,19 @@ type PodSetTopologyRequest struct {
 	// SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
+
+	// PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+	// indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+	//
+	// +optional
+	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
+
+	// PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+	// Kueue finds a requested topology domain on a level defined
+	// in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+	//
+	// +optional
+	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
 }
 
 type Admission struct {
