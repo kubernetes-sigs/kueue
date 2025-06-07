@@ -1,0 +1,27 @@
+apiVersion: k3d.io/v1alpha3
+kind: Simple
+name: my-k3d-cluster
+servers: 1 # control-plane
+agents: 3 # worker
+ports:
+- port: 80:80
+
+options:
+  k3s:
+    nodeLabels: # Define labels for nodes
+      - label: pool=controllers
+        nodeFilters:
+          - agent:0 # First agent node
+      - label: pool=jobs
+        nodeFilters:
+          - agent:1 # Second agent node
+      - label: tier=spot
+        nodeFilters:
+          - agent:1 # Second agent node
+      - label: pool=jobs
+        nodeFilters:
+          - agent:2 # Third agent node
+      - label: tier=regular
+        nodeFilters:
+          - agent:2 # Third agent node
+
