@@ -31,14 +31,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testOracle struct{}
 
-func (f *testOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool {
-	return !cq.BorrowingWith(fr, quantity)
+func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) common.SimulationResult {
+	return common.SimulationResult{PreemptionPossible: true, ReclaimPossible: !cq.BorrowingWith(fr, quantity)}
 }
 
 func TestAssignFlavors(t *testing.T) {
