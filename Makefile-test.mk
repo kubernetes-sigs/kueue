@@ -50,8 +50,6 @@ E2E_RUN_ONLY_ENV ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
-CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
-
 # Versions for external controllers
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
