@@ -21,9 +21,6 @@ ROOT_DIR="$SOURCE_DIR/.."
 # shellcheck source=hack/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 
-# Set CYPRESS_IMAGE_NAME to the value of the env var or default to cypress/base
-CYPRESS_IMAGE_NAME="${CYPRESS_IMAGE_NAME:-cypress/base}"
-
 # Function to clean up background processes
 cleanup() {
   echo "Cleaning up kueueviz processes"
