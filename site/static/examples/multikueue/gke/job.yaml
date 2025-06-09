@@ -15,8 +15,8 @@ spec:
       annotations:
         kueue.x-k8s.io/podset-required-topology: "kubernetes.io/hostname"
     spec:
-      nodeSelector:
-        cloud.google.com/gke-nodepool: dws-nodepool
+      # nodeSelector:
+      #   cloud.google.com/gke-nodepool: dws-nodepool
       tolerations:
         - key: "nvidia.com/gpu"
           operator: "Exists"

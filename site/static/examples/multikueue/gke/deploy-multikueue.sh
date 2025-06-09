@@ -6,8 +6,8 @@ set -o xtrace
 
 
 KUEUE_VERSION=v0.12.0-rc.3
-regions=("europe-west4" "asia-southeast1" "us-east4")
-kubeconfigs=("manager-europe-west4" "worker-asia-southeast1" "worker-us-east4")
+regions=("europe-west4" "us-east4")
+kubeconfigs=("manager-europe-west4-a" "worker-us-east4-a")
 PROJECT_ID=$(gcloud config get-value project)
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
 IMAGE_REGISTRY=us-west1-docker.pkg.dev/${PROJECT_ID}/testing/kueue

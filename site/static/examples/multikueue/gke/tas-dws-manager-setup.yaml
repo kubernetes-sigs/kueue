@@ -39,17 +39,7 @@ metadata:
   name: multikueue-test
 spec:
   clusters:
-    - multikueue-test-worker-asia
     - multikueue-test-worker-us
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: MultiKueueCluster
-metadata:
-  name: multikueue-test-worker-asia
-spec:
-  kubeConfig:
-    locationType: Secret
-    location: worker-asia-southeast1-secret
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: MultiKueueCluster
@@ -58,7 +48,7 @@ metadata:
 spec:
   kubeConfig:
     locationType: Secret
-    location: worker-us-east4-secret
+    location: worker-us-east4-a-secret
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
@@ -79,6 +69,7 @@ spec:
         nominalQuota: 10000  # Infinite quota.
   admissionChecks:
     - multikueue-ac
+    - dws-prov
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
@@ -87,4 +78,27 @@ metadata:
   name: "user-queue"
 spec:
   clusterQueue: "dws-cluster-queue"
-
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: dws-prov
+spec:
+  controllerName: kueue.x-k8s.io/provisioning-request
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: ProvisioningRequestConfig
+    name: dws-config
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ProvisioningRequestConfig
+metadata:
+  name: dws-config
+spec:
+  provisioningClassName: queued-provisioning.gke.io
+  podSetUpdates:
+    nodeSelector:
+    - key: "autoscaling.gke.io/provisioning-request"
+      valueFromProvisioningClassDetail: "ResizeRequestName"
+  managedResources:
+    - nvidia.com/gpu
