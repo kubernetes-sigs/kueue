@@ -62,14 +62,6 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
-# Versions for external controllers
-JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
-KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
-KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
-KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
-LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
-CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
-
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -87,11 +79,11 @@ test: gotestsum ## Run tests.
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
-	KUEUE_BIN=$(PROJECT_DIR)/bin \
+	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json $(INTEGRATION_OUTPUT_OPTIONS) --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
+	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
 test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
@@ -105,11 +97,11 @@ test-integration-extended: test-integration ## Run extended integration tests fo
 test-multikueue-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for Multikueue suite.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
-	KUEUE_BIN=$(PROJECT_DIR)/bin \
+	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json $(INTEGRATION_OUTPUT_OPTIONS) --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
-	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
+	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true
 
@@ -199,12 +191,12 @@ run-test-e2e-certmanager-%: FORCE
 		./hack/e2e-test.sh
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/$@/e2e.json > $(ARTIFACTS)/$@/e2e-top.yaml
 
-SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
+SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
 performance-scheduler-runner:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
 
-MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
+MINIMALKUEUE_RUNNER := $(BIN_DIR)/minimalkueue
 .PHONY: minimalkueue
 minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
@@ -262,6 +254,5 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 
 .PHONY: ginkgo-top
 ginkgo-top:
-	cd $(PROJECT_DIR)/hack/internal/tools && \
-	go mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/ginkgo-top ./ginkgo-top
+	cd $(TOOLS_DIR) && go mod download && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top

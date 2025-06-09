@@ -42,7 +42,10 @@ RAY_VERSION := 2.41.0
 RAYMINI_VERSION ?= 0.0.1
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-ARTIFACTS ?= $(PROJECT_DIR)/bin
+BIN_DIR ?= $(PROJECT_DIR)/bin
+ARTIFACTS ?= $(BIN_DIR)
+TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
@@ -381,7 +384,7 @@ kueue-viz-image: kueue-viz-image-build
 
 .PHONY: kueuectl
 kueuectl:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kubectl-kueue cmd/kueuectl/main.go
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
 generate-apiref: genref
@@ -390,7 +393,7 @@ generate-apiref: genref
 .PHONY: generate-kueuectl-docs
 generate-kueuectl-docs: kueuectl-docs
 	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
-	$(PROJECT_DIR)/bin/kueuectl-docs \
+	$(BIN_DIR)/kueuectl-docs \
 		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
 
