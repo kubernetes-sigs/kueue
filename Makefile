@@ -216,7 +216,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: image-local-build
 image-local-build:
 	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
-	$(MAKE) image-build PUSH=$(PUSH)
+	$(MAKE) image-build PUSH=$(PUSH) IMAGE_BUILD_EXTRA_OPTS=$(IMAGE_BUILD_EXTRA_OPTS)
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 # Build the multiplatform container image locally and push to repo.
@@ -236,6 +236,7 @@ image-build:
 		--build-arg GIT_TAG=$(GIT_TAG) \
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
 
 .PHONY: image-push
@@ -369,6 +370,7 @@ importer-image-build:
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/importer/Dockerfile ./
 
 .PHONY: importer-image-push
@@ -393,12 +395,14 @@ kueueviz-image-build:
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend
 
 .PHONY: kueueviz-image-push
@@ -435,6 +439,7 @@ ray-project-mini-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./hack/internal/test-images/ray/Dockerfile ./ \
 
 # The step is required for local e2e test run
