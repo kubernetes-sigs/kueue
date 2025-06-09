@@ -69,7 +69,6 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
-	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1076,7 +1075,7 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var updatedNode corev1.Node
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
-		condition := utilnode.GetNodeCondition(&updatedNode, newCondition.Type)
+		condition := utiltas.GetNodeCondition(&updatedNode, newCondition.Type)
 		changed := false
 		if condition == nil {
 			updatedNode.Status.Conditions = append(updatedNode.Status.Conditions, *newCondition)
