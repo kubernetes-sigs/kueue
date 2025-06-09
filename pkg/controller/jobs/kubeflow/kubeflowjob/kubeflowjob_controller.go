@@ -185,6 +185,7 @@ func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
 		)...)
 	}
 	sort.Slice(allErrs, func(i, j int) bool {

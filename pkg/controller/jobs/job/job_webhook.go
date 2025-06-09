@@ -177,7 +177,7 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 }
 
 func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta, job.podsCount())
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

@@ -194,7 +194,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.PodSet {
 	podSets := make([]kueue.PodSet, 0, 2)
 
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+	if isLeaderDefined(lws) {
 		podSet := kueue.PodSet{
 			Name:  leaderPodSetName,
 			Count: 1,
@@ -214,14 +214,11 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 		defaultPodSetName = workerPodSetName
 	}
 
-	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
-	if len(podSets) > 0 {
-		defaultPodSetCount--
-	}
+	workersPodSetCount := workersPodCount(lws)
 
 	podSet := kueue.PodSet{
 		Name:  defaultPodSetName,
-		Count: defaultPodSetCount,
+		Count: workersPodSetCount,
 		Template: corev1.PodTemplateSpec{
 			Spec: *lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.DeepCopy(),
 		},
@@ -236,6 +233,18 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	podSets = append(podSets, podSet)
 
 	return podSets
+}
+
+func isLeaderDefined(lws *leaderworkersetv1.LeaderWorkerSet) bool {
+	return lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil
+}
+
+func workersPodCount(lws *leaderworkersetv1.LeaderWorkerSet) int32 {
+	workersPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
+	if isLeaderDefined(lws) {
+		workersPodSetCount--
+	}
+	return workersPodSetCount
 }
 
 func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {

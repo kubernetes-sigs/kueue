@@ -187,9 +187,9 @@ func validateCreate(lws *LeaderWorkerSet) field.ErrorList {
 func validateTopologyRequest(lws *LeaderWorkerSet) field.ErrorList {
 	var allErrs field.ErrorList
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, 1)...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workersPodCount((*leaderworkersetv1.LeaderWorkerSet)(lws)))...)
 	return allErrs
 }
 
