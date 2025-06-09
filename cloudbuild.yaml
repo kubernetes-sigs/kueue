@@ -13,7 +13,6 @@ steps:
       - helm-chart-push
       - kueueviz-image-push
     env:
-      - IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
 substitutions:
