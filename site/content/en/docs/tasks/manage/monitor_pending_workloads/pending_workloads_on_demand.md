@@ -52,7 +52,7 @@ You then need to create `ClusterRole` and `ClusterRoleBinding` for that same (de
 using a command:
 
 ```shell
-kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/cluster-role-and-binding.yaml
+kubectl apply -f https://kueue.sigs.k8s.io/examples/visibility/cluster-role-and-binding.yaml
 ```
 
 ## Monitor pending workloads on demand
