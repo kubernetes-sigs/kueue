@@ -644,21 +644,21 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
+	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) {
+		return false
+	}
 	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
 }
 
 func needsSecondPassForDelayedAssignment(w *kueue.Workload) bool {
-	return HasQuotaReservation(w) &&
-		len(w.Status.AdmissionChecks) > 0 &&
+	return len(w.Status.AdmissionChecks) > 0 &&
 		HasAllChecksReady(w) &&
 		HasTopologyAssignmentsPending(w) &&
-		!IsAdmitted(w) &&
-		!IsFinished(w) &&
-		!IsEvicted(w)
+		!IsAdmitted(w)
 }
 
 func needsSecondPassAfterNodeFailure(w *kueue.Workload) bool {
-	return IsAdmitted(w) && HasNodeToReplace(w)
+	return HasTopologyAssignmentWithNodeToReplace(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
