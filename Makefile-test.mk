@@ -50,8 +50,6 @@ E2E_RUN_ONLY_ENV ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
-CYPRESS_IMAGE_NAME ?= cypress/base:22.14.0
-
 ##@ Tests
 
 # Periodic builds are tested with full ray image
