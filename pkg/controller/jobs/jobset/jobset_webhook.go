@@ -18,15 +18,18 @@ package jobset
 
 import (
 	"context"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
@@ -80,7 +83,23 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 	jobframework.ApplyDefaultForManagedBy(jobSet, w.queues, w.cache, log)
 
+	applyDefaultSliceSize(jobSet)
+
 	return nil
+}
+
+func applyDefaultSliceSize(jobSet *JobSet) {
+	for _, rj := range jobSet.Spec.ReplicatedJobs {
+		targetSliceSize := ptr.Deref(rj.Template.Spec.Parallelism, 1)
+		annotations := rj.Template.Spec.Template.Annotations
+
+		_, sliceSizeFound := annotations[kueuealpha.PodSetSliceSizeAnnotation]
+		_, sliceRequiredFound := annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
+
+		if sliceRequiredFound && !sliceSizeFound {
+			annotations[kueuealpha.PodSetSliceSizeAnnotation] = strconv.Itoa(int(targetSliceSize))
+		}
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1

@@ -386,6 +386,69 @@ func TestDefault(t *testing.T) {
 			jobSet:               testingutil.MakeJobSet("test-js", "default").Obj(),
 			want:                 testingutil.MakeJobSet("test-js", "default").Obj(),
 		},
+		{
+			name: "TestDefault_DefaultSliceSizeToParallelism",
+			jobSet: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "leader",
+				Parallelism: 3,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name:        "worker",
+				Parallelism: 5,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			want: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "leader",
+				Parallelism: 3,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetSliceSizeAnnotation:             "3",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name:        "worker",
+				Parallelism: 5,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetSliceSizeAnnotation:             "5",
+				},
+			}).Obj(),
+		},
+		{
+			name: "TestDefault_ShouldNotDefaultSliceSizeIfSliceTopologyNotRequested",
+			jobSet: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:           "leader",
+				Parallelism:    3,
+				PodAnnotations: nil,
+			}).Obj(),
+			want: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:           "leader",
+				Parallelism:    3,
+				PodAnnotations: nil,
+			}).Obj(),
+		},
+		{
+			name: "TestDefault_ShouldNotDefaultSliceSizeIfSliceSizeAlreadyDefined",
+			jobSet: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "leader",
+				Parallelism: 10,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetSliceSizeAnnotation:             "5",
+				},
+			}).Obj(),
+			want: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "leader",
+				Parallelism: 10,
+				PodAnnotations: map[string]string{
+					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetSliceSizeAnnotation:             "5",
+				},
+			}).Obj(),
+		},
 	}
 
 	for _, tc := range testCases {

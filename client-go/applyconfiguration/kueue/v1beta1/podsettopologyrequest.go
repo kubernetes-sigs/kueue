@@ -20,12 +20,14 @@ package v1beta1
 // PodSetTopologyRequestApplyConfiguration represents a declarative configuration of the PodSetTopologyRequest type for use
 // with apply.
 type PodSetTopologyRequestApplyConfiguration struct {
-	Required           *string `json:"required,omitempty"`
-	Preferred          *string `json:"preferred,omitempty"`
-	Unconstrained      *bool   `json:"unconstrained,omitempty"`
-	PodIndexLabel      *string `json:"podIndexLabel,omitempty"`
-	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
-	SubGroupCount      *int32  `json:"subGroupCount,omitempty"`
+	Required                    *string `json:"required,omitempty"`
+	Preferred                   *string `json:"preferred,omitempty"`
+	Unconstrained               *bool   `json:"unconstrained,omitempty"`
+	PodIndexLabel               *string `json:"podIndexLabel,omitempty"`
+	SubGroupIndexLabel          *string `json:"subGroupIndexLabel,omitempty"`
+	SubGroupCount               *int32  `json:"subGroupCount,omitempty"`
+	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
+	PodSetSliceSize             *int32  `json:"podSetSliceSize,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with
@@ -79,5 +81,21 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupIndexLabel(value s
 // If called multiple times, the SubGroupCount field is set to the value of the last call.
 func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupCount(value int32) *PodSetTopologyRequestApplyConfiguration {
 	b.SubGroupCount = &value
+	return b
+}
+
+// WithPodSetSliceRequiredTopology sets the PodSetSliceRequiredTopology field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetSliceRequiredTopology field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceRequiredTopology(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetSliceRequiredTopology = &value
+	return b
+}
+
+// WithPodSetSliceSize sets the PodSetSliceSize field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetSliceSize field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceSize(value int32) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetSliceSize = &value
 	return b
 }
