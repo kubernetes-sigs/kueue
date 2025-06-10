@@ -24,6 +24,7 @@ GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3)
+GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
 HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
 MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
 
@@ -100,7 +101,7 @@ helm: ## Download helm and helm-unittest locally if necessary.
 
 .PHONY: genref
 genref: ## Download genref locally if necessary.
-	@GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@v0.28.0
+	@GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@$(GENREF_VERSION)
 
 .PHONY: hugo
 hugo: ## Download hugo locally if necessary.

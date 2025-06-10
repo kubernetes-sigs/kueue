@@ -5,6 +5,7 @@ go 1.24.0
 tool (
 	github.com/gohugoio/hugo
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	github.com/kubernetes-sigs/reference-docs/genref
 	github.com/mikefarah/yq/v4
 	github.com/onsi/ginkgo/v2/ginkgo
 	gotest.tools/gotestsum
@@ -63,6 +64,7 @@ require (
 	github.com/Masterminds/vcs v1.13.3 // indirect
 	github.com/OpenPeeDeeP/depguard/v2 v2.2.1 // indirect
 	github.com/a8m/envsubst v1.4.3 // indirect
+	github.com/alecthomas/chroma v0.7.2-0.20200305040604-4f3623dce67a // indirect
 	github.com/alecthomas/chroma/v2 v2.18.0 // indirect
 	github.com/alecthomas/go-check-sumtype v0.3.1 // indirect
 	github.com/alecthomas/participle/v2 v2.1.4 // indirect
@@ -143,6 +145,7 @@ require (
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/daixiang0/gci v0.13.6 // indirect
+	github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964 // indirect
 	github.com/dave/dst v0.27.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
@@ -257,6 +260,7 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/kubernetes-sigs/reference-docs/genref v0.28.0 // indirect
 	github.com/kulti/thelper v0.6.3 // indirect
 	github.com/kunwardeep/paralleltest v1.0.14 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -389,6 +393,7 @@ require (
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
 	github.com/yuin/goldmark v1.7.11 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
+	github.com/yuin/goldmark-highlighting v0.0.0-20210516132338-9216f9c5aa01 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	gitlab.com/bosi/decorder v0.4.2 // indirect
 	go-simpler.org/musttag v0.13.1 // indirect
@@ -438,12 +443,21 @@ require (
 	k8s.io/apiserver v0.33.1 // indirect
 	k8s.io/cli-runtime v0.33.1 // indirect
 	k8s.io/client-go v0.33.1 // indirect
-	k8s.io/code-generator v0.33.0 // indirect
+	k8s.io/cloud-provider v0.28.0 // indirect
+	k8s.io/cluster-bootstrap v0.28.0 // indirect
+	k8s.io/code-generator v0.33.1 // indirect
 	k8s.io/component-base v0.33.1 // indirect
+	k8s.io/controller-manager v0.28.0 // indirect
+	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
+	k8s.io/kube-controller-manager v0.28.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
+	k8s.io/kube-proxy v0.28.0 // indirect
+	k8s.io/kube-scheduler v0.28.0 // indirect
 	k8s.io/kubectl v0.33.1 // indirect
+	k8s.io/kubelet v0.28.0 // indirect
+	k8s.io/metrics v0.33.1 // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	mvdan.cc/gofumpt v0.8.0 // indirect
 	mvdan.cc/unparam v0.0.0-20250301125049-0df0534333a4 // indirect
