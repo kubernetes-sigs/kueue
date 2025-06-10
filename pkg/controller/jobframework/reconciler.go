@@ -1199,6 +1199,46 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
+// prepareWorkloadSlice adds necessary workload slice annotations.
+func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	// Lookup existing slice for a given job.
+	workloadSlices, err := workloadslicing.FindActiveSlices(ctx, clnt, job.Object(), job.GVK())
+	if err != nil {
+		return fmt.Errorf("failure looking up workload slices: %w", err)
+	}
+
+	switch len(workloadSlices) {
+	case 0:
+		// No active workloads found for this job - noop.
+	case 1:
+		// One active workload found for this job - typically, we are in a scale-up event, where previous
+		// workload is the "old" slice.
+		oldSlice := workloadSlices[0]
+		// Assert that we are processing a new workload-slice.
+		if wl.Name == oldSlice.Name {
+			// This should never happen.
+			// In the context of workload slices, prepareWorkload is only called during the
+			// "create new workload" flow. By definition, that means there should be no existing
+			// workload with the same name.
+			//
+			// If we reach this point—where we're preparing a new workload slice but there's already
+			// an existing workload with the same name—it suggests one of the following:
+			// - prepareWorkload is now being invoked in flows other than creation,
+			// - there is a bug or race condition, or
+			// - both.
+			return fmt.Errorf("unexpected workload-slice name collision: %s", wl.Name)
+		}
+		// Annotate new workload slice with the preemptible (old) workload slice.
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, string(workload.Key(&oldSlice)))
+	default:
+		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
+		// Failing here, would trigger job re-processing, and hopefully giving a chance to clear up (preempt/deactivate)
+		// old slice.
+		return fmt.Errorf("unexpected workload-slices count: %d", len(workloadSlices))
+	}
+	return nil
+}
+
 // prepareWorkload adds the priority information for the constructed workload
 func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
 	priorityClassName, source, p, err := r.extractPriority(ctx, wl.Spec.PodSets, job)
@@ -1211,28 +1251,8 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassSource = source
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
-	if !workloadslicing.Enabled(job.Object()) {
-		return nil
-	}
-	workloadSlices, err := workloadslicing.FindActiveSlices(ctx, r.client, job.Object(), job.GVK())
-	if err != nil {
-		return fmt.Errorf("failure looking up workload slices: %w", err)
-	}
-	switch len(workloadSlices) {
-	case 0:
-		// No previous slices, noop.
-	case 1:
-		oldSlice := workloadSlices[0]
-		// Annotate new workload slice with the preemptible (old) workload slice.
-		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, string(workload.Key(&oldSlice)))
-		if err := r.client.Update(ctx, &oldSlice); err != nil {
-			return fmt.Errorf("failed to annotate preemptabe workload slice: %w", err)
-		}
-	default:
-		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
-		// Failing here, would trigger job re-processing, and hopefully giving a chance to clear up (preempt/deactivate)
-		// old slice.
-		return fmt.Errorf("unexpected workload slices count: %d", len(workloadSlices))
+	if workloadslicing.Enabled(job.Object()) {
+		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
 	return nil
 }
