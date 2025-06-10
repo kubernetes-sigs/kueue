@@ -26,9 +26,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -1281,6 +1283,90 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 				cmpopts.IgnoreFields(workload.Info{}, "TotalRequests"),
 			); diff != "" {
 				t.Errorf("GetPendingWorkloadsInfo returned wrong heads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestQueueSecondPassIfNeeded(t *testing.T) {
+	now := time.Now()
+
+	baseWorkloadBuilder := utiltesting.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltesting.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
+		ReserveQuota(
+			utiltesting.MakeAdmission("tas-main", "one").
+				Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+				DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+				AssignmentPodCount(1).Obj(),
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		})
+	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
+
+	cases := map[string]struct {
+		workloads []*kueue.Workload
+		deleted   sets.Set[string]
+		passTime  time.Duration
+		wantReady sets.Set[string]
+	}{
+		"single queued workload checked immediately": {
+			workloads: []*kueue.Workload{baseWorkloadNeedingSecondPass.Obj()},
+		},
+		"single queued workload checked after 1s": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+				baseWorkloadNotNeedingSecondPass.DeepCopy(),
+			},
+			passTime:  time.Second,
+			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+		},
+		"single queued workload deleted in the meanwhile": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+				baseWorkloadNotNeedingSecondPass.DeepCopy(),
+			},
+			deleted:  sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			passTime: time.Second,
+		},
+		"two queued workloads, one deleted in the meanwhile": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
+			},
+			deleted:   sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			passTime:  time.Second,
+			wantReady: sets.New("default/second"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+
+			fakeClock := testingclock.NewFakeClock(now)
+			opts := []Option{
+				WithClock(fakeClock),
+			}
+			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
+
+			for _, wl := range tc.workloads {
+				manager.QueueSecondPassIfNeeded(ctx, wl)
+			}
+			for _, wl := range tc.deleted.UnsortedList() {
+				manager.secondPassQueue.deleteByKey(wl)
+			}
+			fakeClock.Step(tc.passTime)
+			gotReady := sets.New[string]()
+			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
+				gotReady.Insert(workload.Key(wlInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
+				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
 	}
