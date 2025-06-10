@@ -3910,7 +3910,7 @@ func TestSnapshotError(t *testing.T) {
 
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		cq            *kueue.ClusterQueue
 		wantAncestors []kueue.CohortReference
 		wantErr       error
@@ -3922,14 +3922,14 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
 		},
 		"one level": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 			},
 			cq:            utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
 			wantAncestors: []kueue.CohortReference{},
 		},
 		"two level": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 				utiltesting.MakeCohort("left").Parent("root").Obj(),
 				utiltesting.MakeCohort("right").Parent("root").Obj(),
@@ -3938,7 +3938,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 			wantAncestors: []kueue.CohortReference{"left"},
 		},
 		"three levels": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
@@ -3949,7 +3949,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 			wantAncestors: []kueue.CohortReference{"second-left", "first-left"},
 		},
 		"with cycle": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Parent("second-right").Obj(),
 				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("first-right").Parent("root").Obj(),

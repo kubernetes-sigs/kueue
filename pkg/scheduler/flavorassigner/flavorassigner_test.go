@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2442,7 +2441,7 @@ func TestHierarchical(t *testing.T) {
 				"two":   utiltesting.MakeResourceFlavor("two").Obj(),
 				"three": utiltesting.MakeResourceFlavor("three").Obj(),
 			}
-			cohorts := []*kueuealpha.Cohort{
+			cohorts := []*kueue.Cohort{
 				utiltesting.MakeCohort("three").
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("three").
 						Resource(corev1.ResourceCPU, "4").

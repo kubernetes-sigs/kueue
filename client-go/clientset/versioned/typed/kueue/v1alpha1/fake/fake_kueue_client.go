@@ -27,10 +27,6 @@ type FakeKueueV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeKueueV1alpha1) Cohorts(namespace string) v1alpha1.CohortInterface {
-	return newFakeCohorts(c, namespace)
-}
-
 func (c *FakeKueueV1alpha1) Topologies() v1alpha1.TopologyInterface {
 	return newFakeTopologies(c)
 }

@@ -470,7 +470,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
 	cohortName := kueue.CohortReference(apiCohort.Name)
@@ -714,7 +714,7 @@ type CohortUsageStats struct {
 	WeightedShare int64
 }
 
-func (c *Cache) CohortStats(cohortObj *kueuealpha.Cohort) (*CohortUsageStats, error) {
+func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
