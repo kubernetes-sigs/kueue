@@ -64,19 +64,22 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation))...)
 	}
 
+	// validate slice size annotation
+	if sliceSizeFound {
+		val, err := strconv.Atoi(sliceSizeValue)
+		if err != nil {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
+		} else if val < 1 {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
+		}
+	}
+
 	// validate slice annotations
 	if sliceRequiredFound {
 		if !requiredFound && !preferredFound {
 			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation), "cannot be used without podset required or preferred topology"))
 		}
-		if sliceSizeFound {
-			val, err := strconv.Atoi(sliceSizeValue)
-			if err != nil {
-				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
-			} else if val < 1 {
-				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
-			}
-		} else {
+		if !sliceSizeFound {
 			allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), "slice size is required if slice topology is requested"))
 		}
 	} else {
