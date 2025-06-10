@@ -227,8 +227,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			util.MustCreate(ctx, k8sClient, admissionCheck)
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
-			clusterQueue = testing.MakeClusterQueue("").
-				GeneratedName("cluster-queue-").
+			clusterQueue = testing.MakeClusterQueue("cq").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 				).AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).Obj()
@@ -319,8 +318,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					TopologyName("default").Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -798,8 +796,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					TopologyName("default").Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -1264,8 +1261,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					TopologyName("default").Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
@@ -1388,8 +1384,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					TopologyName("default").Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					Cohort("cohort").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -1405,8 +1400,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
 
-				clusterQueueB = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueueB = testing.MakeClusterQueue("cluster-queue-b").
 					Cohort("cohort").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -1493,8 +1487,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -1573,8 +1566,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -1759,8 +1751,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, ac)
 				util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cq").
 					ResourceGroup(
 						*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 					).AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).Obj()
@@ -2346,8 +2337,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, tasCPUFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("").
-					GeneratedName("cluster-queue-").
+				clusterQueue = testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
 						*testing.MakeFlavorQuotas(tasGPUFlavor.Name).Resource(corev1.ResourceCPU, "1").Resource(gpuResName, "5").Obj(),
 						*testing.MakeFlavorQuotas(tasCPUFlavor.Name).Resource(corev1.ResourceCPU, "5").Resource(gpuResName, "0").Obj(),
