@@ -54,8 +54,6 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithResource("cohorts"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().Cohorts().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("topologies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().Topologies().Informer()}, nil
 
@@ -64,6 +62,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().AdmissionChecks().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("clusterqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().ClusterQueues().Informer()}, nil
+	case v1beta1.SchemeGroupVersion.WithResource("cohorts"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().Cohorts().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("localqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().LocalQueues().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("multikueueclusters"):

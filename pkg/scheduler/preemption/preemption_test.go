@@ -37,7 +37,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -278,7 +277,7 @@ func TestPreemption(t *testing.T) {
 	}
 	cases := map[string]struct {
 		clusterQueues       []*kueue.ClusterQueue
-		cohorts             []*kueuealpha.Cohort
+		cohorts             []*kueue.Cohort
 		admitted            []kueue.Workload
 		incoming            *kueue.Workload
 		targetCQ            kueue.ClusterQueueReference
@@ -1779,7 +1778,7 @@ func TestPreemption(t *testing.T) {
 					).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("cohort-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("cohort-right").Parent("root").Obj(),
 			},
@@ -1930,7 +1929,7 @@ func TestFairPreemptions(t *testing.T) {
 	unitWl := *utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		strategies    []config.PreemptionStrategy
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
@@ -2360,7 +2359,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("right-cohort").
 					FairWeight(resource.MustParse("0")).
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
@@ -2445,7 +2444,7 @@ func TestFairPreemptions(t *testing.T) {
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 						Resource(corev1.ResourceCPU, "5").Obj()).
@@ -2521,7 +2520,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0.1")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
 					FairWeight(resource.MustParse("0.1")).
@@ -2569,7 +2568,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0.1")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
 					FairWeight(resource.MustParse("0.1")).
@@ -2621,7 +2620,7 @@ func TestFairPreemptions(t *testing.T) {
 						Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("A").Parent("ROOT").
 					// we are comparing
@@ -2706,7 +2705,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("1.0")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					Parent("ROOT").
 					FairWeight(resource.MustParse("0.0")).
@@ -2884,7 +2883,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 	}
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
 		targetCQ      kueue.ClusterQueueReference
@@ -2898,7 +2897,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q
 		"preempt with hierarchical advantage": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -2950,7 +2949,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q
 		"avoid queues within nominal quota": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3016,7 +3015,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"preempt multiple with hierarchical advantage": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3076,7 +3075,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /   \
 		// q(0) q_same_cohort(0)
 		"preempt in cohort and own CQ": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3146,7 +3145,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"prefer to preempt hierarchical candidate": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3205,7 +3204,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /   \
 		// q(0) q_same_cohort(0)
 		"forced to preempt priority candidate": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3278,7 +3277,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(4)  q_same_cohort(0)
 		//
 		"incoming workload fits in CQ nominal quota": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3346,7 +3345,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"preempt hierarchical and priority candidates": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).Obj(),
@@ -3426,7 +3425,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"preempt hierarchical candidates and inside CQ": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).Obj(),
@@ -3505,7 +3504,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"reclaim nominal quota from lowest priority workload, excluding non-borrowing": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3584,7 +3583,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//     /    \                     |
 		//    q(0)  q_same_cohort(0)   q_other(0)
 		"infeasible preemption all available workloads in pruned subtrees": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3660,7 +3659,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /    \
 		// q(0)   q_same_cohort(0)
 		"hiearchical preemption with multiple resources": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 						Resource(corev1.ResourceCPU, "3").
@@ -3739,7 +3738,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"prefer to preempt evicted workloads": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3814,7 +3813,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(3, lending limit 2)
 		//
 		"respect lending limits": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3874,7 +3873,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//	4: c11, c12, c21, c22, c23, c32, c31
 		//	0: q1, q3, q4, q5
 		"reclaim in complex hierarchy": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c11").
 					Parent("r").

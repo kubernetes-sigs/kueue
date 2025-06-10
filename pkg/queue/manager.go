@@ -163,7 +163,7 @@ func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueueal
 	}
 }
 
-func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueuealpha.Cohort) {
+func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	m.Lock()
 	defer m.Unlock()
 	cohortName := kueue.CohortReference(cohort.Name)

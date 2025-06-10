@@ -23,8 +23,6 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// Cohorts returns a CohortInformer.
-	Cohorts() CohortInformer
 	// Topologies returns a TopologyInformer.
 	Topologies() TopologyInformer
 }
@@ -38,11 +36,6 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
-}
-
-// Cohorts returns a CohortInformer.
-func (v *version) Cohorts() CohortInformer {
-	return &cohortInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Topologies returns a TopologyInformer.

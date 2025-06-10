@@ -761,18 +761,18 @@ func (q *LocalQueueWrapper) GeneratedName(name string) *LocalQueueWrapper {
 }
 
 type CohortWrapper struct {
-	kueuealpha.Cohort
+	kueue.Cohort
 }
 
 func MakeCohort(name kueue.CohortReference) *CohortWrapper {
-	return &CohortWrapper{kueuealpha.Cohort{
+	return &CohortWrapper{kueue.Cohort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: string(name),
 		},
 	}}
 }
 
-func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
+func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
 
