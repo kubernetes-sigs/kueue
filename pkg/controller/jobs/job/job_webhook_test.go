@@ -294,7 +294,7 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "cannot be used without podset required or preferred topology"),
+				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
 			},
 		},
 		{
@@ -357,7 +357,7 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "cannot be used without podset required or preferred topology"),
+				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
 			},
 		},
 	}
@@ -644,7 +644,7 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "cannot be used without podset required or preferred topology"),
+				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
 			},
 		},
 	}
