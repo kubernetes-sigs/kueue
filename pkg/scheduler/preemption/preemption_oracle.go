@@ -47,12 +47,12 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 	if len(candidates) == 0 {
-		return common.SimulationResult{PreemptionPossible: false, ReclaimPossible: false}
+		return common.SimulationResult{Preemption: common.None}
 	}
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return common.SimulationResult{PreemptionPossible: true, ReclaimPossible: false}
+			return common.SimulationResult{Preemption: common.OnlyPriorityBased}
 		}
 	}
-	return common.SimulationResult{PreemptionPossible: true, ReclaimPossible: true}
+	return common.SimulationResult{Preemption: common.Reclaim}
 }

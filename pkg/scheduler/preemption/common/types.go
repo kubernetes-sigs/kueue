@@ -16,7 +16,14 @@ limitations under the License.
 
 package common
 
+type PreemptionPossibility int
+
+const (
+	None PreemptionPossibility = iota
+	OnlyPriorityBased
+	Reclaim
+)
+
 type SimulationResult struct {
-	PreemptionPossible bool
-	ReclaimPossible    bool
+	Preemption PreemptionPossibility
 }
