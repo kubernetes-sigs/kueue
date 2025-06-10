@@ -8299,6 +8299,18 @@ spec:
                             - JobSet: kubernetes.io/job-completion-index (inherited from Job)
                             - Kubeflow: training.kubeflow.org/replica-index
                           type: string
+                        podSetSliceRequiredTopology:
+                          description: |-
+                            PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+                            indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+                          type: string
+                        podSetSliceSize:
+                          description: |-
+                            PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+                            Kueue finds a requested topology domain on a level defined
+                            in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+                          format: int32
+                          type: integer
                         preferred:
                           description: |-
                             preferred indicates the topology level preferred by the PodSet, as
