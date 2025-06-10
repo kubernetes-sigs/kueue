@@ -27,12 +27,17 @@ import (
 
 type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	CohortsGetter
 	TopologiesGetter
 }
 
 // KueueV1alpha1Client is used to interact with features provided by the kueue.x-k8s.io group.
 type KueueV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *KueueV1alpha1Client) Cohorts(namespace string) CohortInterface {
+	return newCohorts(c, namespace)
 }
 
 func (c *KueueV1alpha1Client) Topologies() TopologyInterface {

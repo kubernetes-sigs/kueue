@@ -35,6 +35,12 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("Cohort"):
+		return &kueuev1alpha1.CohortApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CohortSpec"):
+		return &kueuev1alpha1.CohortSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CohortStatus"):
+		return &kueuev1alpha1.CohortStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Topology"):
 		return &kueuev1alpha1.TopologyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TopologyLevel"):

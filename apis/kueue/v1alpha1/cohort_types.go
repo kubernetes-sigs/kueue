@@ -69,6 +69,7 @@ type CohortStatus struct {
 	FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status

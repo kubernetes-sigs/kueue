@@ -17,6 +17,14 @@ limitations under the License.
 
 package v1alpha1
 
+// CohortListerExpansion allows custom methods to be added to
+// CohortLister.
+type CohortListerExpansion interface{}
+
+// CohortNamespaceListerExpansion allows custom methods to be added to
+// CohortNamespaceLister.
+type CohortNamespaceListerExpansion interface{}
+
 // TopologyListerExpansion allows custom methods to be added to
 // TopologyLister.
 type TopologyListerExpansion interface{}
