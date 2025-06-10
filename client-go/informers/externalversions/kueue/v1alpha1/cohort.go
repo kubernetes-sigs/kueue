@@ -61,25 +61,13 @@ func NewFilteredCohortInformer(client versioned.Interface, namespace string, res
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().Cohorts(namespace).List(context.Background(), options)
+				return client.KueueV1alpha1().Cohorts(namespace).List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().Cohorts(namespace).Watch(context.Background(), options)
-			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
-				if tweakListOptions != nil {
-					tweakListOptions(&options)
-				}
-				return client.KueueV1alpha1().Cohorts(namespace).List(ctx, options)
-			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
-				if tweakListOptions != nil {
-					tweakListOptions(&options)
-				}
-				return client.KueueV1alpha1().Cohorts(namespace).Watch(ctx, options)
+				return client.KueueV1alpha1().Cohorts(namespace).Watch(context.TODO(), options)
 			},
 		},
 		&apiskueuev1alpha1.Cohort{},
