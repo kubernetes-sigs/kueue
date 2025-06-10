@@ -2824,7 +2824,9 @@ func TestCandidatesOrdering(t *testing.T) {
 			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
 			Obj()),
 	}
-	sort.Slice(candidates, CandidatesOrdering(candidates, "self", now))
+	sort.Slice(candidates, func(i int, j int) bool {
+		return CandidatesOrdering(candidates[i], candidates[j], "self", now)
+	})
 	gotNames := make([]workload.WorkloadReference, len(candidates))
 	for i, c := range candidates {
 		gotNames[i] = workload.Key(c.Obj)
