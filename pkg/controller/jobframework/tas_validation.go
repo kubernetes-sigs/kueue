@@ -82,10 +82,10 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		if !sliceSizeFound {
 			allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), "slice size is required if slice topology is requested"))
 		}
-	} else {
-		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is not present", kueuealpha.PodSetSliceRequiredTopologyAnnotation)))
-		}
+	}
+
+	if !sliceRequiredFound && sliceSizeFound {
+		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is not present", kueuealpha.PodSetSliceRequiredTopologyAnnotation)))
 	}
 
 	return allErrs
