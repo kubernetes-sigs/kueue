@@ -49,19 +49,6 @@ type candidateElem struct {
 	preemptionVariant preemptionVariant
 }
 
-// Need a separate function for candidateElem data type
-// in the future we will modify the ordering to take into
-// account the distance in the cohort hierarchy tree
-func candidateElemsOrdering(candidates []*candidateElem, cq kueue.ClusterQueueReference, now time.Time, ordering func([]*workload.Info, kueue.ClusterQueueReference, time.Time) func(int, int) bool) func(int, int) bool {
-	// Adapt the candidatesOrdering function to work with candidateElem
-	adaptedOrdering := func(i, j int) bool {
-		a := candidates[i].wl
-		b := candidates[j].wl
-		return ordering([]*workload.Info{a, b}, cq, now)(0, 1)
-	}
-	return adaptedOrdering
-}
-
 func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
 	for _, ps := range wl.TotalRequests {
 		for res, flv := range ps.Flavors {
@@ -86,12 +73,19 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func([]*workload.Info, kueue.ClusterQueueReference, time.Time) func(int, int) bool) *candidateIterator {
+func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(*workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	sort.Slice(sameQueueCandidates, candidateElemsOrdering(sameQueueCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
-	sort.Slice(priorityCandidates, candidateElemsOrdering(priorityCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
-	sort.Slice(hierarchyCandidates, candidateElemsOrdering(hierarchyCandidates, hierarchicalReclaimCtx.Cq.Name, clock.Now(), ordering))
+	sort.Slice(sameQueueCandidates, func(i, j int) bool {
+		return ordering(sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	})
+	sort.Slice(priorityCandidates, func(i, j int) bool {
+		return ordering(priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	})
+	sort.Slice(hierarchyCandidates, func(i, j int) bool {
+		return ordering(hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	})
+
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
 	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates)
 	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates)
