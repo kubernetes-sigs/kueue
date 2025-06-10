@@ -744,10 +744,10 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	simulationResult := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
-		if simulationResult.ReclaimPossible {
+		if simulationResult.Preemption == common.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() && simulationResult.PreemptionPossible {
+	} else if a.canPreemptWhileBorrowing() && (simulationResult.Preemption != common.None) {
 		mode = preempt
 	}
 
