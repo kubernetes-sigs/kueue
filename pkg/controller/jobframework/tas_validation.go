@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"fmt"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
@@ -31,6 +32,8 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	requiredValue, requiredFound := replicaMetadata.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	_, unconstrainedFound := replicaMetadata.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+	sliceRequiredValue, sliceRequiredFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
 
 	// validate no more than 1 annotation
 	asInt := func(b bool) int {
@@ -57,5 +60,33 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	if preferredFound {
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(preferredValue, annotationsPath.Key(kueuealpha.PodSetPreferredTopologyAnnotation))...)
 	}
+	if sliceRequiredFound {
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation))...)
+	}
+
+	// validate slice size annotation
+	if sliceSizeFound {
+		val, err := strconv.Atoi(sliceSizeValue)
+		if err != nil {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
+		} else if val < 1 {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
+		}
+	}
+
+	// validate slice annotations
+	if sliceRequiredFound {
+		if !requiredFound && !preferredFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation), "can be used with required or preferred topology only"))
+		}
+		if !sliceSizeFound {
+			allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), "slice size is required if slice topology is requested"))
+		}
+	}
+
+	if !sliceRequiredFound && sliceSizeFound {
+		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is not present", kueuealpha.PodSetSliceRequiredTopologyAnnotation)))
+	}
+
 	return allErrs
 }
