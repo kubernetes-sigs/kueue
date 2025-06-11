@@ -348,7 +348,7 @@ type FlavorAssignment struct {
 }
 
 type preemptionOracle interface {
-	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult
+	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.PreemptionPossibility
 }
 
 type FlavorAssigner struct {
@@ -740,13 +740,13 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	// Check if preemption is possible
 	mode := noFit
 	// For single-level hierarchies, mayReclaimInHierarchy = true iff val <= rQuota.Nominal
-	simulationResult := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
+	preemptionPossibility := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
-		if simulationResult.Preemption == preemptioncommon.Reclaim {
+		if preemptionPossibility == preemptioncommon.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() && (simulationResult.Preemption != preemptioncommon.None) {
+	} else if a.canPreemptWhileBorrowing() && (preemptionPossibility != preemptioncommon.None) {
 		mode = preempt
 	}
 
