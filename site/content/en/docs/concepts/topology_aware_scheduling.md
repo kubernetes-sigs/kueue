@@ -123,13 +123,13 @@ sure the pods get scheduled on the selected nodes. But this means that in case
 of any node failures or deletions, which occur during the runtime of a workload,
 the workload cannot run on any other nodes. To mitigate this issue, a node hot swap was 
 introduced to Kueue (starting from version 0.12). To enable the feature, you have to 
-set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)`TASFailedNodeReplacement` to `true`. With this feature, 
-TAS tries to find a replacement upon node failure or deletion for all
-the affected workloads, without changing the rest of the topology assignment.
-Currently this works for only a single node failure and in case of multiple
-failures, the workload gets evicted. The node is assumed to have failed if its 
-`conditions.Status.Ready` is not `True` or if the node is missing (removed from 
-the cluster). 
+set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) 
+`TASFailedNodeReplacement` to `true`. With this feature, TAS tries to find a 
+replacement upon node failure or deletion for all the affected workloads, without
+changing the rest of the topology assignment. Currently this works for only a single
+node failure and in case of multiple failures, the workload gets evicted. The node is 
+assumed to have failed if its  `conditions.Status.Ready` is not `True` or if the node 
+is missing (removed from the cluster). 
 
 ### Limitations
 
