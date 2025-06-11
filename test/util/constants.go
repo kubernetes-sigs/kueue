@@ -42,6 +42,7 @@ const (
 	// a change in the deployment status.
 	StartUpTimeout     = 5 * time.Minute
 	ConsistentDuration = time.Second
+	ShortInterval      = 10 * time.Millisecond
 	Interval           = time.Millisecond * 250
 )
 
