@@ -73,7 +73,7 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	if sliceRequiredTopologyFound && sliceSizeFound {
 		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
-			// silently ignore as it should not happen, due to earlier validation in a webhook
+			// silently ignore as it should not happen due to earlier validation in a webhook
 		} else {
 			psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
 			psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
