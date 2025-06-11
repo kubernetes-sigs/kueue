@@ -117,6 +117,18 @@ Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/ad
 to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
+### Hot swap support
+TAS finds a fixed assigmend of nodes to PodSets and in case of any node failures,
+during the runtime of a workload, the broken node cannot be automatically replaced
+by Kubernetes scheduler. To mitigate this issue, a node hot swap was introduced 
+to Kueue (starting from version 0.12). To enable the feature, you have to 
+set the feature gate `TASFailedNodeReplacement` to `true`. With this feature, 
+upon node failure, TAS tries to find a replacement of the broken node for all
+the affected workloads, without changing the rest of the topoogy assignment.
+Currently this works for only a single node failure and the node is assumed
+to have failed if its `conditions.Status.Ready` is not `True` or if the node
+is missing (removed from the cluster). 
+
 ### Limitations
 
 Currently, there are limitations for the compatibility of TAS with other
