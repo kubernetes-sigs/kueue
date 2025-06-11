@@ -1026,7 +1026,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 
 func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestesSlicesCount, sliceSize int32) string {
 	if sliceSize == 1 {
-		// slices are a single pods, so let's refer to them as pods
+		// each slice is a single pod, so let's refer to them as pods
 		if slicesFitCount == 0 {
 			return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalRequestesSlicesCount)
 		}

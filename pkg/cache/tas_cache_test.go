@@ -2609,7 +2609,68 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      6,
 			wantReason: `topology "default" doesn't allow to fit any of 2 slice(s)`,
 		},
-		"block required for podset; rack required for slices; podset fits in both block, but slices fit in only one block": {
+		"block required for podset; rack required for slices; only 1 out of 2 slices fit the topology": {
+
+			//           b1:6
+			//     /    /    \    \
+			//   r1    r2    r3    r4
+			//   |      |     |     |
+			//   x1:3  x2:1  x3:1  x4:1
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r4-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required:                    ptr.To(tasBlockLabel),
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(3)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:      6,
+			wantReason: `topology "default" allows to fit only 1 out of 2 slice(s)`,
+		},
+		"block required for podset; rack required for slices; podset fits in both blocks, but slices fit in only one block": {
 
 			//       b1:6          b2:6
 			//    /    |    \      |    \
