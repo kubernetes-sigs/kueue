@@ -118,16 +118,18 @@ to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
 ### Hot swap support
-TAS finds a fixed assigmend of nodes to PodSets and in case of any node failures,
-during the runtime of a workload, the broken node cannot be automatically replaced
-by Kubernetes scheduler. To mitigate this issue, a node hot swap was introduced 
-to Kueue (starting from version 0.12). To enable the feature, you have to 
-set the feature gate `TASFailedNodeReplacement` to `true`. With this feature, 
-upon node failure, TAS tries to find a replacement of the broken node for all
-the affected workloads, without changing the rest of the topoogy assignment.
-Currently this works for only a single node failure and the node is assumed
-to have failed if its `conditions.Status.Ready` is not `True` or if the node
-is missing (removed from the cluster). 
+TAS finds a fixed assignment of pods to nodes and injects a NodeSelector to make
+sure the pods get scheduled on the selected nodes. But this means that in case 
+of any node failures or deletions, which occur during the runtime of a workload,
+the workload cannot run on any other nodes. To mitigate this issue, a node hot swap was 
+introduced to Kueue (starting from version 0.12). To enable the feature, you have to 
+set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)`TASFailedNodeReplacement` to `true`. With this feature, 
+TAS tries to find a replacement upon node failure or deletion for all
+the affected workloads, without changing the rest of the topology assignment.
+Currently this works for only a single node failure and in case of multiple
+failures, the workload gets evicted. The node is assumed to have failed if its 
+`conditions.Status.Ready` is not `True` or if the node is missing (removed from 
+the cluster). 
 
 ### Limitations
 
