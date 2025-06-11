@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptioncommon"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -348,7 +348,7 @@ type FlavorAssignment struct {
 }
 
 type preemptionOracle interface {
-	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) common.SimulationResult
+	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult
 }
 
 type FlavorAssigner struct {
@@ -743,10 +743,10 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	simulationResult := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
-		if simulationResult.Preemption == common.Reclaim {
+		if simulationResult.Preemption == preemptioncommon.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() && (simulationResult.Preemption != common.None) {
+	} else if a.canPreemptWhileBorrowing() && (simulationResult.Preemption != preemptioncommon.None) {
 		mode = preempt
 	}
 

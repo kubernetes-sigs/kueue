@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptioncommon"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -40,14 +40,14 @@ type testOracle struct {
 	CannotPreemptInCohort bool
 }
 
-func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) common.SimulationResult {
+func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult {
 	if !cq.BorrowingWith(fr, quantity) {
-		return common.SimulationResult{Preemption: common.Reclaim}
+		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.Reclaim}
 	}
 	if f.CannotPreemptInCohort {
-		return common.SimulationResult{Preemption: common.None}
+		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.None}
 	} else {
-		return common.SimulationResult{Preemption: common.PriorityBased}
+		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.PriorityBased}
 	}
 }
 
