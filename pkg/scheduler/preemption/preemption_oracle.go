@@ -22,7 +22,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptioncommon"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -37,7 +37,7 @@ type PreemptionOracle struct {
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) common.SimulationResult {
+func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,
@@ -47,12 +47,12 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 	if len(candidates) == 0 {
-		return common.SimulationResult{Preemption: common.None}
+		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.None}
 	}
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return common.SimulationResult{Preemption: common.PriorityBased}
+			return preemptioncommon.SimulationResult{Preemption: preemptioncommon.PriorityBased}
 		}
 	}
-	return common.SimulationResult{Preemption: common.Reclaim}
+	return preemptioncommon.SimulationResult{Preemption: preemptioncommon.Reclaim}
 }
