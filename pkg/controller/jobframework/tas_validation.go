@@ -66,10 +66,10 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 	// validate slice size annotation
 	if sliceSizeFound {
-		val, err := strconv.Atoi(sliceSizeValue)
+		val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
-		} else if val < 1 {
+		} else if int32(val) < 1 {
 			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
 		}
 	}

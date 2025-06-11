@@ -2305,74 +2305,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"block required for podset; host required for slices; MostFreeCapacity": {
-			//        b1
-			//         |
-			//        r1
-			//    /    |    \
-			// x1:6, x2:4, x3:2
-			//
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("6"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("4"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			topologyRequest: &kueue.PodSetTopologyRequest{
-				Required:                    ptr.To(tasBlockLabel),
-				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-				PodSetSliceSize:             ptr.To(int32(2)),
-			},
-			levels: defaultThreeLevels,
-			requests: resources.Requests{
-				corev1.ResourceCPU: 1000,
-			},
-			count: 8,
-			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultOneLevel,
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Count: 6,
-						Values: []string{
-							"x1",
-						},
-					},
-					{
-						Count: 2,
-						Values: []string{
-							"x2",
-						},
-					},
-				},
-			},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
-		},
 		"block required for podset; host required for slices; LeastFreeCapacity": {
 			//        b1
 			//         |
@@ -2637,9 +2569,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:              1,
-			wantReason:         "podset slice topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+			count:      1,
+			wantReason: "podset slice topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
 		},
 		"slice size is required when slice topology is requested": {
 			nodes: defaultNodes,
@@ -2651,9 +2582,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:              1,
-			wantReason:         "slice topology requested, but slice size not provided",
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+			count:      1,
+			wantReason: "slice topology requested, but slice size not provided",
 		},
 		"cannot request not existing slice topology": {
 			nodes: defaultNodes,
@@ -2666,9 +2596,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:              1,
-			wantReason:         "no requested topology level: not-existing-topology-level",
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
+			count:      1,
+			wantReason: "no requested topology level: not-existing-topology-level",
 		},
 	}
 	for name, tc := range cases {

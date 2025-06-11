@@ -71,10 +71,13 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	}
 
 	if sliceRequiredTopologyFound && sliceSizeFound {
-		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
-		sliceSizeIntValue, _ := strconv.ParseInt(sliceSizeValue, 10, 32)
-		// TODO Error handling. For simplicity of reviewing a PR, it will be implemented in a follow-up
-		psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
+		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+		if err != nil {
+			// silently ignore as it should not happen, due to earlier validation in a webhook
+		} else {
+			psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
+			psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
+		}
 	}
 
 	builder := &podSetTopologyRequestBuilder{request: psTopologyReq}

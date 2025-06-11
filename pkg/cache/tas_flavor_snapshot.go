@@ -564,7 +564,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
 
-	// TODO Consider moving those validations to an earlier stage (possibly webhook)
 	if topologyKey == nil {
 		return nil, "topology level not specified"
 	}
@@ -741,32 +740,32 @@ func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequ
 	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || tasRequests.Implied
 }
 
-// findBestFitDomainIdx finds an index of the first domain with the lowest
+// findBestFitDomain finds an index of the first domain with the lowest
 // value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns 0 as it's an index of the domain with the
 // most available resources
-func findBestFitDomainIdx(domains []*domain, count int32) *domain {
-	bestFitIdx := 0
-	for i, domain := range domains {
-		if domain.state >= count && domain.state < domains[bestFitIdx].state {
+func findBestFitDomain(domains []*domain, count int32) *domain {
+	bestDomain := domains[0]
+	for _, domain := range domains {
+		if domain.state >= count && domain.state < bestDomain.state {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
-			bestFitIdx = i
+			bestDomain = domain
 		}
 	}
-	return domains[bestFitIdx]
+	return bestDomain
 }
 
-func findBestFitDomainIdxForSlices(domains []*domain, sliceCount int32) *domain {
-	bestFitIdx := 0
-	for i, domain := range domains {
-		if domain.sliceState >= sliceCount && domain.sliceState < domains[bestFitIdx].sliceState {
+func findBestFitDomainForSlices(domains []*domain, sliceCount int32) *domain {
+	bestDomain := domains[0]
+	for _, domain := range domains {
+		if domain.sliceState >= sliceCount && domain.sliceState < bestDomain.sliceState {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
-			bestFitIdx = i
+			bestDomain = domain
 		}
 	}
-	return domains[bestFitIdx]
+	return bestDomain
 }
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podSetSize int32, sliceSize int32, unconstrained bool) (int, []*domain, string) {
@@ -781,7 +780,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	sliceCount := podSetSize / sliceSize
 	if useBestFitAlgorithm(unconstrained) && topDomain.sliceState >= sliceCount {
 		// optimize the potentially last domain
-		topDomain = findBestFitDomainIdxForSlices(sortedDomain, sliceCount)
+		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount)
 	}
 	if topDomain.sliceState < sliceCount {
 		if required {
@@ -791,20 +790,19 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			return s.findLevelWithFitDomains(levelIdx-1, required, podSetSize, sliceSize, unconstrained)
 		}
 		results := []*domain{}
-		remainingSliceCount := podSetSize / sliceSize
+		remainingSliceCount := sliceCount
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].sliceState > 0; idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
 				// optimize the last domain
-				domain = findBestFitDomainIdxForSlices(sortedDomain[idx:], remainingSliceCount)
+				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount)
 			}
 			results = append(results, domain)
 
 			remainingSliceCount -= domain.sliceState
 		}
 		if remainingSliceCount > 0 {
-			requiredSliceCount := podSetSize / sliceSize
-			return 0, nil, s.notFitMessage(requiredSliceCount-remainingSliceCount, requiredSliceCount, sliceSize)
+			return 0, nil, s.notFitMessage(sliceCount-remainingSliceCount, sliceCount, sliceSize)
 		}
 		return levelIdx, results, ""
 	}
@@ -828,7 +826,7 @@ func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count 
 	for i, domain := range domains {
 		if useBestFitAlgorithm(unconstrained) && domain.sliceState >= remainingSlices {
 			// optimize the last domain
-			domain = findBestFitDomainIdxForSlices(domains[i:], remainingSlices)
+			domain = findBestFitDomainForSlices(domains[i:], remainingSlices)
 		}
 
 		if domain.sliceState >= remainingSlices {
@@ -854,7 +852,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 	for i, domain := range domains {
 		if useBestFitAlgorithm(unconstrained) && domain.state >= remainingCount {
 			// optimize the last domain
-			domain = findBestFitDomainIdx(domains[i:], remainingCount)
+			domain = findBestFitDomain(domains[i:], remainingCount)
 		}
 
 		if domain.state >= remainingCount {
@@ -1033,10 +1031,10 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestesSlicesCo
 			return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalRequestesSlicesCount)
 		}
 		return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, slicesFitCount, totalRequestesSlicesCount)
-	} else {
-		if slicesFitCount == 0 {
-			return fmt.Sprintf("topology %q doesn't allow to fit any of %v slice(s)", s.topologyName, totalRequestesSlicesCount)
-		}
-		return fmt.Sprintf("topology %q allows to fit only %v out of %v slice(s)", s.topologyName, slicesFitCount, totalRequestesSlicesCount)
 	}
+
+	if slicesFitCount == 0 {
+		return fmt.Sprintf("topology %q doesn't allow to fit any of %v slice(s)", s.topologyName, totalRequestesSlicesCount)
+	}
+	return fmt.Sprintf("topology %q allows to fit only %v out of %v slice(s)", s.topologyName, slicesFitCount, totalRequestesSlicesCount)
 }
