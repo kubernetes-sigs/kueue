@@ -40,14 +40,14 @@ type testOracle struct {
 	CannotPreemptInCohort bool
 }
 
-func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult {
+func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.PreemptionPossibility {
 	if !cq.BorrowingWith(fr, quantity) {
-		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.Reclaim}
+		return preemptioncommon.Reclaim
 	}
 	if f.CannotPreemptInCohort {
-		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.None}
+		return preemptioncommon.None
 	} else {
-		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.PriorityBased}
+		return preemptioncommon.PriorityBased
 	}
 }
 

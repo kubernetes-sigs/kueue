@@ -37,7 +37,7 @@ type PreemptionOracle struct {
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.SimulationResult {
+func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.PreemptionPossibility {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,
@@ -47,12 +47,12 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 	if len(candidates) == 0 {
-		return preemptioncommon.SimulationResult{Preemption: preemptioncommon.None}
+		return preemptioncommon.None
 	}
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return preemptioncommon.SimulationResult{Preemption: preemptioncommon.PriorityBased}
+			return preemptioncommon.PriorityBased
 		}
 	}
-	return preemptioncommon.SimulationResult{Preemption: preemptioncommon.Reclaim}
+	return preemptioncommon.Reclaim
 }

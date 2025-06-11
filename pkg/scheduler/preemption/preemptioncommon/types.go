@@ -23,7 +23,3 @@ const (
 	PriorityBased
 	Reclaim
 )
-
-type SimulationResult struct {
-	Preemption PreemptionPossibility
-}
