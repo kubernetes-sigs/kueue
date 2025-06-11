@@ -296,6 +296,7 @@ spec:
 | `ObjectRetentionPolicies`             | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
+| `RemoveFinalizersWithStrictPatch`     | `true`  | Beta  | 0.13  |       |
 
 ### Feature gates for graduated or deprecated features
 
