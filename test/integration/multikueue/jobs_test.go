@@ -257,10 +257,20 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		ginkgo.By("finishing the worker job", func() {
 			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
+			now := metav1.Now()
+			// completedJobCondition that we will add to the remote job to indicate job completions,
+			// and the same condition that we expect to see on the local job status.
+			completedJobCondition := batchv1.JobCondition{
+				Type:               batchv1.JobComplete,
+				Status:             corev1.ConditionTrue,
+				LastProbeTime:      now,
+				LastTransitionTime: now,
+				Message:            finishJobReason,
+			}
+
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-				now := metav1.Now()
 				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
 					batchv1.JobCondition{
 						Type:               batchv1.JobSuccessCriteriaMet,
@@ -269,14 +279,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						LastTransitionTime: now,
 						Message:            reachedPodsReason,
 					},
-					batchv1.JobCondition{
-						Type:               batchv1.JobComplete,
-						Status:             corev1.ConditionTrue,
-						LastProbeTime:      now,
-						LastTransitionTime: now,
-						Message:            finishJobReason,
-					},
-				)
+					completedJobCondition)
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.StartTime = ptr.To(now)
 				createdJob.Status.CompletionTime = ptr.To(now)
@@ -284,6 +287,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+
+			// Assert job complete condition.
+			localJob := &batchv1.Job{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), localJob)).To(gomega.Succeed())
+			gomega.Expect(localJob.Status.Conditions).Should(gomega.ContainElement(gomega.WithTransform(func(condition batchv1.JobCondition) batchv1.JobCondition {
+				// Compare on all condition attributes excluding Time values.
+				condition.LastProbeTime = completedJobCondition.LastProbeTime
+				condition.LastTransitionTime = completedJobCondition.LastTransitionTime
+				return condition
+			}, gomega.Equal(completedJobCondition))))
 		})
 	})
 
@@ -363,10 +376,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		ginkgo.By("finishing the worker job", func() {
 			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
+
+			now := metav1.Now()
+			// completedJobCondition that we will add to the remote job to indicate job completions,
+			// and the same condition that we expect to see on the local job status.
+			completedJobCondition := batchv1.JobCondition{
+				Type:               batchv1.JobComplete,
+				Status:             corev1.ConditionTrue,
+				LastProbeTime:      now,
+				LastTransitionTime: now,
+				Message:            finishJobReason,
+			}
+
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-				now := metav1.Now()
 				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
 					batchv1.JobCondition{
 						Type:               batchv1.JobSuccessCriteriaMet,
@@ -374,15 +398,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						LastProbeTime:      now,
 						LastTransitionTime: now,
 						Message:            reachedPodsReason,
-					},
-					batchv1.JobCondition{
-						Type:               batchv1.JobComplete,
-						Status:             corev1.ConditionTrue,
-						LastProbeTime:      now,
-						LastTransitionTime: now,
-						Message:            finishJobReason,
-					},
-				)
+					}, completedJobCondition)
 				createdJob.Status.Active = 0
 				createdJob.Status.Ready = ptr.To[int32](0)
 				createdJob.Status.Succeeded = 1
@@ -391,6 +407,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+
+			// Assert job complete condition.
+			localJob := &batchv1.Job{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), localJob)).To(gomega.Succeed())
+			gomega.Expect(localJob.Status.Conditions).Should(gomega.ContainElement(gomega.WithTransform(func(condition batchv1.JobCondition) batchv1.JobCondition {
+				// Compare on all condition attributes excluding Time values.
+				condition.LastProbeTime = completedJobCondition.LastProbeTime
+				condition.LastTransitionTime = completedJobCondition.LastTransitionTime
+				return condition
+			}, gomega.Equal(completedJobCondition))))
 		})
 	})
 
