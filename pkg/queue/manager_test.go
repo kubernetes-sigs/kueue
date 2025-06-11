@@ -28,7 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,10 +71,6 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 // TestAddClusterQueueOrphans verifies that when a ClusterQueue is recreated,
 // it adopts the existing workloads.
 func TestAddClusterQueueOrphans(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
 	now := time.Now()
 	queues := []*kueue.LocalQueue{
 		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
@@ -323,11 +318,6 @@ func TestUpdateLocalQueue(t *testing.T) {
 		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 	}
-	// Setup.
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	ctx := t.Context()
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
@@ -469,10 +459,6 @@ func TestAddWorkload(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	ctx := t.Context()
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	now := time.Now().Truncate(time.Second)
 
 	queues := []kueue.LocalQueue{
@@ -662,10 +648,6 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 }
 
 func TestUpdateWorkload(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	now := time.Now()
 	cases := map[string]struct {
 		clusterQueues    []*kueue.ClusterQueue
@@ -851,10 +833,6 @@ func TestUpdateWorkload(t *testing.T) {
 }
 
 func TestHeads(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	now := time.Now().Truncate(time.Second)
 
 	clusterQueues := []*kueue.ClusterQueue{
@@ -1214,11 +1192,6 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 		utiltesting.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 	}
 
-	// Setup.
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	ctx := t.Context()
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
