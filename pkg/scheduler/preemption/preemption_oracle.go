@@ -51,7 +51,7 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 	}
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return common.SimulationResult{Preemption: common.OnlyPriorityBased}
+			return common.SimulationResult{Preemption: common.PriorityBased}
 		}
 	}
 	return common.SimulationResult{Preemption: common.Reclaim}

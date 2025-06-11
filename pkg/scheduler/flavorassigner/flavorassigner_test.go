@@ -47,7 +47,7 @@ func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueS
 	if f.CannotPreemptInCohort {
 		return common.SimulationResult{Preemption: common.None}
 	} else {
-		return common.SimulationResult{Preemption: common.OnlyPriorityBased}
+		return common.SimulationResult{Preemption: common.PriorityBased}
 	}
 }
 

@@ -20,7 +20,7 @@ type PreemptionPossibility int
 
 const (
 	None PreemptionPossibility = iota
-	OnlyPriorityBased
+	PriorityBased
 	Reclaim
 )
 
