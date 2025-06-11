@@ -746,7 +746,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		if simulationResult.Preemption == common.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() && (simulationResult.Preemption != common.None) {
+	} else if simulationResult.Preemption != common.None {
 		mode = preempt
 	}
 
@@ -754,11 +754,6 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
 	return mode, borrow, &status
-}
-
-func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
-	return (a.cq.Preemption.BorrowWithinCohort != nil && a.cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever) ||
-		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
 func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
