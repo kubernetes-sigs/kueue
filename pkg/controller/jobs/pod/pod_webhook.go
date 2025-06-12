@@ -327,7 +327,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 }
 
 func validateTopologyRequest(pod *Pod) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(metaPath, &pod.pod.ObjectMeta)
+	return jobframework.ValidateTASPodSetRequest(metaPath, &pod.pod.ObjectMeta, 1)
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {

@@ -120,13 +120,7 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 	// workers
 	for index := range j.Spec.WorkerGroupSpecs {
 		wgs := &j.Spec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
+		count := workersPodsCount(wgs)
 		podSets[index+1] = kueue.PodSet{
 			Name:     kueue.NewPodSetReference(wgs.GroupName),
 			Template: *wgs.Template.DeepCopy(),
@@ -138,6 +132,17 @@ func (j *RayCluster) PodSets() ([]kueue.PodSet, error) {
 		}
 	}
 	return podSets, nil
+}
+
+func workersPodsCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	count := int32(1)
+	if wgs.Replicas != nil {
+		count = *wgs.Replicas
+	}
+	if wgs.NumOfHosts > 1 {
+		count *= wgs.NumOfHosts
+	}
+	return count
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {

@@ -126,7 +126,7 @@ func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) field.ErrorList 
 	var allErrs field.ErrorList
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &replicaSpec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podsCount(&mpiJob.Spec, replicaType))...)
 	}
 	sort.Slice(allErrs, func(i, j int) bool {
 		return allErrs[i].Field < allErrs[j].Field

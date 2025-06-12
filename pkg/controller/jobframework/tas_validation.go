@@ -27,7 +27,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
-func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podsCount int32) field.ErrorList {
 	var allErrs field.ErrorList
 	requiredValue, requiredFound := replicaMetadata.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
@@ -69,8 +69,13 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		val, err := strconv.Atoi(sliceSizeValue)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
-		} else if val < 1 {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
+		} else {
+			if val < 1 {
+				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
+			}
+			if val > int(podsCount) {
+				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, fmt.Sprintf("must be lower than number of pods: %d", podsCount)))
+			}
 		}
 	}
 
