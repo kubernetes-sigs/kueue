@@ -975,12 +975,6 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			remainingCapacity.Sub(leafAssumedUsage)
 		}
 		leaf.state = requests.CountIn(remainingCapacity)
-
-		// if this is where slices topology is requested then we calculate the number of slices
-		// that can fit. Otherwise we assign 0 and this value won't be used.
-		if (len(s.levelKeys) - 1) == sliceLevelIdx {
-			leaf.sliceState = leaf.state / sliceSize
-		}
 	}
 	for _, root := range s.roots {
 		root.state, root.sliceState = s.fillInCountsHelper(root, sliceSize, sliceLevelIdx, 0)
@@ -999,6 +993,9 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int) (int32, int32) {
 	// logic for a leaf
 	if len(domain.children) == 0 {
+		if level == sliceLevelIdx {
+			domain.sliceState = domain.state / sliceSize
+		}
 		return domain.state, domain.sliceState
 	}
 	// logic for a parent
