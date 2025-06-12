@@ -3119,6 +3119,10 @@ func TestSchedule(t *testing.T) {
 				"best-effort": {"eng-alpha/best-effort"},
 			},
 		},
+		// In this test, the workload `new` cannot be assigned the first flavor
+		// `on-demand` because the other workload `admitted` is using only the
+		// nominal quota hence cannot be preempted. The flavorassigner detects
+		// this and assigns the other flavor `spot` to the workload `new`.
 		"don't assign flavor if there are no candidates for preemption": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("cq1").
