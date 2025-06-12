@@ -558,12 +558,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
-
 	topologyKey := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
-	sliceTopologyKey := s.sliceLevelKeyWithDefault(&tasPodSetRequests, ptr.To(s.lowestLevel()))
+	sliceTopologyKey := s.sliceLevelKeyWithDefault(&tasPodSetRequests, s.lowestLevel())
 
 	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
-
 	if topologyKey == nil {
 		return nil, "topology level not specified"
 	}
@@ -572,13 +570,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
 	}
 
-	sliceLevelIdx, found := s.resolveLevelIdx(*sliceTopologyKey)
+	sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
 	if !found {
-		return nil, fmt.Sprintf("no requested topology level: %s", *sliceTopologyKey)
+		return nil, fmt.Sprintf("no requested topology level for slices: %s", sliceTopologyKey)
 	}
 
 	if levelIdx > sliceLevelIdx {
-		return nil, fmt.Sprintf("podset slice topology %s is above the podset topology %s", *sliceTopologyKey, *topologyKey)
+		return nil, fmt.Sprintf("podset slice topology %s is above the podset topology %s", sliceTopologyKey, *topologyKey)
 	}
 
 	var selector labels.Selector
@@ -729,9 +727,9 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	}
 }
 
-func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultSliceLevelKey *string) *string {
+func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultSliceLevelKey string) string {
 	if tasRequests.PodSet.TopologyRequest != nil && tasRequests.PodSet.TopologyRequest.PodSetSliceRequiredTopology != nil {
-		return tasRequests.PodSet.TopologyRequest.PodSetSliceRequiredTopology
+		return *tasRequests.PodSet.TopologyRequest.PodSetSliceRequiredTopology
 	}
 	return defaultSliceLevelKey
 }
@@ -925,7 +923,6 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 
 		return slices.Compare(a.levelValues, b.levelValues)
 	})
-
 	return result
 }
 
@@ -983,8 +980,6 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// that can fit. Otherwise we assign 0 and this value won't be used.
 		if (len(s.levelKeys) - 1) == sliceLevelIdx {
 			leaf.sliceState = leaf.state / sliceSize
-		} else {
-			leaf.sliceState = 0
 		}
 	}
 	for _, root := range s.roots {
