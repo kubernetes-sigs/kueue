@@ -994,6 +994,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	// logic for a leaf
 	if len(domain.children) == 0 {
 		if level == sliceLevelIdx {
+			// initialize the sliceState if leaf is the request slice level
 			domain.sliceState = domain.state / sliceSize
 		}
 		return domain.state, domain.sliceState
@@ -1009,10 +1010,10 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	}
 	domain.state = childrenCapacity
 	if level == sliceLevelIdx {
+		// initialize the sliceState for the requested slice level.
 		sliceCapacity = domain.state / sliceSize
 	}
 	domain.sliceState = sliceCapacity
-
 	return childrenCapacity, sliceCapacity
 }
 
