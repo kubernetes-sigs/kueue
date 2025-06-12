@@ -1,7 +1,7 @@
 ---
 title: "Pending Workloads on-demand"
 date: 2024-09-30
-weight: 3
+weight: 10
 description: >
   Monitor pending Workloads with the on-demand visibility API
 ---
