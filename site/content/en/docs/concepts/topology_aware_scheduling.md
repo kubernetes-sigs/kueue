@@ -128,8 +128,14 @@ set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-r
 replacement upon node failure or deletion for all the affected workloads, without
 changing the rest of the topology assignment. Currently this works for only a single
 node failure and in case of multiple failures, the workload gets evicted. The node is 
-assumed to have failed if its  `conditions.Status.Ready` is not `True` or if the node 
-is missing (removed from the cluster). 
+assumed to have failed if its `conditions.Status.Ready` is not `True` for at least 30 
+seconds or if the node is missing (removed from the cluster). 
+
+Note that finding a replacement node within the old domain (like rack) may not always 
+be possible. Hence, we recommend configuring `waitForPodsReady.recoveryTimeout`, to prevent 
+the workloads from waiting for the replacement indefinetly.
+
+
 
 ### Limitations
 
