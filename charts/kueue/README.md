@@ -77,6 +77,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
 | `KueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main` |
 | `KueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
+| `controllerManager.manager.priorityClassName`          | controllerManager.manager's Pod priorityClassName      | ``                                          |
 | `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
