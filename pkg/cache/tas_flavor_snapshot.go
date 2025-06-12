@@ -387,31 +387,31 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	return true
 }
 
-type findTopologyAssignmentsForFlavorOption struct {
+type findTopologyAssignmentsOption struct {
 	simulateEmpty bool
 	workload      *kueue.Workload
 }
 
-type FindTopologyAssignmentsForFlavorOption func(*findTopologyAssignmentsForFlavorOption)
+type FindTopologyAssignmentsOption func(*findTopologyAssignmentsOption)
 
 // WithSimulateEmpty sets parameter allows to look for the assignment under the
 // assumption that all TAS workloads are preempted.
-func WithSimulateEmpty(simulateEmpty bool) FindTopologyAssignmentsForFlavorOption {
-	return func(o *findTopologyAssignmentsForFlavorOption) {
+func WithSimulateEmpty(simulateEmpty bool) FindTopologyAssignmentsOption {
+	return func(o *findTopologyAssignmentsOption) {
 		o.simulateEmpty = simulateEmpty
 	}
 }
 
-func WithWorkload(wl *kueue.Workload) FindTopologyAssignmentsForFlavorOption {
-	return func(o *findTopologyAssignmentsForFlavorOption) {
+func WithWorkload(wl *kueue.Workload) FindTopologyAssignmentsOption {
+	return func(o *findTopologyAssignmentsOption) {
 		o.workload = wl
 	}
 }
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsForFlavorOption) TASAssignmentsResult {
-	opts := &findTopologyAssignmentsForFlavorOption{}
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+	opts := &findTopologyAssignmentsOption{}
 	for _, option := range options {
 		option(opts)
 	}
