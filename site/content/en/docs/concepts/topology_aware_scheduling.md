@@ -132,7 +132,7 @@ To enable the feature, you have to set the [feature gate](https://kubernetes.io/
 
 With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
-Currently this works only for a single node failure and in case of multiple failures,
+Currently this works only for a single node failure at the time and in case of multiple failures,
 the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
 is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
 
