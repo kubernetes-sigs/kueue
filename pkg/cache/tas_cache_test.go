@@ -2796,7 +2796,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      1,
-			wantReason: "no requested topology level: not-existing-topology-level",
+			wantReason: "no requested topology level for slices: not-existing-topology-level",
 		},
 	}
 	for name, tc := range cases {
