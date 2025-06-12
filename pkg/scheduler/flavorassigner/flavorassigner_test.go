@@ -37,17 +37,17 @@ import (
 )
 
 type testOracle struct {
-	CannotPreemptInCohort bool
+	CanPreemptInCohort bool
 }
 
 func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.PreemptionPossibility {
 	if !cq.BorrowingWith(fr, quantity) {
 		return preemptioncommon.Reclaim
 	}
-	if f.CannotPreemptInCohort {
-		return preemptioncommon.None
-	} else {
+	if f.CanPreemptInCohort {
 		return preemptioncommon.PriorityBased
+	} else {
+		return preemptioncommon.None
 	}
 }
 
@@ -2047,7 +2047,7 @@ func TestAssignFlavors(t *testing.T) {
 				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
 			}
 
-			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{CannotPreemptInCohort: tc.cannotPreemptInCohort})
+			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{CanPreemptInCohort: !tc.cannotPreemptInCohort})
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
