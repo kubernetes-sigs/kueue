@@ -118,8 +118,9 @@ to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
 ### Hot swap support
-TAS finds a fixed assignment of pods to nodes and injects a NodeSelector to make
-sure the pods get scheduled on the selected nodes. But this means that in case
+When the lowest level of Topology is set to node, TAS finds a fixed assignment
+of pods to nodes and injects a NodeSelector to make sure the pods get scheduled
+on the selected nodes. But this means that in case
 of any node failures or deletions, which occur during the runtime of a workload,
 the workload cannot run on any other nodes. In order to avoid costly re-scheduling
 of the entire TAS workload we introduce the node hot swap feature to Kueue
