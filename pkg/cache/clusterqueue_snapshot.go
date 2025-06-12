@@ -215,7 +215,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, simulateEmpty, wl)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithSimulateEmpty(simulateEmpty), WithWorkload(wl))
 		maps.Copy(result, flvResult)
 	}
 	return result

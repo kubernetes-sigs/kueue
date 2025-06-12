@@ -387,31 +387,55 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	return true
 }
 
+type findTopologyAssignmentsForFlavorOption struct {
+	simulateEmpty bool
+	workload      *kueue.Workload
+}
+
+type FindTopologyAssignmentsForFlavorOption func(*findTopologyAssignmentsForFlavorOption)
+
+// WithSimulateEmpty sets parameter allows to look for the assignment under the
+// assumption that all TAS workloads are preempted.
+func WithSimulateEmpty(simulateEmpty bool) FindTopologyAssignmentsForFlavorOption {
+	return func(o *findTopologyAssignmentsForFlavorOption) {
+		o.simulateEmpty = simulateEmpty
+	}
+}
+
+func WithWorkload(wl *kueue.Workload) FindTopologyAssignmentsForFlavorOption {
+	return func(o *findTopologyAssignmentsForFlavorOption) {
+		o.workload = wl
+	}
+}
+
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-// The simulateEmpty parameter allows to look for the assignment under the
-// assumption that all TAS workloads are preempted.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, simulateEmpty bool, wl *kueue.Workload) TASAssignmentsResult {
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsForFlavorOption) TASAssignmentsResult {
+	opts := &findTopologyAssignmentsForFlavorOption{}
+	for _, option := range options {
+		option(opts)
+	}
+
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 	for _, tr := range flavorTASRequests {
-		if workload.HasNodeToReplace(wl) {
+		if workload.HasNodeToReplace(opts.workload) {
 			// In case of looking for Node replacement, TopologyRequest has only
 			// PodSets with the Node to replace, so we match PodSetAssignment
-			psa := findPSA(wl, tr.PodSet.Name)
+			psa := findPSA(opts.workload, tr.PodSet.Name)
 			if psa == nil || psa.TopologyAssignment == nil {
 				continue
 			}
 			// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 			// And there is no fit, we have the original newAssignment to retry with
-			newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, psa.TopologyAssignment.DeepCopy(), wl, assumedUsage)
+			newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, psa.TopologyAssignment.DeepCopy(), opts.workload, assumedUsage)
 			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 			if reason != "" {
 				return result
 			}
 			addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 		} else {
-			assignment, reason := s.findTopologyAssignment(tr, assumedUsage, simulateEmpty, "")
+			assignment, reason := s.findTopologyAssignment(tr, assumedUsage, opts.simulateEmpty, "")
 			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
 			if reason != "" {
 				return result
