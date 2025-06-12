@@ -272,7 +272,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		if workload.HasQuotaReservation(&w) {
+		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
 			continue
 		}
 		workload.AdjustResources(ctx, m.client, &w)
