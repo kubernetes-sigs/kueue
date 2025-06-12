@@ -675,7 +675,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if !workload.HasQuotaReservation(e.Object) {
+	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
