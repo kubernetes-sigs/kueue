@@ -126,9 +126,11 @@ the workload cannot run on any other nodes. In order to avoid costly re-scheduli
 of the entire TAS workload we introduce the node hot swap feature to Kueue
 (starting from version 0.12).
 
+{{% alert title="Note" color="primary" %}}
 To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
 `TASFailedNodeReplacement` to `true` and the lowest topological label has to be
 `kubernetes.io/hostname`.
+{{% /alert %}}
 
 With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
