@@ -1285,11 +1285,24 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		devLocalQ           *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	startManager := func() {
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	}
+
+	stopManager := func() {
+		fwk.StopManager(ctx)
+	}
+
+	restartManager := func() {
+		stopManager()
+		startManager()
+	}
+
+	ginkgo.BeforeAll(func() {
+		startManager()
 	})
 	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		stopManager()
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1896,6 +1909,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			})
 		})
 	})
+
 	ginkgo.It("Should schedule updated job and update the workload", func() {
 		localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		ginkgo.By("create a localQueue", func() {
@@ -2086,6 +2100,67 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					Should(gomega.Succeed())
 				g.Expect(sampleJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Shouldn't admit deactivated Workload after manager restart", func() {
+		localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		ginkgo.By("Create a LocalQueue", func() {
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+
+		ginkgo.By("Creating a Job", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: job.Namespace,
+		}
+
+		ginkgo.By("Checking that the Workload is admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+		})
+
+		ginkgo.By("Deactivate the Workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				wl.Spec.Active = ptr.To(false)
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the Workload is deactivated and evicted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Restarting the manager", func() {
+			restartManager()
+		})
+
+		ginkgo.By("Checking that the Workload is not admitted after restart the manager", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				// Using short intervals to make it likely to fail if the conditions flip
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			// NOTE: controller restart in integration tests does not reset the metrics
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 		})
 	})
 })
