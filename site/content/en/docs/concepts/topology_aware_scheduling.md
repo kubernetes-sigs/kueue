@@ -132,7 +132,7 @@ assumed to have failed if its `conditions.Status.Ready` is not `True` for at lea
 seconds or if the node is missing (removed from the cluster). 
 
 Note that finding a replacement node within the old domain (like rack) may not always 
-be possible. Hence, we recommend configuring `waitForPodsReady.recoveryTimeout`, to prevent 
+be possible. Hence, we recommend using [WaitForPodsReady](link) and configuring `waitForPodsReady.recoveryTimeout`, to prevent 
 the workloads from waiting for the replacement indefinetly.
 
 
