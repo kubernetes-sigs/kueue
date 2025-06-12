@@ -119,20 +119,23 @@ newly provisioned nodes (assuming the provisioning class supports it).
 
 ### Hot swap support
 TAS finds a fixed assignment of pods to nodes and injects a NodeSelector to make
-sure the pods get scheduled on the selected nodes. But this means that in case 
+sure the pods get scheduled on the selected nodes. But this means that in case
 of any node failures or deletions, which occur during the runtime of a workload,
-the workload cannot run on any other nodes. To mitigate this issue, a node hot swap was 
-introduced to Kueue (starting from version 0.12). To enable the feature, you have to 
-set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) 
-`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
-`kubernetes.io/hostname`. With this feature, TAS tries to find a
-replacement upon node failure or deletion for all the affected workloads, without
-changing the rest of the topology assignment. Currently this works for only a single
-node failure and in case of multiple failures, the workload gets evicted. The node is 
-assumed to have failed if its `conditions.Status.Ready` is not `True` for at least 30 
-seconds or if the node is missing (removed from the cluster). 
+the workload cannot run on any other nodes. In order to avoid costly re-scheduling
+of the entire TAS workload we introduce the node hot swap feature to Kueue
+(starting from version 0.12).
 
-Note that finding a replacement node within the old domain (like rack) may not always 
+To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
+`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
+`kubernetes.io/hostname`.
+
+With this feature, TAS tries to find a replacement upon node failure or deletion for
+all the affected workloads, without changing the rest of the topology assignment.
+Currently this works only for a single node failure and in case of multiple failures,
+the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
+is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
+
+Note that finding a replacement node within the old domain (like rack) may not always
 be possible. Hence, we recommend using [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
 and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from
 waiting for the replacement indefinetly.
