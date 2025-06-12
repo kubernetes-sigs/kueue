@@ -19,6 +19,11 @@ controller:
     Cohort.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
+managedJobsNamespaceSelector:
+  matchExpressions:
+    - key: managed-by-kueue
+      operator: In
+      values: ["true"]
 clientConnection:
   qps: 50
   burst: 100
