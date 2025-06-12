@@ -15,6 +15,7 @@ controllerManager:
   #  - name: PartialAdmission
   #    enabled: true
   manager:
+    # priorityClassName: "system-cluster-critical"
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
       # This should be set to 'IfNotPresent' for released version      
