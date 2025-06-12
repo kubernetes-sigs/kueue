@@ -130,7 +130,7 @@ To enable the feature, you have to set the [feature gate](https://kubernetes.io/
 `TASFailedNodeReplacement` to `true` and the lowest topological label has to be
 `kubernetes.io/hostname`.
 
-With this feature, TAS tries to find a replacement upon node failure or deletion for
+With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
 Currently this works only for a single node failure and in case of multiple failures,
 the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
