@@ -499,7 +499,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
 			revertUsage := cq.SimulateWorkloadRemoval(targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, false, nil)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests)
 			revertUsage()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
@@ -508,7 +508,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, true, nil)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithSimulateEmpty(true))
 		}
 		assignment.UpdateForTASResult(tasResult)
 	}
