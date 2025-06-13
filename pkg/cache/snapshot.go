@@ -25,10 +25,12 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/queue"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -137,7 +139,7 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		cqSnapshot := snapshotClusterQueue(cq)
+		cqSnapshot := c.snapshotClusterQueue(ctx, cq)
 		snap.AddClusterQueue(cqSnapshot)
 		if cq.HasParent() {
 			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
@@ -157,25 +159,40 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
+func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue) *ClusterQueueSnapshot {
+	log := ctrl.LoggerFrom(ctx)
 	cc := &ClusterQueueSnapshot{
-		Name:                          c.Name,
-		ResourceGroups:                make([]ResourceGroup, len(c.ResourceGroups)),
-		FlavorFungibility:             c.FlavorFungibility,
-		FairWeight:                    c.FairWeight,
-		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Workloads:                     maps.Clone(c.Workloads),
-		Preemption:                    c.Preemption,
-		NamespaceSelector:             c.NamespaceSelector,
-		Status:                        c.Status,
-		AdmissionChecks:               utilmaps.DeepCopySets(c.AdmissionChecks),
-		ResourceNode:                  c.resourceNode.Clone(),
+		Name:                          cq.Name,
+		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
+		FlavorFungibility:             cq.FlavorFungibility,
+		FairWeight:                    cq.FairWeight,
+		AllocatableResourceGeneration: cq.AllocatableResourceGeneration,
+		Workloads:                     maps.Clone(cq.Workloads),
+		Preemption:                    cq.Preemption,
+		NamespaceSelector:             cq.NamespaceSelector,
+		Status:                        cq.Status,
+		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
+		ResourceNode:                  cq.resourceNode.Clone(),
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
-		tasOnly:                       c.isTASOnly(),
-		flavorsForProvReqACs:          c.flavorsWithProvReqAdmissionCheck(),
+		tasOnly:                       cq.isTASOnly(),
+		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 	}
-	for i, rg := range c.ResourceGroups {
+	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
+	}
+	if cq.AdmissionScope != nil {
+		cc.AdmissionScope = *cq.AdmissionScope.DeepCopy()
+	}
+	afsEnabled, resourceWeights := queue.AfsResourceWeights(&cc.AdmissionScope, c.admissionFairSharing)
+	if afsEnabled {
+		for _, wl := range cc.Workloads {
+			usage, err := wl.GetLocalQueueUsage(ctx, c.client, resourceWeights)
+			if err != nil {
+				log.V(2).Error(err, "Error determining LocalQueue usage")
+			} else {
+				wl.LocalQueueUsage = &usage
+			}
+		}
 	}
 	return cc
 }

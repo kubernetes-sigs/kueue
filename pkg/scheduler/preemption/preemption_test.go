@@ -2792,48 +2792,98 @@ func targetKeyReason(key workload.WorkloadReference, reason string) string {
 }
 func TestCandidatesOrdering(t *testing.T) {
 	now := time.Now()
-	candidates := []*workload.Info{
-		workload.NewInfo(utiltesting.MakeWorkload("high", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Priority(10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("low", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Priority(-10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("other", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
-			Priority(10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
-			SetOrReplaceCondition(metav1.Condition{
-				Type:               kueue.WorkloadEvicted,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now),
-			}).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old-a", "").
-			UID("old-a").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old-b", "").
-			UID("old-b").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
-			Obj()),
+
+	preemptorCq := "preemptor"
+
+	wlLowUsageLq := workload.NewInfo(utiltesting.MakeWorkload("low_lq_usage", "").
+		ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+		Obj())
+	wlLowUsageLq.LocalQueueUsage = ptr.To[float64](0.1)
+
+	wlHighUsageLq := workload.NewInfo(utiltesting.MakeWorkload("high_lq_usage", "").
+		ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+		Obj())
+	wlHighUsageLq.LocalQueueUsage = ptr.To[float64](0.9)
+
+	cases := map[string]struct {
+		candidates     []workload.Info
+		wantCandidates []workload.WorkloadReference
+	}{
+		"workloads sorted by priority": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("high", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("low", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(-10).
+					Obj()),
+			},
+			wantCandidates: []workload.WorkloadReference{"low", "high"},
+		},
+		"evicted workload first": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("other", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj()),
+			},
+			wantCandidates: []workload.WorkloadReference{"evicted", "other"},
+		},
+		"workload from different CQ first": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("preemptorCq", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("other", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
+					Priority(10).
+					Obj()),
+			},
+			wantCandidates: []workload.WorkloadReference{"other", "preemptorCq"},
+		},
+		"old workloads last": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("older", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now.Add(-time.Second)).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("younger", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now.Add(time.Second)).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("current", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Obj()),
+			},
+			wantCandidates: []workload.WorkloadReference{"younger", "current", "older"},
+		},
+		"workloads with higher LQ usage first": {
+			candidates: []workload.Info{
+				*wlHighUsageLq,
+				*wlLowUsageLq,
+			},
+			wantCandidates: []workload.WorkloadReference{"high_lq_usage", "low_lq_usage"},
+		},
 	}
-	sort.Slice(candidates, func(i int, j int) bool {
-		return CandidatesOrdering(candidates[i], candidates[j], "self", now)
-	})
-	gotNames := make([]workload.WorkloadReference, len(candidates))
-	for i, c := range candidates {
-		gotNames[i] = workload.Key(c.Obj)
-	}
-	wantCandidates := []workload.WorkloadReference{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
-	if diff := cmp.Diff(wantCandidates, gotNames); diff != "" {
-		t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+
+	for _, tc := range cases {
+		sort.Slice(tc.candidates, func(i int, j int) bool {
+			return CandidatesOrdering(&tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+		})
+		got := slices.Map(tc.candidates, func(c *workload.Info) workload.WorkloadReference {
+			return workload.WorkloadReference(c.Obj.Name)
+		})
+		if diff := cmp.Diff(tc.wantCandidates, got); diff != "" {
+			t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+		}
 	}
 }
 
