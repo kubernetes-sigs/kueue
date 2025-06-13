@@ -18,6 +18,7 @@ controllerManager:
     # priorityClassName: "system-cluster-critical"
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
+      tag: main
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
     podAnnotations: {}
@@ -172,11 +173,13 @@ kueueViz:
   backend:
     image:
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
+      tag: main
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
   frontend:
     image:
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
+      tag: main
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
 metrics:
