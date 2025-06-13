@@ -15,6 +15,8 @@
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
     - [Workload Controller](#workload-controller)
+      - [Cluster Nomination Phase](#cluster-nomination-phase)
+      - [Workload Synchronization Phase](#workload-synchronization-phase)
     - [Garbage Collector](#garbage-collector)
   - [Jobs abstraction](#jobs-abstraction)
     - [MultiKueueAdapter](#multikueueadapter)
@@ -83,9 +85,8 @@ Establish the need for a designated management cluster.
 For each workload coming to a ClusterQueue (with the MultiKueue AdmissionCheck enabled)
 in the management cluster, and getting past the preadmission phase in the 
 two-phase admission process (meaning that the global quota - total amount resources
-that can be consumed across all clusters - is ok), 
-MultiKueue controller will clone it in the defined worker clusters and wait 
-until some Kueue running there admits the workload.
+that can be consumed across all clusters - is ok), the MultiKueue controller will attempt to dispatch 
+the workload to worker clusters based on the configuration of the dispatcher.
 If a remote workload is admitted first, the job will be created 
 in the remote cluster with a `kueue.x-k8s.io/prebuilt-workload-name` label pointing to that clone.
 Then it will remove the workloads from the remaining worker clusters and allow the
@@ -231,11 +232,42 @@ has a valid configuration and at least one of its MultiKueueClusters is `Active`
 Will monitor the workloads in the management cluster and manage their MultiKueue specific
 AdmissionCheckStates.
 
-When distributing the workloads across clusters MultiKueue Workloads controller will first create
-the Kueue's internal Workload object. Only after the workload is admitted and other clusters
-are cleaned-up the real job will be created, to match the Workload. That gives the guarantee
-that the workload will not start in more than one cluster. The workload will
-get the annotation stating where it is actually running.
+When distributing workloads across clusters, the MultiKueue Workload Controller follows a two-phase
+process for a set of worker clusters selection.
+
+##### Cluster Nomination Phase
+The process of selecting a worker cluster for a workload depends on the dispatching mode configured
+for the Dispatcher. MultiKueue supports three dispatching modes: Built-in, Sequential, External.
+
+* Built-in Mode:
+In this mode, all available clusters are considered for dispatching, workload is copied to each worker
+cluster.
+
+* Sequential Mode:
+In this mode, only one cluster is chosen at a time for dispatching. The MultiKueue Workload Controller
+nominates a single cluster by setting the `.status.multiKueueNominatedCluster` field. 
+
+* External Mode:
+In this mode, the selection of the worker cluster is entirely delegated to an external controller. The
+external controller is responsible for setting the `.status.multiKueueNominatedCluster` field to the name of
+the selected clusters.
+
+Kueue controls the time window `.disaptcher.RoundTimeout` during which the nominated clusters have the opportunity 
+to attempt admission of the workload.
+The nomination possibility is controlled by setting workload's status condition `HaveNominatedWorkers`.
+* True: Indicates that worker clusters are nominated and there is still time for them to attempt
+admission of the workload.
+* False: Indicates that the time window for the nominated clusters has expired, and new worker clusters
+can be nominated.
+
+##### Workload Synchronization Phase
+Based on the multiKueueNominatedCluster status field, the actual copy of the workload is created in
+the nominated worker clusters. The MultiKueue Workload Controller ensures that the workload is
+synchronized from the management cluster to the selected worker clusters.
+
+Once the workload is admitted and other clusters are cleaned up, the real job is created to match the
+workload. This guarantees that the workload will not start in more than one cluster. The workload will
+also receive an annotation indicating the cluster where it is actually running.
 
 When the job is running MultiKueue controller will copy its status from worker cluster
 to the management cluster, to keep the impression that the job is running in the management 
@@ -304,6 +336,23 @@ type MultiKueue struct {
 	GCInterval *metav1.Duration `json:"gcInterval"`
 	Origin *string `json:"origin,omitempty"`
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+  Dispatcher *MultiKueueWorkloadDispatcher `json:"multiKueueWorkloadDispatcher,omitempty"`
+}
+
+const(
+  DispatcherModeBuiltIn = "BuiltIn"
+  DispatcherModeSequential = "Sequential"
+)
+
+type MultiKueueWorkloadDispatcher struct {
+// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
+// - If specified, the workload will be handled by the named dispatcher.
+// - If not specified, the workload will be handled by the default (BuiltIn) dispatcher.
+  DispatcherName *string `json:"dispatcherName,omitempty"`
+
+// RoundTimeout specifies the duration given to a selected workers to attempt to reserve the workload's required resources.
+// This field is only applicable when the DispatcherName is specified. Defaults to 5 min.
+  RoundTimeout *metav1.Duration `json:"timeout,omitempty"`
 }
 ```
 
@@ -315,6 +364,7 @@ This is used by multikueue in components like its [garbage collector](#garbage-c
 that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
 - `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.
+- `Dispatcher` -  configures the mechanism that determines how worker clusters are selected and attempted for processing a workload.
 
 ### Follow ups ideas
 
