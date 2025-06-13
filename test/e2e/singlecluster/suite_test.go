@@ -62,7 +62,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg = util.CreateClientUsingCluster("")
 	restClient = util.CreateRestClient(cfg)
 	visibilityClient = util.CreateVisibilityClient("")
-	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
+	kueueNS := util.GetKueueNamespace()
+	impersonatedVisibilityClient = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
