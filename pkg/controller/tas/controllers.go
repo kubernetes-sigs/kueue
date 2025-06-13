@@ -17,9 +17,13 @@ limitations under the License.
 package tas
 
 import (
+	"context"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -46,4 +50,14 @@ func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cach
 		}
 	}
 	return "", nil
+}
+
+func RegisterInformers(ctx context.Context, mgr ctrl.Manager) error {
+	if _, err := mgr.GetCache().GetInformer(ctx, &kueuealpha.Topology{}); err != nil {
+		return err
+	}
+	if _, err := mgr.GetCache().GetInformer(ctx, &kueue.ResourceFlavor{}); err != nil {
+		return err
+	}
+	return nil
 }

@@ -62,6 +62,7 @@ var (
 )
 
 type Scheduler struct {
+	manager                 ctrl.Manager
 	queues                  *queue.Manager
 	cache                   *cache.Cache
 	client                  client.Client
@@ -84,6 +85,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
 	clock                       clock.Clock
+	manager                     ctrl.Manager
 }
 
 // Option configures the reconciler.
@@ -99,6 +101,12 @@ var defaultOptions = options{
 func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	return func(o *options) {
 		o.podsReadyRequeuingTimestamp = ts
+	}
+}
+
+func WithManager(mgr ctrl.Manager) Option {
+	return func(o *options) {
+		o.manager = mgr
 	}
 }
 
@@ -125,6 +133,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
+		manager:                 options.manager,
 		fairSharing:             options.fairSharing,
 		queues:                  queues,
 		cache:                   cache,
@@ -143,6 +152,11 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
+	if s.manager != nil {
+		log.V(3).Info("Waiting to sync the informer cache before scheduling")
+		synced := s.manager.GetCache().WaitForCacheSync(ctx)
+		log.V(3).Info("Informer cache synced", "synced", synced)
+	}
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
 }
