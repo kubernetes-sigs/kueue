@@ -117,6 +117,31 @@ Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/ad
 to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
+### Hot swap support
+{{% alert title="Note" color="primary" %}}
+To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
+`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
+`kubernetes.io/hostname`. This feature was introduced to Kueue in version 0.12.
+{{% /alert %}}
+
+When the lowest level of Topology is set to node, TAS finds a fixed assignment
+of pods to nodes and injects a NodeSelector to make sure the pods get scheduled
+on the selected nodes. But this means that in case
+of any node failures or deletions, which occur during the runtime of a workload,
+the workload cannot run on any other nodes. In order to avoid costly re-scheduling
+of the entire TAS workload we introduce the node hot swap feature.
+
+With this feature, TAS tries to find a replacement of the failed or deleted node for
+all the affected workloads, without changing the rest of the topology assignment.
+Currently this works only for a single node failure at the time and in case of multiple failures,
+the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
+is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
+
+Note that finding a replacement node within the old domain (like rack) may not always
+be possible. Hence, we recommend using [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
+and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from
+waiting for the replacement indefinetly.
+
 ### Limitations
 
 Currently, there are limitations for the compatibility of TAS with other
