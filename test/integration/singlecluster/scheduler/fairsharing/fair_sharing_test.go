@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,13 +38,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
 
-		cohorts []*kueuealpha.Cohort
+		cohorts []*kueue.Cohort
 		cqs     []*kueue.ClusterQueue
 		lqs     []*kueue.LocalQueue
 		wls     []*kueue.Workload
 	)
 
-	var createCohort = func(cohort *kueuealpha.Cohort) *kueuealpha.Cohort {
+	var createCohort = func(cohort *kueue.Cohort) *kueue.Cohort {
 		util.MustCreate(ctx, k8sClient, cohort)
 		cohorts = append(cohorts, cohort)
 		return cohort
@@ -465,7 +464,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 func expectCohortWeightedShare(cohortName string, weightedShare int64) {
 	// check Status
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		cohort := &kueuealpha.Cohort{}
+		cohort := &kueue.Cohort{}
 		g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKey{Name: cohortName}, cohort)).Should(gomega.Succeed())
 		g.ExpectWithOffset(1, cohort.Status.FairSharing).ShouldNot(gomega.BeNil())
 		g.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(weightedShare))

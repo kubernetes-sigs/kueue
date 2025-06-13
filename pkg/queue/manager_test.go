@@ -32,7 +32,6 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -211,7 +210,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
-	cohorts := []*kueuealpha.Cohort{
+	cohorts := []*kueue.Cohort{
 		utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
 		utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
 		utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj(),

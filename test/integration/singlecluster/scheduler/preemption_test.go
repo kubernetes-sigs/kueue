@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -913,7 +912,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 	})
 	ginkgo.Context("In a multi-level cohort", func() {
-		var rootCohort, guaranteedCohort *kueuealpha.Cohort
+		var rootCohort, guaranteedCohort *kueue.Cohort
 		var bestEffortCQ, guaranteedCQ *kueue.ClusterQueue
 		var defaultFlavor *kueue.ResourceFlavor
 

@@ -21,6 +21,8 @@ type AdmissionCheckExpansion interface{}
 
 type ClusterQueueExpansion interface{}
 
+type CohortExpansion interface{}
+
 type LocalQueueExpansion interface{}
 
 type MultiKueueClusterExpansion interface{}

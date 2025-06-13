@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // CohortSpec defines the desired state of Cohort
@@ -34,7 +32,7 @@ type CohortSpec struct {
 	// Cohort, including ClusterQueues, until the cycle is
 	// removed.  We prevent further admission while the cycle
 	// exists.
-	Parent kueuebeta.CohortReference `json:"parent,omitempty"`
+	Parent CohortReference `json:"parent,omitempty"`
 
 	// ResourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources
@@ -55,13 +53,13 @@ type CohortSpec struct {
 	//
 	//+listType=atomic
 	//+kubebuilder:validation:MaxItems=16
-	ResourceGroups []kueuebeta.ResourceGroup `json:"resourceGroups,omitempty"`
+	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
 	// fairSharing defines the properties of the Cohort when
 	// participating in FairSharing. The values are only relevant
 	// if FairSharing is enabled in the Kueue configuration.
 	// +optional
-	FairSharing *kueuebeta.FairSharing `json:"fairSharing,omitempty"`
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
 // CohortStatus defines the observed state of Cohort.
@@ -70,13 +68,14 @@ type CohortStatus struct {
 	// when participating in Fair Sharing.
 	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
-	FairSharing *kueuebeta.FairSharingStatus `json:"fairSharing,omitempty"`
+	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
-//+genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Cluster
-//+kubebuilder:subresource:status
+// +genclient
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:subresource:status
 
 // Cohort defines the Cohorts API.
 //
@@ -91,7 +90,7 @@ type Cohort struct {
 	Status CohortStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // CohortList contains a list of Cohort
 type CohortList struct {

@@ -21,7 +21,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 )
@@ -44,7 +43,7 @@ func newCohort(name kueue.CohortReference) *cohort {
 	}
 }
 
-func (c *cohort) updateCohort(apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
+func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
 	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
