@@ -118,19 +118,18 @@ to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
 ### Hot swap support
+{{% alert title="Note" color="primary" %}}
+To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
+`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
+`kubernetes.io/hostname`. This feature was introduced to Kueue in version 0.12.
+{{% /alert %}}
+
 When the lowest level of Topology is set to node, TAS finds a fixed assignment
 of pods to nodes and injects a NodeSelector to make sure the pods get scheduled
 on the selected nodes. But this means that in case
 of any node failures or deletions, which occur during the runtime of a workload,
 the workload cannot run on any other nodes. In order to avoid costly re-scheduling
-of the entire TAS workload we introduce the node hot swap feature to Kueue
-(starting from version 0.12).
-
-{{% alert title="Note" color="primary" %}}
-To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
-`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
-`kubernetes.io/hostname`.
-{{% /alert %}}
+of the entire TAS workload we introduce the node hot swap feature.
 
 With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
