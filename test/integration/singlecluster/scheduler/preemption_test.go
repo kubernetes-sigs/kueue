@@ -85,61 +85,63 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
-		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
-			ginkgo.By("Creating initial Workloads with different priorities")
-			lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			lowWl2 := testing.MakeWorkload("low-wl-2", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			midWl := testing.MakeWorkload("mid-wl", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(midPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			highWl1 := testing.MakeWorkload("high-wl-1", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(highPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, lowWl1)
-			util.MustCreate(ctx, k8sClient, lowWl2)
-			util.MustCreate(ctx, k8sClient, midWl)
-			util.MustCreate(ctx, k8sClient, highWl1)
+		for i := range 10 {
+			ginkgo.FIt(fmt.Sprintf("Should preempt Workloads with lower priority when there is not enough quota %d", i), func() {
+				ginkgo.By("Creating initial Workloads with different priorities")
+				lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(lowPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				lowWl2 := testing.MakeWorkload("low-wl-2", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(lowPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				midWl := testing.MakeWorkload("mid-wl", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(midPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				highWl1 := testing.MakeWorkload("high-wl-1", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(highPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, lowWl1)
+				util.MustCreate(ctx, k8sClient, lowWl2)
+				util.MustCreate(ctx, k8sClient, midWl)
+				util.MustCreate(ctx, k8sClient, highWl1)
 
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl1, lowWl2, midWl, highWl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl1, lowWl2, midWl, highWl1)
 
-			ginkgo.By("Creating a low priority Workload")
-			lowWl3 := testing.MakeWorkload("low-wl-3", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, lowWl3)
+				ginkgo.By("Creating a low priority Workload")
+				lowWl3 := testing.MakeWorkload("low-wl-3", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(lowPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, lowWl3)
 
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl3)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl3)
 
-			ginkgo.By("Creating a high priority Workload")
-			highWl2 := testing.MakeWorkload("high-wl-2", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Priority(highPriority).
-				Request(corev1.ResourceCPU, "2").
-				Obj()
-			util.MustCreate(ctx, k8sClient, highWl2)
+				ginkgo.By("Creating a high priority Workload")
+				highWl2 := testing.MakeWorkload("high-wl-2", ns.Name).
+					Queue(kueue.LocalQueueName(q.Name)).
+					Priority(highPriority).
+					Request(corev1.ResourceCPU, "2").
+					Obj()
+				util.MustCreate(ctx, k8sClient, highWl2)
 
-			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
-			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 2)
-			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 2)
-			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 2)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 2)
+				util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 2)
+				util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 2)
 
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
-		})
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
+			})
+		}
 
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
 			ginkgo.By("Creating initial Workloads")
