@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{

@@ -487,7 +487,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads"},
 				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-admin-role"},
 				Subjects: []rbacv1.Subject{
-					{Name: "default", APIGroup: "", Namespace: "kueue-system", Kind: rbacv1.ServiceAccountKind},
+					{Name: "default", APIGroup: "", Namespace: kueueNS, Kind: rbacv1.ServiceAccountKind},
 				},
 			}
 			util.MustCreate(ctx, k8sClient, clusterRoleBinding)
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads", Namespace: nsA.Name},
 				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-user-role"},
 				Subjects: []rbacv1.Subject{
-					{Name: "default", APIGroup: "", Namespace: "kueue-system", Kind: rbacv1.ServiceAccountKind},
+					{Name: "default", APIGroup: "", Namespace: kueueNS, Kind: rbacv1.ServiceAccountKind},
 				},
 			}
 			util.MustCreate(ctx, k8sClient, roleBinding)

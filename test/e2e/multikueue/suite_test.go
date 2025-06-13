@@ -53,6 +53,7 @@ var (
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
+	kueueNS            = util.GetKueueNamespace()
 
 	k8sManagerClient client.Client
 	k8sWorker1Client client.Client
@@ -271,13 +272,13 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, "kueue-system", "mksa", worker1ClusterName)
+	worker1Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1", worker1Kconfig)).To(gomega.Succeed())
+	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1Kconfig)).To(gomega.Succeed())
 
-	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, "kueue-system", "mksa", worker2ClusterName)
+	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2", worker2Kconfig)).To(gomega.Succeed())
+	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2Kconfig)).To(gomega.Succeed())
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
@@ -314,9 +315,9 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, "kueue-system", "mksa")).To(gomega.Succeed())
-	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, "kueue-system", "mksa")).To(gomega.Succeed())
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
 
-	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1")).To(gomega.Succeed())
-	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2")).To(gomega.Succeed())
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
 })
