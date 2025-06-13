@@ -61,13 +61,12 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+			if fromObject(&localJob).IsSuspended() {
+				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+				log.V(2).Info("Skipping the sync since the local job is still suspended")
+				return nil
+			}
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil
