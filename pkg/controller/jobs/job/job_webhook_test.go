@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -942,8 +941,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			//features.SetFeatureGateDuringTest(t, features.WorkloadSlices, tt.featureEnabled)
-			if err := features.SetEnable(features.WorkloadSlices, tt.featureEnabled); err != nil {
+			if err := features.SetEnable(features.DynamicallySizedJob, tt.featureEnabled); err != nil {
 				t.Errorf("applyWorkloadSliceSchedulingGate() unexpcted error enabling feature: %v", err)
 			}
 			applyWorkloadSliceSchedulingGate(tt.args.job)

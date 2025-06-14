@@ -1482,12 +1482,12 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 }
 
 // WorkloadSliceEnabled returns true if all the following conditions are met:
-//   - The WorkloadSlices feature is enabled.
+//   - The DynamicallySizedJob feature is enabled.
 //   - The provided job is not nil.
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
 func WorkloadSliceEnabled(job GenericJob) bool {
-	if !features.Enabled(features.WorkloadSlices) || job == nil {
+	if !features.Enabled(features.DynamicallySizedJob) || job == nil {
 		return false
 	}
 	jobObject := job.Object()
