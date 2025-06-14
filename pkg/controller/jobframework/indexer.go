@@ -25,6 +25,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
+// SetupWorkloadOwnerIndex for a provided owner job's GroupVersionKind.
+//
+// DEPRECATED: This function will be removed in a future release. Use the core/indexer.SetupWorkloadOwnerIndex directly instead.
 func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
 	return indexer.IndexField(ctx, &kueue.Workload{}, GetOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
