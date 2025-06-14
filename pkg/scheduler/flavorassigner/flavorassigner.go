@@ -356,15 +356,26 @@ type FlavorAssigner struct {
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
 	oracle            preemptionOracle
+
+	// preemptWorkloadSlice identifies the workload slice that will be mandatorily preempted
+	// by this workload. It must be considered during flavor computation and included in the preemption targets.
+	//
+	// Note: This value may be nil in the following cases:
+	//   - Workload slicing is not enabled (either globally or for this specific workload).
+	//   - The current workload does not represent a scale-up slice.
+	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
+	// non-sliced workloads.
+	preemptWorkloadSlice *workload.Info
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle) *FlavorAssigner {
+func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
 	return &FlavorAssigner{
-		wl:                wl,
-		cq:                cq,
-		resourceFlavors:   resourceFlavors,
-		enableFairSharing: enableFairSharing,
-		oracle:            oracle,
+		wl:                   wl,
+		cq:                   cq,
+		resourceFlavors:      resourceFlavors,
+		enableFairSharing:    enableFairSharing,
+		oracle:               oracle,
+		preemptWorkloadSlice: preemptWorkloadSlice,
 	}
 }
 
@@ -519,11 +530,27 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
 }
 
-// findFlavorForPodSetResource finds the flavor which can satisfy the podSet request
-// for all resources in the same group as resName.
-// Returns the chosen flavor, along with the information about resources that need to be borrowed.
-// If the flavor cannot be immediately assigned, it returns a status with
-// reasons or failure.
+// findFlavorForPodSetResource attempts to find the best fitting resource flavor for a specific
+// resource request in a given PodSet within a workload.
+//
+// It considers the current state of the ClusterQueue, flavor-specific node selectors and taints,
+// affinity and toleration constraints, as well as quota availability. The function filters flavors
+// based on compatibility with the PodSet's spec, and evaluates each for fit, borrowing requirements,
+// and alignment with features such as topology-aware scheduling and flavor fungibility.
+//
+// If a suitable flavor is found, a ResourceAssignment is returned with details about the chosen
+// flavor and assignment mode. If no flavor is suitable, a Status with reasons for failure is returned.
+//
+// Parameters:
+//   - log: logger for recording detailed error and debug information.
+//   - psID: index of the PodSet within the workload.
+//   - requests: resource requests for the PodSet.
+//   - resName: the specific resource name being matched (e.g., "cpu").
+//   - assignmentUsage: cumulative usage of flavors for the resource so far (used to track quota).
+//
+// Returns:
+//   - ResourceAssignment: mapping of resource names to flavor assignment details (if a match was found).
+//   - *Status: nil if a successful match was found; otherwise, a status object detailing the reasons for failure.
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
 	psID int,
@@ -548,6 +575,9 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
+
+	// For WorkloadSlice preemption flow we continue utilize the same flavor as defined in the
+	// original (or previous) workload slice.
 	attemptedFlavorIdx := -1
 	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
@@ -559,6 +589,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			status.appendf("flavor %s not found", fName)
 			continue
 		}
+
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
@@ -586,6 +617,22 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := fit
 		for rName, val := range requests {
+			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
+			if a.preemptWorkloadSlice != nil {
+				preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
+
+				// Enforce consistent resource flavor assignment between slices.
+				if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
+					// Flavor mismatch. Skip further checks for this resource.
+					representativeMode = noFit
+					status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
+					break
+				}
+
+				// Subtract the resource usage of the preempted slice to request only the delta needed.
+				val -= preemptWorkloadRequests.Requests[rName]
+			}
+
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
@@ -641,6 +688,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		if bestAssignmentMode == fit {
 			return bestAssignment, nil
 		}
+
 	}
 	return bestAssignment, status
 }
