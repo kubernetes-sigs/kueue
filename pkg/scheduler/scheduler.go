@@ -465,30 +465,6 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	return assignment, targets
 }
 
-// workloadSliceAssignmentScale computes the scaled pod counts for each PodSet in a new workload slice.
-//
-// It returns a slice of pod counts obtained by subtracting the pod counts of any preempted
-// (target) slices from those in the new slice `wl`. The result reflects the net pod allocation
-// after accounting for preempted resources.
-//
-// Note: The new slice (`wl`) and all preemptible target slices are expected to have symmetric PodSets—
-// meaning the same number and order of PodSet entries. Violating this assumption may cause
-// out-of-range panics or incorrect results.
-func workloadSliceAssignmentScale(wl *workload.Info, targets []*preemption.Target) []int32 {
-	if len(targets) == 0 {
-		return nil
-	}
-	scales := make([]int32, len(wl.TotalRequests))
-	for i := range scales {
-		scales[i] = wl.TotalRequests[i].Count
-		for t := range targets {
-			// Do not scale below 0.
-			scales[i] = max(0, scales[i]-targets[t].WorkloadInfo.TotalRequests[i].Count)
-		}
-	}
-	return scales
-}
-
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
 // for a workload slice.
 //
@@ -514,20 +490,27 @@ func workloadSliceAssignmentScale(wl *workload.Info, targets []*preemption.Targe
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
-	preemptableWorkloadSliceTargets := preemption.PreemptibleWorkloadSliceTargets(snap, wl)
+	var preemptionTargets []*preemption.Target
+	var preemptableWorkloadSlice *workload.Info
 
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
-	fullAssignment := flvAssigner.Assign(log, workloadSliceAssignmentScale(wl, preemptableWorkloadSliceTargets))
+	workloadSlicePreemptionTarget := preemption.PreemptibleWorkloadSliceTarget(snap, wl)
+	if workloadSlicePreemptionTarget != nil {
+		preemptionTargets = []*preemption.Target{workloadSlicePreemptionTarget}
+		preemptableWorkloadSlice = workloadSlicePreemptionTarget.WorkloadInfo
+	}
+
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), preemptableWorkloadSlice)
+	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
-		return fullAssignment, preemptableWorkloadSliceTargets
+		return fullAssignment, preemptionTargets
 	}
 
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, append(preemptableWorkloadSliceTargets, faPreemptionTargets...)
+			return fullAssignment, append(preemptionTargets, faPreemptionTargets...)
 		}
 	}
 
@@ -548,7 +531,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 			return nil, false
 		})
 		if pa, found := reducer.Search(); found {
-			return pa.assignment, append(preemptableWorkloadSliceTargets, pa.preemptionTargets...)
+			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
