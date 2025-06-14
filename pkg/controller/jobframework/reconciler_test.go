@@ -528,7 +528,7 @@ func TestWorkloadSliceEnabled(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			if tt.featureEnabled {
-				if err := features.SetEnable(features.WorkloadSlices, true); err != nil {
+				if err := features.SetEnable(features.DynamicallySizedJob, true); err != nil {
 					t.Errorf("WorkloadSliceEnabled() unexpected error enbabling features: %v", err)
 				}
 			}

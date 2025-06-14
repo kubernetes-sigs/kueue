@@ -948,7 +948,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			//features.SetFeatureGateDuringTest(t, features.WorkloadSlices, tt.featureEnabled)
-			if err := features.SetEnable(features.WorkloadSlices, tt.featureEnabled); err != nil {
+			if err := features.SetEnable(features.DynamicallySizedJob, tt.featureEnabled); err != nil {
 				t.Errorf("applyWorkloadSliceSchedulingGate() unexpcted error enabling feature: %v", err)
 			}
 			applyWorkloadSliceSchedulingGate(tt.args.job)
