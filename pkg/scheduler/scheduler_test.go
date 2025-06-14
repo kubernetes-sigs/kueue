@@ -53,7 +53,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -9171,77 +9170,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))...); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func Test_workloadSliceAssignmentScale(t *testing.T) {
-	type args struct {
-		wl      *workload.Info
-		targets []*preemption.Target
-	}
-	tests := map[string]struct {
-		args args
-		want []int32
-	}{
-		"EmptyTargetsList": {},
-		"ScaleSingleTarget": {
-			args: args{
-				wl: &workload.Info{
-					TotalRequests: []workload.PodSetResources{
-						{Name: "test-1", Count: 10},
-						{Name: "test-2", Count: 20},
-					},
-				},
-				targets: []*preemption.Target{
-					{
-						WorkloadInfo: &workload.Info{
-							TotalRequests: []workload.PodSetResources{
-								{Name: "test-1", Count: 2},
-								{Name: "test-2", Count: 3},
-							},
-						},
-					},
-				},
-			},
-			want: []int32{8, 17},
-		},
-		"ScaleMultipleTargets": {
-			args: args{
-				wl: &workload.Info{
-					TotalRequests: []workload.PodSetResources{
-						{Name: "test-1", Count: 10},
-						{Name: "test-2", Count: 20},
-					},
-				},
-				targets: []*preemption.Target{
-					{
-						WorkloadInfo: &workload.Info{
-							TotalRequests: []workload.PodSetResources{
-								{Name: "test-1", Count: 2},
-								{Name: "test-2", Count: 3},
-							},
-						},
-					},
-					{
-						WorkloadInfo: &workload.Info{
-							TotalRequests: []workload.PodSetResources{
-								{Name: "test-1", Count: 3},
-								{Name: "test-2", Count: 19},
-							},
-						},
-					},
-				},
-			},
-			want: []int32{5, 0},
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := workloadSliceAssignmentScale(tt.args.wl, tt.args.targets)
-			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("workloadSliceAssignmentScale() got(-),want(+): %s", diff)
 			}
 		})
 	}
