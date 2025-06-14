@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -56,6 +55,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		kueueNS := util.GetKueueNamespace()
 
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: config.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
 			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).

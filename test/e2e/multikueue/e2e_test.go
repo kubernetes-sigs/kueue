@@ -911,7 +911,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
 				podList := &corev1.PodList{}
-				podListOptions := client.InNamespace("kueue-system")
+				kueueNS := util.GetKueueNamespace()
+				podListOptions := client.InNamespace(kueueNS)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).Should(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())

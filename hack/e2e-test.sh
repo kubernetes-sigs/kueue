@@ -47,7 +47,9 @@ function startup {
 }
 
 function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    local namespace=${KUEUE_NAMESPACE:-kueue-system}
+    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG" && \
+     $KUSTOMIZE edit set namespace "$namespace")
     cluster_kueue_deploy ""
 }
 
