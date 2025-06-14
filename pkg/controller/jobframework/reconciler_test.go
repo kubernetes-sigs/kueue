@@ -37,7 +37,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -528,7 +527,7 @@ func TestWorkloadSliceEnabled(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			if tt.featureEnabled {
-				if err := features.SetEnable(features.WorkloadSlices, true); err != nil {
+				if err := features.SetEnable(features.DynamicallySizedJob, true); err != nil {
 					t.Errorf("WorkloadSliceEnabled() unexpected error enbabling features: %v", err)
 				}
 			}
