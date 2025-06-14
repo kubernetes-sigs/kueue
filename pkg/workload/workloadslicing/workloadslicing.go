@@ -48,7 +48,7 @@ import (
 const (
 	// EnabledAnnotationKey refers to the annotation key present on Job's that support
 	// workload slicing.
-	EnabledAnnotationKey = "kueue.x-k8s.io/workload-slicing-enabled"
+	EnabledAnnotationKey = "kueue.x-k8s.io/dynamically-sized-job"
 	// EnabledAnnotationValue refers to the annotation value. To enable
 	// workload slicing for a given job, we match both annotation key and value.
 	EnabledAnnotationValue = "true"
