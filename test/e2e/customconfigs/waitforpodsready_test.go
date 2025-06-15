@@ -42,6 +42,7 @@ const (
 )
 
 var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, func() {
+	kueueNS := util.GetKueueNamespace()
 	var (
 		ns    *corev1.Namespace
 		rf    *kueue.ResourceFlavor
@@ -64,7 +65,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -118,7 +119,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 				}
 			})
 
-			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+			curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 				ServiceAccountName(serviceAccountName).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
@@ -218,7 +219,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 				}
 			})
 
-			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+			curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 				ServiceAccountName(serviceAccountName).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
@@ -309,7 +310,7 @@ var _ = ginkgo.Describe("WaitForPodsReady Job Controller E2E", ginkgo.Ordered, f
 				}
 			})
 
-			curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+			curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 				ServiceAccountName(serviceAccountName).
 				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).

@@ -207,8 +207,14 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         
-        $KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager" | \
-        kubectl apply --kubeconfig="$1" --server-side -f -
+        local build_output
+        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager")
+        if [[ -n "$namespace" ]]; then
+            echo "$build_output" | sed "s/kueue-system/${namespace}/g" | \
+            kubectl apply --kubeconfig="$1" --server-side -f -
+        else
+            echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+        fi
     )
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
@@ -217,6 +223,7 @@ function deploy_with_certmanager() {
 
 # $1 kubeconfig
 function cluster_kueue_deploy {
+    namespace="${KUEUE_NAMESPACE:-kueue-system}"
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
@@ -224,7 +231,14 @@ function cluster_kueue_deploy {
         
         deploy_with_certmanager "$1"
     else
-        kubectl apply --kubeconfig="$1" --server-side -k "${ROOT_DIR}/test/e2e/config/default"
+        local build_output
+        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
+        if [[ -n "$namespace" ]]; then
+            echo "$build_output" | sed "s/kueue-system/${namespace}/g" | \
+            kubectl apply --kubeconfig="$1" --server-side -f -
+        else
+            echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+        fi
     fi
 }
 

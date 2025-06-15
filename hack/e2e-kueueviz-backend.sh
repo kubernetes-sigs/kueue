@@ -21,6 +21,7 @@ ROOT_DIR="$SOURCE_DIR/.."
 # shellcheck source=hack/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 echo ROOT_DIR="${ROOT_DIR}" SOURCE_DIR="${SOURCE_DIR}" KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
+KUEUE_NS="${KUEUE_NAMESPACE:-kueue-system}"
 
 # if CI is true and PROW_JOB_ID is set, set NO_COLOR to 1
 if [ -n "${CI}" ] && [ -n "${PROW_JOB_ID}" ]; then
@@ -46,7 +47,7 @@ prepare_docker_images
 cluster_kind_load "${KIND_CLUSTER_NAME}"
 (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
 cluster_kueue_deploy ""
-kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
+kubectl wait deploy/kueue-controller-manager -n"$KUEUE_NS" --for=condition=available --timeout=5m
 
 # Deploy KueueViz resources
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
