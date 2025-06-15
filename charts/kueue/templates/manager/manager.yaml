@@ -21,6 +21,9 @@ spec:
         {{- toYaml .Values.controllerManager.manager.podAnnotations | nindent 8 }}
         {{- end }}
     spec:
+      {{- with  .Values.controllerManager.manager.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       containers:
       - args:
         - --config=/controller_manager_config.yaml

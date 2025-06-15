@@ -162,6 +162,8 @@ helm-lint: helm ## Run Helm chart lint test.
 helm-verify: helm helm-lint ## run helm template and detect any rendering failures
 # test default values
 	$(HELM) template charts/kueue > /dev/null
+# test priorityClassName option
+	$(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
