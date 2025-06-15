@@ -13,3 +13,22 @@ tests:
       - equal:
           path: spec.replicas
           value: 2
+  - it: should set the pod priorityClassName when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        manager:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        manager:
+          priorityClassName: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
