@@ -385,7 +385,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 // PodSets will build workload podSets corresponding to the job.
 func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	if !p.isGroup {
-		return constructPodSets(&p.pod), nil
+		return constructPodSets(&p.pod)
 	} else {
 		return p.constructGroupPodSets()
 	}
@@ -642,13 +642,17 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	return constructGroupPodSets(p.list.Items)
 }
 
-func constructPodSets(p *corev1.Pod) []kueue.PodSet {
-	return []kueue.PodSet{
-		constructPodSet(p),
+func constructPodSets(p *corev1.Pod) ([]kueue.PodSet, error) {
+	podSet, err := constructPodSet(p)
+	if err != nil {
+		return nil, err
 	}
+	return []kueue.PodSet{
+		*podSet,
+	}, nil
 }
 
-func constructPodSet(p *corev1.Pod) kueue.PodSet {
+func constructPodSet(p *corev1.Pod) (*kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:  kueue.DefaultPodSetName,
 		Count: 1,
@@ -657,11 +661,15 @@ func constructPodSet(p *corev1.Pod) kueue.PodSet {
 		},
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
 			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
+		if err != nil {
+			return nil, err
+		}
+		podSet.TopologyRequest = topologyRequest
 	}
-	return podSet
+	return &podSet, nil
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
@@ -673,7 +681,10 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		podSets := constructPodSets(&podInGroup)
+		podSets, err := constructPodSets(&podInGroup)
+		if err != nil {
+			return nil, err
+		}
 		podSets[0].Name = kueue.NewPodSetReference(roleHash)
 		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
@@ -705,10 +716,13 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 
 		if !podRoleFound {
-			podSet := constructPodSet(&podInGroup)
+			podSet, err := constructPodSet(&podInGroup)
+			if err != nil {
+				return nil, err
+			}
 			podSet.Name = kueue.NewPodSetReference(roleHash)
 
-			resultPodSets = append(resultPodSets, podSet)
+			resultPodSets = append(resultPodSets, *podSet)
 		}
 	}
 

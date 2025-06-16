@@ -251,9 +251,13 @@ func (j *Job) PodSets() ([]kueue.PodSet, error) {
 		MinCount: j.minPodsCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
 			ptr.To(batchv1.JobCompletionIndexAnnotation)).Build()
+		if err != nil {
+			return nil, err
+		}
+		podSet.TopologyRequest = topologyRequest
 	}
 	return []kueue.PodSet{
 		podSet,

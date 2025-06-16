@@ -27,36 +27,38 @@ import (
 )
 
 type podSetTopologyRequestBuilder struct {
-	request *kueue.PodSetTopologyRequest
-}
-
-func (p *podSetTopologyRequestBuilder) Build() *kueue.PodSetTopologyRequest {
-	return p.request
+	podIndexLabel      *string
+	subGroupIndexLabel *string
+	subGroupCount      *int32
+	meta               *metav1.ObjectMeta
 }
 
 func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *podSetTopologyRequestBuilder {
-	if p.request != nil {
-		p.request.PodIndexLabel = podIndexLabel
-	}
+	p.podIndexLabel = podIndexLabel
 	return p
 }
 
+// SubGroup sets the SubGroupIndexLabel and SubGroupCount.
 func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
-	if p.request != nil {
-		p.request.SubGroupIndexLabel = subGroupIndexLabel
-		p.request.SubGroupCount = subGroupCount
-	}
+	p.subGroupIndexLabel = subGroupIndexLabel
+	p.subGroupCount = subGroupCount
 	return p
 }
 
 func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBuilder {
-	psTopologyReq := &kueue.PodSetTopologyRequest{}
-	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
-	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
-	unconstrained, unconstrainedFound := meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+	return &podSetTopologyRequestBuilder{
+		meta: meta,
+	}
+}
 
-	sliceRequiredTopologyValue, sliceRequiredTopologyFound := meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
-	sliceSizeValue, sliceSizeFound := meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, error) {
+	psTopologyReq := &kueue.PodSetTopologyRequest{}
+	requiredValue, requiredFound := p.meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
+	preferredValue, preferredFound := p.meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	unconstrained, unconstrainedFound := p.meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+
+	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
 
 	switch {
 	case requiredFound:
@@ -64,7 +66,10 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	case preferredFound:
 		psTopologyReq.Preferred = &preferredValue
 	case unconstrainedFound:
-		unconstrained, _ := strconv.ParseBool(unconstrained)
+		unconstrained, err := strconv.ParseBool(unconstrained)
+		if err != nil {
+			return nil, err
+		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
 		psTopologyReq = nil
@@ -73,13 +78,16 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 	if sliceRequiredTopologyFound && sliceSizeFound {
 		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
-			// silently ignore as it should not happen due to earlier validation in a webhook
+			return nil, err
 		} else {
 			psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
 			psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
 		}
 	}
 
-	builder := &podSetTopologyRequestBuilder{request: psTopologyReq}
-	return builder
+	psTopologyReq.PodIndexLabel = p.podIndexLabel
+	psTopologyReq.SubGroupCount = p.subGroupCount
+	psTopologyReq.SubGroupIndexLabel = p.subGroupIndexLabel
+
+	return psTopologyReq, nil
 }
