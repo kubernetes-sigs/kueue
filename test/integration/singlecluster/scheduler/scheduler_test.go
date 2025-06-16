@@ -76,7 +76,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 	})
-
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {
 		var (
 			admissionCheck1        *kueue.AdmissionCheck
@@ -2601,6 +2600,88 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("second foundation workload admitted")
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+		})
+	})
+	ginkgo.When("Multiple flavors can be considered for preemption", func() {
+		var (
+			ns *corev1.Namespace
+
+			cqs []*kueue.ClusterQueue
+			lqs []*kueue.LocalQueue
+			wls []*kueue.Workload
+		)
+
+		var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+			util.MustCreate(ctx, k8sClient, cq)
+			cqs = append(cqs, cq)
+
+			lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			lqs = append(lqs, lq)
+			return cq
+		}
+
+		var createWorkloadWithPriority = func(queue kueue.LocalQueueName, cpuRequests string, priority int32) *kueue.Workload {
+			wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+				Priority(priority).
+				Queue(queue).
+				Request(corev1.ResourceCPU, cpuRequests).Obj()
+			wls = append(wls, wl)
+			util.MustCreate(ctx, k8sClient, wl)
+			return wl
+		}
+
+		ginkgo.BeforeEach(func() {
+			f1 := testing.MakeResourceFlavor("f1").Obj()
+			util.MustCreate(ctx, k8sClient, f1)
+
+			f2 := testing.MakeResourceFlavor("f2").Obj()
+			util.MustCreate(ctx, k8sClient, f2)
+
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		})
+		ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
+			fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
+			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+			createQueue(testing.MakeClusterQueue("cq1").
+				FlavorFungibility(fungibility).Cohort("cohort").
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+
+			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+
+			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+
+			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+
+				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			}
+
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
 		})
 	})
 })
