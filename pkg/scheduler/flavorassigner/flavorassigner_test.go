@@ -80,6 +80,7 @@ func TestAssignFlavors(t *testing.T) {
 		wantAssignment             Assignment
 		disableLendingLimit        bool
 		enableFairSharing          bool
+		preemptWorkloadSlice       *workload.Info
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -1922,6 +1923,113 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
+		"workload slice preemption fits in the original workload resource flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "10Mi").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "2Gi").
+						FlavorQuotas,
+				).
+				ClusterQueue,
+			preemptWorkloadSlice: &workload.Info{
+				TotalRequests: []workload.PodSetResources{
+					{
+						Name: "main",
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2000,
+							corev1.ResourceMemory: 10 * utiltesting.Mi,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "two",
+							corev1.ResourceMemory: "two",
+						},
+					},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("3"),
+						corev1.ResourceMemory: resource.MustParse("10Mi"),
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
+					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
+				}},
+			},
+		},
+		"workload slice preemption does not fit in the original workload resource flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "10Mi").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "500m"). // <-- does not fit after scale-up.
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "2Gi").
+						FlavorQuotas,
+				).
+				ClusterQueue,
+			preemptWorkloadSlice: &workload.Info{
+				TotalRequests: []workload.PodSetResources{
+					{
+						Name: "main",
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2000,
+							corev1.ResourceMemory: 10 * utiltesting.Mi,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "one",
+							corev1.ResourceMemory: "one",
+						},
+					},
+				},
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("3"),
+						corev1.ResourceMemory: resource.MustParse("10Mi"),
+					},
+					Count: 1,
+					Status: &Status{
+						reasons: []string{
+							"insufficient quota for cpu in flavor one, request > maximum capacity (1 > 500m)",
+							"could not assign two flavor since the original workload is assigned: one",
+						},
+					},
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1979,7 +2087,7 @@ func TestAssignFlavors(t *testing.T) {
 				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
 			}
 
-			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{})
+			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{}, tc.preemptWorkloadSlice)
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
@@ -2132,7 +2240,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil)
 			assignment := flvAssigner.Assign(log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -2262,7 +2370,7 @@ func TestDeletedFlavors(t *testing.T) {
 			cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 			delete(flavorMap, "deleted-flavor")
 
-			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{})
+			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil)
 
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -2439,7 +2547,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil)
 			assignment := flvAssigner.Assign(log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)

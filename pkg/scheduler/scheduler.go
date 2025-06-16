@@ -260,7 +260,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptedWorkloads.Insert(e.preemptionTargets)
 		cq.AddUsage(usage)
 
-		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+		// When placing a workload slice it is possible for a new workload to "Fit" and
+		// still have a preempted workload (old slice).
+		if mode := e.assignment.RepresentativeMode(); mode == flavorassigner.Preempt ||
+			(mode == flavorassigner.Fit && len(preemptedWorkloads) > 0) {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
 			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
@@ -449,20 +452,52 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	return assignment, targets
 }
 
+// getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
+// for a workload slice.
+//
+// The function attempts to assign resources to the provided workload slice using the current
+// snapshot of the scheduling state. It proceeds in the following steps:
+//
+//  1. It first checks for any preemptible workload slices that workload may replace, using an annotation-based lookup.
+//  2. It creates a flavor assigner to compute a full assignment scale-adjusted for preemptable workload slice targets
+//     based on either:
+//     - direct fit (no preemption needed), or
+//     - preemption (if needed and possible).
+//  3. If direct assignment isn't possible but preemption is enabled and viable, it includes any additional
+//     preemption targets obtained through the configured preemptor.
+//  4. If partial admission is enabled and the workload allows it, the function attempts to reduce pod counts
+//     across PodSets to find an assignable configuration—again checking for preemption if needed.
+//
+// Returns:
+//   - A flavorassigner.Assignment representing the selected (possibly reduced) flavor allocation.
+//   - A slice of preemption targets, which may include both explicitly annotated slices and those
+//     identified during scheduling.
+//
+// If no valid assignment can be made, returns the original full assignment with no preemption targets.
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
+
+	var preemptionTargets []*preemption.Target
+	var preemptableWorkloadSlice *workload.Info
+
+	workloadSlicePreemptionTarget := preemption.PreemptibleWorkloadSliceTarget(snap, wl)
+	if workloadSlicePreemptionTarget != nil {
+		preemptionTargets = []*preemption.Target{workloadSlicePreemptionTarget}
+		preemptableWorkloadSlice = workloadSlicePreemptionTarget.WorkloadInfo
+	}
+
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), preemptableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
-		return fullAssignment, nil
+		return fullAssignment, preemptionTargets
 	}
 
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, faPreemptionTargets
+			return fullAssignment, append(preemptionTargets, faPreemptionTargets...)
 		}
 	}
 
@@ -483,7 +518,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 			return nil, false
 		})
 		if pa, found := reducer.Search(); found {
-			return pa.assignment, pa.preemptionTargets
+			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
