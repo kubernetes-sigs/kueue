@@ -84,8 +84,12 @@ fi
 # Start KueueViz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
 docker run -i --entrypoint /workspace/hack/e2e-kueueviz-frontend.sh \
+           -e CYPRESS_SCREENSHOTS_FOLDER="${CYPRESS_SCREENSHOTS_FOLDER}" \
+           -e CYPRESS_VIDEOS_FOLDER="${CYPRESS_VIDEOS_FOLDER}" \
            -e PROJECT_DIR="/workspace" -w /workspace --network host \
            -v "${WORKSPACE_VOLUME}":/workspace:rw \
+           -v "${CYPRESS_SCREENSHOTS_FOLDER}":"${CYPRESS_SCREENSHOTS_FOLDER}" \
+           -v "${CYPRESS_VIDEOS_FOLDER}":"${CYPRESS_VIDEOS_FOLDER}" \
            -v /var/run/docker.sock:/var/run/docker.sock "${CYPRESS_IMAGE_NAME}"
 
 set +x  # Disable debug mode
