@@ -51,7 +51,7 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 }
 
 func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, error) {
-	psTopologyReq := &kueue.PodSetTopologyRequest{}
+	psTopologyReq := kueue.PodSetTopologyRequest{}
 	requiredValue, requiredFound := p.meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := p.meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	unconstrained, unconstrainedFound := p.meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
@@ -71,7 +71,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
-		psTopologyReq = nil
+		return nil, nil
 	}
 
 	if sliceRequiredTopologyFound && sliceSizeFound {
@@ -88,5 +88,5 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	psTopologyReq.SubGroupCount = p.subGroupCount
 	psTopologyReq.SubGroupIndexLabel = p.subGroupIndexLabel
 
-	return psTopologyReq, nil
+	return &psTopologyReq, nil
 }
