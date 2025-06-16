@@ -38,7 +38,6 @@ func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *pod
 	return p
 }
 
-// SubGroup sets the SubGroupIndexLabel and SubGroupCount.
 func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
 	p.subGroupIndexLabel = subGroupIndexLabel
 	p.subGroupCount = subGroupCount
