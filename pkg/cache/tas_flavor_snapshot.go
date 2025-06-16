@@ -660,15 +660,15 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 }
 
 func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, string) {
-	if podSetTopologyRequest != nil && podSetTopologyRequest.PodSetSliceRequiredTopology != nil {
-		if podSetTopologyRequest.PodSetSliceSize != nil {
-			return *podSetTopologyRequest.PodSetSliceSize, ""
-		} else {
-			return 0, "slice topology requested, but slice size not provided"
-		}
+	if podSetTopologyRequest == nil || podSetTopologyRequest.PodSetSliceRequiredTopology == nil {
+		return 1, ""
 	}
 
-	return 1, ""
+	if podSetTopologyRequest.PodSetSliceSize == nil {
+		return 0, "slice topology requested, but slice size not provided"
+	}
+
+	return *podSetTopologyRequest.PodSetSliceSize, ""
 }
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
@@ -928,6 +928,13 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
+// This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
+//
+// The sorting criteria are:
+// - **BestFit**: `sliceState` (descending), `state` (ascending), `levelValues` (ascending)
+// - **LeastFreeCapacity**: `sliceState` (ascending), `state` (ascending), `levelValues` (ascending)
+//
+// `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
