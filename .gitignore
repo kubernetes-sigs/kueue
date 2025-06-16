@@ -33,4 +33,7 @@ build_logs
 dep-crds
 
 kueue.yaml
+
 node_modules
+test/e2e/kueueviz/cypress/screenshots
+test/e2e/kueueviz/cypress/videos
