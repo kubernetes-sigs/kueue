@@ -648,11 +648,11 @@ func constructPodSets(p *corev1.Pod) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 	return []kueue.PodSet{
-		*podSet,
+		podSet,
 	}, nil
 }
 
-func constructPodSet(p *corev1.Pod) (*kueue.PodSet, error) {
+func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:  kueue.DefaultPodSetName,
 		Count: 1,
@@ -665,11 +665,11 @@ func constructPodSet(p *corev1.Pod) (*kueue.PodSet, error) {
 			&p.ObjectMeta).PodIndexLabel(
 			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
 		if err != nil {
-			return nil, err
+			return kueue.PodSet{}, err
 		}
 		podSet.TopologyRequest = topologyRequest
 	}
-	return &podSet, nil
+	return podSet, nil
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
@@ -722,7 +722,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			}
 			podSet.Name = kueue.NewPodSetReference(roleHash)
 
-			resultPodSets = append(resultPodSets, *podSet)
+			resultPodSets = append(resultPodSets, podSet)
 		}
 	}
 
