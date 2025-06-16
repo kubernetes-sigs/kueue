@@ -58,7 +58,7 @@ cd -
 cd "${ROOT_DIR}/test/e2e/kueueviz/"
 npm install
 # Run Cypress tests for kueueviz frontend
-npm run cypress:run --headless
+npm run cypress:run
 cd -
 
 # The trap will handle cleanup 
