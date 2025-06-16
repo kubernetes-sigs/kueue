@@ -51,10 +51,12 @@ cd -
 
 # Start kueueviz frontend
 cd "${ROOT_DIR}/cmd/kueueviz/frontend"
+npm install
 npm run dev & FRONTEND_PID=$!
 cd -
 
 cd "${ROOT_DIR}/test/e2e/kueueviz/"
+npm install
 # Run Cypress tests for kueueviz frontend
 npm run cypress:run --headless
 cd -
