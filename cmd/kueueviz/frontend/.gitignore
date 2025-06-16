@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 build/
 cypress/screenshots
 yarn.lock
