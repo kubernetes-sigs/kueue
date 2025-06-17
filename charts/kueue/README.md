@@ -35,6 +35,9 @@ For more advanced parametrization of Kueue, we recommend using a local overrides
 
 ```yaml
 controllerManager:
+  featureGates:
+    - name: TopologyAwareScheduling
+      enabled: true
   replicas: 2
   manager:
     resources:
