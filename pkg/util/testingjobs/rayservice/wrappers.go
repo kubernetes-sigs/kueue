@@ -42,7 +42,7 @@ func serveConfigV2Template(serveAppName string) string {
             num_cpus: 0.1`, serveAppName)
 }
 
-// MakeCluster creates a wrapper for rayCluster
+// MakeService creates a wrapper for rayService
 func MakeService(name, ns string) *ServiceWrapper {
 	serveConfigV2 := serveConfigV2Template("test-rayservice")
 	return &ServiceWrapper{rayv1.RayService{

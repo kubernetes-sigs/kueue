@@ -61,7 +61,9 @@ func (j *RayService) IsSuspended() bool {
 }
 
 func (j *RayService) IsActive() bool {
-	return j.Status.ServiceStatus == rayv1.Running
+	readyCondition := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayServiceReady))
+
+	return readyCondition != nil && readyCondition.Status == v1.ConditionTrue
 }
 
 func (j *RayService) Suspend() {
