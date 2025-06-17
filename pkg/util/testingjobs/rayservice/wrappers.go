@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 type ServiceWrapper struct{ rayv1.RayService }
@@ -56,7 +55,7 @@ func MakeService(name, ns string) *ServiceWrapper {
 		Spec: rayv1.RayServiceSpec{
 			ServeConfigV2: serveConfigV2,
 			RayClusterSpec: rayv1.RayClusterSpec{
-				RayVersion: testing.TestRayVersion(),
+				Suspend: ptr.To(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
