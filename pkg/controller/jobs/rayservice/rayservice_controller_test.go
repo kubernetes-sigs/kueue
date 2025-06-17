@@ -121,20 +121,20 @@ func TestPodSets(t *testing.T) {
 					},
 				).
 				Obj()),
-			wantPodSets: func(rayJob *RayService) []kueue.PodSet {
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet("group1", 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet("group2", 3).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Obj(),
 				}
 			},
@@ -175,19 +175,19 @@ func TestPodSets(t *testing.T) {
 					},
 				).
 				Obj()),
-			wantPodSets: func(rayJob *RayService) []kueue.PodSet {
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltesting.MakePodSet("group1", 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Obj(),
 					*utiltesting.MakePodSet("group2", 3).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
 						Obj(),
 				}
@@ -241,22 +241,22 @@ func TestPodSets(t *testing.T) {
 					},
 				).
 				Obj()),
-			wantPodSets: func(rayJob *RayService) []kueue.PodSet {
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						Obj(),
 					*utiltesting.MakePodSet("group1", 1).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						Obj(),
 					*utiltesting.MakePodSet("group2", 3).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
-						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
 						Obj(),
 					*utiltesting.MakePodSet("group3", 3).
-						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[2].Template.Spec.DeepCopy()).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[2].Template.Spec.DeepCopy()).
 						Obj(),
 				}
 			},
