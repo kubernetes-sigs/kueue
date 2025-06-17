@@ -3,8 +3,7 @@
 KueueViz can be installed using `kubectl` with the following command:
 
 ```
-KUEUE_VERSION=0.11.1
-kubectl create -f https://github.com/kubernetes-sigs/kueue/releases/download/v$KUEUE_VERSION/kueueviz.yaml
+kubectl create -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.12.3/kueueviz.yaml
 ```
 If you are using `kind` and that you don't have an `ingress` controller, you can use `port-forward` to 
 configure and run `KueueViz`:
@@ -23,9 +22,8 @@ KueueViz can be installed using helm using the following command and
 by ensuring that `enableKueueViz` is set to `true`:
 
 ```
-KUEUE_VERSION=0.11.1
 helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version=$KUEUE_VERSION
+  --version="0.12.3"
   --namespace kueue-system \
   --set enableKueueViz=true \
   --create-namespace
@@ -42,12 +40,11 @@ You need a kubernetes cluster running kueue.
 If you don't have a running cluster, you can create one using kind and install kueue using helm.
 
 ```
-KUEUE_VERSION=0.11.1
 kind create cluster
 kind get kubeconfig > kubeconfig
 export KUBECONFIG=$PWD/kubeconfig
 helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue \
-            --version="$KUEUE_VERSION" --create-namespace --namespace=kueue-system
+            --version="0.12.3" --create-namespace --namespace=kueue-system
 ```
 
 ## Build
