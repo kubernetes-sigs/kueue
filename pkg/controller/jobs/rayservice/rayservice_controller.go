@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	gvk = rayv1.GroupVersion.WithKind("RayCluster")
+	gvk = rayv1.GroupVersion.WithKind("RayService")
 )
 
 const (
@@ -163,7 +163,7 @@ func (j *RayService) Finished() (message string, success, finished bool) {
 	// Technically a RayService is never "finished"
 	readyCondition := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayServiceReady))
 
-	return readyCondition.Reason, readyCondition.Status != v1.ConditionTrue, readyCondition.Status != v1.ConditionTrue
+	return readyCondition.Reason, readyCondition.Status != v1.ConditionFalse, readyCondition.Status != v1.ConditionFalse
 }
 
 func (j *RayService) PodsReady() bool {
@@ -175,7 +175,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForRayCluster(jobName string, jobUID types.UID) string {
+func GetWorkloadNameForRayService(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 

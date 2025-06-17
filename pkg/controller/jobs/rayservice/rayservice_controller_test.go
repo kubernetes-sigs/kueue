@@ -287,7 +287,13 @@ func TestReconciler(t *testing.T) {
 		Suspend(true).
 		Queue("foo").
 		RequestHead(corev1.ResourceCPU, "10").
-		RequestWorkerGroup(corev1.ResourceCPU, "10")
+		RequestWorkerGroup(corev1.ResourceCPU, "10").
+		StatusConditions(metav1.Condition{
+			Type:    string(rayv1.RayServiceReady),
+			Status:  metav1.ConditionFalse,
+			Reason:  "service ready",
+			Message: "service ready",
+		})
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
