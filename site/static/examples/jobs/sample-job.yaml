@@ -14,9 +14,10 @@ spec:
       containers:
       - name: dummy-job
         image: registry.k8s.io/e2e-test-images/agnhost:2.53
-        args: ["entrypoint-tester", "hello", "world"]
+        command: [ "/bin/sh" ]
+        args: [ "-c", "sleep 60" ]
         resources:
           requests:
-            cpu: 1
+            cpu: "1"
             memory: "200Mi"
       restartPolicy: Never
