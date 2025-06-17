@@ -474,7 +474,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, nil)
+				wl1Admission := testing.MakeAdmission(admissionCheckClusterQ.Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name), "2").
+					AssignmentPodCount(1).
+					Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(admissionCheckClusterQ, 1)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
