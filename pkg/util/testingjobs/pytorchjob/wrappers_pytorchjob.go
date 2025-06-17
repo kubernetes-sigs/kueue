@@ -83,7 +83,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:    "c",
+						Name:    "pytorch",
 						Image:   "pause",
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
@@ -104,7 +104,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:    "c",
+						Name:    "pytorch",
 						Image:   "pause",
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
