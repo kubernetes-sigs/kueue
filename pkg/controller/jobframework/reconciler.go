@@ -588,16 +588,21 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 	if err := r.client.List(ctx, &wlList, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
-	if len(wlList.Items) > 0 {
-		// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
+
+	if len(wlList.Items) == 0 {
+		return nil, nil
+	}
+
+	// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
+	if len(wlList.Items) > 1 {
 		ctrl.LoggerFrom(ctx).V(2).Info(
-			"WARNING: The job has multiple associated Workloads.",
-			"job", jobObj.GetName(),
+			"WARNING: The job has multiple associated Workloads",
+			"job", klog.KObj(jobObj),
 			"workloads", klog.KObjSlice(wlList.Items),
 		)
-		return &wlList.Items[0], nil
 	}
-	return nil, nil
+
+	return &wlList.Items[0], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
