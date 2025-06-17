@@ -32,7 +32,7 @@ type RayServiceWebhook struct {
 	cache                        *cache.Cache
 }
 
-// SetupRayServiceWebhook configures the webhook for rayv1 RayCluster.
+// SetupRayServiceWebhook configures the webhook for rayv1 RayService.
 func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	for _, opt := range opts {
@@ -45,7 +45,7 @@ func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		cache:                        options.Cache,
 	}
-	obj := &rayv1.RayCluster{}
+	obj := &rayv1.RayService{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
 		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
@@ -53,14 +53,14 @@ func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-ray-io-v1-raycluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create,versions=v1,name=mraycluster.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-ray-io-v1-rayservice,mutating=true,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayservices,verbs=create,versions=v1,name=mrayservice.kb.io,admissionReviewVersions=v1
 
 var _ admission.CustomDefaulter = &RayServiceWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayServiceWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
@@ -70,14 +70,14 @@ func (w *RayServiceWebhook) Default(ctx context.Context, obj runtime.Object) err
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-ray-io-v1-raycluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create;update,versions=v1,name=vraycluster.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-ray-io-v1-rayservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayservices,verbs=create;update,versions=v1,name=vrayservice.kb.io,admissionReviewVersions=v1
 
 var _ admission.CustomValidator = &RayServiceWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := obj.(*rayv1.RayService)
-	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("rayserivce-webhook")
 	log.V(10).Info("Validating create")
 	return nil, w.validateCreate(job).ToAggregate()
 }
@@ -129,7 +129,7 @@ func (w *RayServiceWebhook) validateTopologyRequest(rayService *RayService) fiel
 func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := oldObj.(*rayv1.RayService)
 	newJob := newObj.(*rayv1.RayService)
-	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayService)(newJob)) != "" {
 		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayService)(oldJob), (*RayService)(newJob), w.queues.DefaultLocalQueueExist)
