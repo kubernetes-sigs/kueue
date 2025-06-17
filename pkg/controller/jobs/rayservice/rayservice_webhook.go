@@ -90,8 +90,6 @@ func (w *RayServiceWebhook) validateCreate(job *rayv1.RayService) field.ErrorLis
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
-		// TODO revisit once Support dynamically sized (elastic) jobs #77 is implemented
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
 		if ptr.Deref(spec.RayClusterSpec.EnableInTreeAutoscaling, false) {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.RayClusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
 		}
