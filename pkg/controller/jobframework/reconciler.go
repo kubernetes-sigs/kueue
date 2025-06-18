@@ -707,7 +707,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 		if seen.Has(currentObj.GetUID()) {
 			log.Error(ErrCyclicOwnership,
 				"Terminated search for Kueue-managed Job because of cyclic ownership",
-				"owner", currentObj,
+				"currentObj", currentObj,
 			)
 			return nil, ErrCyclicOwnership
 		}
@@ -715,12 +715,16 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 
 		owner := metav1.GetControllerOf(currentObj)
 		if owner == nil {
-			log.V(3).Info("stop walking up as the owner is not found", "owner", klog.KObj(currentObj))
+			log.V(3).Info("stop walking up as the owner is not found", "currentObj", klog.KObj(currentObj))
 			return topLevelJob, nil
 		}
 
 		if !manager.isKnownOwner(owner) {
-			log.V(3).Info("stop walking up as the owner is not known", "owner", klog.KObj(currentObj))
+			log.V(3).Info(
+				"stop walking up as the owner is not known",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
 			return topLevelJob, nil
 		}
 		parentObj := getEmptyOwnerObject(owner)
