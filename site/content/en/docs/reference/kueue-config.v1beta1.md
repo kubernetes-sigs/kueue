@@ -708,6 +708,25 @@ if the connection with its reserving worker cluster is lost.</p>
 <p>Defaults to 15 minutes.</p>
 </td>
 </tr>
+<tr><td><code>dispatcherName</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.</p>
+<ul>
+<li>If specified, the workload will be handled by the named dispatcher.</li>
+<li>If not specified, the workload will be handled by the default (MultiKueueDispatcherModeAllClusters) dispatcher.</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>dispatcherRoundTimeout</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>DispatcherRoundTimeout specifies the duration given to a selected workers to attempt to reserve the workload's required resources.
+This field is only applicable when the DispatcherName is specified. Defaults to 5 min.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
