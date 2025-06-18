@@ -19,6 +19,7 @@ package multikueue
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -1115,7 +1117,7 @@ func TestWlReconcile(t *testing.T) {
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, WithClock(t, fakeClock))
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, config.MultiKueueDispatcherModeAllClusters, defaultDispatcherRoundTimeout, WithClock(t, fakeClock))
 
 			for _, val := range tc.managersDeletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{
@@ -1190,6 +1192,245 @@ func TestWlReconcile(t *testing.T) {
 
 			if l := reconciler.deletedWlCache.Len(); l > 0 {
 				t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
+			}
+		})
+	}
+}
+
+type createCall struct {
+	cluster string
+	obj     *kueue.Workload
+}
+
+func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
+	const externalMultiKueueDispatcherController = "external.com/mk-dispatcher"
+	const testDefaultDispatcherRoundTime = 2 * time.Second
+
+	remote1 := "cluster1"
+	remote2 := "cluster2"
+	remote3 := "cluster3"
+	now := time.Now()
+
+	tests := []struct {
+		name             string
+		dispatcherMode   string
+		remotes          map[string]*kueue.Workload
+		nominatedWorkers []string
+		cond             *metav1.Condition
+		createErr        error
+		wantCreated      []string
+		wantErr          bool
+		advanceClock     time.Duration
+		wantRetryAfter   time.Duration
+	}{
+		{
+			name:           "AllClusters: clone to all remotes, nominates all",
+			dispatcherMode: config.MultiKueueDispatcherModeAllClusters,
+			remotes:        map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			wantCreated:    []string{remote1, remote2},
+			wantRetryAfter: 0,
+		},
+		{
+			name:           "AllClusters: workloads already created on remotes, do not create again",
+			dispatcherMode: config.MultiKueueDispatcherModeAllClusters,
+			remotes:        map[string]*kueue.Workload{remote1: &kueue.Workload{}, remote2: &kueue.Workload{}},
+			wantCreated:    []string{},
+			wantRetryAfter: 0,
+		},
+		{
+			name:           "Incremental: only one remote, nominates it",
+			dispatcherMode: config.MultiKueueDispatcherModeIncremental,
+			remotes:        map[string]*kueue.Workload{remote1: nil},
+			wantCreated:    []string{remote1},
+			wantRetryAfter: 0,
+		},
+		{
+			name:             "Incremental: no previous nomination, nominates remote1",
+			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			nominatedWorkers: []string{""},
+			wantCreated:      []string{remote1},
+			wantRetryAfter:   0,
+		},
+		{
+			name:             "Incremental: keep remote1, nomination round still in progress",
+			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			nominatedWorkers: []string{remote1},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			},
+			wantCreated:    []string{},
+			wantRetryAfter: testDefaultDispatcherRoundTime,
+		},
+		{
+			name:             "Incremental: previously remote1, nomination round exceeded, nominates remote1 and remote2",
+			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			nominatedWorkers: []string{remote1},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now),
+			},
+			advanceClock:   3 * time.Second,
+			wantCreated:    []string{remote2},
+			wantRetryAfter: 0,
+		},
+		{
+			name:             "Incremental: previously remote1 and remote2, next nomination round all clusters ",
+			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			nominatedWorkers: []string{remote2},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now),
+			},
+			advanceClock:   3 * time.Second,
+			wantCreated:    []string{remote1},
+			wantRetryAfter: 0,
+		},
+		{
+			name:           "External controller: no nominated workers, nothing created",
+			dispatcherMode: externalMultiKueueDispatcherController,
+			remotes:        map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			wantCreated:    []string{},
+			wantRetryAfter: 0,
+		},
+		{
+			name:             "External controller: keep remote1 and remote2, nomination round still in progress",
+			dispatcherMode:   externalMultiKueueDispatcherController,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil, remote3: nil},
+			nominatedWorkers: []string{remote1, remote2},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			},
+			advanceClock:   time.Second,
+			wantCreated:    []string{remote1, remote2},
+			wantRetryAfter: testDefaultDispatcherRoundTime - time.Second,
+		},
+		{
+			name:             "External controller: nominate remote3",
+			dispatcherMode:   externalMultiKueueDispatcherController,
+			remotes:          map[string]*kueue.Workload{remote1: {}, remote2: {}, remote3: nil},
+			nominatedWorkers: []string{remote3},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now),
+			},
+			wantCreated:    []string{remote3},
+			wantRetryAfter: testDefaultDispatcherRoundTime,
+		},
+		{
+			name:             "External controller: previously remote1 and remote2, nomination round exceeded, no new nomination",
+			dispatcherMode:   externalMultiKueueDispatcherController,
+			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil, remote3: nil},
+			nominatedWorkers: []string{remote1, remote2},
+			cond: &metav1.Condition{
+				Type:               kueue.WorkloadHaveNominatedWorkers,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			},
+			advanceClock:   3 * time.Second,
+			wantCreated:    []string{},
+			wantRetryAfter: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClock := testingclock.NewFakeClock(now)
+
+			local := &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+				Status: kueue.WorkloadStatus{
+					Conditions:       make([]metav1.Condition, 0, 1),
+					NominatedWorkers: tt.nominatedWorkers,
+				},
+			}
+
+			created := []createCall{}
+			makeFakeCreate := func(origin string) func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				return func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					created = append(created, createCall{
+						cluster: origin,
+						obj:     obj.(*kueue.Workload),
+					})
+					return c.Create(ctx, obj, opts...)
+				}
+			}
+			objs := []client.Object{local}
+			wlClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					local.Status.Conditions = obj.(*kueue.Workload).Status.Conditions
+					local.Status.NominatedWorkers = obj.(*kueue.Workload).Status.NominatedWorkers
+					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+				},
+			}).WithObjects(objs...).WithStatusSubresource(objs...)
+
+			remote1ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote1)})
+			remote2ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote2)})
+			remote3ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote3)})
+
+			remoteClients := map[string]*remoteClient{
+				remote1: {client: remote1ClientBuilder.Build(), origin: remote1},
+				remote2: {client: remote2ClientBuilder.Build(), origin: remote2},
+				remote3: {client: remote3ClientBuilder.Build(), origin: remote3},
+			}
+
+			if tt.cond != nil {
+				local.Status.Conditions = append(local.Status.Conditions, *tt.cond)
+			}
+			group := &wlGroup{
+				local:         local,
+				remotes:       tt.remotes,
+				remoteClients: remoteClients,
+				acName:        "ac1",
+			}
+
+			wlRec := &wlReconciler{
+				clock:                  fakeClock,
+				dispatcherName:         tt.dispatcherMode,
+				dispatcherRoundTimeout: testDefaultDispatcherRoundTime,
+				client:                 wlClientBuilder.Build(),
+			}
+
+			if tt.advanceClock > 0 {
+				fakeClock.SetTime(now.Add(tt.advanceClock))
+			}
+
+			res, err := wlRec.nominateAndSynchronizeWorkers(context.Background(), group, tt.dispatcherMode)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
+			}
+
+			gotCreated := []string{}
+			for _, c := range created {
+				gotCreated = append(gotCreated, c.cluster)
+			}
+			s1 := sort.StringSlice(tt.wantCreated)
+			s1.Sort()
+			s2 := sort.StringSlice(gotCreated)
+			s2.Sort()
+			if diff := cmp.Diff(s1, s2); diff != "" {
+				t.Errorf("unexpected created remotes (-want/+got):\n%s", diff)
+			}
+
+			const timeMargin = 100 * time.Millisecond
+			if tt.wantRetryAfter == 0 {
+				if res.RequeueAfter != 0 {
+					t.Errorf("unexpected RequeueAfter, want %v, got %v", tt.wantRetryAfter, res.RequeueAfter)
+				}
+			} else {
+				if res.RequeueAfter < tt.wantRetryAfter-timeMargin || res.RequeueAfter > tt.wantRetryAfter+timeMargin {
+					t.Errorf("unexpected RequeueAfter, want %v±%v, got %v", tt.wantRetryAfter, timeMargin, res.RequeueAfter)
+				}
 			}
 		})
 	}
