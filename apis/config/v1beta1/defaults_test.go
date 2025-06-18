@@ -95,9 +95,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	defaultMultiKueue := &MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:            ptr.To(DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		GCInterval:             &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:                 ptr.To(DefaultMultiKueueOrigin),
+		WorkerLostTimeout:      &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:         ptr.To(MultiKueueDispatcherModeAllClusters),
+		DispatcherRoundTimeout: &metav1.Duration{Duration: DefaultMultiKueueDispatcherRoundTimeout},
 	}
 
 	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
@@ -527,9 +529,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:             &metav1.Duration{Duration: time.Second},
+					Origin:                 ptr.To("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: time.Minute},
+					DispatcherName:         ptr.To(string(MultiKueueDispatcherModeIncremental)),
+					DispatcherRoundTimeout: &metav1.Duration{Duration: 2 * DefaultMultiKueueDispatcherRoundTimeout},
 				},
 			},
 			want: &Configuration{
@@ -542,9 +546,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:             &metav1.Duration{Duration: time.Second},
+					Origin:                 ptr.To("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: time.Minute},
+					DispatcherName:         ptr.To(string(MultiKueueDispatcherModeIncremental)),
+					DispatcherRoundTimeout: &metav1.Duration{Duration: 2 * DefaultMultiKueueDispatcherRoundTimeout},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -556,9 +562,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To(""),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:             &metav1.Duration{Duration: time.Second},
+					Origin:                 ptr.To(""),
+					WorkerLostTimeout:      &metav1.Duration{Duration: time.Minute},
+					DispatcherName:         defaultMultiKueue.DispatcherName,
+					DispatcherRoundTimeout: defaultMultiKueue.DispatcherRoundTimeout,
 				},
 			},
 			want: &Configuration{
@@ -571,9 +579,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To(DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:             &metav1.Duration{Duration: time.Second},
+					Origin:                 ptr.To(DefaultMultiKueueOrigin),
+					WorkerLostTimeout:      &metav1.Duration{Duration: time.Minute},
+					DispatcherName:         defaultMultiKueue.DispatcherName,
+					DispatcherRoundTimeout: defaultMultiKueue.DispatcherRoundTimeout,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -599,9 +609,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{},
-					Origin:            ptr.To("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
+					GCInterval:             &metav1.Duration{},
+					Origin:                 ptr.To("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 15 * time.Minute},
+					DispatcherName:         defaultMultiKueue.DispatcherName,
+					DispatcherRoundTimeout: defaultMultiKueue.DispatcherRoundTimeout,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},

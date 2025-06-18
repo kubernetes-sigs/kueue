@@ -32,6 +32,7 @@ type WorkloadStatusApplyConfiguration struct {
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
 	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
+	NominatedWorkers                     []string                                `json:"nominatedWorkers,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -121,5 +122,15 @@ func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeco
 // If called multiple times, the SchedulingStats field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithSchedulingStats(value *SchedulingStatsApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.SchedulingStats = value
+	return b
+}
+
+// WithNominatedWorkers adds the given value to the NominatedWorkers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NominatedWorkers field.
+func (b *WorkloadStatusApplyConfiguration) WithNominatedWorkers(values ...string) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		b.NominatedWorkers = append(b.NominatedWorkers, values[i])
+	}
 	return b
 }

@@ -411,6 +411,11 @@ type WorkloadStatus struct {
 	//
 	// +optional
 	SchedulingStats *SchedulingStats `json:"schedulingStats,omitempty"`
+
+	// nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment
+	//
+	// +optional
+	NominatedWorkers []string `json:"nominatedWorkers,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -595,6 +600,9 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+
+	// WorkloadHaveNominatedWorkers means that the Workload has nominated worker.
+	WorkloadHaveNominatedWorkers = "HaveNominatedWorkers"
 )
 
 // Reasons for the WorkloadPreempted condition.
