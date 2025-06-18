@@ -341,9 +341,7 @@ type entry struct {
 }
 
 func (e *entry) assignmentUsage() workload.Usage {
-	return netUsage(e, func() resources.FlavorResourceQuantities {
-		return e.assignment.Usage.Quota
-	})
+	return netUsage(e, e.assignment.Usage.Quota)
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -400,19 +398,17 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
 func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
-	return netUsage(e, func() resources.FlavorResourceQuantities {
-		return quotaResourcesToReserve(e, cq)
-	})
+	return netUsage(e, quotaResourcesToReserve(e, cq))
 }
 
 // netUsage calculates the net usage for quota and TAS to reserve
-func netUsage(e *entry, netQuota func() resources.FlavorResourceQuantities) workload.Usage {
+func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
-		result.Quota = netQuota()
+		result.Quota = netQuota
 	}
 	return result
 }
