@@ -208,7 +208,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			gotWorkerRayServices := &rayv1.RayServiceList{}
 			if err := workerClient.List(ctx, gotWorkerRayServices); err != nil {
-				t.Errorf("unexpected list worker's rayserivces error %s", err)
+				t.Errorf("unexpected list worker's rayservices error %s", err)
 			} else {
 				if diff := cmp.Diff(tc.wantWorkerRayServices, gotWorkerRayServices.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's rayservices (-want/+got):\n%s", diff)

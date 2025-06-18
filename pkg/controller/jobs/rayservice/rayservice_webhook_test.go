@@ -154,7 +154,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"valid topology request": {
-			job: testingrayutil.MakeService("rayserivce", "ns").Queue("queue").
+			job: testingrayutil.MakeService("rayservice", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
