@@ -80,12 +80,18 @@ We add a `managedJobsNamespaceSelector` of type `*metav1.LabelSelector`
 to the top level of the Kueue `Configuration` struct (same level as `manageJobsWithoutQueueName`).
 
 We use this new configuration for all integrations in the same way that the current
-`namespaceSelector` is used by the Pod integration.  Specifically,
-1. If `manageJobsWithoutQueueName` is false, `managedJobsNamespaceSelector` has no effect: Kueue will manage
-exactly those instances of supported Kinds that have a `queue-name` label.
-2. If `manageJobsWithoutQueueName` is true, then Kueue will (a) manage all instances of supported Kinds
-that have a `queue-name` label and (b) will manage all instances of supported Kinds that do not
-have a `queue-name` label if they are in namespaces that match `managedJobsNamespaceSelector`.
+`namespaceSelector` is used by the Pod integration.  
+We revise the behavior of the `managedJobsNamespaceSelector` configuration field 
+to not only govern reconciliation of jobs without a queue-name label, but also to enforce that only namespaces explicitly opted-in via `managedJobsNamespaceSelector` are managed by Kueue, 
+even when jobs are labeled with `kueue.x-k8s.io/queue-name`.
+Specifically,
+1. If a job's namespace does not match the `managedJobsNamespaceSelector`, 
+job will not be reconciled by Kueue — regardless of whether it has a queue-name label.
+2. If a job's namespace does match the selector and (a) manageJobsWithoutQueueName=false,
+ Kueue will manage exactly those instances of supported Kinds that have a queue-name label. (b) manageJobsWithoutQueueName=true, will manage all instances of supported Kinds with or without queue-name.
+
+This change brings the Job integration into consistent alignment with Pod, Deployment, 
+and StatefulSet integrations, which already do not act on resources in non-opted-in namespaces.
 
 We deprecate `podOptions.namespaceSelector` and remove it in a future release.
 
@@ -105,6 +111,16 @@ managedJobsNamespaceSelector:
     values: [ kube-system, kueue-system ]
 ```
 Another approach would be for the cluster admin to label namespaces that are subject to management:
+```yaml
+managedJobsNamespaceSelector:
+  matchLabels:
+    kueue.x-k8s.io/managed-namespace: true
+```
+#### Story 2
+
+Cluster admins want to opt in only selected namespaces to Kueue management. A user in a namespace not selected by managedJobsNamespaceSelector should not be able to submit a Kueue-managed workload by manually setting the queue-name label. This change ensures that only workloads in opted-in namespaces are ever reconciled, regardless of how they are labeled.
+
+Cluster admin has to label namespaces that are subject to management in order for the reconciliation to work.
 ```yaml
 managedJobsNamespaceSelector:
   matchLabels:
