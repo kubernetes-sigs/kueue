@@ -172,7 +172,7 @@ func (j *RayService) Finished() (message string, success, finished bool) {
 
 func (j *RayService) PodsReady() bool {
 	readyCondition := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayServiceReady))
-	return readyCondition.Status == v1.ConditionTrue
+	return readyCondition != nil && readyCondition.Status == v1.ConditionTrue
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
