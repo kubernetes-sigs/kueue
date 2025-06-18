@@ -302,8 +302,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 }
 
 func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload, evictionMessage string) error {
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
-	workload.ResetChecksOnEviction(wl, r.clock.Now())
+	workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
 		return err
 	}
