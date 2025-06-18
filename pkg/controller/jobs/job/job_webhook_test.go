@@ -287,15 +287,13 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "invalid topology request - unconstrained with slices defined",
+			name: "valid topology request - slice-only topology - unconstrained with slices defined",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetUnconstrainedTopologyAnnotation, "true").
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
-			},
+			wantErr: nil,
 		},
 		{
 			name: "invalid topology request - slice requested without slice size",
@@ -351,14 +349,12 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid topology request - slice topology requested without podset topology",
+			name: "valid topology request - slice-only topology",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
-			},
+			wantErr: nil,
 		},
 	}
 
@@ -639,12 +635,11 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
-				PodAnnotation(kueuealpha.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-required-topology"), "can be used with required or preferred topology only"),
+				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "slice size is required if slice topology is requested"),
 			},
 		},
 	}

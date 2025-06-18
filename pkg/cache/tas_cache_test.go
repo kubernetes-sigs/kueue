@@ -2798,6 +2798,142 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:      1,
 			wantReason: "no requested topology level for slices: not-existing-topology-level",
 		},
+		"no topology for podset; host required for slices; BestFit": {
+			//        b1
+			//         |
+			//        r1
+			//    /    |    \
+			// x1:3, x2:3, x3:3
+			//
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 2,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
+		"no topology for podset; host required for slices; multiple blocks; BestFit": {
+			nodes: scatteredNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 6,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 4,
+						Values: []string{
+							"x1",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x4",
+						},
+					},
+				},
+			},
+		},
+		"no topology for podset; rack required for slices; multiple blocks; BestFit": {
+			nodes: defaultNodes,
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+				PodSetSliceSize:             ptr.To(int32(2)),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 4,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x2",
+						},
+					},
+					{
+						Count: 1,
+						Values: []string{
+							"x3",
+						},
+					},
+					{
+						Count: 2,
+						Values: []string{
+							"x6",
+						},
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

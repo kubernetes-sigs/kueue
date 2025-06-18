@@ -185,6 +185,10 @@ func (s *TASFlavorSnapshot) lowestLevel() string {
 	return s.levelKeys[len(s.levelKeys)-1]
 }
 
+func (s *TASFlavorSnapshot) highestLevel() string {
+	return s.levelKeys[0]
+}
+
 // initialize prepares the topology tree structure. This structure holds
 // for a given the list of topology domains with additional static and dynamic
 // information. This function initializes the static information which
@@ -726,6 +730,9 @@ func isRequired(tr *kueue.PodSetTopologyRequest) bool {
 }
 
 func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRequests) *string {
+	if isSliceTopologyOnlyRequest(tasRequests.PodSet.TopologyRequest) {
+		return ptr.To(s.highestLevel())
+	}
 	if key := s.levelKey(tasRequests.PodSet.TopologyRequest); key != nil {
 		return key
 	}
@@ -759,7 +766,11 @@ func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(tasRequests *TASPodSetReque
 }
 
 func isUnconstrained(tr *kueue.PodSetTopologyRequest, tasRequests *TASPodSetRequests) bool {
-	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || tasRequests.Implied
+	return (tr != nil && tr.Unconstrained != nil && *tr.Unconstrained) || tasRequests.Implied || isSliceTopologyOnlyRequest(tr)
+}
+
+func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.Required == nil && tr.Preferred == nil && tr.PodSetSliceRequiredTopology != nil
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
