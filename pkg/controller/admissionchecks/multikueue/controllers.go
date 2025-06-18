@@ -26,17 +26,21 @@ import (
 )
 
 const (
-	defaultGCInterval        = time.Minute
-	defaultOrigin            = "multikueue"
-	defaultWorkerLostTimeout = 5 * time.Minute
+	defaultGCInterval             = time.Minute
+	defaultOrigin                 = "multikueue"
+	defaultWorkerLostTimeout      = 5 * time.Minute
+	defaultDispatherName          = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
+	defaultDispatcherRoundTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
-	gcInterval        time.Duration
-	origin            string
-	workerLostTimeout time.Duration
-	eventsBatchPeriod time.Duration
-	adapters          map[string]jobframework.MultiKueueAdapter
+	gcInterval             time.Duration
+	origin                 string
+	workerLostTimeout      time.Duration
+	eventsBatchPeriod      time.Duration
+	adapters               map[string]jobframework.MultiKueueAdapter
+	dispatcherName         string
+	dispatcherRoundTimeout time.Duration
 }
 
 type SetupOption func(o *SetupOptions)
@@ -80,13 +84,30 @@ func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOptio
 	}
 }
 
+// WithDispatcherName sets or updates the dispatcher of the MultiKueue workload.
+func WithDispatcherName(dispatcherName string) SetupOption {
+	return func(o *SetupOptions) {
+		o.dispatcherName = dispatcherName
+	}
+}
+
+// WithDispatcherRoundTimeout - sets the timeout for which the selected workers
+// attempt to reserve the workload's required resources.
+func WithDispatcherRoundTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.dispatcherRoundTimeout = d
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
-		gcInterval:        defaultGCInterval,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		eventsBatchPeriod: constants.UpdatesBatchPeriod,
-		adapters:          make(map[string]jobframework.MultiKueueAdapter),
+		gcInterval:             defaultGCInterval,
+		origin:                 defaultOrigin,
+		workerLostTimeout:      defaultWorkerLostTimeout,
+		eventsBatchPeriod:      constants.UpdatesBatchPeriod,
+		adapters:               make(map[string]jobframework.MultiKueueAdapter),
+		dispatcherName:         defaultDispatherName,
+		dispatcherRoundTimeout: defaultDispatcherRoundTimeout,
 	}
 
 	for _, o := range opts {
@@ -116,6 +137,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName), options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.dispatcherRoundTimeout)
 	return wlRec.setupWithManager(mgr)
 }
