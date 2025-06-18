@@ -1,7 +1,7 @@
 ---
 title: "Pending Workloads on-demand"
 date: 2024-09-30
-weight: 3
+weight: 10
 description: >
   Monitor pending Workloads with the on-demand visibility API
 ---
@@ -60,7 +60,7 @@ You then need to create `ClusterRole` and `ClusterRoleBinding` for that same (de
 using a command:
 
 ```shell
-kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/cluster-role-and-binding.yaml
+kubectl apply -f https://kueue.sigs.k8s.io/examples/visibility/cluster-role-and-binding.yaml
 ```
 
 ## Monitor pending workloads on demand

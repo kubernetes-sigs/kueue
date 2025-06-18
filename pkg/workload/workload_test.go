@@ -31,10 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -1081,6 +1083,219 @@ func TestPropagateResourceRequests(t *testing.T) {
 			got := PropagateResourceRequests(tc.wl, tc.info)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNeedsSecondPass(t *testing.T) {
+	defaultSingleLevelTopology := *utiltesting.MakeDefaultOneLevelTopology("tas-single-level")
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want bool
+	}{
+		"admitted workload with NodeToReplace": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						AssignmentPodCount(1).
+						TopologyAssignment(&kueue.TopologyAssignment{
+							Levels: utiltas.Levels(&defaultSingleLevelTopology),
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x0",
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				Admitted(true).
+				Obj(),
+			want: true,
+		},
+		"admitted workload without NodeToReplace": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						AssignmentPodCount(1).
+						TopologyAssignment(&kueue.TopologyAssignment{
+							Levels: utiltas.Levels(&defaultSingleLevelTopology),
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x0",
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				Admitted(true).
+				Obj(),
+			want: false,
+		},
+		"admitted workload with NodeToReplace, but no node in the assignment": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						AssignmentPodCount(1).
+						TopologyAssignment(&kueue.TopologyAssignment{
+							Levels: utiltas.Levels(&defaultSingleLevelTopology),
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x1",
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				Admitted(true).
+				Obj(),
+			want: false,
+		},
+		"finished workload with NodeToReplace": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						AssignmentPodCount(1).
+						TopologyAssignment(&kueue.TopologyAssignment{
+							Levels: utiltas.Levels(&defaultSingleLevelTopology),
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x0",
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				Admitted(true).
+				Finished().
+				Obj(),
+			want: false,
+		},
+		"evicted workload with NodeToReplace": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						AssignmentPodCount(1).
+						TopologyAssignment(&kueue.TopologyAssignment{
+							Levels: utiltas.Levels(&defaultSingleLevelTopology),
+							Domains: []kueue.TopologyDomainAssignment{
+								{
+									Count: 1,
+									Values: []string{
+										"x0",
+									},
+								},
+							},
+						}).
+						Obj(),
+				).
+				Admitted(true).
+				Evicted().
+				Obj(),
+			want: false,
+		},
+		"quotaReserved and admission checks Ready when workload delayedTopologyRequest=Pending": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						AssignmentPodCount(1).Obj(),
+				).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "prov-check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+			want: true,
+		},
+		"quotaReserved and admission checks Pending": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuota(
+					utiltesting.MakeAdmission("tas-main", "one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						AssignmentPodCount(1).Obj(),
+				).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "prov-check",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			want: false,
+		},
+		"workload without quota": {
+			wl: utiltesting.MakeWorkload("foo", "default").
+				Queue("tas-main").
+				PodSets(*utiltesting.MakePodSet("one", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj(),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := NeedsSecondPass(tc.wl)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected NeedsSecondPass() result (-want,+got):\n%s", diff)
 			}
 		})
 	}

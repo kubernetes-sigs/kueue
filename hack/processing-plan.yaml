@@ -582,11 +582,19 @@ files:
     operations:
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.backend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main\" }}"'
+        value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-backend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.backend.image.pullPolicy }}"'
         onFileCondition: '.metadata.name == "kueueviz-backend"'
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.frontend.image | default \"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main\" }}"'
+        value: '"{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-frontend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.frontend.image.pullPolicy }}"'
         onFileCondition: '.metadata.name == "kueueviz-frontend"'
       - type: APPEND
         key: .metadata.name
@@ -614,6 +622,85 @@ files:
         position: START
         value: |
           {{- if .Values.enableKueueViz }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/internalcert/*.yaml
+    outputDir: ./charts/kueue/templates/internalcert
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if not .Values.enableCertManager }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/prometheus/*.yaml
+    outputDir: ./charts/kueue/templates/prometheus
+    excludes:
+      - kustomization.yaml
+      - monitor_tls_patch.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .spec.endpoints.[].tlsConfig
+        value: '"{{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}"'
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Values.metrics.prometheusNamespace }}"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: DELETE
+        key: .spec.selector
+        onFileCondition: '.kind == "ServiceMonitor"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          selector:
+            matchLabels:
+            {{- include "kueue.metricsService.labels" . | nindent 6 }}
+        indentation: 2
+        onFileCondition: '.kind == "ServiceMonitor"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enablePrometheus }}
       - type: INSERT_TEXT
         position: END
         value: |

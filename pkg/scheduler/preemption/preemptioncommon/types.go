@@ -14,17 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package node
+package preemptioncommon
 
-import (
-	corev1 "k8s.io/api/core/v1"
+type PreemptionPossibility int
+
+// Preemption Oracle returns one of three possible
+// results of the preemption simulation.
+const (
+	// Preemption in the given resource flavor is
+	// impossible
+	None PreemptionPossibility = iota
+	// Priority-based preemption may be possible
+	// but reclaim is impossible
+	PriorityBased
+	// Reclaim may be possible
+	Reclaim
 )
-
-func GetNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType) *corev1.NodeCondition {
-	for i := range node.Status.Conditions {
-		if node.Status.Conditions[i].Type == conditionType {
-			return &node.Status.Conditions[i]
-		}
-	}
-	return nil
-}

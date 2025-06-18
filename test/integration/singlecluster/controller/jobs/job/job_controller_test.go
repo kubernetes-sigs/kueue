@@ -1283,13 +1283,27 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		podsCountClusterQ   *kueue.ClusterQueue
 		prodLocalQ          *kueue.LocalQueue
 		devLocalQ           *kueue.LocalQueue
+		podsLocalQ          *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	startManager := func() {
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	}
+
+	stopManager := func() {
+		fwk.StopManager(ctx)
+	}
+
+	restartManager := func() {
+		stopManager()
+		startManager()
+	}
+
+	ginkgo.BeforeAll(func() {
+		startManager()
 	})
 	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		stopManager()
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1332,12 +1346,22 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, devClusterQ)
+
 		podsCountClusterQ = testing.MakeClusterQueue("pods-clusterqueue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourcePods, "5").Obj(),
 			).
 			Obj()
 		util.MustCreate(ctx, k8sClient, podsCountClusterQ)
+
+		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, prodLocalQ)
+
+		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, devLocalQ)
+
+		podsLocalQ = testing.MakeLocalQueue("pods-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, podsLocalQ)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1351,12 +1375,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", framework.SlowSpec, func() {
-		ginkgo.By("creating localQueues")
-		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, prodLocalQ)
-		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, devLocalQ)
-
 		ginkgo.By("checking the first prod job starts")
 		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
 		util.MustCreate(ctx, k8sClient, prodJob1)
@@ -1433,11 +1451,11 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}()
 
 		ginkgo.By("create a localQueue located in a different namespace as the job")
-		localQueue := testing.MakeLocalQueue("local-queue", ns2.Name).Obj()
-		localQueue.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
+		ns2LocalQ := testing.MakeLocalQueue("local-queue", ns2.Name).Obj()
+		ns2LocalQ.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
 
 		ginkgo.By("create a job")
-		prodJob := testingjob.MakeJob("prod-job", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob := testingjob.MakeJob("prod-job", ns.Name).Queue(kueue.LocalQueueName(ns2LocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
 		util.MustCreate(ctx, k8sClient, prodJob)
 
 		ginkgo.By("job should be suspend")
@@ -1449,8 +1467,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("creating another localQueue of the same name and in the same namespace as the job")
-		prodLocalQ = testing.MakeLocalQueue(localQueue.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, prodLocalQ)
+		localQ := testing.MakeLocalQueue(ns2LocalQ.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQ)
 
 		ginkgo.By("job should be unsuspended and NodeSelector properly set")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -1635,11 +1653,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should allow reclaim of resources that are no longer needed", func() {
-		ginkgo.By("creating localQueue", func() {
-			prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-			util.MustCreate(ctx, k8sClient, prodLocalQ)
-		})
-
 		job1 := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Request(corev1.ResourceCPU, "2").
 			Completions(5).
@@ -1702,9 +1715,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor", func() {
-		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, devLocalQ)
-
 		highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, highPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -1749,9 +1759,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should readmit preempted Job with workloadPriorityClass in alternative flavor", func() {
-		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, devLocalQ)
-
 		highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -1796,7 +1803,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should schedule jobs with partial admission", func() {
-		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		job1 := testingjob.MakeJob("job1", ns.Name).
 			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
 			Parallelism(5).
@@ -1804,9 +1810,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			Request(corev1.ResourceCPU, "2").
 			Obj()
 		jobKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
-
-		ginkgo.By("creating localQueues")
-		util.MustCreate(ctx, k8sClient, prodLocalQ)
 
 		ginkgo.By("creating the job")
 		util.MustCreate(ctx, k8sClient, job1)
@@ -1883,11 +1886,9 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should set the flavor's node selectors if the job is admitted by pods count only", func() {
-		localQ := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQ)
 		ginkgo.By("Creating a job with no requests, will set the resource flavors selectors when admitted ", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Queue(kueue.LocalQueueName(localQ.Name)).
+				Queue(kueue.LocalQueueName(podsLocalQ.Name)).
 				Parallelism(2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
@@ -1896,13 +1897,9 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			})
 		})
 	})
-	ginkgo.It("Should schedule updated job and update the workload", func() {
-		localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-		ginkgo.By("create a localQueue", func() {
-			util.MustCreate(ctx, k8sClient, localQueue)
-		})
 
-		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
+	ginkgo.It("Should schedule updated job and update the workload", func() {
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
 
@@ -1945,11 +1942,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.When("Suspend a running Job without requeuing through Workload's spec.active field", func() {
 		ginkgo.It("Should not readmit a job to the queue after Active is changed to false", func() {
-			ginkgo.By("creating localQueue")
-			localQueue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
-
-			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			lookupKey1 := types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}
 			wll := &kueue.Workload{}
 
@@ -2005,7 +1998,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking a second job starts after first job is suspended")
-			sampleJob2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			sampleJob2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
 
 			lookupKey2 := types.NamespacedName{Name: sampleJob2.Name, Namespace: sampleJob2.Namespace}
 			wll2 := &kueue.Workload{}
@@ -2086,6 +2079,62 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					Should(gomega.Succeed())
 				g.Expect(sampleJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Shouldn't admit deactivated Workload after manager restart", func() {
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+
+		ginkgo.By("Creating a Job", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: job.Namespace,
+		}
+
+		ginkgo.By("Checking that the Workload is admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+		})
+
+		ginkgo.By("Deactivate the Workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				wl.Spec.Active = ptr.To(false)
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the Workload is deactivated and evicted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Restarting the manager", func() {
+			restartManager()
+		})
+
+		ginkgo.By("Checking that the Workload is not admitted after restart the manager", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				// Using short intervals to make it likely to fail if the conditions flip
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			// NOTE: controller restart in integration tests does not reset the metrics
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 		})
 	})
 })

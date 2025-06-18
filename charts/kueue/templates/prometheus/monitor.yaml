@@ -1,19 +1,20 @@
 {{- if .Values.enablePrometheus }}
+# Prometheus Monitor Service (Metrics)
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "kueue.fullname" . }}-controller-manager-metrics-monitor
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  name: '{{ include "kueue.fullname" . }}-controller-manager-metrics-monitor'
   namespace: '{{ .Release.Namespace }}'
 spec:
-  endpoints:
-  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-    path: /metrics
-    port: https
-    scheme: https
-    tlsConfig: {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}
   selector:
     matchLabels:
     {{- include "kueue.metricsService.labels" . | nindent 6 }}
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig: '{{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}'
 {{- end }}

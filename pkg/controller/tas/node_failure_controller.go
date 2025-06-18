@@ -42,7 +42,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -70,7 +69,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if nodeExists {
-		readyCondition := utilnode.GetNodeCondition(&node, corev1.NodeReady)
+		readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
 		if readyCondition != nil {
 			if readyCondition.Status == corev1.ConditionTrue {
 				return ctrl.Result{}, nil

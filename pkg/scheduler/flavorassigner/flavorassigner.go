@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptioncommon"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -347,7 +348,7 @@ type FlavorAssignment struct {
 }
 
 type preemptionOracle interface {
-	IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool
+	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) preemptioncommon.PreemptionPossibility
 }
 
 type FlavorAssigner struct {
@@ -467,7 +468,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, false, a.wl.Obj)
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -482,7 +483,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasNodeToReplace(a.wl.Obj) {
 			// Don't preempt other workloads if looking for a failed node replacement
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, true, nil)
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithSimulateEmpty(true))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit even if
 				// all workloads are preempted.
@@ -739,12 +740,13 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	// Check if preemption is possible
 	mode := noFit
 	// For single-level hierarchies, mayReclaimInHierarchy = true iff val <= rQuota.Nominal
+	preemptionPossibility := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 	if val <= rQuota.Nominal || mayReclaimInHierarchy {
 		mode = preempt
-		if a.oracle.IsReclaimPossible(log, a.cq, *a.wl, fr, val) {
+		if preemptionPossibility == preemptioncommon.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() {
+	} else if a.canPreemptWhileBorrowing() && (preemptionPossibility != preemptioncommon.None) {
 		mode = preempt
 	}
 

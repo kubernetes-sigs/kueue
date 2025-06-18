@@ -1,7 +1,7 @@
 ---
 title: "Pending workloads in Status"
 date: 2024-09-23
-weight: 3
+weight: 30
 description: >
   Obtain the pending workloads in ClusterQueue and LocalQueue statuses.
 ---

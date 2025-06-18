@@ -379,7 +379,9 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, CandidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
+	sort.Slice(candidates, func(i, j int) bool {
+		return CandidatesOrdering(candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 	}
@@ -487,7 +489,7 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false, nil)
+	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests)
 	return tasResult.Failure() == nil
 }
 
@@ -517,33 +519,30 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
 // 3. Workloads admitted more recently first.
-func CandidatesOrdering(candidates []*workload.Info, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
-	return func(i, j int) bool {
-		a := candidates[i]
-		b := candidates[j]
-		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		if aEvicted != bEvicted {
-			return aEvicted
-		}
-		aInCQ := a.ClusterQueue == cq
-		bInCQ := b.ClusterQueue == cq
-		if aInCQ != bInCQ {
-			return !aInCQ
-		}
-		pa := priority.Priority(a.Obj)
-		pb := priority.Priority(b.Obj)
-		if pa != pb {
-			return pa < pb
-		}
-		timeA := quotaReservationTime(a.Obj, now)
-		timeB := quotaReservationTime(b.Obj, now)
-		if !timeA.Equal(timeB) {
-			return timeA.After(timeB)
-		}
-		// Arbitrary comparison for deterministic sorting.
-		return a.Obj.UID < b.Obj.UID
+func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
+	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
+	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
+	if aEvicted != bEvicted {
+		return aEvicted
 	}
+	aInCQ := a.ClusterQueue == cq
+	bInCQ := b.ClusterQueue == cq
+	if aInCQ != bInCQ {
+		return !aInCQ
+	}
+
+	pa := priority.Priority(a.Obj)
+	pb := priority.Priority(b.Obj)
+	if pa != pb {
+		return pa < pb
+	}
+	timeA := quotaReservationTime(a.Obj, now)
+	timeB := quotaReservationTime(b.Obj, now)
+	if !timeA.Equal(timeB) {
+		return timeA.After(timeB)
+	}
+	// Arbitrary comparison for deterministic sorting.
+	return a.Obj.UID < b.Obj.UID
 }
 
 func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {

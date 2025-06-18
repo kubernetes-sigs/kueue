@@ -9,7 +9,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 # copy the rest of the sources and build
 COPY . .
-ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED
+ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
 RUN make build GIT_TAG="${GIT_TAG}" GIT_COMMIT="${GIT_COMMIT}" GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
 
 # final image, implicitly --platform=${TARGETPLATFORM}

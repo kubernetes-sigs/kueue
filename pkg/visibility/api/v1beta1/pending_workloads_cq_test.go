@@ -51,11 +51,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 		}
 	)
 
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
-	if err := visibility.AddToScheme(scheme); err != nil {
+	if err := visibility.AddToScheme(runtime.NewScheme()); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 

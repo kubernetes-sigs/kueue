@@ -390,7 +390,6 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	}
 	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed),
 		features.Enabled(features.TASProfileLeastFreeCapacity),
-		features.Enabled(features.TASProfileMostFreeCapacity),
 	}
 	enabledProfilesCount := 0
 	for _, enabled := range TASProfilesEnabled {
