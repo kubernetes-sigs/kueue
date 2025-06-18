@@ -3167,6 +3167,13 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
    <p>schedulingStats tracks scheduling statistics</p>
 </td>
 </tr>
+<tr><td><code>nominatedWorkers</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment</p>
+</td>
+</tr>
 </tbody>
 </table>
   

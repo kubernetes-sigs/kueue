@@ -8782,6 +8782,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nominatedWorkers:
+                description: nominatedWorkers holds a list of nominated worker cluster
+                  when operating in MultiKueue environment
+                items:
+                  type: string
+                type: array
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which
