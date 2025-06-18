@@ -77,7 +77,7 @@ var _ admission.CustomValidator = &RayServiceWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := obj.(*rayv1.RayService)
-	log := ctrl.LoggerFrom(ctx).WithName("rayserivce-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Validating create")
 	return nil, w.validateCreate(job).ToAggregate()
 }

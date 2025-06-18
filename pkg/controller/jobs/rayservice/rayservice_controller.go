@@ -164,7 +164,9 @@ func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 func (j *RayService) Finished() (message string, success, finished bool) {
 	// Technically a RayService is never "finished"
 	readyCondition := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayServiceReady))
-
+	if readyCondition == nil {
+		return "cannot determine the job's status", false, true
+	}
 	return readyCondition.Reason, readyCondition.Status != v1.ConditionFalse, readyCondition.Status != v1.ConditionFalse
 }
 
