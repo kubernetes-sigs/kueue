@@ -76,7 +76,7 @@ func TestSnapshot(t *testing.T) {
 							Status:                        active,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
-							Workloads: map[workload.WorkloadReference]*workload.Info{
+							Workloads: map[workload.Reference]*workload.Info{
 								"/alpha": workload.NewInfo(
 									utiltesting.MakeWorkload("alpha", "").
 										ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
@@ -90,7 +90,7 @@ func TestSnapshot(t *testing.T) {
 							Status:                        active,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
-							Workloads: map[workload.WorkloadReference]*workload.Info{
+							Workloads: map[workload.Reference]*workload.Info{
 								"/beta": workload.NewInfo(
 									utiltesting.MakeWorkload("beta", "").
 										ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
@@ -255,7 +255,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
@@ -299,7 +299,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").
@@ -380,7 +380,7 @@ func TestSnapshot(t *testing.T) {
 							NamespaceSelector:             labels.Everything(),
 							AllocatableResourceGeneration: 1,
 							Status:                        active,
-							Workloads:                     map[workload.WorkloadReference]*workload.Info{},
+							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption: kueue.ClusterQueuePreemption{
 								ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -405,7 +405,7 @@ func TestSnapshot(t *testing.T) {
 							NamespaceSelector:             labels.Everything(),
 							AllocatableResourceGeneration: 1,
 							Status:                        active,
-							Workloads:                     map[workload.WorkloadReference]*workload.Info{},
+							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
 							FairWeight:                    resource.MustParse("3"),
@@ -504,7 +504,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
@@ -659,7 +659,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
@@ -999,7 +999,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
-	wlInfos := make(map[workload.WorkloadReference]*workload.Info, len(workloads))
+	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
 	for _, cq := range cqCache.hm.ClusterQueues() {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
@@ -1011,17 +1011,17 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	}
 	initialCohortResources := initialSnapshot.ClusterQueue("c1").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
-		remove []workload.WorkloadReference
-		add    []workload.WorkloadReference
+		remove []workload.Reference
+		add    []workload.Reference
 		want   Snapshot
 	}{
 		"no-op remove add": {
-			remove: []workload.WorkloadReference{"/c1-cpu", "/c2-cpu-1"},
-			add:    []workload.WorkloadReference{"/c1-cpu", "/c2-cpu-1"},
+			remove: []workload.Reference{"/c1-cpu", "/c2-cpu-1"},
+			add:    []workload.Reference{"/c1-cpu", "/c2-cpu-1"},
 			want:   *initialSnapshot,
 		},
 		"remove all": {
-			remove: []workload.WorkloadReference{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
+			remove: []workload.Reference{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "cohort",
@@ -1042,7 +1042,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name:              "c1",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1061,7 +1061,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							},
 							"c2": {
 								Name:                          "c2",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
@@ -1081,7 +1081,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			}(),
 		},
 		"remove c1-cpu": {
-			remove: []workload.WorkloadReference{"/c1-cpu"},
+			remove: []workload.Reference{"/c1-cpu"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "cohort",
@@ -1102,7 +1102,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
@@ -1124,7 +1124,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							},
 							"c2": {
 								Name: "c2",
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
@@ -1147,7 +1147,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			}(),
 		},
 		"remove c1-memory-alpha": {
-			remove: []workload.WorkloadReference{"/c1-memory-alpha"},
+			remove: []workload.Reference{"/c1-memory-alpha"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "cohort",
@@ -1168,7 +1168,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
@@ -1190,7 +1190,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							},
 							"c2": {
 								Name: "c2",
-								Workloads: map[workload.WorkloadReference]*workload.Info{
+								Workloads: map[workload.Reference]*workload.Info{
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
@@ -1293,7 +1293,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
-	wlInfos := make(map[workload.WorkloadReference]*workload.Info, len(workloads))
+	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
 	for _, cq := range cqCache.hm.ClusterQueues() {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
@@ -1305,17 +1305,17 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	}
 	initialCohortResources := initialSnapshot.ClusterQueue("lend-a").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
-		remove []workload.WorkloadReference
-		add    []workload.WorkloadReference
+		remove []workload.Reference
+		add    []workload.Reference
 		want   Snapshot
 	}{
 		"remove all then add all": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			add:    []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			want:   *initialSnapshot,
 		},
 		"remove all": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1334,7 +1334,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1349,7 +1349,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:              "lend-b",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1368,7 +1368,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove workload, but still using quota over GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-2"},
+			remove: []workload.Reference{"/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1387,7 +1387,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1402,7 +1402,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
@@ -1422,7 +1422,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove wokload, using same quota as GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1441,7 +1441,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1456,7 +1456,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
@@ -1476,7 +1476,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove workload, using less quota than GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-2", "/lend-a-3"},
+			remove: []workload.Reference{"/lend-a-2", "/lend-a-3"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1495,7 +1495,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1510,7 +1510,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
@@ -1530,8 +1530,8 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove all then add workload, using less quota than GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.WorkloadReference{"/lend-a-1"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			add:    []workload.Reference{"/lend-a-1"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1550,7 +1550,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1565,7 +1565,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,
@@ -1585,8 +1585,8 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove all then add workload, using same quota as GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.WorkloadReference{"/lend-a-3"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			add:    []workload.Reference{"/lend-a-3"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1605,7 +1605,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1620,7 +1620,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:              "lend-b",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1639,8 +1639,8 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 		"remove all then add workload, using quota over GuaranteedQuota": {
-			remove: []workload.WorkloadReference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.WorkloadReference{"/lend-a-2"},
+			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
+			add:    []workload.Reference{"/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lend",
@@ -1659,7 +1659,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
-								Workloads:         make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        oneQuantity,
@@ -1674,7 +1674,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.WorkloadReference]*workload.Info),
+								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    oneQuantity,

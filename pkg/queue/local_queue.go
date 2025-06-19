@@ -66,13 +66,13 @@ type LocalQueue struct {
 	Key          LocalQueueReference
 	ClusterQueue kueue.ClusterQueueReference
 
-	items map[workload.WorkloadReference]*workload.Info
+	items map[workload.Reference]*workload.Info
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
 		Key:   Key(q),
-		items: make(map[workload.WorkloadReference]*workload.Info),
+		items: make(map[workload.Reference]*workload.Info),
 	}
 	qImpl.update(q)
 	return qImpl
