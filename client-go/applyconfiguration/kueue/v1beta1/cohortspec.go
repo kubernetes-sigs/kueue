@@ -24,7 +24,7 @@ import (
 // CohortSpecApplyConfiguration represents a declarative configuration of the CohortSpec type for use
 // with apply.
 type CohortSpecApplyConfiguration struct {
-	Parent         *kueuev1beta1.CohortReference     `json:"parent,omitempty"`
+	ParentName     *kueuev1beta1.CohortReference     `json:"parentName,omitempty"`
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`
 	FairSharing    *FairSharingApplyConfiguration    `json:"fairSharing,omitempty"`
 }
@@ -35,11 +35,11 @@ func CohortSpec() *CohortSpecApplyConfiguration {
 	return &CohortSpecApplyConfiguration{}
 }
 
-// WithParent sets the Parent field in the declarative configuration to the given value
+// WithParentName sets the ParentName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Parent field is set to the value of the last call.
-func (b *CohortSpecApplyConfiguration) WithParent(value kueuev1beta1.CohortReference) *CohortSpecApplyConfiguration {
-	b.Parent = &value
+// If called multiple times, the ParentName field is set to the value of the last call.
+func (b *CohortSpecApplyConfiguration) WithParentName(value kueuev1beta1.CohortReference) *CohortSpecApplyConfiguration {
+	b.ParentName = &value
 	return b
 }
 

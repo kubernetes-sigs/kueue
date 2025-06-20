@@ -477,7 +477,7 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	c.hm.AddCohort(cohortName)
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
-	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.Parent)
+	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	return cohort.updateCohort(apiCohort, oldParent)
 }
 

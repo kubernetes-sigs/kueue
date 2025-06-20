@@ -777,7 +777,7 @@ func (c *CohortWrapper) Obj() *kueue.Cohort {
 }
 
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
-	c.Spec.Parent = parentName
+	c.Spec.ParentName = parentName
 	return c
 }
 

@@ -1178,11 +1178,11 @@ subdomain in DNS (RFC 1123).</p>
 <tbody>
     
   
-<tr><td><code>parent</code> <B>[Required]</B><br/>
+<tr><td><code>parentName</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
-   <p>Parent references the name of the Cohort's parent, if
+   <p>ParentName references the name of the Cohort's parent, if
 any. It satisfies one of three cases:</p>
 <ol>
 <li>Unset. This Cohort is the root of its Cohort tree.</li>

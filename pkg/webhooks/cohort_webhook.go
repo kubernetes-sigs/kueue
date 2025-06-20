@@ -69,7 +69,7 @@ func (w *CohortWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (adm
 func validateCohort(cohort *kueue.Cohort) field.ErrorList {
 	path := field.NewPath("spec")
 	config := validationConfig{
-		hasParent:                        cohort.Spec.Parent != "",
+		hasParent:                        cohort.Spec.ParentName != "",
 		enforceNominalGreaterThanLending: false,
 	}
 	var allErrs field.ErrorList

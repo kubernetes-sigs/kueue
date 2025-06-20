@@ -22,7 +22,7 @@ import (
 
 // CohortSpec defines the desired state of Cohort
 type CohortSpec struct {
-	// Parent references the name of the Cohort's parent, if
+	// ParentName references the name of the Cohort's parent, if
 	// any. It satisfies one of three cases:
 	// 1) Unset. This Cohort is the root of its Cohort tree.
 	// 2) References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).
@@ -32,7 +32,7 @@ type CohortSpec struct {
 	// Cohort, including ClusterQueues, until the cycle is
 	// removed.  We prevent further admission while the cycle
 	// exists.
-	Parent CohortReference `json:"parent,omitempty"`
+	ParentName CohortReference `json:"parentName,omitempty"`
 
 	// ResourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources

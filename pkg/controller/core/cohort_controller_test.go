@@ -134,7 +134,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(cohortB), cohortB); err != nil {
 		t.Fatal("unexpected error")
 	}
-	cohortB.Spec.Parent = "cohort-c"
+	cohortB.Spec.ParentName = "cohort-c"
 	if err := cl.Update(ctx, cohortB); err != nil {
 		t.Fatal("unexpected error updating cohort", err)
 	}

@@ -3734,7 +3734,7 @@ func TestCohortCycles(t *testing.T) {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
-		cohort.Spec.Parent = "root2"
+		cohort.Spec.ParentName = "root2"
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3778,7 +3778,7 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected failure")
 		}
 
-		cohort.Spec.Parent = "root"
+		cohort.Spec.ParentName = "root"
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3825,7 +3825,7 @@ func TestCohortCycles(t *testing.T) {
 			}
 		}
 
-		cohort.Spec.Parent = "cycle-root"
+		cohort.Spec.ParentName = "cycle-root"
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure")
 		}
