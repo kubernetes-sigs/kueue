@@ -3121,8 +3121,69 @@ func TestSchedule(t *testing.T) {
 				"best-effort": {"eng-alpha/best-effort"},
 			},
 		},
+		// In this test, the workload `new` cannot be assigned the first flavor
+		// `on-demand` because the other workload `admitted` is using only the
+		// nominal quota hence cannot be preempted. The flavorassigner detects
+		// this and assigns the other flavor `spot` to the workload `new`.
+		"don't assign flavor if there are no candidates for preemption": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cq1").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.Preempt,
+						WhenCanBorrow:  kueue.Borrow,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("1").Append().
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("1").Append().
+							Obj(),
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("1").Append().
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("1").Append().
+							Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "eng-alpha").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "eng-alpha").ClusterQueue("cq2").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "eng-alpha").
+					Queue("lq2").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq2", "on-demand", now.Add(-time.Second)).
+					Admitted(true).
+					Priority(0).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("lq1").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Obj(),
+			},
+			wantScheduled: []string{"eng-alpha/new"},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/new":      *utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "spot", "1").Obj(),
+				"eng-alpha/admitted": *utiltesting.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj(),
+			},
+		},
 	}
-
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			metrics.AdmissionCyclePreemptionSkips.Reset()
