@@ -38,6 +38,7 @@ var (
 	defaultKueueCfg *v1beta1.Configuration
 	cfg             *rest.Config
 	restClient      *rest.RESTClient
+	kueueNS         = util.GetKueueNamespace()
 )
 
 func TestAPIs(t *testing.T) {

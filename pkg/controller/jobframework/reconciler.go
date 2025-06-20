@@ -662,25 +662,25 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 
 // getWorkloadForObject returns the Workload associated with the given job.
 func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	wlList := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wlList, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	wls := kueue.WorkloadList{}
+	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 
-	if len(wlList.Items) == 0 {
+	if len(wls.Items) == 0 {
 		return nil, nil
 	}
 
 	// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
-	if len(wlList.Items) > 1 {
+	if len(wls.Items) > 1 {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"WARNING: The job has multiple associated Workloads",
 			"job", klog.KObj(jobObj),
-			"workloads", klog.KObjSlice(wlList.Items),
+			"workloads", klog.KObjSlice(wls.Items),
 		)
 	}
 
-	return &wlList.Items[0], nil
+	return &wls.Items[0], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
@@ -712,7 +712,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 		if seen.Has(currentObj.GetUID()) {
 			log.Error(ErrCyclicOwnership,
 				"Terminated search for Kueue-managed Job because of cyclic ownership",
-				"owner", currentObj,
+				"currentObj", currentObj,
 			)
 			return nil, ErrCyclicOwnership
 		}
@@ -720,12 +720,16 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 
 		owner := metav1.GetControllerOf(currentObj)
 		if owner == nil {
-			log.V(3).Info("stop walking up as the owner is not found", "owner", klog.KObj(currentObj))
+			log.V(3).Info("stop walking up as the owner is not found", "currentObj", klog.KObj(currentObj))
 			return topLevelJob, nil
 		}
 
 		if !manager.isKnownOwner(owner) {
-			log.V(3).Info("stop walking up as the owner is not known", "owner", klog.KObj(currentObj))
+			log.V(3).Info(
+				"stop walking up as the owner is not known",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
 			return topLevelJob, nil
 		}
 		parentObj := getEmptyOwnerObject(owner)

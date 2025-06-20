@@ -38,7 +38,7 @@ prepare_docker_images
 cluster_kind_load "${KIND_CLUSTER_NAME}"
 (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
 cluster_kueue_deploy ""
-kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
+kubectl wait deploy/kueue-controller-manager -n"$KUEUE_NAMESPACE" --for=condition=available --timeout=5m
 
 # Deploy kueueviz resources
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"

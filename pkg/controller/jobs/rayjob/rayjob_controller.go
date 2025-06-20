@@ -121,8 +121,12 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 		Count:    1,
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		headPodSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta).Build()
+		if err != nil {
+			return nil, err
+		}
+		headPodSet.TopologyRequest = topologyRequest
 	}
 	podSets = append(podSets, headPodSet)
 
@@ -142,7 +146,11 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 			Count:    count,
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			workerPodSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
+			if err != nil {
+				return nil, err
+			}
+			workerPodSet.TopologyRequest = topologyRequest
 		}
 		podSets = append(podSets, workerPodSet)
 	}
@@ -158,7 +166,11 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
 		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
 		if features.Enabled(features.TopologyAwareScheduling) {
-			submitterJobPodSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+			if err != nil {
+				return nil, err
+			}
+			submitterJobPodSet.TopologyRequest = topologyRequest
 		}
 		podSets = append(podSets, submitterJobPodSet)
 	}
