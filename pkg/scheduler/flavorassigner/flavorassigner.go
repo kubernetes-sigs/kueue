@@ -291,14 +291,15 @@ type FlavorAssignmentMode int
 // The flavor assignment modes below are ordered from lowest to highest
 // preference.
 const (
-	// NoFit means that there is not enough quota to assign this flavor.
+	// NoFit means that there is not enough quota to assign this flavor,
+	// or we require preemption but we are already borrowing, and policy
+	// does not allow this.
 	NoFit FlavorAssignmentMode = iota
-	// Preempt means that there is not enough unused nominal quota in the ClusterQueue
-	// or cohort. Preempting other workloads in the ClusterQueue or cohort, or
-	// waiting for them to finish might make it possible to assign this flavor.
+	// Preempt indicates that admission is possible given Quotas.
+	// Preemption may be impossible due to policy/limits/priorities.
 	Preempt
-	// Fit means that there is enough unused quota in the cohort to assign this
-	// flavor.
+	// Fit means that there is enough unused quota to assign to this Flavor
+	// without preeemption, potentially with borrowing.
 	Fit
 )
 
@@ -321,20 +322,44 @@ type granularMode int
 
 const (
 	noFit granularMode = iota
+	// noPreemptionCandidates indicates that admission is possible with
+	// preemption, but simulation found no preemption targets.
+	noPreemptionCandidates
 	preempt
 	reclaim
 	fit
 )
 
-func (mode granularMode) flavorAssignmentMode() FlavorAssignmentMode {
-	if mode == fit {
-		return Fit
-	} else if mode.isPreemptMode() {
-		return Preempt
+func fromPreemptionPosibility(preemptionPossibility preemptioncommon.PreemptionPossibility) granularMode {
+	switch preemptionPossibility {
+	case preemptioncommon.NoCandidates:
+		return noPreemptionCandidates
+	case preemptioncommon.Preempt:
+		return preempt
+	case preemptioncommon.Reclaim:
+		return reclaim
 	}
-	return NoFit
+	panic("illegal state")
 }
 
+func (mode granularMode) flavorAssignmentMode() FlavorAssignmentMode {
+	switch mode {
+	case noFit:
+		return NoFit
+	case noPreemptionCandidates:
+		return Preempt
+	case preempt:
+		return Preempt
+	case reclaim:
+		return Preempt
+	case fit:
+		return Fit
+	default:
+		panic("illegal state")
+	}
+}
+
+// isPreemptMode indicates a mode where preemption targets were found.
 func (mode granularMode) isPreemptMode() bool {
 	return mode == preempt || mode == reclaim
 }
@@ -738,23 +763,15 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		return fit, borrow, nil
 	}
 
-	// Check if preemption is possible
-	mode := noFit
-	// For single-level hierarchies, mayReclaimInHierarchy = true iff val <= rQuota.Nominal
-	preemptionPossibility := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
-	if val <= rQuota.Nominal || mayReclaimInHierarchy {
-		mode = preempt
-		if preemptionPossibility == preemptioncommon.Reclaim {
-			mode = reclaim
-		}
-	} else if a.canPreemptWhileBorrowing() && (preemptionPossibility != preemptioncommon.NoCandidates) {
-		mode = preempt
-	}
-
+	// Preempt
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
 		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
-	return mode, borrow, &status
+	if val <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
+		mode := fromPreemptionPosibility(a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val))
+		return mode, borrow, &status
+	}
+	return noFit, borrow, &status
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {

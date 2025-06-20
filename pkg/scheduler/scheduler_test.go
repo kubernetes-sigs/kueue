@@ -2960,7 +2960,10 @@ func TestSchedule(t *testing.T) {
 				"eng-gamma/Admitted-Workload-3": *utiltesting.MakeAdmission("CQ3").Assignment("gpu", "on-demand", "5").Obj(),
 			},
 		},
-		"capacity not blocked when lending clusterqueue can reclaim": {
+		// ClusterQueueA has 2 capacity, 1 admitted workload (req=1), and 1 pending workload (req=2)
+		// ClusterQueueB has 0 capacity, and 1 pending workload (req=1)
+		// Since ClusterQueueA knows it can reclaim capacity, it lets ClusterQueueB borrow.
+		"capacity not blocked when lending clusterqueue can reclaim (ReclaimWithinCohort=Any)": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("ClusterQueueA").
 					Cohort("root").
@@ -3010,7 +3013,10 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1-pending":   *utiltesting.MakeAdmission("ClusterQueueB").Assignment("gpu", "on-demand", "1").Obj(),
 			},
 		},
-		"capacity blocked when lending clusterqueue not guaranteed to reclaim": {
+		// ClusterQueueA has 2 capacity, 1 admitted workload (req=1), and 1 pending workload (req=2)
+		// ClusterQueueB has 0 capacity, and 1 pending workload (req=1)
+		// Since ClusterQueueA is not sure that it can reclaim this capacity, it doesn't let ClusterQueueB borrow.
+		"capacity blocked when lending clusterqueue not guaranteed to reclaim (ReclaimWithinCohort=LowerPriority)": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("ClusterQueueA").
 					Cohort("root").
@@ -3019,6 +3025,57 @@ func TestSchedule(t *testing.T) {
 					).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				*utiltesting.MakeClusterQueue("ClusterQueueB").
+					Cohort("root").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq", "eng-alpha").ClusterQueue("ClusterQueueA").Obj(),
+				*utiltesting.MakeLocalQueue("lq", "eng-beta").ClusterQueue("ClusterQueueB").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "1").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2-pending", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "2").
+					Obj(),
+				*utiltesting.MakeWorkload("b1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "1").
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]string{
+				"ClusterQueueB": {"eng-beta/b1-pending"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]string{
+				"ClusterQueueA": {"eng-alpha/a2-pending"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1-admitted": *utiltesting.MakeAdmission("ClusterQueueA").Assignment("gpu", "on-demand", "1").Obj(),
+			},
+		},
+		// ClusterQueueA has 2 capacity, 1 admitted workload (req=1), and 1 pending workload (req=2)
+		// ClusterQueueB has 0 capacity, and 1 pending workload (req=1)
+		// Since ClusterQueueA is not sure that it can reclaim this capacity, it doesn't let ClusterQueueB borrow.
+		"capacity blocked when lending clusterqueue not guaranteed to reclaim (ReclaimWithinCohort=Never)": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("ClusterQueueA").
+					Cohort("root").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").FlavorQuotas,
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 					}).
 					Obj(),
 				*utiltesting.MakeClusterQueue("ClusterQueueB").
@@ -3735,46 +3792,6 @@ func TestLastSchedulingContext(t *testing.T) {
 		wantAdmissionsOnSecondSchedule map[string]kueue.Admission
 	}{
 		{
-			name: "scheduling context not changed: use next flavor if can't preempt",
-			cqs: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("eng-alpha").
-					QueueingStrategy(kueue.BestEffortFIFO).
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-					}).
-					FlavorFungibility(kueue.FlavorFungibility{
-						WhenCanPreempt: kueue.Preempt,
-					}).
-					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("on-demand").
-							Resource(corev1.ResourceCPU, "50", "50").Obj(),
-						*utiltesting.MakeFlavorQuotas("spot").
-							Resource(corev1.ResourceCPU, "100", "0").Obj(),
-					).Obj(),
-			},
-			admittedWorkloads: []kueue.Workload{
-				utiltesting.MakeWorkload("low-1", "default").
-					Queue("main").
-					Request(corev1.ResourceCPU, "50").
-					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
-					Admitted(true).
-					Workload,
-			},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("new", "default").
-					Queue("main").
-					Request(corev1.ResourceCPU, "20").
-					Obj(),
-			},
-			deleteWorkloads:               []kueue.Workload{},
-			wantPreempted:                 sets.Set[string]{},
-			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
-			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
-				"default/new":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
-				"default/low-1": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
-			},
-		},
-		{
 			name: "some workloads were deleted",
 			cqs: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("eng-alpha").
@@ -3789,7 +3806,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "50", "50").Obj(),
 						*utiltesting.MakeFlavorQuotas("spot").
-							Resource(corev1.ResourceCPU, "100", "0").Obj(),
+							Resource(corev1.ResourceCPU, "0", "0").Obj(),
 					).Obj(),
 			},
 			admittedWorkloads: []kueue.Workload{
