@@ -28,7 +28,14 @@ spec:
 
 ## Configuring Quotas
 
-Similarly to [ClusterQueues](/docs/concepts/cluster_queue/#flavors-and-resources) Resource quotas may be defined at the Cohort level, and consumed by ClusterQueues within the Cohort.
+Resource quotas may be defined at the Cohort level (similarly to how they are
+defined for (ClusterQueues)[/docs/concepts/cluster_queue/#flavors-and-resources]),
+and consumed by ClusterQueues within the Cohort.  Please note that
+`nominalQuota` defined at the Cohort level represents **additional resources**
+on top of those defined by ClusterQueues within the Cohort. The Cohort's
+`nominalQuota` may be thought of as a shared pool for the ClusterQueues within
+it. Additionally, this quota may also be lent out to parent Cohort(s), subject
+to LendingLimit.
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -42,11 +49,13 @@ spec:
       - name: "default-flavor"
         resources:
         - name: "cpu"
+          # Shared quota usable by ClusterQueues
+          # within this Cohort
           nominalQuota: 12
 ```
 
 In order for a ClusterQueue to borrow resources from its Cohort, it **must**
-define nominal quota for the desired Resource and Flavor -  even if this value is 0.
+define nominal quota for the desired Resource and Flavor - even if this value is 0.
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -61,6 +70,11 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
+        # ClusterQueue doesn't have any nominal quota,
+        # but can use resources defined in Cohort (or
+        # shared by other ClusterQueues). In this case,
+        # the ClusterQueue may access the 12 shared CPUs
+        # defined by its Cohort.
         nominalQuota: 0
 ```
 
