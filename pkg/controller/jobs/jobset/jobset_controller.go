@@ -120,11 +120,15 @@ func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
 			Count:    podsCount(&replicatedJob),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSets[index].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&replicatedJob.Template.Spec.Template.ObjectMeta).PodIndexLabel(
 				ptr.To(batchv1.JobCompletionIndexAnnotation)).SubGroup(
 				ptr.To(jobsetapi.JobIndexKey),
 				ptr.To(replicatedJob.Replicas)).Build()
+			if err != nil {
+				return nil, err
+			}
+			podSets[index].TopologyRequest = topologyRequest
 		}
 	}
 	return podSets, nil

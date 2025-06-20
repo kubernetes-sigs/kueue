@@ -184,14 +184,18 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 }
 
 func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) (*kueue.Workload, error) {
-	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, r.podSets(lws), r.labelKeysToCopy)
+	podSets, err := r.podSets(lws)
+	if err != nil {
+		return nil, err
+	}
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy)
 	if err := controllerutil.SetOwnerReference(lws, createdWorkload, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 	return createdWorkload, nil
 }
 
-func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.PodSet {
+func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
@@ -203,8 +207,12 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 			},
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
+			if err != nil {
+				return nil, err
+			}
+			podSet.TopologyRequest = topologyRequest
 		}
 		podSets = append(podSets, podSet)
 	}
@@ -228,14 +236,18 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) []kueue.Pod
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
 			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).Build()
+		if err != nil {
+			return nil, err
+		}
+		podSet.TopologyRequest = topologyRequest
 	}
 
 	podSets = append(podSets, podSet)
 
-	return podSets
+	return podSets, nil
 }
 
 func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
