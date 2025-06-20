@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
@@ -207,8 +208,10 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         
-        $KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager" | \
-        kubectl apply --kubeconfig="$1" --server-side -f -
+        local build_output
+        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager")
+        build_output="${build_output//kueue-system/$KUEUE_NAMESPACE}"
+        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
     )
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
@@ -224,7 +227,10 @@ function cluster_kueue_deploy {
         
         deploy_with_certmanager "$1"
     else
-        kubectl apply --kubeconfig="$1" --server-side -k "${ROOT_DIR}/test/e2e/config/default"
+        local build_output
+        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
+        build_output="${build_output//kueue-system/$KUEUE_NAMESPACE}"
+        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
     fi
 }
 

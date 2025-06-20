@@ -43,6 +43,7 @@ var (
 	ctx                          context.Context
 	visibilityClient             visibilityv1beta1.VisibilityV1beta1Interface
 	impersonatedVisibilityClient visibilityv1beta1.VisibilityV1beta1Interface
+	kueueNS                      = util.GetKueueNamespace()
 )
 
 func TestAPIs(t *testing.T) {
@@ -62,7 +63,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg = util.CreateClientUsingCluster("")
 	restClient = util.CreateRestClient(cfg)
 	visibilityClient = util.CreateVisibilityClient("")
-	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
+	impersonatedVisibilityClient = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
