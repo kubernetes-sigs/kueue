@@ -67,7 +67,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
 	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -181,10 +180,6 @@ func main() {
 	metrics.Register()
 
 	kubeConfig := ctrl.GetConfigOrDie()
-	if kubeConfig.UserAgent == "" {
-		kubeConfig.UserAgent = useragent.Default()
-	}
-
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))

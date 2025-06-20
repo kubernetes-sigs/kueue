@@ -33,7 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/importer/pod"
 	"sigs.k8s.io/kueue/cmd/importer/util"
-	"sigs.k8s.io/kueue/pkg/util/useragent"
 )
 
 const (
@@ -166,9 +165,6 @@ func getKubeClient(cmd *cobra.Command) (client.Client, error) {
 	kubeConfig, err := ctrl.GetConfig()
 	if err != nil {
 		return nil, err
-	}
-	if kubeConfig.UserAgent == "" {
-		kubeConfig.UserAgent = useragent.Default()
 	}
 	qps, err := cmd.Flags().GetFloat32(QPSFlag)
 	if err != nil {
