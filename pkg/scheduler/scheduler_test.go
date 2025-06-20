@@ -3177,8 +3177,8 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Obj(),
 			},
-			wantScheduled: []workload.WorkloadReference{"eng-alpha/new"},
-			wantAssignments: map[workload.WorkloadReference]kueue.Admission{
+			wantScheduled: []string{"eng-alpha/new"},
+			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new":      *utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "spot", "1").Obj(),
 				"eng-alpha/admitted": *utiltesting.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj(),
 			},
