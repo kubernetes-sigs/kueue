@@ -470,14 +470,14 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
 	cohortName := kueue.CohortReference(apiCohort.Name)
 	c.hm.AddCohort(cohortName)
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
-	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.Parent)
+	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	return cohort.updateCohort(apiCohort, oldParent)
 }
 
@@ -714,7 +714,7 @@ type CohortUsageStats struct {
 	WeightedShare int64
 }
 
-func (c *Cache) CohortStats(cohortObj *kueuealpha.Cohort) (*CohortUsageStats, error) {
+func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 

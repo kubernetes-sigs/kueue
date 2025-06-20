@@ -27,6 +27,8 @@ type Interface interface {
 	AdmissionChecks() AdmissionCheckInformer
 	// ClusterQueues returns a ClusterQueueInformer.
 	ClusterQueues() ClusterQueueInformer
+	// Cohorts returns a CohortInformer.
+	Cohorts() CohortInformer
 	// LocalQueues returns a LocalQueueInformer.
 	LocalQueues() LocalQueueInformer
 	// MultiKueueClusters returns a MultiKueueClusterInformer.
@@ -62,6 +64,11 @@ func (v *version) AdmissionChecks() AdmissionCheckInformer {
 // ClusterQueues returns a ClusterQueueInformer.
 func (v *version) ClusterQueues() ClusterQueueInformer {
 	return &clusterQueueInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// Cohorts returns a CohortInformer.
+func (v *version) Cohorts() CohortInformer {
+	return &cohortInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // LocalQueues returns a LocalQueueInformer.

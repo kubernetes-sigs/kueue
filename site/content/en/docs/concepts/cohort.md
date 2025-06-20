@@ -10,7 +10,7 @@ description: >
 Cohorts give you the ability to organize your Quotas. ClusterQueues within the same Cohort (or same CohortTree for [Hierarchical Cohorts](#hierarchical-cohorts)) can share resources with each other. The simplest possible Cohort is the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: Cohort
 metadata:
   name: "hello-cohort"
@@ -31,7 +31,7 @@ spec:
 Similarly to [ClusterQueues](/docs/concepts/cluster_queue/#flavors-and-resources) Resource quotas may be defined at the Cohort level, and consumed by ClusterQueues within the Cohort.
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: Cohort
 metadata:
   name: "hello-cohort"
@@ -73,26 +73,26 @@ These Borrowing and Lending Limits can be specified for Cohorts, as well as for 
 
 Here is a simple CohortTree, with three Cohorts:
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: Cohort
 metadata:
   name: "root-cohort"
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: Cohort
 metadata:
   name: "important-org"
 spec:
-  parent: "root-cohort"
+  parentName: "root-cohort"
   fairSharing:
     weight: "0.75"
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: Cohort
 metadata:
   name: "regular-org"
 spec:
-  parent: "root-cohort"
+  parentName: "root-cohort"
   fairSharing:
     weight: "0.25"
 ```

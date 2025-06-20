@@ -163,13 +163,13 @@ func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueueal
 	}
 }
 
-func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueuealpha.Cohort) {
+func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	m.Lock()
 	defer m.Unlock()
 	cohortName := kueue.CohortReference(cohort.Name)
 
 	m.hm.AddCohort(cohortName)
-	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.Parent)
+	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
 	if m.requeueWorkloadsCohort(ctx, m.hm.Cohort(cohortName)) {
 		m.Broadcast()
 	}

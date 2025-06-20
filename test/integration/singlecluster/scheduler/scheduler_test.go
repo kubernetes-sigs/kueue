@@ -29,7 +29,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1397,7 +1396,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Cohort provides resources directly", func() {
 		var (
 			cq     *kueue.ClusterQueue
-			cohort *kueuealpha.Cohort
+			cohort *kueue.Cohort
 			wl     *kueue.Workload
 		)
 

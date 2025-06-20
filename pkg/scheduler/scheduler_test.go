@@ -254,7 +254,7 @@ func TestSchedule(t *testing.T) {
 		additionalClusterQueues []kueue.ClusterQueue
 		additionalLocalQueues   []kueue.LocalQueue
 
-		cohorts []kueuealpha.Cohort
+		cohorts []kueue.Cohort
 
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[workload.Reference]kueue.Admission
@@ -1583,7 +1583,7 @@ func TestSchedule(t *testing.T) {
 		// d1 and e1 respectively.
 		"hierarchical fair sharing schedule workload which wins tournament": {
 			enableFairSharing: true,
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1695,7 +1695,7 @@ func TestSchedule(t *testing.T) {
 		// c1 = 75.
 		"fair sharing schedule workload with lowest drf after admission": {
 			enableFairSharing: true,
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1765,7 +1765,7 @@ func TestSchedule(t *testing.T) {
 		// cq, schedules.
 		"fair sharing schedule singleton cqs and cq without cohort": {
 			enableFairSharing: true,
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1830,7 +1830,7 @@ func TestSchedule(t *testing.T) {
 		},
 		"fair sharing schedule highest priority first": {
 			enableFairSharing: true,
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1884,7 +1884,7 @@ func TestSchedule(t *testing.T) {
 		},
 		"fair sharing schedule earliest timestamp first": {
 			enableFairSharing: true,
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -3124,7 +3124,7 @@ func TestSchedule(t *testing.T) {
 		// guaranteed
 		//
 		"in a hierarchical cohort, workload borrowing less is scheduled first": {
-			cohorts: []kueuealpha.Cohort{
+			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("root").Cohort,
 				utiltesting.MakeCohort("guaranteed").
 					ResourceGroup(
