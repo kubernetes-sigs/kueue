@@ -521,18 +521,18 @@ func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, value int) {
 }
 
 func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus) {
-	for i, s := range metrics.ConditionStatusValues {
-		var wantV float64
-		if metrics.ConditionStatusValues[i] == status {
-			wantV = 1
-		}
-		metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		for i, s := range metrics.ConditionStatusValues {
+			var wantV float64
+			if metrics.ConditionStatusValues[i] == status {
+				wantV = 1
+			}
+			metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
 			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
-		}, Timeout, Interval).Should(gomega.Succeed())
-	}
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
