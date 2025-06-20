@@ -1944,7 +1944,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohor=Never": {
+		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Never": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1972,6 +1972,9 @@ func TestAssignFlavors(t *testing.T) {
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+			},
+			simulationResult: map[resources.FlavorResource]preemptioncommon.PreemptionPossibility{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: preemptioncommon.NoCandidates,
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
