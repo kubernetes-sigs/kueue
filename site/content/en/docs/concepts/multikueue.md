@@ -76,11 +76,11 @@ The supported version of the Kubeflow Trainer is v1.7.0, or a newer version.
 The Management cluster should only install the CRDs and not the package itself. 
 On the other hand, the Worker cluster should install the full kubeflow operator.
 
-## Plain Pods
+### Plain Pods
 
 MultiKueue supports the remote creation and management of Plain Pods and Group of Pods.
 
-## Deployments
+### Deployments
 
 MultiKueue supports the remote creation and management of Deployment replica Pods.
 
