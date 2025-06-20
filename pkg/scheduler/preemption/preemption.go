@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -190,6 +191,9 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	workload.SetPreemptedCondition(w, reason, message)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
+	}
+	if rand.Intn(2) == 0 {
+		return fmt.Errorf("simulate API server error while preempting workload %q", workload.Key(w))
 	}
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
 }
