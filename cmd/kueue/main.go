@@ -337,6 +337,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
+		if err := tas.RegisterInformers(ctx, mgr); err != nil {
+			setupLog.Error(err, "Could not setup TAS informers")
+			os.Exit(1)
+		}
 		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
 			os.Exit(1)
@@ -415,6 +419,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		mgr.GetEventRecorderFor(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
+		scheduler.WithManager(mgr),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
