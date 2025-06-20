@@ -10,9 +10,9 @@ If you are using `kind` and that you don't have an `ingress` controller, you can
 configure and run `KueueViz`:
 
 ```
-kubectl port-forward svc/kueue-kueueviz-backend 8080:8080 &
-kubectl set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
-kubectl port-forward svc/kueue-kueueviz-frontend 3000:8080
+kubectl -n kueue-system port-forward svc/kueue-kueueviz-backend 8080:8080 &
+kubectl -n kueue-system set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
+kubectl -n kueue-system port-forward svc/kueue-kueueviz-frontend 3000:8080
 ```
 
 `KueueViz` will the be reachable on your browser at: http://localhost:3000
