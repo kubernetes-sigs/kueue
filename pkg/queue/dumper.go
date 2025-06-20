@@ -41,14 +41,14 @@ func (m *Manager) LogDump(log logr.Logger) {
 
 // Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
-func (m *Manager) Dump() map[kueue.ClusterQueueReference][]workload.WorkloadReference {
+func (m *Manager) Dump() map[kueue.ClusterQueueReference][]workload.Reference {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[kueue.ClusterQueueReference][]workload.WorkloadReference, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
@@ -62,14 +62,14 @@ func (m *Manager) Dump() map[kueue.ClusterQueueReference][]workload.WorkloadRefe
 
 // DumpInadmissible is a dump of the inadmissible workloads list.
 // Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]workload.WorkloadReference {
+func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]workload.Reference {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[kueue.ClusterQueueReference][]workload.WorkloadReference, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements

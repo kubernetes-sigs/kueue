@@ -39,14 +39,14 @@ const crdTypeMaxLength = 20
 
 type listWorkloadResources struct {
 	localQueues      map[string]*v1beta1.LocalQueue
-	pendingWorkloads map[workload.WorkloadReference]*visibility.PendingWorkload
+	pendingWorkloads map[workload.Reference]*visibility.PendingWorkload
 	apiResourceLists map[string]*metav1.APIResourceList
 }
 
 func newListWorkloadResources() *listWorkloadResources {
 	return &listWorkloadResources{
 		localQueues:      make(map[string]*v1beta1.LocalQueue),
-		pendingWorkloads: make(map[workload.WorkloadReference]*visibility.PendingWorkload),
+		pendingWorkloads: make(map[workload.Reference]*visibility.PendingWorkload),
 		apiResourceLists: make(map[string]*metav1.APIResourceList),
 	}
 }
