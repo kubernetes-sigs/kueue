@@ -109,6 +109,9 @@ test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERS
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-reconcilejobsinmanagednamespace
+test-e2e-reconcilejobsinmanagednamespace: setup-e2e-env run-test-e2e-reconcilejobsinmanagednamespace-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
 run-test-e2e-singlecluster-%:
 	@echo Running e2e for k8s ${K8S_VERSION}
@@ -174,6 +177,16 @@ run-test-e2e-certmanager-%:
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/e2e-test.sh
 
+run-test-e2e-reconcilejobsinmanagednamespace-%: K8S_VERSION = $(@:run-test-e2e-reconcilejobsinmanagednamespace-%=%)
+run-test-e2e-reconcilejobsinmanagednamespace-%:
+	@echo Running reconcilejobsinmanagednamespace e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="reconcilejobsinmanagednamespace" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/e2e-test.sh
+		
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
 performance-scheduler-runner:
