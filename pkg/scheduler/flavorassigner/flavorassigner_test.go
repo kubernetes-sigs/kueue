@@ -46,7 +46,7 @@ func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueS
 			return result
 		}
 	}
-	return preemptioncommon.PriorityBased
+	return preemptioncommon.Preempt
 }
 
 func TestAssignFlavors(t *testing.T) {
@@ -1823,7 +1823,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
 			},
 			simulationResult: map[resources.FlavorResource]preemptioncommon.PreemptionPossibility{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: preemptioncommon.None,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: preemptioncommon.NoCandidates,
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2095,7 +2095,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: 1,
 			},
 			simulationResult: map[resources.FlavorResource]preemptioncommon.PreemptionPossibility{
-				{Flavor: "uno", Resource: "gpu"}: preemptioncommon.PriorityBased,
+				{Flavor: "uno", Resource: "gpu"}: preemptioncommon.Preempt,
 				{Flavor: "due", Resource: "gpu"}: preemptioncommon.Reclaim,
 			},
 			wantMode:      Preempt,
@@ -2138,7 +2138,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: 1,
 			},
 			simulationResult: map[resources.FlavorResource]preemptioncommon.PreemptionPossibility{
-				{Flavor: "uno", Resource: "gpu"}: preemptioncommon.PriorityBased,
+				{Flavor: "uno", Resource: "gpu"}: preemptioncommon.Preempt,
 				{Flavor: "due", Resource: "gpu"}: preemptioncommon.Reclaim,
 				{Flavor: "tre", Resource: "gpu"}: preemptioncommon.Reclaim,
 			},
