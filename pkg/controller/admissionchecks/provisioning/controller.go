@@ -128,8 +128,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
-	provisioningRequestList := &autoscaling.ProvisioningRequestList{}
-	if err := c.client.List(ctx, provisioningRequestList, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
+	provReqs := &autoscaling.ProvisioningRequestList{}
+	if err := c.client.List(ctx, provReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -148,7 +148,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkConfig[checkName] = prc
 	}
 
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provisioningRequestList.Items)
+	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
@@ -158,7 +158,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, provisioningRequestList.Items, activeOrLastPRForChecks)
+	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, activeOrLastPRForChecks)
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -697,13 +697,13 @@ func (a *acHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue
 }
 
 func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	list := &kueue.WorkloadList{}
-	if err := a.client.List(ctx, list, client.MatchingFields{WorkloadsWithAdmissionCheckKey: check}); client.IgnoreNotFound(err) != nil {
+	wls := &kueue.WorkloadList{}
+	if err := a.client.List(ctx, wls, client.MatchingFields{WorkloadsWithAdmissionCheckKey: check}); client.IgnoreNotFound(err) != nil {
 		return err
 	}
 
-	for i := range list.Items {
-		wl := &list.Items[i]
+	for i := range wls.Items {
+		wl := &wls.Items[i]
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{
 				Name:      wl.Name,
@@ -765,11 +765,11 @@ func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueu
 }
 
 func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	list := &kueue.AdmissionCheckList{}
-	if err := p.client.List(ctx, list, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); client.IgnoreNotFound(err) != nil {
+	acs := &kueue.AdmissionCheckList{}
+	if err := p.client.List(ctx, acs, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); client.IgnoreNotFound(err) != nil {
 		return err
 	}
-	users := slices.Map(list.Items, func(ac *kueue.AdmissionCheck) string { return ac.Name })
+	users := slices.Map(acs.Items, func(ac *kueue.AdmissionCheck) string { return ac.Name })
 	for _, user := range users {
 		if p.acHandlerOverride != nil {
 			if err := p.acHandlerOverride(ctx, user, q); err != nil {
