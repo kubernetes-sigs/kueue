@@ -73,19 +73,21 @@ These checks can be external or internal and determine if additional criteria ar
 
 <h4> Example: Provisioning AdmissionCheck </h4>
 
-Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/), Kueue admissions were mainly based on quota checks- if sufficient quota existed, the workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
+Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/), Kueue admissions were mainly based on quota checks - if sufficient quota existed, the workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
 
 Kueue's enhanced admission requires two sequential checks:
 
 - Quota Reservation: Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other workloads from claiming it. This step verifies logical resource availability. <br>
 - Capacity Guarantee: This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to verify "physical" resource availability. 
-  - The Kueue controller creates a ProvisioningRequest object, attaches PodTemplates from the Workload, applies configuration from ProvisioningRequestConfig and sets owner reference to Workload.
+  - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/admission-check-controllers/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
   - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
     - `Provisioned=true`: Capacity guaranteed
-    - `Provisioned=false`: Scaling is in progress
+    - `Provisioned=false`: Scaling in progress (Kueue surfaces ETA via Kubernetes events)
     - `Failed=true`: Cannot provision
+    - `BookingExpired=true`: Treated same as `Failed=true`  
+    - `CapacityRevoked=true`: Evicts workloads with retry support 
 
-Lets understand this with a real-world usage - GPU Workload:
+Let's understand this with a real-world usage - GPU Workload:
 
 Scenario: *AI training job requiring 16 GPUs*
 
@@ -99,10 +101,13 @@ Scenario: *AI training job requiring 16 GPUs*
 Outcome:
 *Job starts immediately with all 16 GPUs available.*
 
-<h4>Failure Handling: </h4>
-If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota, requeues the workload, and triggers exponential backoff retries.
+#### Failure Handling: 
+- If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota, requeues the workload, and triggers exponential backoff retries.
+Kueue creates new ProvisioningRequest with `-attempt<N>` suffix each retry.
 
-For permanent failures the AdmissionCheck is marked `Rejected` and the workload is evicted, requiring user resubmission
+- For permanent failures the AdmissionCheck is marked `Rejected` and the workload is evicted, requiring user resubmission.
+
+> *Note: The `KeepQuotaForProvReqRetry` feature gate (v0.9) temporarily preserved quota during retries, but current implementations ALWAYS release quota and requeue workloads on failure.*
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
 
