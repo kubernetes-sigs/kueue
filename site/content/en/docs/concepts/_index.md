@@ -78,7 +78,7 @@ Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_awar
 Kueue's enhanced admission requires two sequential checks:
 
 - Quota Reservation: Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other workloads from claiming it. This step verifies logical resource availability. <br>
-- Capacity Guarantee: This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to verify "physical" resource availability. 
+- Capacity Guarantee: This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to verify physical resource availability. 
   - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/admission-check-controllers/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
   - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
     - `Provisioned=true`: Capacity guaranteed
@@ -101,7 +101,8 @@ Scenario: *AI training job requiring 16 GPUs*
 Outcome:
 *Job starts immediately with all 16 GPUs available.*
 
-#### Failure Handling: 
+<h4> Failure Handling: </h4> 
+
 - If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota, requeues the workload, and triggers exponential backoff retries.
 Kueue creates new ProvisioningRequest with `-attempt<N>` suffix each retry.
 
