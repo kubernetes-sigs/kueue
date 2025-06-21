@@ -57,7 +57,7 @@ network throughput between the Pods.
 ### Quota Reservation
 
 _Quota reservation_ is the process during through which the kueue scheduler locks the resources needed by a workload within the targeted
-[ClusterQueues ResourceGroups](/site/content/en/docs/concepts/cluster_queue.md#resource-groups)
+[ClusterQueues ResourceGroups](/docs/concepts/cluster_queue#resource-groups)
 
 Quota reservation is sometimes referred to as _workload scheduling_ or _job scheduling_,
 but it should not to be confused with [pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
@@ -68,12 +68,12 @@ _Admission_ is the process of allowing a Workload to start (Pods to be created).
 
 - Quota Reservation : When a Workload is submitted, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue scheduler checks if the resources (CPU, memory, GPUs, etc.) requested by the Workload can be satisfied using the targeted ClusterQueue's available quota and resource flavors. If the quota is available, the resources are reserved for this workload and other Workloads are prevented from using the same resources. 
 
-- Admission Checks: After the quota is reserved, Kueue executes all AdmissionChecks configured in the ClusterQueue concurrently. These are pluggable AdmissionChecks controllers that can perform validations such as policy checks, compliance, etc.
-These checks can be external or internal and determine if additional criteria are met before the Workload is admitted. The Workload is admitted once all its [AdmissionCheckStates](/site/content/en/docs/concepts/admission_check.md) are marked `Ready`.
+- Admission Checks: After the quota is reserved, Kueue executes all [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue concurrently. These are pluggable AdmissionChecks controllers that can perform validations such as policy checks, compliance, etc.
+These checks can be external or internal and determine if additional criteria are met before the Workload is admitted. The Workload is admitted once all its [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are marked `Ready`.
 
 <h4> Example: Provisioning AdmissionCheck </h4>
 
-Without AdmissionChecks or TopologyAwareScheduling, Kueue admissions were mainly based on quota checks- if sufficient quota existed, the workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
+Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/), Kueue admissions were mainly based on quota checks- if sufficient quota existed, the workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
 
 Kueue's enhanced admission requires two sequential checks:
 
