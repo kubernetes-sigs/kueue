@@ -681,14 +681,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-cohort
+      path: /validate-kueue-x-k8s-io-v1beta1-cohort
   failurePolicy: Fail
   name: vcohort.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1beta1
     operations:
     - CREATE
     - UPDATE

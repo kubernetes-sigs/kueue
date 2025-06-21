@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -48,7 +47,7 @@ var snapCmpOpts = cmp.Options{
 func TestSnapshot(t *testing.T) {
 	testCases := map[string]struct {
 		cqs                 []*kueue.ClusterQueue
-		cohorts             []*kueuealpha.Cohort
+		cohorts             []*kueue.Cohort
 		rfs                 []*kueue.ResourceFlavor
 		wls                 []*kueue.Workload
 		wantSnapshot        Snapshot
@@ -736,7 +735,7 @@ func TestSnapshot(t *testing.T) {
 					).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
@@ -805,7 +804,7 @@ func TestSnapshot(t *testing.T) {
 			rfs: []*kueue.ResourceFlavor{
 				utiltesting.MakeResourceFlavor("arm").Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("autocycle").Parent("autocycle").Obj(),
 				utiltesting.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
 				utiltesting.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
@@ -879,7 +878,7 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"cohort snapshot has fair sharing weight": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
 			},
 			wantSnapshot: Snapshot{
