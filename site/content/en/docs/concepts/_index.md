@@ -108,7 +108,7 @@ Kueue creates new ProvisioningRequest with `-attempt<N>` suffix each retry.
 
 - For permanent failures the AdmissionCheck is marked `Rejected` and the workload is evicted, requiring user resubmission.
 
-> *Note: The `KeepQuotaForProvReqRetry` feature gate (v0.9) temporarily preserved quota during retries, but current implementations ALWAYS release quota and requeue workloads on failure.*
+{{% alert title="Note" color="primary" %}} The `KeepQuotaForProvReqRetry` feature gate (v0.9) temporarily preserved quota during retries, but current implementations ALWAYS release quota and requeue workloads on failure.{{% /alert %}}
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
 
