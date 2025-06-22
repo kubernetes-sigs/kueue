@@ -82,7 +82,10 @@ ignoreFiles = []
   trademark_link = "https://www.linuxfoundation.org/legal/trademark-usage"
 
   # Google Custom Search Engine ID.
-  # gcs_engine_id = "007239566369470735695:624rglujm-w"
+  # This ID was obtained from Google Programmable Search Engine (https://programmablesearchengine.google.com/).
+  # It was set up following the Docsy documentation: https://www.docsy.dev/docs/adding-content/search/
+  gcs_engine_id = "f7bda312d29fc4fba"
+
   prism_syntax_highlighting = true
   # Text label for the version menu in the top bar of the website.
   version_menu = "Version"
