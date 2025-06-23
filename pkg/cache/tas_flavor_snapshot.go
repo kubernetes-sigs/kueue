@@ -1059,17 +1059,17 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	return childrenCapacity, sliceCapacity
 }
 
-func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestesSlicesCount, sliceSize int32) string {
+func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32) string {
 	if sliceSize == 1 {
 		// each slice is a single pod, so let's refer to them as pods
 		if slicesFitCount == 0 {
-			return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalRequestesSlicesCount)
+			return fmt.Sprintf("topology %q doesn't allow to fit any of %d pod(s)", s.topologyName, totalRequestsSlicesCount)
 		}
-		return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, slicesFitCount, totalRequestesSlicesCount)
+		return fmt.Sprintf("topology %q allows to fit only %d out of %d pod(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
 	}
 
 	if slicesFitCount == 0 {
-		return fmt.Sprintf("topology %q doesn't allow to fit any of %v slice(s)", s.topologyName, totalRequestesSlicesCount)
+		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
-	return fmt.Sprintf("topology %q allows to fit only %v out of %v slice(s)", s.topologyName, slicesFitCount, totalRequestesSlicesCount)
+	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
 }
