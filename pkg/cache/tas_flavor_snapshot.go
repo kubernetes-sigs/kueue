@@ -793,20 +793,20 @@ func findBestFitDomainForSlices(domains []*domain, sliceCount int32) *domain {
 	})
 }
 
-type domainStateGetter func(d *domain) int32
+type domainState func(d *domain) int32
 
-func findBestFitDomainBy(domains []*domain, needed int32, getState domainStateGetter) *domain {
+func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *domain {
 	bestDomain := domains[0]
-	bestDomainState := getState(bestDomain)
+	bestDomainState := state(bestDomain)
 
 	for _, domain := range domains {
-		domainState := getState(domain)
+		domainState := state(domain)
 
 		if domainState >= needed && domainState < bestDomainState {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
 			bestDomain = domain
-			bestDomainState = getState(bestDomain)
+			bestDomainState = state(bestDomain)
 		}
 	}
 	return bestDomain
