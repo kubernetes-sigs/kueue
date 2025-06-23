@@ -86,8 +86,8 @@ const (
 	ComponentName = "kuberay-operator"
 
 	// The default suffix for Headless Service for multi-host worker groups.
-	// The full name will be of the form "${RayCluster_Name}-headless-worker-svc".
-	HeadlessServiceSuffix = "headless-worker-svc"
+	// The full name will be of the form "${RayCluster_Name}-headless".
+	HeadlessServiceSuffix = "headless"
 
 	// Use as container env variable
 	RAY_CLUSTER_NAME                        = "RAY_CLUSTER_NAME"
@@ -119,7 +119,8 @@ const (
 	// The value of RAY_CLOUD_INSTANCE_ID is the Pod name for Autoscaler V2 alpha. This may change in the future.
 	RAY_CLOUD_INSTANCE_ID = "RAY_CLOUD_INSTANCE_ID"
 	// The value of RAY_NODE_TYPE_NAME is the name of the node group (i.e., the value of the "ray.io/group" label).
-	RAY_NODE_TYPE_NAME = "RAY_NODE_TYPE_NAME"
+	RAY_NODE_TYPE_NAME       = "RAY_NODE_TYPE_NAME"
+	RAY_ENABLE_AUTOSCALER_V2 = "RAY_enable_autoscaler_v2"
 
 	// This KubeRay operator environment variable is used to determine if random Pod
 	// deletion should be enabled. Note that this only takes effect when autoscaling
@@ -137,11 +138,31 @@ const (
 	// flag for v1.1.0 and will be removed if the behavior proves to be stable enough.
 	ENABLE_PROBES_INJECTION = "ENABLE_PROBES_INJECTION"
 
+	// This KubeRay operator environment variable is used to determine
+	// if operator should treat OpenShift cluster as Vanilla Kubernetes.
+	USE_INGRESS_ON_OPENSHIFT = "USE_INGRESS_ON_OPENSHIFT"
+
 	// If set to true, kuberay creates a normal ClusterIP service for a Ray Head instead of a Headless service.
 	ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE = "ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE"
 
 	// If set to true, the RayJob CR itself will be deleted if shutdownAfterJobFinishes is set to true. Note that all resources created by the RayJob CR will be deleted, including the K8s Job.
 	DELETE_RAYJOB_CR_AFTER_JOB_FINISHES = "DELETE_RAYJOB_CR_AFTER_JOB_FINISHES"
+
+	// If `JobDeploymentStatus` does not transition to `Complete` or `Failed` within
+	// `RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS` seconds after `JobStatus`
+	// reaches a terminal state, KubeRay will update `JobDeploymentStatus` to either
+	// `Complete` or `Failed` directly.
+
+	// If this occurs, it is likely due to a system-level issue (e.g., a Ray bug) that prevents the
+	// `ray job submit` process in the Kubernetes Job submitter from exiting.
+	RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS         = "RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS"
+	DEFAULT_RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS = 300
+
+	// This environment variable for the KubeRay operator determines whether to enable
+	// a login shell by passing the -l option to the container command /bin/bash.
+	// The -l flag was added by default before KubeRay v1.4.0, but it is no longer added
+	// by default starting with v1.4.0.
+	ENABLE_LOGIN_SHELL = "ENABLE_LOGIN_SHELL"
 
 	// Ray core default configurations
 	DefaultWorkerRayGcsReconnectTimeoutS = "600"
@@ -174,7 +195,7 @@ const (
 	RayAgentRayletHealthPath  = "api/local_raylet_healthz"
 	RayDashboardGCSHealthPath = "api/gcs_healthz"
 	RayServeProxyHealthPath   = "-/healthz"
-	BaseWgetHealthCommand     = "wget -T %d -q -O- http://localhost:%d/%s | grep success"
+	BaseWgetHealthCommand     = "wget --tries 1 -T %d -q -O- http://localhost:%d/%s | grep success"
 
 	// Finalizers for RayJob
 	RayJobStopJobFinalizer = "ray.io/rayjob-finalizer"
@@ -186,12 +207,23 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.3.2"
+	KUBERAY_VERSION = "v1.4.0"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
 
 	ServeConfigLRUSize = 1000
+
+	// MaxRayClusterNameLength is the maximum RayCluster name to make sure we don't truncate
+	// their k8s service names. Currently, "-serve-svc" is the longest service suffix:
+	// 63 - len("-serve-svc") == 53, so the name should not be longer than 53 characters.
+	MaxRayClusterNameLength = 53
+	// MaxRayServiceNameLength is the maximum RayService name to make sure it pass the RayCluster validation.
+	// Minus 6 since we append 6 characters to the RayService name to create the cluster (GenerateRayClusterName).
+	MaxRayServiceNameLength = MaxRayClusterNameLength - 6
+	// MaxRayJobNameLength is the maximum RayJob name to make sure it pass the RayCluster validation
+	// Minus 6 since we append 6 characters to the RayJob name to create the cluster (GenerateRayClusterName).
+	MaxRayJobNameLength = MaxRayClusterNameLength - 6
 )
 
 type ServiceType string
@@ -237,8 +269,9 @@ type K8sEventType string
 
 const (
 	// RayCluster event list
-	InvalidRayClusterStatus K8sEventType = "InvalidRayClusterStatus"
-	InvalidRayClusterSpec   K8sEventType = "InvalidRayClusterSpec"
+	InvalidRayClusterStatus   K8sEventType = "InvalidRayClusterStatus"
+	InvalidRayClusterSpec     K8sEventType = "InvalidRayClusterSpec"
+	InvalidRayClusterMetadata K8sEventType = "InvalidRayClusterMetadata"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
@@ -258,6 +291,7 @@ const (
 
 	// RayJob event list
 	InvalidRayJobSpec             K8sEventType = "InvalidRayJobSpec"
+	InvalidRayJobMetadata         K8sEventType = "InvalidRayJobMetadata"
 	InvalidRayJobStatus           K8sEventType = "InvalidRayJobStatus"
 	CreatedRayJobSubmitter        K8sEventType = "CreatedRayJobSubmitter"
 	DeletedRayJobSubmitter        K8sEventType = "DeletedRayJobSubmitter"
@@ -272,6 +306,7 @@ const (
 
 	// RayService event list
 	InvalidRayServiceSpec           K8sEventType = "InvalidRayServiceSpec"
+	InvalidRayServiceMetadata       K8sEventType = "InvalidRayServiceMetadata"
 	UpdatedHeadPodServeLabel        K8sEventType = "UpdatedHeadPodServeLabel"
 	UpdatedServeApplications        K8sEventType = "UpdatedServeApplications"
 	FailedToUpdateHeadPodServeLabel K8sEventType = "FailedToUpdateHeadPodServeLabel"
