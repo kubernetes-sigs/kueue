@@ -6,8 +6,11 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Until v0.12](#until-v012)
+  - [Since Kueue v0.13](#since-kueue-v013)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
 - [Design Details](#design-details)
   - [API](#api)
   - [Implementation](#implementation)
@@ -79,10 +82,19 @@ Consider any scope for filtering the processing of Jobs submitted without a
 We add a `managedJobsNamespaceSelector` of type `*metav1.LabelSelector`
 to the top level of the Kueue `Configuration` struct (same level as `manageJobsWithoutQueueName`).
 
+### Until v0.12
+
 We use this new configuration for all integrations in the same way that the current
-`namespaceSelector` is used by the Pod integration.  
-We revise the behavior of the `managedJobsNamespaceSelector` configuration field 
-to not only govern reconciliation of jobs without a queue-name label, but also to enforce that only namespaces explicitly opted-in via `managedJobsNamespaceSelector` are managed by Kueue, 
+`namespaceSelector` is used by the Pod integration. Specifically,
+1. If `manageJobsWithoutQueueName` is false, `managedJobsNamespaceSelector` has no effect: Kueue will manage
+exactly those instances of supported Kinds that have a `queue-name` label.
+2. If `manageJobsWithoutQueueName` is true, then Kueue will (a) manage all instances of supported Kinds
+that have a `queue-name` label and (b) will manage all instances of supported Kinds that do not
+have a `queue-name` label if they are in namespaces that match `managedJobsNamespaceSelector`.
+
+### Since Kueue v0.13
+
+The `managedJobsNamespaceSelector` configuration enforces that only namespaces explicitly opted in the field are managed by Kueue as opposed to governing reconciliation of a Job without a queue-name label, 
 even when jobs are labeled with `kueue.x-k8s.io/queue-name`.
 Specifically,
 1. If a job's namespace does not match the `managedJobsNamespaceSelector`, 
