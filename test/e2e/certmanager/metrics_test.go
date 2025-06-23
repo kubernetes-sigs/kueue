@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			TerminationGracePeriod(1).
 			Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{
-			corev1.Volume{
+			{
 				Name: "metrics-certs",
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
