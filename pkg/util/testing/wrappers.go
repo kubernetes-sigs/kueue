@@ -741,7 +741,7 @@ func (q *LocalQueueWrapper) Active(status metav1.ConditionStatus) *LocalQueueWra
 	return q
 }
 
-// AdmittedWorkloads updates the admittedWorkloads in status.
+// FairSharingStatus updates the fairSharing in status.
 func (q *LocalQueueWrapper) FairSharingStatus(status *kueue.FairSharingStatus) *LocalQueueWrapper {
 	q.Status.FairSharing = status
 	return q
@@ -1551,38 +1551,38 @@ func MakePodTemplate(name, namespace string) *PodTemplateWrapper {
 	}
 }
 
-func (w *PodTemplateWrapper) Obj() *corev1.PodTemplate {
-	return &w.PodTemplate
+func (p *PodTemplateWrapper) Obj() *corev1.PodTemplate {
+	return &p.PodTemplate
 }
 
-func (w *PodTemplateWrapper) Clone() *PodTemplateWrapper {
-	return &PodTemplateWrapper{PodTemplate: *w.DeepCopy()}
+func (p *PodTemplateWrapper) Clone() *PodTemplateWrapper {
+	return &PodTemplateWrapper{PodTemplate: *p.DeepCopy()}
 }
 
-func (w *PodTemplateWrapper) Label(k, v string) *PodTemplateWrapper {
-	if w.Labels == nil {
-		w.Labels = make(map[string]string)
+func (p *PodTemplateWrapper) Label(k, v string) *PodTemplateWrapper {
+	if p.Labels == nil {
+		p.Labels = make(map[string]string)
 	}
-	w.Labels[k] = v
-	return w
+	p.Labels[k] = v
+	return p
 }
 
-func (w *PodTemplateWrapper) Containers(containers ...corev1.Container) *PodTemplateWrapper {
-	w.Template.Spec.Containers = containers
-	return w
+func (p *PodTemplateWrapper) Containers(containers ...corev1.Container) *PodTemplateWrapper {
+	p.Template.Spec.Containers = containers
+	return p
 }
 
-func (w *PodTemplateWrapper) NodeSelector(k, v string) *PodTemplateWrapper {
-	if w.Template.Spec.NodeSelector == nil {
-		w.Template.Spec.NodeSelector = make(map[string]string)
+func (p *PodTemplateWrapper) NodeSelector(k, v string) *PodTemplateWrapper {
+	if p.Template.Spec.NodeSelector == nil {
+		p.Template.Spec.NodeSelector = make(map[string]string)
 	}
-	w.Template.Spec.NodeSelector[k] = v
-	return w
+	p.Template.Spec.NodeSelector[k] = v
+	return p
 }
 
-func (w *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTemplateWrapper {
-	w.Template.Spec.Tolerations = append(w.Template.Spec.Tolerations, toleration)
-	return w
+func (p *PodTemplateWrapper) Toleration(toleration corev1.Toleration) *PodTemplateWrapper {
+	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, toleration)
+	return p
 }
 
 func (p *PodTemplateWrapper) PriorityClass(pc string) *PodTemplateWrapper {
@@ -1607,9 +1607,9 @@ func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(node
 	return p
 }
 
-func (w *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	AppendOwnerReference(&w.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
-	return w
+func (p *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
+	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	return p
 }
 
 type NamespaceWrapper struct {

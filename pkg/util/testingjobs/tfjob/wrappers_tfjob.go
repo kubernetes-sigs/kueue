@@ -56,7 +56,7 @@ type TFReplicaSpecRequirement struct {
 }
 
 func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) *TFJobWrapper {
-	j = j.TFReplicaSpecsDefault()
+	j.TFReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name

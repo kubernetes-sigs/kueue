@@ -56,7 +56,7 @@ type PaddleReplicaSpecRequirement struct {
 }
 
 func (j *PaddleJobWrapper) PaddleReplicaSpecs(replicaSpecs ...PaddleReplicaSpecRequirement) *PaddleJobWrapper {
-	j = j.PaddleReplicaSpecsDefault()
+	j.PaddleReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
