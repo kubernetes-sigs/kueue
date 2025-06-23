@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -493,31 +494,83 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 		})
 
-		ginkgo.It("should suspend the pods of a StatefulSet created in the test namespace", func() {
-			var testSts *appsv1.StatefulSet
-			ginkgo.By("creating a StatefulSet without a queue name", func() {
-				testSts = testingsts.MakeStatefulSet("test-sts", ns.Name).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					RequestAndLimit(corev1.ResourceMemory, "2Gi").
-					Replicas(2).
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, testSts)).Should(gomega.Succeed())
+		ginkgo.It("should suspend the pods created by a StatefulSet in the test namespace without queue-name label", func() {
+			sts := testingsts.MakeStatefulSet("sts", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Replicas(3).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Obj()
+			ginkgo.By("Create a StatefulSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, sts)).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verifying that the pods of the StatefulSet are gated", func() {
+			wlKey := types.NamespacedName{Name: statefulset.GetWorkloadName(sts.Name), Namespace: ns.Name}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By("check that workload is created and not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-					// If the first pod can't be scheduled, the second won't be created
-					g.Expect(pods.Items).Should(gomega.HaveLen(1))
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdStatefulSet := &appsv1.StatefulSet{}
+
+			ginkgo.By("verify that replicas is not ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that only one pod is created, pending and gated", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(createdStatefulSet.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(1))
 					for _, pod := range pods.Items {
-						g.Expect(pod.Spec.SchedulingGates).ShouldNot(gomega.BeEmpty())
-						g.Expect(pod.Labels).Should(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
-						g.Expect(pod.Finalizers).Should(gomega.ContainElement(podcontroller.PodFinalizer))
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodPending))
+						g.Expect(utilpod.HasGate(&pod, podcontroller.SchedulingGateName)).Should(gomega.BeTrue())
 					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting the queue-name label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).Should(gomega.Succeed())
+					if createdStatefulSet.Labels == nil {
+						createdStatefulSet.Labels = map[string]string{}
+					}
+					createdStatefulSet.Labels[controllerconstants.QueueLabel] = localQueue.Name
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check that workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify that replicas are ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that all pod are running and ungated", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(createdStatefulSet.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(3))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						g.Expect(utilpod.HasGate(&pod, podcontroller.SchedulingGateName)).Should(gomega.BeFalse())
+					}
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
