@@ -8,6 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
 - [Design Details](#design-details)
   - [API](#api)
   - [Implementation](#implementation)
