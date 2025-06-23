@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue
 go 1.24.0
 
 require (
-	github.com/cert-manager/cert-manager v1.18.0
+	github.com/cert-manager/cert-manager v1.18.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
@@ -21,18 +21,18 @@ require (
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.15.0
-	k8s.io/api v0.33.1
-	k8s.io/apimachinery v0.33.1
-	k8s.io/apiserver v0.33.1
+	k8s.io/api v0.33.2
+	k8s.io/apimachinery v0.33.2
+	k8s.io/apiserver v0.33.2
 	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240813092541-aec7b75bb683
-	k8s.io/cli-runtime v0.33.1
-	k8s.io/client-go v0.33.1
-	k8s.io/component-base v0.33.1
-	k8s.io/component-helpers v0.33.1
+	k8s.io/cli-runtime v0.33.2
+	k8s.io/client-go v0.33.2
+	k8s.io/component-base v0.33.2
+	k8s.io/component-helpers v0.33.2
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff
-	k8s.io/kubectl v0.33.1
-	k8s.io/metrics v0.33.1
+	k8s.io/kubectl v0.33.2
+	k8s.io/metrics v0.33.2
 	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/jobset v0.8.1
@@ -139,9 +139,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.33.1 // indirect
-	k8s.io/code-generator v0.33.1 // indirect
+	k8s.io/code-generator v0.33.2 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
-	k8s.io/kms v0.33.1 // indirect
+	k8s.io/kms v0.33.2 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/gateway-api v1.1.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
