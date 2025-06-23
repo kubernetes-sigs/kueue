@@ -775,27 +775,38 @@ func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
 
 // findBestFitDomain finds an index of the first domain with the lowest
 // value of state, higher or equal than count.
-// If such a domain doesn't exist, it returns 0 as it's an index of the domain with the
+// If such a domain doesn't exist, it returns first domain as it's the domain with the
 // most available resources
 func findBestFitDomain(domains []*domain, count int32) *domain {
-	bestDomain := domains[0]
-	for _, domain := range domains {
-		if domain.state >= count && domain.state < bestDomain.state {
-			// choose the first occurrence of fitting domains
-			// to make it consecutive with other podSet's
-			bestDomain = domain
-		}
-	}
-	return bestDomain
+	return findBestFitDomainBy(domains, count, func(d *domain) int32 {
+		return d.state
+	})
 }
 
+// findBestFitDomainForSlices finds an index of the first domain with the lowest
+// value of sliceState, higher or equal than sliceCount.
+// If such a domain doesn't exist, it returns first domain as it's the domain with the
+// most available resources
 func findBestFitDomainForSlices(domains []*domain, sliceCount int32) *domain {
+	return findBestFitDomainBy(domains, sliceCount, func(d *domain) int32 {
+		return d.sliceState
+	})
+}
+
+type domainStateGetter func(d *domain) int32
+
+func findBestFitDomainBy(domains []*domain, needed int32, getState domainStateGetter) *domain {
 	bestDomain := domains[0]
+	bestDomainState := getState(bestDomain)
+
 	for _, domain := range domains {
-		if domain.sliceState >= sliceCount && domain.sliceState < bestDomain.sliceState {
+		domainState := getState(domain)
+
+		if domainState >= needed && domainState < bestDomainState {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
 			bestDomain = domain
+			bestDomainState = getState(bestDomain)
 		}
 	}
 	return bestDomain
