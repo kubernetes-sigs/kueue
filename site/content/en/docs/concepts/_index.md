@@ -66,18 +66,18 @@ but it should not to be confused with [pod scheduling](https://kubernetes.io/doc
 
 _Admission_ is the process of allowing a Workload to start (Pods to be created). Kueue uses a two-step admission cycle for Workload scheduling: 
 
-- Quota Reservation : When a Workload is submitted, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue scheduler checks if the resources (CPU, memory, GPUs, etc.) requested by the Workload can be satisfied using the targeted ClusterQueue's available quota and resource flavors. If the quota is available, the resources are reserved for this workload and other Workloads are prevented from using the same resources. 
+- Quota Reservation : When a Workload is submitted, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue scheduler checks if the resources (CPU, memory, GPUs, etc.) requested by the Workload can be satisfied using the targeted ClusterQueue's available quota and resource flavors. If the quota is available, the resources are reserved for this Workload and other Workloads are prevented from using the same resources. 
 
-- Admission Checks: After the quota is reserved, Kueue executes all [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue concurrently. These are pluggable AdmissionChecks controllers that can perform validations such as policy checks, compliance, etc.
+- Admission Checks: After the quota is reserved, Kueue executes all [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue concurrently. These are pluggable controllers that can perform validations such as policy checks, compliance, etc.
 These checks can be external or internal and determine if additional criteria are met before the Workload is admitted. The Workload is admitted once all its [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are marked `Ready`.
 
 <h4> Example: Provisioning AdmissionCheck </h4>
 
-Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/), Kueue admissions were mainly based on quota checks - if sufficient quota existed, the workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
+Without AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/), Kueue admissions were mainly based on quota checks - if sufficient quota existed, the Workload was admitted. While quota reservation ensures logical resource availability, it doesn't guarantee physical resources exist to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cloud environments.
 
 Kueue's enhanced admission requires two sequential checks:
 
-- Quota Reservation: Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other workloads from claiming it. This step verifies logical resource availability. <br>
+- Quota Reservation: Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other Workloads from claiming it. This step verifies logical resource availability. <br>
 - Capacity Guarantee: This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to verify physical resource availability. 
   - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/admission-check-controllers/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
   - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
