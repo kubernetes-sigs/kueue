@@ -340,7 +340,7 @@ func fromPreemptionPossibility(preemptionPossibility preemptioncommon.Preemption
 	case preemptioncommon.Reclaim:
 		return reclaim
 	}
-	panic("illegal state")
+	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
 }
 
 func (mode granularMode) flavorAssignmentMode() FlavorAssignmentMode {
@@ -356,7 +356,7 @@ func (mode granularMode) flavorAssignmentMode() FlavorAssignmentMode {
 	case fit:
 		return Fit
 	default:
-		panic("illegal state")
+		panic(fmt.Sprintf("illegal granularMode: %d", mode))
 	}
 }
 
