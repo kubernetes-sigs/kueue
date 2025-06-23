@@ -810,7 +810,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	sortedDomain := s.sortedDomains(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
 
-	sliceCount := podSetSize / sliceSize
+	sliceCount := calculateRequiredSlices(podSetSize, sliceSize)
 	if useBestFitAlgorithm(unconstrained) && topDomain.sliceState >= sliceCount {
 		// optimize the potentially last domain
 		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount)
@@ -855,7 +855,7 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 
 func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count int32, sliceSize int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
-	remainingSlices := count / sliceSize
+	remainingSlices := calculateRequiredSlices(count, sliceSize)
 	for i, domain := range domains {
 		if useBestFitAlgorithm(unconstrained) && domain.sliceState >= remainingSlices {
 			// optimize the last domain
@@ -863,7 +863,12 @@ func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count 
 		}
 
 		if domain.sliceState >= remainingSlices {
-			domain.state = remainingSlices * sliceSize
+			podsInFullSlices := max((remainingSlices-1)*sliceSize, 0)
+			finalSliceSize := count % sliceSize
+			if finalSliceSize == 0 {
+				finalSliceSize = sliceSize
+			}
+			domain.state = podsInFullSlices + finalSliceSize
 			domain.sliceState = remainingSlices
 			result = append(result, domain)
 			return result
@@ -916,6 +921,11 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 		}
 	}
 	return assignment
+}
+
+func calculateRequiredSlices(podsCount, sliceSize int32) int32 {
+	// Rounding up to include any final, partial slice.
+	return (podsCount + sliceSize - 1) / sliceSize
 }
 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *kueue.TopologyAssignment {
