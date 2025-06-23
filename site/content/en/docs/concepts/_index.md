@@ -81,11 +81,13 @@ Kueue's enhanced admission requires two sequential checks:
 - Capacity Guarantee: This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to verify physical resource availability. 
   - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/admission-check-controllers/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
   - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
-    - `Provisioned=true`: Capacity guaranteed
-    - `Provisioned=false`: Scaling in progress (Kueue surfaces ETA via Kubernetes events)
-    - `Failed=true`: Cannot provision
-    - `BookingExpired=true`: Treated same as `Failed=true`  
-    - `CapacityRevoked=true`: Evicts workloads with retry support 
+    - `Provisioned=true`: CA provisioned the capacity and it's ready to use
+    - `Provisioned=false`: Provisioning in progress
+    - `Failed=true`:  CA couldn't provision the capacity
+    - `BookingExpired=true`: CA stopped booking the capacity, it will scale down if there are no Pods running on it  
+    - `CapacityRevoked=true`: CA revokes the capacity, if a Workload is running on it, it will be evicted
+  
+    These conditions only affect non-admitted Workloads. Once admitted, they are ignored.
 
 Let's understand this with a real-world usage - GPU Workload:
 
@@ -103,12 +105,10 @@ Outcome:
 
 <h4> Failure Handling: </h4> 
 
-- If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota, requeues the workload, and triggers exponential backoff retries.
+- If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota immediately, requeues the workload, and triggers exponential backoff retries via [retryStrategy](docs/admission-check-controllers/provisioning/#retry-strategy) in ProvisioningRequestConfig.
 Kueue creates new ProvisioningRequest with `-attempt<N>` suffix each retry.
 
-- For permanent failures the AdmissionCheck is marked `Rejected` and the workload is evicted, requiring user resubmission.
-
-{{% alert title="Note" color="primary" %}} The `KeepQuotaForProvReqRetry` feature gate (v0.9) temporarily preserved quota during retries, but current implementations ALWAYS release quota and requeue workloads on failure.{{% /alert %}}
+- For permanent failures the AdmissionCheck is marked `Rejected`, the Workload is evicted and the quota it reserved is released. The Workload gets deactivated and to requeue it, a user needs to set `.status.active` field to `true`.
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
 
