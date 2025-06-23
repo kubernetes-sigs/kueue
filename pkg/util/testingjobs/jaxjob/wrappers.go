@@ -58,7 +58,7 @@ type JAXReplicaSpecRequirement struct {
 }
 
 func (j *JAXJobWrapper) JAXReplicaSpecs(replicaSpecs ...JAXReplicaSpecRequirement) *JAXJobWrapper {
-	j = j.JAXReplicaSpecsDefault()
+	j.JAXReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name

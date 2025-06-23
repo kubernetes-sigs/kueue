@@ -58,7 +58,7 @@ type PyTorchReplicaSpecRequirement struct {
 }
 
 func (j *PyTorchJobWrapper) PyTorchReplicaSpecs(replicaSpecs ...PyTorchReplicaSpecRequirement) *PyTorchJobWrapper {
-	j = j.PyTorchReplicaSpecsDefault()
+	j.PyTorchReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.PyTorchReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name

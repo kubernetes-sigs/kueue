@@ -56,7 +56,7 @@ type XGBReplicaSpecRequirement struct {
 }
 
 func (j *XGBoostJobWrapper) XGBReplicaSpecs(replicaSpecs ...XGBReplicaSpecRequirement) *XGBoostJobWrapper {
-	j = j.XGBReplicaSpecsDefault()
+	j.XGBReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
