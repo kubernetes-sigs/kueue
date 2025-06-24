@@ -15,7 +15,7 @@ For the ease of setup and use we recommend using at least Kueue v0.11.0 and for 
 
 See [KubeRay Operator Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator) for installation and configuration details of KubeRay Operator.
 
-{{% alert title="Note" color="info" %}}
+{{% alert title="Note" color="primary" %}}
 Before the [ManagedBy feature](https://github.com/ray-project/kuberay/issues/2544) was supported in Kueue (below v0.11.0), the installation of KubeRay Operator in the <b>Manager Cluster</b> must be limited to CRDs only.
 
 To install the CRDs run:
