@@ -747,7 +747,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		if preemptionPossibility == preemptioncommon.Reclaim {
 			mode = reclaim
 		}
-	} else if a.canPreemptWhileBorrowing() && (preemptionPossibility != preemptioncommon.None) {
+	} else if a.canPreemptWhileBorrowing() && (preemptionPossibility != preemptioncommon.NoCandidates) {
 		mode = preempt
 	}
 
