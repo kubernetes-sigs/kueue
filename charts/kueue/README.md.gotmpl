@@ -1,0 +1,96 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+{{ template "chart.homepage" . }}
+
+### Installation
+
+Quick start instructions for the setup and configuration of kueue using Helm.
+
+#### Prerequisites
+
+- [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
+- (Optional) [Cert-manager](https://cert-manager.io/docs/installation/)
+
+#### Installing the chart
+
+##### Install chart using Helm v3.0+
+
+Either clone the kueue repository:
+
+```bash
+$ git clone git@github.com:kubernetes-sigs/kueue.git
+$ cd kueue/charts
+$ helm install kueue kueue/ --create-namespace --namespace kueue-system
+```
+
+Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.3" --create-namespace --namespace=kueue-system
+```
+
+For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
+
+```yaml
+controllerManager:
+  featureGates:
+    - name: TopologyAwareScheduling
+      enabled: true
+  replicas: 2
+  manager:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: "2"
+        memory: 2Gi
+```
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.3" \
+  --create-namespace --namespace=kueue-system \
+  --values overrides.yaml
+```
+
+You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.3" \
+  --create-namespace --namespace=kueue-system \
+  --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
+  --set "controllerManager.featureGates[0].enabled=true"
+```
+
+##### Verify that controller pods are running properly.
+
+```bash
+$ kubectl get deploy -n kueue-system
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+kueue-controller-manager       1/1     1            1           7s
+```
+
+##### Cert Manager
+
+Kueue has support for third-party certificates.
+One can enable this by setting `enableCertManager` to true.
+This will use certManager to generate a secret, inject the CABundles and set up the tls.
+
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/cert_manager/)
+for more information on installing cert manager with our Helm chart.
+
+##### Prometheus
+
+Kueue supports prometheus metrics.
+Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/prometheus/)
+for more information on installing kueue with metrics using our Helm chart.
+
+### Configuration
+
+The following table lists the configurable parameters of the kueue chart and their default values.
+
+{{ template "chart.valuesTable" . }}
