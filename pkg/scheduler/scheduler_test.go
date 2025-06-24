@@ -277,6 +277,72 @@ func TestSchedule(t *testing.T) {
 
 		wantSkippedPreemptions map[string]int
 	}{
+		"use second flavor when the first has no preemption candidates; WhenCanPreempt: Preempt": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.Preempt,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "50").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "100", "0").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "eng-alpha").
+					Queue("other").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("other").
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
+			wantPreempted: sets.New[string](),
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/admitted": {
+					ClusterQueue: "other-alpha",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"eng-alpha/new": {
+					ClusterQueue: "other-alpha",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new"},
+		},
 		"workload fits in single clusterQueue, with check state ready": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
@@ -883,7 +949,7 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha": {"eng-alpha/new"},
 			},
 		},
-		"not enough resources to borrow, fallback to next flavor": {
+		"not enough resources to borrow, fallback to next flavor; WhenCanPreempt: TryNextFlavor": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-alpha").
 					Queue("main").
@@ -2728,6 +2794,65 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
 			},
 		},
+		"with fair sharing: prefer reclamation over cq priority based preemption; with preemption while borrowing": {
+			// We enable fair sharing so that preemption while borrowing is enabled.
+			// Flavor 1, on-demand, requires priority-based preemption in CQ.
+			// Flavor 2, spot, requires reclaim in Cohort.
+			// Flavor 2 is a better assignment, because reclaim is preferred over
+			// priority-based preemption.
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "7").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "7").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "3").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "3").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "8").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-beta/b1"),
+			wantLeft: map[kueue.ClusterQueueReference][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
 		"prefer first preemption flavor when second flavor requires both reclaim and cq priority preemption": {
 			// Flavor 1, on-demand, requires preemption of workload in CQ.
 			// Flavor 2, spot, requires preemption of workload in Cohort and CQ
@@ -3792,7 +3917,10 @@ func TestLastSchedulingContext(t *testing.T) {
 		wantAdmissionsOnSecondSchedule map[string]kueue.Admission
 	}{
 		{
-			name: "some workloads were deleted",
+			name: "scheduling on the first flavor is unblocked after some workloads were deleted",
+			// In this scenario we wait for the first flavor to be unblocked by
+			// removal of workloads. The second flavor cannot be used because
+			// it is noFit.
 			cqs: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("eng-alpha").
 					QueueingStrategy(kueue.BestEffortFIFO).
@@ -3806,7 +3934,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "50", "50").Obj(),
 						*utiltesting.MakeFlavorQuotas("spot").
-							Resource(corev1.ResourceCPU, "0", "0").Obj(),
+							Resource(corev1.ResourceCPU, "10", "0").Obj(),
 					).Obj(),
 			},
 			admittedWorkloads: []kueue.Workload{
