@@ -19,42 +19,43 @@ tags, and then generate with `hack/update-toc.sh`.
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
-    - [Background](#background)
-        - [DRA Example](#dra-example)
-        - [Workload Example](#workload-example)
-        - [Example Driver Cluster Resources](#example-driver-cluster-resources)
-            - [ResourceSlices](#resourceslices)
-            - [DeviceClasses](#deviceclasses)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
+  - [Background](#background)
+    - [DRA Example](#dra-example)
+    - [Workload Example](#workload-example)
+    - [Example Driver Cluster Resources](#example-driver-cluster-resources)
+      - [ResourceSlices](#resourceslices)
+      - [DeviceClasses](#deviceclasses)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-    - [User Stories (Optional)](#user-stories-optional)
-        - [Story 1](#story-1)
-        - [Story 2](#story-2)
-    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-    - [Risks and Mitigations](#risks-and-mitigations)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+    - [Story 2](#story-2)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-    - [DynamicResourceAllocationConfig API](#dynamicresourceallocationconfig-api)
-    - [Device Class Resolution and Ambiguity Handling](#device-class-resolution-and-ambiguity-handling)
-        - [Device Class Mapping Ambiguity](#device-class-mapping-ambiguity)
-    - [Workloads](#workloads)
-    - [Test Plan](#test-plan)
-        - [Prerequisite testing updates](#prerequisite-testing-updates)
-        - [Unit Tests](#unit-tests)
-        - [Integration tests](#integration-tests)
-        - [E2E Test](#e2e-test)
-    - [Graduation Criteria](#graduation-criteria)
-        - [Alpha](#alpha)
-        - [Beta](#beta)
-        - [GA](#ga)
+  - [DynamicResourceAllocationConfig API](#dynamicresourceallocationconfig-api)
+  - [Device Class Resolution and Ambiguity Handling](#device-class-resolution-and-ambiguity-handling)
+    - [Device Class Mapping Ambiguity](#device-class-mapping-ambiguity)
+  - [Workloads](#workloads)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+    - [E2E Test](#e2e-test)
+  - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+    - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-    - [ResourceClaim By Count](#resourceclaim-by-count)
-    - [Using devices in ResourceSlice to Count](#using-devices-in-resourceslice-to-count)
-    - [Using a CEL expression](#using-a-cel-expression)
-    - [Defining DeviceClass mapping in ClusterQuota](#defining-deviceclass-mapping-in-clusterquota)
-    - [Using ResourceFlavor for DeviceClass Mapping](#using-resourceflavor-for-deviceclass-mapping)
+  - [ResourceClaim By Count](#resourceclaim-by-count)
+  - [Using devices in ResourceSlice to Count](#using-devices-in-resourceslice-to-count)
+  - [Using a CEL expression](#using-a-cel-expression)
+  - [Defining DeviceClass mapping in ClusterQuota](#defining-deviceclass-mapping-in-clusterquota)
+  - [Using ResourceFlavor for DeviceClass Mapping](#using-resourceflavor-for-deviceclass-mapping)
+  - [Using ConfigMap for DeviceClass Mapping](#using-configmap-for-deviceclass-mapping)
 <!-- /toc -->
 
 ## Summary
@@ -171,10 +172,11 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 
 This proposal is to extend the APIs for allowing workloads using DRA APIs to be tallied against quota management,
 borrowing and preemptable scheduling. This includes:
-1. Introducing a new API to allow creating a mapping canonical name -> device class names list
-2. Allowing admins to refer to canonical name defined in resource flavor to define nominalQuota. The nominalQuota here
-   will be applied to workloads requesting devices from any DeviceClasses mentioned in the deviceClassNames list for
-   the specific canonical name. More details are documented in [Design Details](#design-details)
+1. Introducing a new API to allow creating a mapping of resource name -> device class names list
+2. Allowing admins to refer to resource name defined in DynamicResourceAllocationConfig in ClusterQueue to define
+   nominalQuota. The nominalQuota here will be applied to workloads requesting devices from any DeviceClasses mentioned
+   in the deviceClassNames list for the specific resource name. More details are documented in
+   [Design Details](#design-details)
 
 ### User Stories (Optional)
 
@@ -189,7 +191,8 @@ queuing, quota management and preemptable workloads for cluster users.
 
 ### Notes/Constraints/Caveats (Optional)
 
-- Device classes mapping to multiple canonical names can create ambiguity during quota enforcement and requires careful
+- The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
+- Device classes mapping to multiple resource names can create ambiguity during quota enforcement and requires careful
   handling.
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
 - This implementation focuses on structured parameters (beta in 1.32 and 1.33) and does not support alpha DRA features
@@ -219,8 +222,12 @@ making the changes dormant for production users. The following sections will exp
 ### DynamicResourceAllocationConfig API
 
 ```golang
-// DynamicResourceAllocationConfig is a singleton CRD that maps device classes to canonical names
-// used in ClusterQueue resource quotas. It is singleton as "default" is the only allowed named for the CRD instance.
+// +genclient
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// DynamicResourceAllocationConfig is a singleton CRD that maps resource names to device classes
+// used in ClusterQueue resource quotas. It is singleton as "default" is the only allowed named for the CRD instance in
+// Kueue namespace.
 type DynamicResourceAllocationConfig struct {
     metav1.TypeMeta   `json:",inline"`
     metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -229,29 +236,30 @@ type DynamicResourceAllocationConfig struct {
     Spec DynamicResourceAllocationConfigSpec `json:"spec"`
 }
 
-// DynamicResourceAllocationConfigSpec defines the mappings between device classes and canonical names
+// DynamicResourceAllocationConfigSpec defines the mappings between resource names and device classes
 type DynamicResourceAllocationConfigSpec struct {
-    // Resources is a list of mappings from canonical names to device classes
-    // +listType=atomic
+    // Resources is a list of mappings from resource name to device classes
+    // +listType=map
+    // +listMapKey=name
     // +kubebuilder:validation:MaxItems=16
-    Resources []Resources `json:"resources"`
+    Resources []DynamicResource `json:"resources"`
 }
 
-// Resources defines a mapping from a resource name to a list of device classes
-type Resources struct {
-    // Name is the resource name that will be referred to in ClusterQueue and Workload status
+// DynamicResource defines a mapping from a resource name to a list of device classes
+type DynamicResource struct {
+    // Name is the resource name that will be referred to in ClusterQueue and Workload admission status.
     Name corev1.ResourceName `json:"name"`
 
     // DeviceClassNames lists the names of all the device classes that will count against
-    // the quota defined for this canonical name
-    // +listType=atomic
+    // the quota defined for this resource name
+    // +listType=set
     // +kubebuilder:validation:MaxItems=8
     DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
 }
 ```
 
 The ResourceFlavor spec will have a field called dynamicResource. The cluster admin has to define the list of
-deviceClasses that will be represented by a canonical name and can be used to define quotas in cluster queue. With this
+deviceClasses that will be represented by a resource name and can be used to define quotas in cluster queue. With this
 a ClusterQueue with nominalQuota can be defined as follows:
 
 ```yaml
@@ -259,9 +267,9 @@ apiVersion: kueue.x-k8s.io/v1alpha1
 kind: DynamicResourceAllocationConfig
 metadata:
   name: "default"  # Fixed name - singleton CR, only one instance allowed
-  namespace: "kube-system"
+  namespace: "kueue-system"
 spec:
-  dynamicResources:
+  resources:
   - name: whole-gpus
     deviceClassNames:
     - gpu.example.com
@@ -307,17 +315,18 @@ is supported in kubernetes, GPUs partitions can be represented by a single devic
 #### Device Class Mapping Ambiguity
 
 Ambiguity occurs when a device class appears in multiple mappings within the DynamicResourceAllocationConfig CR. This
-creates uncertainty at admission time about which canonical resource name and corresponding quota should be used.
+creates uncertainty at admission time about which resource name and corresponding quota should be used.
 
 Example of ambiguous configuration:
 ```yaml
-# Configuration allowing device class to map to multiple canonical names
+# Configuration allowing device class to map to multiple resource names
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: DynamicResourceAllocationConfig
 metadata:
-  name: "cluster-device-mapping"
+  name: "default"
+  namespace: "kueue-system"
 spec:
-  dynamicResources:
+  resources:
   - name: whole-gpus
     deviceClassNames:
     - gpus.example.com          # Appears here
@@ -325,7 +334,7 @@ spec:
     deviceClassNames:
     - gpus.example.com          # And also here - creates ambiguity
 ---
-# ClusterQueue using canonical names from the DynamicResourceAllocationConfig
+# ClusterQueue using resource names from the DynamicResourceAllocationConfig
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
@@ -344,13 +353,13 @@ spec:
         nominalQuota: 3
 ```
 
-When a device class like `gpus.example.com` maps to multiple canonical names (`whole-gpus` and `fast-gpus`), Kueue must
+When a device class like `gpus.example.com` maps to multiple resource names (`whole-gpus` and `fast-gpus`), Kueue must
 determine which quota to use for admission.
 
 Kueue resolves this ambiguity using a top-down flavor matching process:
 
 1. Examine flavors in the order they are listed in the ClusterQueue spec
-2. For each flavor, check if any of its resources match the canonical names that correspond to the requested device
+2. For each flavor, check if any of its resources match the resource names that correspond to the requested device
    class
 3. Select the first flavor that contains a resource mapping to the device class and has sufficient quota available
 
@@ -375,8 +384,8 @@ When a user submits a workload and DynamicResourceAllocation feature gate is on,
 4. Every claim, deviceClassName for each request will be looked at
     1. For the workload a deviceClassMap will be created by:
         1. Retrieving the singleton DynamicResourceAllocationConfig resource (named "default")
-        2. Creating a map from DeviceClass names to canonical resource names using the
-           DynamicResourceAllocationConfig.spec.dynamicResources entries
+        2. Creating a map from DeviceClass names to resource names using the
+           DynamicResourceAllocationConfig.spec.resources entries
         3. For resource claims that are already allocated, Kueue will maintain a mapping called `admittedResourceClaims`
            where the key follows the format `{clusterQueueName}/{resourceClaimNamespace}/{resourceClaimName}`
         4. If a workload is using an already allocated resource claim and the key
@@ -385,7 +394,7 @@ When a user submits a workload and DynamicResourceAllocation feature gate is on,
            map, Kueue will skip counting that claim against quota and automatically admit the workload
         5. This approach ensures that within a single cluster queue, reusing allocated resource claims doesn't consume
            additional quota, while still enforcing quota boundaries between different cluster queues
-    2. For each device class the canonical quota name will be looked up from the deviceClassMap and resource will be
+    2. For each device class the resource name will be looked up from the deviceClassMap and resource will be
        counted against it.
 5. Once the Kueue counts and admits the workloads, it saves the count in workload status. This does not require any API
    change.
@@ -435,9 +444,10 @@ spec:
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: DynamicResourceAllocationConfig # 4.1.1) Singleton CR that defines all device class mappings
 metadata:
-  name: "cluster-device-mapping"
+  name: "default"
+  namespace: "kueue-system"
 spec:
-  dynamicResources:
+  resources:
   - name: whole-gpus
     deviceClassNames:
     - gpu.example.com # 4.1.2) Creating map{"gpu.example.com" -> "whole-gpus"}
@@ -456,7 +466,7 @@ spec:
         nominalQuota: 9
       - name: "memory"
         nominalQuota: "1200Mi"
-      - name: 'whole-gpus' # 4.2) The canonical name from DynamicResourceAllocationConfig
+      - name: 'whole-gpus' # 4.2) The resource name from DynamicResourceAllocationConfig
         nominalQuota: 2
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -464,7 +474,7 @@ kind: ResourceFlavor
 metadata:
   name: "default-gpu-flavor"
 spec:
-  # No dynamicResources field - mapping is now in DynamicResourceAllocationConfig CR
+  # No resources field - mapping is now in DynamicResourceAllocationConfig CR
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: Workload
@@ -680,7 +690,7 @@ count for the device.
 
 ```golang
 type DynamicResourceMapping struct {
-	// Name is the canonical name of this mapping. This will be referred in ClusterQueue
+	// Name is the resource name of this mapping. This will be referred in ClusterQueue
 	// and Workload status
 	Name corev1.ResourceName `json:"name"`
 
@@ -700,8 +710,8 @@ type ResourceFlavorSpec struct {
 }
 ```
 
-This presents a problem where the same canonical name could be used to define DeviceClasses A and B in one ClusterQueue
-and DeviceClasses C, D and E in another ClusterQueue leading to conflicts. Since the mapping canonical name to list of
+This presents a problem where the same resource name could be used to define DeviceClasses A and B in one ClusterQueue
+and DeviceClasses C, D and E in another ClusterQueue leading to conflicts. Since the mapping resource name to list of
 DeviceClasses is not shared, it is hard to implement borrowing as it becomes very non-deterministic. Hence, this
 approach
 is not feasible.
@@ -713,7 +723,7 @@ a separate DynamicResourceAllocationConfig CRD:
 
 ```golang
 type DynamicResourceMapping struct {
-	// Name is the canonical name of this mapping. This will be referred in ClusterQueue
+	// Name is the resource name of this mapping. This will be referred in ClusterQueue
 	// and Workload status
 	Name corev1.ResourceName `json:"name"`
 
@@ -740,3 +750,11 @@ administrators because the same resource name would have different meanings depe
 referenced. The singleton DynamicResourceAllocationConfig CRD approach addresses this by providing a single source of
 truth for all device class mappings in the cluster.
 
+### Using ConfigMap for DeviceClass Mapping
+
+The existing configmap which holds the configuration for `kueue-controller-manager` could be used to define the resource
+name to device class mappings. This would be a single source of truth for all the device class mappings in the cluster.
+
+However, this approach is not ideal because:
+1. The global configuration prevents dynamic Kueue configuration changes without needing to restart kueue-controller-manager
+2. The configmap is already in beta, adding changes for alpha level feature to it is not preferred
