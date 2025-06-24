@@ -330,7 +330,7 @@ rules:
     resources:
       - rayclusters/status
       - rayjobs/status
-      - rayservices/finalizers
+      - rayservices/status
     verbs:
       - get
       - patch
