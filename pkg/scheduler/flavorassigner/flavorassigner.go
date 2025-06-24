@@ -330,7 +330,7 @@ const (
 	fit
 )
 
-func fromPreemptionPosibility(preemptionPossibility preemptioncommon.PreemptionPossibility) granularMode {
+func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) granularMode {
 	switch preemptionPossibility {
 	case preemptioncommon.NoCandidates:
 		return noPreemptionCandidates
@@ -768,7 +768,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
 	if val <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
-		mode := fromPreemptionPosibility(a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val))
+		mode := fromPreemptionPossibility(a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val))
 		return mode, borrow, &status
 	}
 	return noFit, borrow, &status
