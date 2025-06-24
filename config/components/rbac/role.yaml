@@ -307,6 +307,7 @@ rules:
   resources:
   - rayclusters
   - rayjobs
+  - rayservices
   verbs:
   - delete
   - get
