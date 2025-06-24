@@ -15,7 +15,7 @@ For the ease of setup and use we recommend using at least Kueue v0.11.0 and for 
 
 See [Trainer Installation](https://www.kubeflow.org/docs/components/training/installation/#installing-the-training-operator) for installation and configuration details of Trainer.
 
-{{% alert title="Note" color="info" %}}
+{{% alert title="Note" color="primary" %}}
 Before the [ManagedBy feature](https://github.com/kubeflow/trainer/issues/2193) was supported in Kueue (below v0.11.0), the installation of Kubeflow Trainer in the <b>Manager Cluster</b> must be limited to CRDs only.
 
 To install the CRDs run:
