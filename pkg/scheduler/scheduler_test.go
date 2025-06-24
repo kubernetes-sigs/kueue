@@ -3632,22 +3632,6 @@ func TestLastSchedulingContext(t *testing.T) {
 		utiltesting.MakeResourceFlavor("on-demand").Obj(),
 		utiltesting.MakeResourceFlavor("spot").Obj(),
 	}
-	clusterQueue := []kueue.ClusterQueue{
-		*utiltesting.MakeClusterQueue("eng-alpha").
-			QueueingStrategy(kueue.BestEffortFIFO).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
-			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
-			}).
-			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("on-demand").
-					Resource(corev1.ResourceCPU, "50", "50").Obj(),
-				*utiltesting.MakeFlavorQuotas("spot").
-					Resource(corev1.ResourceCPU, "100", "0").Obj(),
-			).Obj(),
-	}
 	clusterQueueCohort := []kueue.ClusterQueue{
 		*utiltesting.MakeClusterQueue("eng-cohort-alpha").
 			Cohort("cohort").
@@ -3740,12 +3724,6 @@ func TestLastSchedulingContext(t *testing.T) {
 			},
 		},
 	}
-	wl := utiltesting.MakeWorkload("low-1", "default").
-		Queue("main").
-		Request(corev1.ResourceCPU, "50").
-		ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
-		Admitted(true).
-		Obj()
 	cases := []struct {
 		name                           string
 		cqs                            []kueue.ClusterQueue
@@ -3758,9 +3736,29 @@ func TestLastSchedulingContext(t *testing.T) {
 	}{
 		{
 			name: "scheduling context not changed: use next flavor if can't preempt",
-			cqs:  clusterQueue,
+			cqs: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-alpha").
+					QueueingStrategy(kueue.BestEffortFIFO).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.Preempt,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "50").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "100", "0").Obj(),
+					).Obj(),
+			},
 			admittedWorkloads: []kueue.Workload{
-				*wl,
+				utiltesting.MakeWorkload("low-1", "default").
+					Queue("main").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Workload,
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "default").
@@ -3778,9 +3776,29 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 		{
 			name: "some workloads were deleted",
-			cqs:  clusterQueue,
+			cqs: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-alpha").
+					QueueingStrategy(kueue.BestEffortFIFO).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.Preempt,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "50").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "100", "0").Obj(),
+					).Obj(),
+			},
 			admittedWorkloads: []kueue.Workload{
-				*wl,
+				utiltesting.MakeWorkload("low-1", "default").
+					Queue("main").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Workload,
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("preemptor", "default").
@@ -3789,7 +3807,12 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			deleteWorkloads: []kueue.Workload{
-				*wl,
+				utiltesting.MakeWorkload("low-1", "default").
+					Queue("main").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Workload,
 			},
 			wantPreempted:                 sets.Set[string]{},
 			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
