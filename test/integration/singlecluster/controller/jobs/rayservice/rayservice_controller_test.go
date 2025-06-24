@@ -420,7 +420,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		}),
 		ginkgo.Entry("Running RayService", podsReadyTestSpec{
 			jobStatus: rayv1.RayServiceStatuses{
-				State: rayv1.Ready,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(rayv1.RayServiceReady),
+						Status: metav1.ConditionTrue,
+						Reason: string(rayv1.NonZeroServeEndpoints),
+					},
+				},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -438,8 +444,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "Not all pods are ready or succeeded",
 			},
 			jobStatus: rayv1.RayServiceStatuses{
-
-				State: rayv1.Ready,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(rayv1.RayServiceReady),
+						Status: metav1.ConditionTrue,
+						Reason: string(rayv1.NonZeroServeEndpoints),
+					},
+				},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -450,7 +461,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		}),
 		ginkgo.Entry("Job suspended; PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &rayv1.RayServiceStatuses{
-				State: rayv1.Ready,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(rayv1.RayServiceReady),
+						Status: metav1.ConditionTrue,
+						Reason: string(rayv1.NonZeroServeEndpoints),
+					},
+				},
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -459,8 +476,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: rayv1.RayServiceStatuses{
-
-				State: rayv1.Ready,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(rayv1.RayServiceReady),
+						Status: metav1.ConditionTrue,
+						Reason: string(rayv1.NonZeroServeEndpoints),
+					},
+				},
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{
@@ -542,7 +564,7 @@ var _ = ginkgo.Describe("RayService Job controller interacting with scheduler", 
 		createdJob2 := &rayv1.RayService{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob2)).Should(gomega.Succeed())
-			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob2.Spec.RayClusterSpec.Suspend).Should(gomega.Equal(ptr.To(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
