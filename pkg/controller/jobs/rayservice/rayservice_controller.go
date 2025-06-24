@@ -57,6 +57,15 @@ func init() {
 	}))
 }
 
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=ray.io,resources=rayservices,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=rayservices/status,verbs=get;patch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ray.io,resources=rayservices/finalizers,verbs=get;update
 func NewJob() jobframework.GenericJob {
 	return &RayService{}
 }
