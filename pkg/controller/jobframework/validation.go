@@ -58,6 +58,7 @@ var (
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
 		corev1.SchemeGroupVersion.WithKind("Pod").String(),
 		rayv1.SchemeGroupVersion.WithKind("RayCluster").String(),
+		rayv1.SchemeGroupVersion.WithKind("RayService").String(),
 		awv1beta2.GroupVersion.WithKind(awv1beta2.AppWrapperKind).String(),
 	)
 )

@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rayservice
 
 import (
@@ -47,7 +63,7 @@ func TestPodSets(t *testing.T) {
 		enableTopologyAwareScheduling bool
 	}{
 		"no annotations": {
-			rayService: (*RayService)(testingrayutil.MakeService("rayservice", "ns").
+			rayService: (*RayService)(testingrayutil.MakeRayService("rayservice", "ns").
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -87,7 +103,7 @@ func TestPodSets(t *testing.T) {
 			enableTopologyAwareScheduling: false,
 		},
 		"with required topology annotation": {
-			rayService: (*RayService)(testingrayutil.MakeService("rayservice", "ns").
+			rayService: (*RayService)(testingrayutil.MakeRayService("rayservice", "ns").
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -141,7 +157,7 @@ func TestPodSets(t *testing.T) {
 			enableTopologyAwareScheduling: true,
 		},
 		"with preferred topology annotation": {
-			rayService: (*RayService)(testingrayutil.MakeService("rayservice", "ns").
+			rayService: (*RayService)(testingrayutil.MakeRayService("rayservice", "ns").
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -195,7 +211,7 @@ func TestPodSets(t *testing.T) {
 			enableTopologyAwareScheduling: true,
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
-			rayService: (*RayService)(testingrayutil.MakeService("rayservice", "ns").
+			rayService: (*RayService)(testingrayutil.MakeRayService("rayservice", "ns").
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -283,7 +299,7 @@ func TestReconciler(t *testing.T) {
 	testStartTime := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(testStartTime)
 
-	baseJobWrapper := testingrayutil.MakeService("job", "ns").
+	baseJobWrapper := testingrayutil.MakeRayService("job", "ns").
 		Suspend(true).
 		Queue("foo").
 		RequestHead(corev1.ResourceCPU, "10").

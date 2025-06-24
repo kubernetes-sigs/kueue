@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rayservice
 
 import (
@@ -30,28 +46,28 @@ func TestValidateDefault(t *testing.T) {
 		defaultLqExist       bool
 	}{
 		"unmanaged": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Suspend(false).
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Suspend(false).
 				Obj(),
 		},
 		"managed - by config": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Suspend(false).
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Suspend(true).
 				Obj(),
 			manageAll: true,
 		},
 		"managed - by queue": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				Suspend(false).
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				Suspend(true).
 				Obj(),
@@ -59,24 +75,24 @@ func TestValidateDefault(t *testing.T) {
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
-			oldJob:               testingrayutil.MakeService("test-job", "default").Obj(),
-			newJob: testingrayutil.MakeService("test-job", "default").
+			oldJob:               testingrayutil.MakeRayService("test-job", "default").Obj(),
+			newJob: testingrayutil.MakeRayService("test-job", "default").
 				Queue("default").
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
-			oldJob:               testingrayutil.MakeService("test-job", "").Queue("test-queue").Obj(),
-			newJob: testingrayutil.MakeService("test-job", "").
+			oldJob:               testingrayutil.MakeRayService("test-job", "").Queue("test-queue").Obj(),
+			newJob: testingrayutil.MakeRayService("test-job", "").
 				Queue("test-queue").
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       false,
-			oldJob:               testingrayutil.MakeService("test-job", "").Obj(),
-			newJob: testingrayutil.MakeService("test-job", "").
+			oldJob:               testingrayutil.MakeRayService("test-job", "").Obj(),
+			newJob: testingrayutil.MakeRayService("test-job", "").
 				Obj(),
 		},
 	}
@@ -123,12 +139,12 @@ func TestValidateCreate(t *testing.T) {
 		wantErr   error
 	}{
 		"invalid unmanaged": {
-			job: testingrayutil.MakeService("job", "ns").
+			job: testingrayutil.MakeRayService("job", "ns").
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - has auto scaler": {
-			job: testingrayutil.MakeService("job", "ns").Queue("queue").
+			job: testingrayutil.MakeRayService("job", "ns").Queue("queue").
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -136,7 +152,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
-			job: testingrayutil.MakeService("job", "ns").Queue("queue").
+			job: testingrayutil.MakeRayService("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -144,7 +160,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
-			job: testingrayutil.MakeService("job", "ns").Queue("queue").
+			job: testingrayutil.MakeRayService("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
 				}).
@@ -154,7 +170,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"valid topology request": {
-			job: testingrayutil.MakeService("rayservice", "ns").Queue("queue").
+			job: testingrayutil.MakeRayService("rayservice", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
@@ -190,7 +206,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"invalid topology request": {
-			job: testingrayutil.MakeService("rayservice", "ns").Queue("queue").
+			job: testingrayutil.MakeRayService("rayservice", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
@@ -251,18 +267,18 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr   error
 	}{
 		"invalid unmanaged": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - queue name should not change while unsuspended": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				Suspend(false).
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue2").
 				Suspend(false).
 				Obj(),
@@ -271,22 +287,22 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				Suspend(true).
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue2").
 				Suspend(true).
 				Obj(),
 			wantErr: nil,
 		},
 		"priorityClassName is mutable": {
-			oldJob: testingrayutil.MakeService("job", "ns").
+			oldJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				WorkloadPriorityClass("test-1").
 				Obj(),
-			newJob: testingrayutil.MakeService("job", "ns").
+			newJob: testingrayutil.MakeRayService("job", "ns").
 				Queue("queue").
 				WorkloadPriorityClass("test-2").
 				Obj(),

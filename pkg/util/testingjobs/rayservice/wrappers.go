@@ -42,8 +42,8 @@ func serveConfigV2Template(serveAppName string) string {
             num_cpus: 0.1`, serveAppName)
 }
 
-// MakeService creates a wrapper for rayService
-func MakeService(name, ns string) *ServiceWrapper {
+// MakeRayService creates a wrapper for rayService
+func MakeRayService(name, ns string) *ServiceWrapper {
 	serveConfigV2 := serveConfigV2Template("test-rayservice")
 	return &ServiceWrapper{rayv1.RayService{
 		ObjectMeta: metav1.ObjectMeta{
