@@ -26,17 +26,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	jaxjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
+	pytorchjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JAX integration", func() {
+var _ = ginkgo.Describe("PyTorch integration", func() {
 	const (
-		resourceFlavorName = "jax-rf"
-		clusterQueueName   = "jax-cq"
-		localQueueName     = "jax-lq"
+		resourceFlavorName = "pytorch-rf"
+		clusterQueueName   = "pytorch-cq"
+		localQueueName     = "pytorch-lq"
 	)
 
 	var (
@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("JAX integration", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
 
 		rf = testing.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
@@ -69,47 +69,53 @@ var _ = ginkgo.Describe("JAX integration", func() {
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllJAXJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllPyTorchJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("JAX created", func() {
+	ginkgo.When("PyTorch created", func() {
 		ginkgo.It("should admit group with leader only", func() {
-			jax := jaxjobtesting.MakeJAXJob("jax-simple", ns.Name).
-				Label("kueue.x-k8s.io/queue-name", localQueueName).
+			pytorch := pytorchjobtesting.MakePyTorchJob("pytorch-simple", ns.Name).
+				Queue(localQueueName).
 				Suspend(false).
 				SetTypeMeta().
-				JAXReplicaSpecsDefault().
-				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
-				Image(kftraining.JAXJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
-				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
-				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
+				PyTorchReplicaSpecsDefault().
+				Parallelism(2).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "1").
+				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
 
-			ginkgo.By("Create a JAX", func() {
-				util.MustCreate(ctx, k8sClient, jax)
+			ginkgo.By("Create a PyTorch", func() {
+				util.MustCreate(ctx, k8sClient, pytorch)
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
-				createdJAX := &kftraining.JAXJob{}
+				createdPyTorch := &kftraining.PyTorchJob{}
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					// Fetch the JAX object
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(jax), createdJAX)
-					g.Expect(err).ToNot(gomega.HaveOccurred(), "Failed to fetch JAX")
+					// Fetch the PyTorch object
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pytorch), createdPyTorch)
+					g.Expect(err).ToNot(gomega.HaveOccurred(), "Failed to fetch PyTorch")
 
 					// Check the worker replica status exists
-					workerReplicaStatus, ok := createdJAX.Status.ReplicaStatuses[kftraining.JAXJobReplicaTypeWorker]
-					g.Expect(ok).To(gomega.BeTrue(), "Worker replica status not found in JAX status")
+					masterReplicaStatus, ok := createdPyTorch.Status.ReplicaStatuses[kftraining.PyTorchJobReplicaTypeMaster]
+					g.Expect(ok).To(gomega.BeTrue(), "Master replica status not found in PyTorch status")
+					workerReplicaStatus, ok := createdPyTorch.Status.ReplicaStatuses[kftraining.PyTorchJobReplicaTypeWorker]
+					g.Expect(ok).To(gomega.BeTrue(), "Worker replica status not found in PyTorch status")
 
-					// Check the number of active worker replicas
-					g.Expect(workerReplicaStatus.Active).To(gomega.Equal(int32(2)), "Unexpected number of active worker replicas")
+					// Check the number of active replicas
+					g.Expect(masterReplicaStatus.Active).To(gomega.Equal(int32(1)), "Unexpected number of active %s replicas", kftraining.PyTorchJobReplicaTypeMaster)
+					g.Expect(workerReplicaStatus.Active).To(gomega.Equal(int32(2)), "Unexpected number of active %s replicas", kftraining.PyTorchJobReplicaTypeWorker)
 
-					// Ensure JAX job has "Running" condition with status "True"
-					g.Expect(createdJAX.Status.Conditions).To(gomega.ContainElements(
+					// Ensure PyTorch job has "Running" condition with status "True"
+					g.Expect(createdPyTorch.Status.Conditions).To(gomega.ContainElements(
 						gomega.BeComparableTo(kftraining.JobCondition{
 							Type:   kftraining.JobRunning,
 							Status: corev1.ConditionTrue,
@@ -119,7 +125,7 @@ var _ = ginkgo.Describe("JAX integration", func() {
 			})
 
 			wlLookupKey := types.NamespacedName{
-				Name:      jaxjob.GetWorkloadNameForJAXJob(jax.Name, jax.UID),
+				Name:      pytorchjob.GetWorkloadNameForPyTorchJob(pytorch.Name, pytorch.UID),
 				Namespace: ns.Name,
 			}
 			createdWorkload := &kueue.Workload{}
@@ -133,13 +139,13 @@ var _ = ginkgo.Describe("JAX integration", func() {
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 3, 0, client.InNamespace(ns.Name))
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
 			})
 
-			ginkgo.By("Delete the JAX", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, jax, true)
+			ginkgo.By("Delete the PyTorch", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, pytorch, true)
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
