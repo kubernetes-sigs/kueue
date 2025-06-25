@@ -104,6 +104,20 @@ updates:
           - "minor"
           - "patch"
 
+  # Maintain npm dependencies for KueueViz frontend cypress e2e tests
+  - package-ecosystem: "npm"
+    directory: "/test/e2e/kueueviz"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+    groups:
+      all:
+        update-types:
+          - "minor"
+          - "patch"
+
   # Maintain docker dependencies for KueueViz frontend
   - package-ecosystem: "docker"
     directory: "/cmd/kueueviz/frontend"
