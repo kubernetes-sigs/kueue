@@ -335,8 +335,8 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(CHART_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="v?[0-9]+\.[0-9]+\.[0-9]+/--version="$(CHART_VERSION)/g' -i charts/kueue/README.md -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/KUEUE_VERSION="[0-9]+\.[0-9]+\.[0-9]+/KUEUE_VERSION="$(CHART_VERSION)/g' -i cmd/kueueviz/INSTALL.md
-	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
-	@$(call clean-manifests)
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(CHART_VERSION)"' -i charts/kueue/Chart.yaml
+	$(YQ) e '.controllerManager.manager.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.backend.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.frontend.image.tag = "$(RELEASE_BRANCH)"' -i charts/kueue/values.yaml
 
 .PHONY: update-security-insights
 update-security-insights: yq
