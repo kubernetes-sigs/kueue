@@ -27,9 +27,7 @@
     "react-toastify": "^11.0.5"
   },
   "devDependencies": {
-    "@testing-library/cypress": "^10.0.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "cypress": "^14.1.0",
     "depcheck": "^1.4.7",
     "serve": "^14.2.4",
     "start-server-and-test": "^2.0.10",
