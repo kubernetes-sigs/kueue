@@ -53,7 +53,7 @@ For a job to be subject to multi cluster dispatching, you need to assign it to a
 MultiKueue supports a couple of workloads.
 You can learn how to:
 - [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
-- [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/deployment).
+- [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
 - [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
 - [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
 - [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
