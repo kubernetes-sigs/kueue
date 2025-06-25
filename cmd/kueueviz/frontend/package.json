@@ -13,7 +13,7 @@
     "check-unused": "depcheck"
   },
   "dependencies": {
-    "@mui/icons-material": "^7.0.1",
+    "@mui/icons-material": "^7.1.2",
     "@mui/material": "^7.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -21,7 +21,7 @@
     "react-toastify": "^11.0.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^4.6.0",
     "depcheck": "^1.4.7",
     "vite": "^6.2.1"
   },
