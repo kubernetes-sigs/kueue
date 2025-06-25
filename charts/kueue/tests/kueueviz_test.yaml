@@ -22,7 +22,7 @@ tests:
       enableKueueViz: true
       kueueViz:
         backend:
-          priorityClassName: ""
+          priorityClassName:
     asserts:
       - notExists:
           path: spec.template.spec.priorityClassName
@@ -43,7 +43,7 @@ tests:
       enableKueueViz: true
       kueueViz:
         frontend:
-          priorityClassName: ""
+          priorityClassName:
     asserts:
       - notExists:
           path: spec.template.spec.priorityClassName
