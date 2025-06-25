@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/util"
@@ -67,6 +68,8 @@ var (
 	managerRestClient *rest.RESTClient
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
+
+	defaultManagerKueueCfg *v1beta1.Configuration
 )
 
 func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -317,6 +320,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
 })
 
 var _ = ginkgo.AfterSuite(func() {
@@ -325,4 +330,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
 	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+
+	util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+	util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
 })
