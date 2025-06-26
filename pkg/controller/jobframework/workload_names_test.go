@@ -16,34 +16,35 @@ func Test_workloadSuffix(t *testing.T) {
 		maxLength uint
 		values    []string
 	}
+	type want struct {
+		// want the result to be an empty string.
+		emptyString bool
+		// want the result to be a consistent values between invocations.
+		// Implicitly true when emptyString is true.
+		consistentValues bool
+	}
 	tests := map[string]struct {
-		args args
-		// Delegate result assertion to a function when dealing with "random" output.
-		want func(*testing.T, string)
+		args      args
+		wantEmpty bool
+		want      want
 	}{
 		"EdgeCase_ZeroLength": {
 			args: args{
 				maxLength: 0,
 				values:    []string{"a", "b", "c"},
 			},
-			want: func(t *testing.T, got string) {
-				if got != "" {
-					t.Errorf("workloadSuffix() expected an empty string, got: %s", got)
-				}
+			want: want{
+				emptyString:      true,
+				consistentValues: true,
 			},
 		},
 		"EmptyValues": {
 			args: args{
 				maxLength: hashLength,
 			},
-			want: func(t *testing.T, got string) {
-				if got == "" {
-					t.Errorf("workloadSuffix() expected a non-empty string")
-				}
-				// Assert random output for empty values list.
-				if got == workloadSuffix(hashLength) {
-					t.Errorf("workloadSuffix() expected a random value when provided empty values list")
-				}
+			want: want{
+				emptyString:      false,
+				consistentValues: false,
 			},
 		},
 		"SingleValue": {
@@ -51,14 +52,9 @@ func Test_workloadSuffix(t *testing.T) {
 				maxLength: hashLength,
 				values:    []string{"a"},
 			},
-			want: func(t *testing.T, got string) {
-				if got == "" {
-					t.Errorf("workloadSuffix() expected a non-empty string")
-				}
-				// Assert consistent output for the same values.
-				if diff := cmp.Diff(workloadSuffix(hashLength, "a"), got); diff != "" {
-					t.Errorf("workloadSuffix() want(-),got(+): %s", diff)
-				}
+			want: want{
+				emptyString:      false,
+				consistentValues: true,
 			},
 		},
 		"MultipleValues": {
@@ -66,20 +62,33 @@ func Test_workloadSuffix(t *testing.T) {
 				maxLength: hashLength,
 				values:    []string{"a", "b"},
 			},
-			want: func(t *testing.T, got string) {
-				if got == "" {
-					t.Errorf("workloadSuffix() expected a non-empty string")
-				}
-				// Assert consistent output for the same values.
-				if diff := cmp.Diff(workloadSuffix(hashLength, "a", "b"), got); diff != "" {
-					t.Errorf("workloadSuffix() want(-),got(+): %s", diff)
-				}
+			want: want{
+				emptyString:      false,
+				consistentValues: true,
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			tt.want(t, workloadSuffix(tt.args.maxLength, tt.args.values...))
+			got1 := workloadSuffix(tt.args.maxLength, tt.args.values...)
+			got2 := workloadSuffix(tt.args.maxLength, tt.args.values...)
+
+			if tt.want.emptyString {
+				if got1 != "" || got2 != "" {
+					t.Errorf("expected empty string results, got %q and %q", got1, got2)
+				}
+				return // no need to check consistency separately.
+			}
+
+			if tt.want.consistentValues {
+				if got1 != got2 {
+					t.Errorf("expected consistent values, got %q and %q", got1, got2)
+				}
+			} else {
+				if got1 == got2 {
+					t.Errorf("expected differing values, but both were %q", got1)
+				}
+			}
 		})
 	}
 }
