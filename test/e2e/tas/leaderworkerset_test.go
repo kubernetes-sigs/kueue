@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: util.E2eTestAgnHostImage,
+								Image: util.GetAgnHostImage(),
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{

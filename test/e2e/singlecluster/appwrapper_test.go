@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
-					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					SetTypeMeta().Obj(),
 			}).
 			Queue(localQueueName).
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("AppWrapper", func() {
 			Suspend(true).
 			Component(awtesting.Component{
 				Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					TerminationGracePeriod(1).
 					Replicas(3).

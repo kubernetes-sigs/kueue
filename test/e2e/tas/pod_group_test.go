@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				Queue("test-queue").
 				RequestAndLimit(extraResource, "1").
 				Limit(extraResource, "1").
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 

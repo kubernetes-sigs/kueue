@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 						RequestAndLimit(corev1.ResourceCPU, "200m").
 						RequestAndLimit(extraResource, "1").
 						Suspend(false).
-						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 						SetTypeMeta().Obj(),
 				}).
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Suspend(false).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				SetTypeMeta().
 				Obj()
 			aw := awtesting.MakeAppWrapper("aw-ranks-job", ns.Name).

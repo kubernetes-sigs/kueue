@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("Should only admit a complete group", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				MakeGroup(2)
@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "2").
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass("high").
 				RequestAndLimit(corev1.ResourceCPU, "1").

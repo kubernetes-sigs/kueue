@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
 				testJob = testingjob.MakeJob("test-job", ns.Name).
 					Suspend(false).
-					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testJob)).Should(gomega.Succeed())
 			})
@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						Parallelism(int32(numPods)).
 						Completions(int32(numPods)).
 						Suspend(false).
-						Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						SetTypeMeta().Obj(),
 				}).
 				Suspend(false).
@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 								Replicas:    2,
 								Parallelism: 2,
 								Completions: 2,
-								Image:       util.E2eTestAgnHostImage,
+								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 							},
 						).
@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 								Replicas:    2,
 								Parallelism: 2,
 								Completions: 2,
-								Image:       util.E2eTestAgnHostImage,
+								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 								Labels: map[string]string{
 									controllerconstants.QueueLabel: localQueue.Name,
@@ -328,7 +328,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Labels: map[string]string{
 							controllerconstants.QueueLabel: localQueue.Name,
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var podLookupKey types.NamespacedName
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", ns.Name).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testPod)).Should(gomega.Succeed())
 			})
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var podLookupKey types.NamespacedName
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", "kube-system").
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var testDeploy *appsv1.Deployment
 			ginkgo.By("creating a deployment without a queue name", func() {
 				testDeploy = testingdeploy.MakeDeployment("test-deploy", ns.Name).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
@@ -462,7 +462,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var testDeploy *appsv1.Deployment
 			ginkgo.By("creating a deployment without a queue name in the kube-system namespace", func() {
 				testDeploy = testingdeploy.MakeDeployment("test-deploy", "kube-system").
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					TerminationGracePeriod(1).
@@ -496,7 +496,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 		ginkgo.It("should suspend the pods created by a StatefulSet in the test namespace without queue-name label", func() {
 			sts := testingsts.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(3).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
@@ -578,7 +578,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var testSts *appsv1.StatefulSet
 			ginkgo.By("creating a StatefulSet without a queue name in the kube-system namespace", func() {
 				testSts = testingsts.MakeStatefulSet("test-sts", "kube-system").
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
@@ -617,7 +617,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				Suspend(false).
 				Component(awtesting.Component{
 					Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-						Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "200m").
 						TerminationGracePeriod(1).
 						Replicas(3).
@@ -687,7 +687,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 		ginkgo.It("should not suspend the pods created by a LeaderWorkerSet in the test namespace with queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -754,7 +754,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 		ginkgo.It("should suspend the pods created by a LeaderWorkerSet in the test namespace without queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -872,7 +872,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 								Replicas:    2,
 								Parallelism: 2,
 								Completions: 2,
-								Image:       util.E2eTestAgnHostImage,
+								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 							},
 						).
