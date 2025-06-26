@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"os"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -55,14 +57,16 @@ import (
 
 var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 	var (
-		ns           *corev1.Namespace
-		defaultRf    *kueue.ResourceFlavor
-		localQueue   *kueue.LocalQueue
-		clusterQueue *kueue.ClusterQueue
+		ns              *corev1.Namespace
+		defaultRf       *kueue.ResourceFlavor
+		localQueue      *kueue.LocalQueue
+		clusterQueue    *kueue.ClusterQueue
+		kindClusterName string
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(kindClusterName, func(cfg *config.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 		})
 	})
@@ -93,7 +97,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var jobLookupKey types.NamespacedName
 
 			ginkgo.By("setting local queue defulting as false", func() {
-				updateKueueConfiguration(kindClusterName, func(cfg *config.Configuration) {
+				util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 					cfg.FeatureGates = map[string]bool{string(features.LocalQueueDefaulting): false}
 					cfg.ManageJobsWithoutQueueName = true
 				})
@@ -129,7 +133,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("setting feature gates back to its original state", func() {
-				updateKueueConfiguration(kindClusterName, func(cfg *config.Configuration) {
+				util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 					cfg.ManageJobsWithoutQueueName = true
 				})
 			})
@@ -908,14 +912,16 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration", ginkgo.Ordered, func() {
 	var (
-		ns           *corev1.Namespace
-		defaultRf    *kueue.ResourceFlavor
-		localQueue   *kueue.LocalQueue
-		clusterQueue *kueue.ClusterQueue
+		ns              *corev1.Namespace
+		defaultRf       *kueue.ResourceFlavor
+		localQueue      *kueue.LocalQueue
+		clusterQueue    *kueue.ClusterQueue
+		kindClusterName string
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(kindClusterName, func(cfg *config.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.Integrations.Frameworks = slices.Filter(nil, cfg.Integrations.Frameworks, func(framework string) bool {
 				return framework != jobset.FrameworkName

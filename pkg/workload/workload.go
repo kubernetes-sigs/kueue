@@ -871,6 +871,14 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Worklo
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
 }
 
+// ResetMultiKueueClusterName resets the ClusterName and the NominatedClusterNames for the workload with SSA.
+func ResetMultiKueueClusterName(ctx context.Context, c client.Client, w *kueue.Workload) error {
+	patch := BaseSSAWorkload(w)
+	patch.Status.ClusterName = nil
+	patch.Status.NominatedClusterNames = nil
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+}
+
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
 // having the same length and all keys have the same value.
 func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {

@@ -282,7 +282,6 @@ multiKueue:
   origin: multikueue-manager1
   workerLostTimeout: 10m
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
-  dispatcherRoundTimeout: 10m
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -410,11 +409,10 @@ objectRetentionPolicies:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval:             &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:                 ptr.To(configapi.DefaultMultiKueueOrigin),
-		WorkerLostTimeout:      &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:         ptr.To(string(configapi.MultiKueueDispatcherModeAllClusters)),
-		DispatcherRoundTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueDispatcherRoundTimeout},
+		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultWaitForPodsReady := &configapi.WaitForPodsReady{}
@@ -907,11 +905,10 @@ objectRetentionPolicies:
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:             &metav1.Duration{Duration: 90 * time.Second},
-					Origin:                 ptr.To("multikueue-manager1"),
-					WorkerLostTimeout:      &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:         ptr.To(string(configapi.MultiKueueDispatcherModeIncremental)),
-					DispatcherRoundTimeout: &metav1.Duration{Duration: 2 * configapi.DefaultMultiKueueDispatcherRoundTimeout},
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
@@ -1105,11 +1102,10 @@ func TestEncode(t *testing.T) {
 					"clusterQueues":         map[string]any{"maxCount": int64(10)},
 				},
 				"multiKueue": map[string]any{
-					"gcInterval":             "1m0s",
-					"origin":                 "multikueue",
-					"workerLostTimeout":      "15m0s",
-					"dispatcherName":         string(configapi.MultiKueueDispatcherModeAllClusters),
-					"dispatcherRoundTimeout": "5m0s",
+					"gcInterval":        "1m0s",
+					"origin":            "multikueue",
+					"workerLostTimeout": "15m0s",
+					"dispatcherName":    string(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				"waitForPodsReady": map[string]any{},
 			},

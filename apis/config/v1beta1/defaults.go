@@ -53,7 +53,6 @@ const (
 	DefaultRequeuingBackoffBaseSeconds                  = 60
 	DefaultRequeuingBackoffMaxSeconds                   = 3600
 	DefaultResourceTransformationStrategy               = Retain
-	DefaultMultiKueueDispatcherRoundTimeout             = 5 * time.Minute
 )
 
 func getOperatorNamespace() string {
@@ -130,8 +129,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
 	cfg.MultiKueue.Origin = ptr.To(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
-	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllClusters))
-	cfg.MultiKueue.DispatcherRoundTimeout = cmp.Or(cfg.MultiKueue.DispatcherRoundTimeout, &metav1.Duration{Duration: DefaultMultiKueueDispatcherRoundTimeout})
+	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllAtOnce))
 
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}

@@ -19,6 +19,7 @@ package multikueue
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -462,6 +464,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -526,6 +529,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -594,6 +598,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -665,6 +670,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -1020,6 +1026,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -1117,7 +1124,7 @@ func TestWlReconcile(t *testing.T) {
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, config.MultiKueueDispatcherModeAllClusters, defaultDispatcherRoundTimeout, WithClock(t, fakeClock))
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, config.MultiKueueDispatcherModeAllAtOnce, WithClock(t, fakeClock))
 
 			for _, val := range tc.managersDeletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{
@@ -1204,11 +1211,15 @@ type createCall struct {
 
 func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	const externalMultiKueueDispatcherController = "external.com/mk-dispatcher"
-	const testDefaultDispatcherRoundTime = 2 * time.Second
 
-	remote1 := "cluster1"
-	remote2 := "cluster2"
-	remote3 := "cluster3"
+	remoteNames := make([]string, 9)
+	for i := range 9 {
+		remoteNames[i] = fmt.Sprintf("remote%d", i+1)
+	}
+	remotes := make(map[string]*kueue.Workload, len(remoteNames))
+	for _, name := range remoteNames {
+		remotes[name] = nil // initially no workloads on remotes
+	}
 	now := time.Now()
 
 	tests := []struct {
@@ -1225,121 +1236,80 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	}{
 		{
 			name:           "AllClusters: clone to all remotes, nominates all",
-			dispatcherMode: config.MultiKueueDispatcherModeAllClusters,
-			remotes:        map[string]*kueue.Workload{remote1: nil, remote2: nil},
-			wantCreated:    []string{remote1, remote2},
+			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			wantCreated:    []string{remoteNames[0], remoteNames[1]},
 			wantRetryAfter: 0,
 		},
 		{
 			name:           "AllClusters: workloads already created on remotes, do not create again",
-			dispatcherMode: config.MultiKueueDispatcherModeAllClusters,
-			remotes:        map[string]*kueue.Workload{remote1: &kueue.Workload{}, remote2: &kueue.Workload{}},
+			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			wantCreated:    []string{},
 			wantRetryAfter: 0,
 		},
 		{
 			name:           "Incremental: only one remote, nominates it",
 			dispatcherMode: config.MultiKueueDispatcherModeIncremental,
-			remotes:        map[string]*kueue.Workload{remote1: nil},
-			wantCreated:    []string{remote1},
+			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil},
+			wantCreated:    []string{remoteNames[0]},
 			wantRetryAfter: 0,
 		},
 		{
-			name:             "Incremental: no previous nomination, nominates remote1",
+			name:             "Incremental: no previous nomination, nominates remote1...3",
 			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			remotes:          remotes,
 			nominatedWorkers: []string{""},
-			wantCreated:      []string{remote1},
+			wantCreated:      remoteNames[:3],
 			wantRetryAfter:   0,
 		},
 		{
-			name:             "Incremental: keep remote1, nomination round still in progress",
+			name:             "Incremental: keep remote1..3, nomination round still in progress",
 			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
-			nominatedWorkers: []string{remote1},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			},
-			wantCreated:    []string{},
-			wantRetryAfter: testDefaultDispatcherRoundTime,
+			remotes:          remotes,
+			nominatedWorkers: remoteNames[:3],
+			wantCreated:      []string{},
+			advanceClock:     incrementalDispatcherRoundTimeout / 2,
+			wantRetryAfter:   incrementalDispatcherRoundTimeout / 2,
 		},
 		{
-			name:             "Incremental: previously remote1, nomination round exceeded, nominates remote1 and remote2",
+			name:             "Incremental: previously remote1..3, nomination round exceeded - increment",
 			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
-			nominatedWorkers: []string{remote1},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now),
-			},
-			advanceClock:   3 * time.Second,
-			wantCreated:    []string{remote2},
-			wantRetryAfter: 0,
+			remotes:          remotes,
+			nominatedWorkers: remoteNames[:3],
+			advanceClock:     incrementalDispatcherRoundTimeout + time.Second,
+			wantCreated:      remoteNames[:6],
+			wantRetryAfter:   0,
 		},
 		{
-			name:             "Incremental: previously remote1 and remote2, next nomination round all clusters ",
+			name:             "Incremental: previously remote1..6, next nomination round all clusters",
 			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil},
-			nominatedWorkers: []string{remote2},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now),
-			},
-			advanceClock:   3 * time.Second,
-			wantCreated:    []string{remote1},
-			wantRetryAfter: 0,
+			remotes:          remotes,
+			nominatedWorkers: remoteNames[:6],
+			advanceClock:     incrementalDispatcherRoundTimeout + time.Second,
+			wantCreated:      remoteNames,
+			wantRetryAfter:   0,
 		},
 		{
 			name:           "External controller: no nominated workers, nothing created",
 			dispatcherMode: externalMultiKueueDispatcherController,
-			remotes:        map[string]*kueue.Workload{remote1: nil, remote2: nil},
+			remotes:        remotes,
 			wantCreated:    []string{},
 			wantRetryAfter: 0,
 		},
 		{
-			name:             "External controller: keep remote1 and remote2, nomination round still in progress",
+			name:             "External controller: nominate remote1 and remote6",
 			dispatcherMode:   externalMultiKueueDispatcherController,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil, remote3: nil},
-			nominatedWorkers: []string{remote1, remote2},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			},
-			advanceClock:   time.Second,
-			wantCreated:    []string{remote1, remote2},
-			wantRetryAfter: testDefaultDispatcherRoundTime - time.Second,
+			remotes:          remotes,
+			nominatedWorkers: []string{remoteNames[0], remoteNames[5]},
+			wantCreated:      []string{remoteNames[0], remoteNames[5]},
 		},
 		{
-			name:             "External controller: nominate remote3",
+			name:             "External controller: nominate all remotes at once",
 			dispatcherMode:   externalMultiKueueDispatcherController,
-			remotes:          map[string]*kueue.Workload{remote1: {}, remote2: {}, remote3: nil},
-			nominatedWorkers: []string{remote3},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now),
-			},
-			wantCreated:    []string{remote3},
-			wantRetryAfter: testDefaultDispatcherRoundTime,
-		},
-		{
-			name:             "External controller: previously remote1 and remote2, nomination round exceeded, no new nomination",
-			dispatcherMode:   externalMultiKueueDispatcherController,
-			remotes:          map[string]*kueue.Workload{remote1: nil, remote2: nil, remote3: nil},
-			nominatedWorkers: []string{remote1, remote2},
-			cond: &metav1.Condition{
-				Type:               kueue.WorkloadHaveNominatedWorkers,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			},
-			advanceClock:   3 * time.Second,
-			wantCreated:    []string{},
-			wantRetryAfter: 0,
+			remotes:          remotes,
+			nominatedWorkers: remoteNames,
+			wantCreated:      remoteNames,
 		},
 	}
 
@@ -1350,8 +1320,8 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			local := &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
 				Status: kueue.WorkloadStatus{
-					Conditions:       make([]metav1.Condition, 0, 1),
-					NominatedWorkers: tt.nominatedWorkers,
+					Conditions:            make([]metav1.Condition, 0, 1),
+					NominatedClusterNames: tt.nominatedWorkers,
 				},
 			}
 
@@ -1368,20 +1338,22 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			objs := []client.Object{local}
 			wlClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-					local.Status.Conditions = obj.(*kueue.Workload).Status.Conditions
-					local.Status.NominatedWorkers = obj.(*kueue.Workload).Status.NominatedWorkers
+					local.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...)
 
-			remote1ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote1)})
-			remote2ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote2)})
-			remote3ClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Create: makeFakeCreate(remote3)})
+			remoteClientBuilders := make(map[string]*fake.ClientBuilder, len(tt.remotes))
+			for remote := range tt.remotes {
+				remoteClientBuilders[remote] = utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					Create: makeFakeCreate(remote),
+				},
+				)
+			}
 
-			remoteClients := map[string]*remoteClient{
-				remote1: {client: remote1ClientBuilder.Build(), origin: remote1},
-				remote2: {client: remote2ClientBuilder.Build(), origin: remote2},
-				remote3: {client: remote3ClientBuilder.Build(), origin: remote3},
+			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
+			for remote, builder := range remoteClientBuilders {
+				remoteClients[remote] = &remoteClient{client: builder.Build(), origin: remote}
 			}
 
 			if tt.cond != nil {
@@ -1395,13 +1367,15 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 
 			wlRec := &wlReconciler{
-				clock:                  fakeClock,
-				dispatcherName:         tt.dispatcherMode,
-				dispatcherRoundTimeout: testDefaultDispatcherRoundTime,
-				client:                 wlClientBuilder.Build(),
+				clock:           fakeClock,
+				dispatcherName:  tt.dispatcherMode,
+				client:          wlClientBuilder.Build(),
+				roundStartTimes: make(map[types.NamespacedName]time.Time),
 			}
 
 			if tt.advanceClock > 0 {
+				key := types.NamespacedName{Name: group.local.Name, Namespace: group.local.Namespace}
+				wlRec.roundStartTimes[key] = fakeClock.Now()
 				fakeClock.SetTime(now.Add(tt.advanceClock))
 			}
 

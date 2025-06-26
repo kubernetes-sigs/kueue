@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 0, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllClusters, defaultDispatcherRoundTimeout)
+			managerAndMultiKueueSetup(ctx, mgr, 0, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, defaultDispatcherRoundTimeout)
 		})
 	})
 
