@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	ginkgo.When("workload has finished", func() {
 		ginkgo.It("should delete the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	ginkgo.When("manually deactivating a Workload", func() {
 		ginkgo.It("shouldn't delete the Job or the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()

@@ -1214,7 +1214,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
-					Image: util.E2eTestAgnHostImage,
+					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
@@ -1225,7 +1225,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					PodAnnotations: map[string]string{
 						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
-					Image: util.E2eTestAgnHostImage,
+					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
 				},
 			).

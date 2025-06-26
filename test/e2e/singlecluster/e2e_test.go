@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 									Containers: []corev1.Container{
 										{
 											Name:    "c",
-											Image:   util.E2eTestAgnHostImage,
+											Image:   util.GetAgnHostImage(),
 											Command: util.BehaviorExitFast,
 											Resources: corev1.ResourceRequirements{
 												Requests: corev1.ResourceList{
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.GetAgnHostImage(), util.BehaviorExitFast).Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			createdWorkload := &kueue.Workload{}
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 					BackoffLimit(0).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletionFailOnExit).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
@@ -355,7 +355,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			// Use a binary that ends.
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				Parallelism(3).
 				Completions(4).
@@ -414,7 +414,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Create job-one with mid priority", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					WorkloadPriorityClass(midPriority).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob)
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "20Mi").
 					WorkloadPriorityClass(lowPriority).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob2)
@@ -506,7 +506,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Create job with priority", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					WorkloadPriorityClass(samplePriority).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					RequestAndLimit(corev1.ResourceCPU, "2").
 					Obj()
@@ -582,7 +582,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.GetAgnHostImage(), util.BehaviorExitFast).Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			createdWorkload := &kueue.Workload{}

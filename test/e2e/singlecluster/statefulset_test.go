@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 	ginkgo.When("StatefulSet created", func() {
 		ginkgo.It("should admit group that fits", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					TerminationGracePeriod(1).
 					Replicas(1).
@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should allow to update the PodTemplate in StatefulSet", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImageOld, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
-					createdStatefulSet.Spec.Template.Spec.Containers[0].Image = util.E2eTestAgnHostImage
+					createdStatefulSet.Spec.Template.Spec.Containers[0].Image = util.GetAgnHostImage()
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					g.Expect(pods.Items).To(gomega.HaveLen(3))
 					for _, p := range pods.Items {
 						g.Expect(createdStatefulSet.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
-						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.E2eTestAgnHostImage))
+						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
 					}
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should delete all pods on scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should create pods after scale up from zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(0).
 				Queue(lq.Name).
@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should allow to scale up after scale down to zero", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should allow to change queue name if ReadyReplicas=0", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should delete all Pods if StatefulSet was deleted after being partially ready", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 
 		ginkgo.It("should preempt low-priority StatefulSet", func() {
 			lowPrioritySTS := statefulsettesting.MakeStatefulSet("low-priority", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Replicas(3).
@@ -489,7 +489,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			})
 
 			highPrioritySTS := statefulsettesting.MakeStatefulSet("high-priority", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Replicas(3).
