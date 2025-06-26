@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{
