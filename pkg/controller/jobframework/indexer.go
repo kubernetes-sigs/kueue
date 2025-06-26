@@ -76,7 +76,7 @@ func OwnerReferenceIndexFieldMatcher(gvk schema.GroupVersionKind, name string) c
 //
 // Example:
 //
-//	err := SetupWorkloadOwnerReferenceIndex(ctx, mgr.GetFieldIndexer(), schema.GroupVersionKind{
+//	err := SetupWorkloadOwnerIndex(ctx, mgr.GetFieldIndexer(), schema.GroupVersionKind{
 //	    Group:   "batch",
 //	    Version: "v1",
 //	    Kind:    "Job",
