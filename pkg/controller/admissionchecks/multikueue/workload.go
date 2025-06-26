@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
@@ -57,18 +58,18 @@ var (
 )
 
 type wlReconciler struct {
-	client                 client.Client
-	helper                 *multiKueueStoreHelper
-	clusters               *clustersReconciler
-	origin                 string
-	workerLostTimeout      time.Duration
-	deletedWlCache         *utilmaps.SyncMap[string, *kueue.Workload]
-	eventsBatchPeriod      time.Duration
-	adapters               map[string]jobframework.MultiKueueAdapter
-	recorder               record.EventRecorder
-	clock                  clock.Clock
-	dispatcherName         string
-	dispatcherRoundTimeout time.Duration
+	client            client.Client
+	helper            *multiKueueStoreHelper
+	clusters          *clustersReconciler
+	origin            string
+	workerLostTimeout time.Duration
+	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
+	recorder          record.EventRecorder
+	clock             clock.Clock
+	dispatcherName    string
+	roundStartTimes   map[types.NamespacedName]time.Time
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -409,8 +410,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
+
+			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			wlPatch.Status.ClusterName = &reservingRemote
+			wlPatch.Status.NominatedClusterNames = []string{}
+			log.V(2).Info("KACZKA fail",
+				"oldSelf.ClusterName", group.local.Status.ClusterName,
+				"oldSelf.NominatedClusterNames", group.local.Status.NominatedClusterNames,
+				"self.ClusterName", wlPatch.Status.ClusterName,
+				"self.NominatedClusterNames", wlPatch.Status.NominatedClusterNames)
 			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 			if err != nil {
+				log.V(2).Info("KACZKA failed to patch", "err", err)
 				return reconcile.Result{}, err
 			}
 			w.recorder.Eventf(wlPatch, corev1.EventTypeNormal, "MultiKueue", acs.Message)
@@ -440,94 +451,66 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 	var nominatedWorkers []string
-	var err error
 	var retryAfter time.Duration
 
 	switch dispatcherMode {
-	case config.MultiKueueDispatcherModeAllClusters:
+	case config.MultiKueueDispatcherModeAllAtOnce:
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 	case config.MultiKueueDispatcherModeIncremental:
-		cond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadHaveNominatedWorkers)
-		if cond != nil && cond.Status == metav1.ConditionTrue && w.clock.Since(cond.LastTransitionTime.Time) <= w.dispatcherRoundTimeout {
-			// If the nomination round is still in progress, we keep the previously nominated workers.
-			remainingWaitTime := (w.clock.Since(cond.LastTransitionTime.Time) - w.dispatcherRoundTimeout).Abs()
-			log.V(5).Info("Nomination round still in progress, keeping previously nominated workers", "nominatedWorkers", group.local.Status.NominatedWorkers, "remainingWaitTime", remainingWaitTime)
+		key := types.NamespacedName{Name: group.local.Name, Namespace: group.local.Namespace}
+		roundStart, found := w.roundStartTimes[key]
+		now := w.clock.Now()
+
+		if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
+			remainingWaitTime := incrementalDispatcherRoundTimeout - now.Sub(roundStart)
+			log.V(5).Info("Incremental Dispatcher nomination round still in progress", "remainingWaitTime", remainingWaitTime)
 			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 		}
 
-		nominatedWorkers, err = getNextNominatedWorkers(log, group)
+		nextNominatedWorkers, err := getNextNominatedWorkers(log, group)
 		if err != nil {
-			log.V(2).Error(err, "nominating next workers cluster failed")
+			log.V(2).Error(err, "nominating next worker clusters failed")
 			return reconcile.Result{}, err
 		}
 
-		totalNominatedWorkers := append(group.local.Status.NominatedWorkers, nominatedWorkers...)
-		apimeta.SetStatusCondition(&group.local.Status.Conditions, metav1.Condition{
-			Type:               kueue.WorkloadHaveNominatedWorkers,
-			Message:            api.TruncateConditionMessage(fmt.Sprintf("Workers %s nominated", totalNominatedWorkers)),
-			Reason:             "NominatedWorkers",
-			ObservedGeneration: group.local.Generation,
-			Status:             metav1.ConditionTrue,
-		})
-		group.local.Status.NominatedWorkers = totalNominatedWorkers
-		err = w.client.Status().Update(ctx, group.local)
-		if err != nil {
-			log.V(2).Error(err, "Failed to patch status of the workload", "workloadName", group.local.Name)
+		nominatedWorkers = append(group.local.Status.NominatedClusterNames, nextNominatedWorkers...)
+		w.roundStartTimes[key] = now
+
+		wlPatch := workload.BaseSSAWorkload(group.local)
+		wlPatch.Status.NominatedClusterNames = nominatedWorkers
+		if err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName)); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workloadName", group.local.Name)
 			return reconcile.Result{}, err
 		}
 	default:
-		cond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadHaveNominatedWorkers)
-		if cond == nil || cond.Status != metav1.ConditionTrue {
-			log.V(4).Info("No valid nomination condition found, skipping nomination")
-			break
-		}
-		elapsed := w.clock.Since(cond.LastTransitionTime.Time)
-		if elapsed <= w.dispatcherRoundTimeout {
-			log.V(4).Info("Nomination round still in progress", "elapsed", elapsed, "timeout", w.dispatcherRoundTimeout)
-			if len(group.local.Status.NominatedWorkers) == 0 {
-				log.V(3).Info("No nominated workers found, skipping synchronization")
-				return reconcile.Result{}, nil
-			}
-			// Nomination round still in progress, use previously nominated workers.
-			for _, wc := range group.local.Status.NominatedWorkers {
-				if _, ok := group.remotes[wc]; ok {
-					nominatedWorkers = append(nominatedWorkers, wc)
-				}
-			}
-			remainingWaitTime := (w.clock.Since(cond.LastTransitionTime.Time) - w.dispatcherRoundTimeout).Abs()
-			log.V(4).Info("Nomination round still in progress, keeping previously nominated workers", "nominatedWorkers", group.local.Status.NominatedWorkers, "remainingWaitTime", remainingWaitTime)
-			retryAfter = remainingWaitTime
-		} else {
-			log.V(4).Info("Nomination round exceeded timeout")
-			// Nomination round exceeded timeout, set condition to false and return.
-			wlPatch := workload.BaseSSAWorkload(group.local)
-			apimeta.SetStatusCondition(&group.local.Status.Conditions, metav1.Condition{
-				Type:    kueue.WorkloadHaveNominatedWorkers,
-				Message: api.TruncateConditionMessage(fmt.Sprintf("Nominated workers %s expired", group.local.Status.NominatedWorkers)),
-				Reason:  "NominatedWorkersExpired",
-				Status:  metav1.ConditionFalse,
-			})
-			group.local.Status.NominatedWorkers = []string{} // Clear nominated workers since the round is over
-			err = w.client.Status().Update(ctx, group.local)
-			if err != nil {
-				log.V(2).Error(err, "Failed to patch status of the workload", "workloadName", wlPatch.Name)
-				return reconcile.Result{}, err
-			}
-			return reconcile.Result{}, nil
-		}
+		log.V(3).Info("External nomination of the worker clusters", "dispatcherName", w.dispatcherName)
+		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
 	log.V(4).Info("Synchronize nominated workers", "nominatedWorkers", nominatedWorkers)
 
 	var errs []error
-	for _, rem := range nominatedWorkers {
-		if group.remotes[rem] == nil {
-			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
-			if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
-				log.V(2).Error(err, "creating remote object", "remote", rem)
-				errs = append(errs, err)
+	// Create or keep only nominated workers, remove others.
+	nominatedSet := sets.New(nominatedWorkers...)
+
+	for rem, remoteWl := range group.remotes {
+		if _, isNominated := nominatedSet[rem]; isNominated {
+			if remoteWl == nil {
+				clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
+				if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
+					log.V(2).Error(err, "creating remote object", "remote", rem)
+					errs = append(errs, err)
+				}
+			}
+		} else {
+			if remoteWl != nil {
+				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+					log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
+					errs = append(errs, err)
+				}
+				group.remotes[rem] = nil
 			}
 		}
 	}
@@ -535,11 +518,11 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 }
 
 // getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
-// It nominates all remotes that have not yet been nominated, in sorted order, up to a batch size of 1.
+// It nominates up to 3 remotes that have not yet been nominated, in sorted order.
 func getNextNominatedWorkers(log logr.Logger, group *wlGroup) ([]string, error) {
-	alreadyNominated := make(map[string]struct{}, len(group.local.Status.NominatedWorkers))
-	for _, w := range group.local.Status.NominatedWorkers {
-		alreadyNominated[w] = struct{}{}
+	alreadyNominated := make(map[string]struct{}, len(group.local.Status.NominatedClusterNames))
+	for _, remote := range group.local.Status.NominatedClusterNames {
+		alreadyNominated[remote] = struct{}{}
 	}
 
 	workers := make([]string, 0, len(group.remotes))
@@ -550,13 +533,16 @@ func getNextNominatedWorkers(log logr.Logger, group *wlGroup) ([]string, error) 
 	}
 	sort.Strings(workers)
 
-	log.V(2).Info("getNextNominatedWorkers (incremental)", "alreadyNominated", group.local.Status.NominatedWorkers, "remaining", workers)
+	log.V(5).Info("getNextNominatedWorkers (incremental)", "alreadyNominated", alreadyNominated, "remaining", workers)
 
-	// For incremental, nominate the next worker (or all if batch size > 1 in future)
 	if len(workers) == 0 {
 		return nil, errors.New("no more workers to nominate")
 	}
-	return []string{workers[0]}, nil
+	batchSize := 3
+	if len(workers) < batchSize {
+		return workers, nil
+	}
+	return workers[:batchSize], nil
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {
@@ -580,22 +566,22 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 
 func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
-	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, dispatcherRoundTimeout time.Duration,
+	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:                 c,
-		helper:                 helper,
-		clusters:               cRec,
-		origin:                 origin,
-		workerLostTimeout:      workerLostTimeout,
-		deletedWlCache:         utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod:      eventsBatchPeriod,
-		adapters:               adapters,
-		recorder:               recorder,
-		clock:                  realClock,
-		dispatcherName:         dispatcherName,
-		dispatcherRoundTimeout: dispatcherRoundTimeout,
+		client:            c,
+		helper:            helper,
+		clusters:          cRec,
+		origin:            origin,
+		workerLostTimeout: workerLostTimeout,
+		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod: eventsBatchPeriod,
+		adapters:          adapters,
+		recorder:          recorder,
+		clock:             realClock,
+		dispatcherName:    dispatcherName,
+		roundStartTimes:   make(map[types.NamespacedName]time.Time),
 	}
 	for _, option := range options {
 		option(r)
