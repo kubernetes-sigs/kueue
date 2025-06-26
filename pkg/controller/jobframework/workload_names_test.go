@@ -56,8 +56,8 @@ func Test_workloadSuffix(t *testing.T) {
 					t.Errorf("workloadSuffix() expected a non-empty string")
 				}
 				// Assert consistent output for the same values.
-				if diff := cmp.Diff(got, workloadSuffix(hashLength, "a")); diff != "" {
-					t.Errorf("workloadSuffix() got(-),want(+): %s", diff)
+				if diff := cmp.Diff(workloadSuffix(hashLength, "a"), got); diff != "" {
+					t.Errorf("workloadSuffix() want(-),got(+): %s", diff)
 				}
 			},
 		},
@@ -71,8 +71,8 @@ func Test_workloadSuffix(t *testing.T) {
 					t.Errorf("workloadSuffix() expected a non-empty string")
 				}
 				// Assert consistent output for the same values.
-				if diff := cmp.Diff(got, workloadSuffix(hashLength, "a", "b")); diff != "" {
-					t.Errorf("workloadSuffix() got(-),want(+): %s", diff)
+				if diff := cmp.Diff(workloadSuffix(hashLength, "a", "b"), got); diff != "" {
+					t.Errorf("workloadSuffix() want(-),got(+): %s", diff)
 				}
 			},
 		},
@@ -121,8 +121,8 @@ func Test_workloadPrefix(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(workloadPrefix(tt.args.maxLength, tt.args.values...), tt.want); diff != "" {
-				t.Errorf("workloadPrefix() got(-),want(+): %s", diff)
+			if diff := cmp.Diff(tt.want, workloadPrefix(tt.args.maxLength, tt.args.values...)); diff != "" {
+				t.Errorf("workloadPrefix() want(-),got(+): %s", diff)
 			}
 		})
 	}
@@ -186,12 +186,12 @@ func TestGetWorkloadNameForOwnerWithGVK(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			gotName := GetWorkloadNameForOwnerWithGVK(tt.args.ownerName, tt.args.ownerUID, tt.args.ownerGVK)
-			if diff := cmp.Diff(gotName, tt.want); diff != "" {
-				t.Errorf("GetWorkloadNameForOwnerWithGVK() name(-),want(+): %s", diff)
+			got := GetWorkloadNameForOwnerWithGVK(tt.args.ownerName, tt.args.ownerUID, tt.args.ownerGVK)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("GetWorkloadNameForOwnerWithGVK() name(-),got(+): %s", diff)
 			}
-			if diff := cmp.Diff(gotName, tt.wantLegacy); diff != "" {
-				t.Errorf("GetWorkloadNameForOwnerWithGVK() legacy-name(-),want(+): %s", diff)
+			if diff := cmp.Diff(tt.wantLegacy, got); diff != "" {
+				t.Errorf("GetWorkloadNameForOwnerWithGVK() legacy-name(-),got(+): %s", diff)
 			}
 		})
 	}
