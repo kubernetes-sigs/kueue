@@ -276,18 +276,14 @@ type MultiKueue struct {
 
 	// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
 	// - If specified, the workload will be handled by the named dispatcher.
-	// - If not specified, the workload will be handled by the default (MultiKueueDispatcherModeAllClusters) dispatcher.
+	// - If not specified, the workload will be handled by the default (MultiKueueDispatcherModeAllAtOnce) dispatcher.
 	DispatcherName *string `json:"dispatcherName,omitempty"`
-
-	// DispatcherRoundTimeout specifies the duration given to a selected workers to attempt to reserve the workload's required resources.
-	// This field is only applicable when the DispatcherName is specified. Defaults to 5 min.
-	DispatcherRoundTimeout *metav1.Duration `json:"dispatcherRoundTimeout,omitempty"`
 }
 
 const (
-	// MultiKueueDispatcherModeAllClusters is the name of dispatcher mode where all worker clusters are considered at once
+	// MultiKueueDispatcherModeAllAtOnce is the name of dispatcher mode where all worker clusters are considered at once
 	// and the first one accepting the workload is selected.
-	MultiKueueDispatcherModeAllClusters = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
+	MultiKueueDispatcherModeAllAtOnce = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
 	// MultiKueueDispatcherModeIncremental is the name of dispatcher mode where worker clusters are added to the pool of nominated clusters one by one,
 	// incrementally increasing the set of clusters considered for the workload.
 	MultiKueueDispatcherModeIncremental = "kueue.x-k8s.io/multikueue-dispatcher-incremental"

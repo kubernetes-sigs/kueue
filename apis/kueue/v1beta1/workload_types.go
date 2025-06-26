@@ -84,6 +84,14 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+
+	// MultiKueueNominatedClusters specifies the list of cluster names that have been nominated for scheduling by MultiKueue.
+	// This field is optional.
+	//
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="!(self.status.conditions.exists(c, c.type == 'Admitted')) || oldObject.spec.multiKueueNominatedClusters == self.spec.multiKueueNominatedClusters",message="multiKueueNominatedClusters is immutable when the workload is in the 'Admitted' state"
+	// This field is immutable while the workload is admitted. Any attempt to modify it during the admitted state will be rejected by the controller.
+	MultiKueueNominatedClusters []string `json:"multiKueueNominatedClusters,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -405,11 +413,6 @@ type WorkloadStatus struct {
 	//
 	// +optional
 	SchedulingStats *SchedulingStats `json:"schedulingStats,omitempty"`
-
-	// nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment
-	//
-	// +optional
-	NominatedWorkers []string `json:"nominatedWorkers,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -594,9 +597,6 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
-
-	// WorkloadHaveNominatedWorkers means that the Workload has nominated worker.
-	WorkloadHaveNominatedWorkers = "HaveNominatedWorkers"
 )
 
 // Reasons for the WorkloadPreempted condition.

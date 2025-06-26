@@ -31,6 +31,7 @@ type WorkloadSpecApplyConfiguration struct {
 	PriorityClassSource         *string                      `json:"priorityClassSource,omitempty"`
 	Active                      *bool                        `json:"active,omitempty"`
 	MaximumExecutionTimeSeconds *int32                       `json:"maximumExecutionTimeSeconds,omitempty"`
+	MultiKueueNominatedClusters []string                     `json:"multiKueueNominatedClusters,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -97,5 +98,15 @@ func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApp
 // If called multiple times, the MaximumExecutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithMaximumExecutionTimeSeconds(value int32) *WorkloadSpecApplyConfiguration {
 	b.MaximumExecutionTimeSeconds = &value
+	return b
+}
+
+// WithMultiKueueNominatedClusters adds the given value to the MultiKueueNominatedClusters field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the MultiKueueNominatedClusters field.
+func (b *WorkloadSpecApplyConfiguration) WithMultiKueueNominatedClusters(values ...string) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		b.MultiKueueNominatedClusters = append(b.MultiKueueNominatedClusters, values[i])
+	}
 	return b
 }

@@ -972,7 +972,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					cfg.MultiKueue = &kueueconfig.MultiKueue{}
 					cfg.MultiKueue.DispatcherName = ptr.To(kueueconfig.MultiKueueDispatcherModeIncremental)
-					cfg.MultiKueue.DispatcherRoundTimeout = &metav1.Duration{Duration: util.Timeout}
 				})
 			})
 

@@ -3068,6 +3068,15 @@ the workload can be admitted before it's automatically deactivated.</p>
 <p>If unspecified, no execution time limit is enforced on the Workload.</p>
 </td>
 </tr>
+<tr><td><code>multiKueueNominatedClusters</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>MultiKueueNominatedClusters specifies the list of cluster names that have been nominated for scheduling by MultiKueue.
+This field is optional.</p>
+<p>This field is immutable while the workload is admitted. Any attempt to modify it during the admitted state will be rejected by the controller.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -3157,13 +3166,6 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
 </td>
 <td>
    <p>schedulingStats tracks scheduling statistics</p>
-</td>
-</tr>
-<tr><td><code>nominatedWorkers</code><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment</p>
 </td>
 </tr>
 </tbody>
