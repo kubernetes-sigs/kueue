@@ -1,9 +1,9 @@
-# Release process
+# Release Process
 
 To begin the process, open an [issue](https://github.com/kubernetes-sigs/kueue/issues/new/choose)
 using the **New Release** template.
 
-## Release cycle
+## Release Cycle
 
 - Kueue aims for one minor release every two months, which allows to align with
   the Kubernetes release cycle every second minor release of Kueue.
@@ -16,7 +16,7 @@ using the **New Release** template.
 - When a release slips it does not impact the target release date for the next
   minor release.
 
-## Patch releases
+## Patch Releases
 
 When working on the next N-th minor version of Kueue we continue to maintain
 N-1 and N-2 releases. The release branches corresponding to the next patch
