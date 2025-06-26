@@ -344,6 +344,9 @@ type PodSet struct {
 }
 
 // WorkloadStatus defines the observed state of Workload
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) && has(self.clusterName) ? has(oldSelf.nominatedClusterNames) && self.clusterName in oldSelf.nominatedClusterNames : true", message="when setting clusterName it must be one of the nominatedClusterNames"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
 type WorkloadStatus struct {
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
@@ -412,10 +415,20 @@ type WorkloadStatus struct {
 	// +optional
 	SchedulingStats *SchedulingStats `json:"schedulingStats,omitempty"`
 
-	// nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment
+	// nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+	// This field is mutually exclusive with the `.status.clusterName` field, and is reset when
+	// `status.clusterName` is set.
+	// This field is optional.
 	//
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=10
 	// +optional
-	NominatedWorkers []string `json:"nominatedWorkers,omitempty"`
+	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
+
+	// clusterName is the name of the cluster where the workload is actually assigned.
+	// This field is reset after the Workload is evicted.
+	// +optional
+	ClusterName *string `json:"clusterName,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -600,9 +613,6 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
-
-	// WorkloadHaveNominatedWorkers means that the Workload has nominated worker.
-	WorkloadHaveNominatedWorkers = "HaveNominatedWorkers"
 )
 
 // Reasons for the WorkloadPreempted condition.

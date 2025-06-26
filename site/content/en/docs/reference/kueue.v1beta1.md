@@ -3167,11 +3167,22 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
    <p>schedulingStats tracks scheduling statistics</p>
 </td>
 </tr>
-<tr><td><code>nominatedWorkers</code><br/>
+<tr><td><code>nominatedClusterNames</code><br/>
 <code>[]string</code>
 </td>
 <td>
-   <p>nominatedWorkers holds a list of nominated worker cluster when operating in MultiKueue environment</p>
+   <p>nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+This field is mutually exclusive with the <code>.status.clusterName</code> field, and is reset when
+<code>status.clusterName</code> is set.
+This field is optional.</p>
+</td>
+</tr>
+<tr><td><code>clusterName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>clusterName is the name of the cluster where the workload is actually assigned.
+This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
 </tbody>

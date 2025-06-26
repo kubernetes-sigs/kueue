@@ -1991,10 +1991,15 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 		*out = new(SchedulingStats)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.NominatedWorkers != nil {
-		in, out := &in.NominatedWorkers, &out.NominatedWorkers
+	if in.NominatedClusterNames != nil {
+		in, out := &in.NominatedClusterNames, &out.NominatedClusterNames
 		*out = make([]string, len(*in))
 		copy(*out, *in)
+	}
+	if in.ClusterName != nil {
+		in, out := &in.ClusterName, &out.ClusterName
+		*out = new(string)
+		**out = **in
 	}
 }
 

@@ -296,7 +296,6 @@ func managerAndMultiKueueSetup(
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
-		multikueue.WithDispatcherRoundTimeout(dispatcherRoundTime),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
