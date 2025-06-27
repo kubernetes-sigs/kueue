@@ -31,7 +31,7 @@ webhooks:
         resources:
           - appwrappers
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -67,7 +67,7 @@ webhooks:
         resources:
           - deployments
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -87,7 +87,7 @@ webhooks:
         resources:
           - jobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -107,7 +107,7 @@ webhooks:
         resources:
           - jobsets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -127,7 +127,7 @@ webhooks:
         resources:
           - paddlejobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -147,7 +147,7 @@ webhooks:
         resources:
           - pytorchjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -167,7 +167,7 @@ webhooks:
         resources:
           - tfjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -187,7 +187,7 @@ webhooks:
         resources:
           - xgboostjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -222,7 +222,7 @@ webhooks:
         resources:
           - pods
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -243,7 +243,7 @@ webhooks:
         resources:
           - leaderworkersets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -263,7 +263,7 @@ webhooks:
         resources:
           - mpijobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -283,7 +283,7 @@ webhooks:
         resources:
           - rayclusters
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -303,7 +303,7 @@ webhooks:
         resources:
           - rayjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -339,7 +339,7 @@ webhooks:
         resources:
           - statefulsets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -359,7 +359,7 @@ webhooks:
         resources:
           - clusterqueues
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -379,7 +379,7 @@ webhooks:
         resources:
           - resourceflavors
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -399,7 +399,7 @@ webhooks:
         resources:
           - workloads
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.webhook.reinvocationPolicy }}'
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
