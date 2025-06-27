@@ -46,11 +46,11 @@ import (
 )
 
 var (
-	ErrCohortNotFound      = errors.New("cohort not found")
-	ErrCohortHasCycle      = errors.New("cohort has a cycle")
-	ErrCqNotFound          = errors.New("cluster queue not found")
-	errQNotFound           = errors.New("queue not found")
-	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
+	ErrCohortNotFound           = errors.New("cohort not found")
+	ErrCohortHasCycle           = errors.New("cohort has a cycle")
+	ErrCqNotFound               = errors.New("cluster queue not found")
+	errQNotFound                = errors.New("queue not found")
+	errWorkloadNotQuotaReserved = errors.New("workload does not have quota reservation by a ClusterQueue")
 )
 
 const (
@@ -634,7 +634,7 @@ func (c *Cache) AssumeWorkload(log logr.Logger, w *kueue.Workload) error {
 	defer c.Unlock()
 
 	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotAdmitted
+		return errWorkloadNotQuotaReserved
 	}
 
 	k := workload.Key(w)
@@ -663,7 +663,7 @@ func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
 	c.cleanupAssumedState(log, w)
 
 	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotAdmitted
+		return errWorkloadNotQuotaReserved
 	}
 
 	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
