@@ -16,7 +16,7 @@ For the proper setup and use it is required using at least Kueue v0.9.0 and for 
 ### Installation on the Clusters
 
 {{% alert title="Note" color="primary" %}}
-Note: While both MPI Operator and Trainer must be running on the same cluster, there are special steps that has to be applied to Trainer deployment.
+While both MPI Operator and Trainer must be running on the same cluster, there are special steps that has to be applied to Trainer deployment.
 See [Working alongside MPI Operator](/docs/tasks/run/multikueue/kubeflow#working-alongside-mpi-operator) for more details.
 {{% /alert %}}
 
@@ -27,7 +27,7 @@ See [MPI Operator Installation](https://www.kubeflow.org/docs/components/trainin
 Once the setup is complete you can test it by running a MPIJob [`sample-mpijob.yaml`](/docs/tasks/run/kubeflow/mpijobs/#sample-mpijob).
 
 {{% alert title="Note" color="primary" %}}
-Note: Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for MPIJob. 
+Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for MPIJob. 
 
 This allows the MPI Operator to ignore the Jobs managed by MultiKueue on the management cluster, and in particular skip Pod creation. 
 

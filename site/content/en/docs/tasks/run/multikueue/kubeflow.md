@@ -29,7 +29,7 @@ kubectl apply -k "github.com/kubeflow/trainer.git/manifests/base/crds?ref=v1.9.0
 Once the setup is complete you can test it by running one of the Kubeflow Jobs e.g. PyTorchJob [`sample-pytorchjob.yaml`](/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob). 
 
 {{% alert title="Note" color="primary" %}}
-Note: Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for all Kubeflow Jobs. 
+Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for all Kubeflow Jobs. 
 
 This allows the Trainer to ignore the Jobs managed by MultiKueue on the management cluster, and in particular skip Pod creation. 
 
