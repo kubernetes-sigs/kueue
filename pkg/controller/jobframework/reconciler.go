@@ -284,8 +284,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{}, err
 			}
 		} else {
-			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace),
-				client.MatchingFields{GetOwnerKey(job.GVK()): req.Name}); err != nil {
+			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace), OwnerReferenceIndexFieldMatcher(job.GVK(), req.Name)); err != nil {
 				log.Error(err, "Unable to list child workloads")
 				return ctrl.Result{}, err
 			}
@@ -879,8 +878,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	object := job.Object()
 
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{GetOwnerKey(job.GVK()): object.GetName()}); err != nil {
+	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(job.GVK(), object.GetName())); err != nil {
 		return nil, nil, err
 	}
 

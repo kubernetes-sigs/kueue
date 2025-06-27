@@ -50,46 +50,16 @@ For a job to be subject to multi cluster dispatching, you need to assign it to a
 
 ## Supported jobs
 
-### batch/Job
-
-The batch/Job integration can work in two different ways depending on the state of MultiKueueBatchJobWithManagedBy feature gate, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) for setup details.
-
-#### MultiKueueBatchJobWithManagedBy disabled
-
-Known Limitations:
-- Since unsuspending a Job in the manager cluster will lead to its local execution, the AdmissionCheckStates are kept `Pending` during the remote job execution.
-- Since updating the status of a local Job could conflict with the Kubernetes Job controller, the manager does not sync the Job status during the job execution. The manager copies the final status of the remote Job when the remote workload is marked as `Finished`.
-
-#### MultiKueueBatchJobWithManagedBy enabled
-
-When you want to submit Job to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload.
-
-The `managedBy` field is available as an Alpha feature staring Kubernetes 1.30.0, check the [Delegation of managing a Job object to external controller](https://kubernetes.io/docs/concepts/workloads/controllers/job/#delegation-of-managing-a-job-object-to-external-controller) for details.
-
-### JobSet
-
-We recommend using JobSet v0.5.1 or newer.
-
-### Kubeflow
-
-The supported version of the Kubeflow Trainer is v1.7.0, or a newer version.
-The Management cluster should only install the CRDs and not the package itself. 
-On the other hand, the Worker cluster should install the full kubeflow operator.
-
-### Plain Pods
-
-MultiKueue supports the remote creation and management of Plain Pods and Group of Pods.
-
-### Deployments
-
-MultiKueue supports the remote creation and management of Deployment replica Pods.
-
-Known Limitations:
-- When creating a Deployment in environments with more than 1 worker cluster it is possible that replicas are scheduled in different clusters.
-
-{{% alert title="Note" color="primary" %}}
-Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin) to learn how to enable and configure the `pod` integration which is required for enabling the `deployment` integration.
-{{% /alert %}}
+MultiKueue supports a variety of workloads.
+You can learn how to:
+- [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
+- [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
+- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
+- [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
+- [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
+- [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
+- [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
+- [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
 
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.

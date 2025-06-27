@@ -1,3 +1,26 @@
+## v0.11.7
+
+Changes since `v0.11.6`:
+
+## Changes by Kind
+
+### Feature
+
+- Allow setting the controller-manager's Pod `PriorityClassName` from the Helm chart (#5650, @kaisoz)
+
+### Bug or Regression
+
+- Add Cohort Go client library (#5604, @tenzen-y)
+- Fix the bug that Job deleted on the manager cluster didn't trigger deletion of pods on the worker cluster. (#5608, @ichekrygin)
+- Fix the bug that Kueue, upon startup, would incorrectly admit and then immediately deactivate
+  already deactivated Workloads.
+
+  This bug also prevented the ObjectRetentionPolicies feature from deleting Workloads
+  that were deactivated by Kueue before the feature was enabled. (#5630, @mbobrovskyi)
+- Fix the bug that the webhook certificate setting under `controllerManager.webhook.certDir` was ignored by the internal cert manager, effectively always defaulting to /tmp/k8s-webhook-server/serving-certs. (#5490, @ichekrygin)
+- Fixed bug that doesn't allow Kueue to admit Workload after queue-name label set. (#5715, @mbobrovskyi)
+- MultiKueue: Fix a bug that batch/v1 Job final state is not synced from Workload cluster to Management cluster when disabling the `MultiKueueBatchJobWithManagedBy` feature gate. (#5707, @ichekrygin)
+
 ## v0.11.6
 
 Changes since `v0.11.5`:

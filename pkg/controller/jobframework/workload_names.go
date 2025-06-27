@@ -19,7 +19,6 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -50,8 +49,4 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind) 
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-func GetOwnerKey(ownerGVK schema.GroupVersionKind) string {
-	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
 }
