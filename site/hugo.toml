@@ -157,7 +157,7 @@ ignoreFiles = []
     desc = "Practical questions and curated answers"
   [[params.links.user]]
     name = "Slack"
-    url = "https://kubernetes.slack.com/"
+    url = "https://kubernetes.slack.com/messages/wg-batch"
     icon = "fab fa-slack"
     desc = "Chat with other project developers"
 
