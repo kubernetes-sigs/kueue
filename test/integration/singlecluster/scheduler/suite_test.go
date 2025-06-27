@@ -19,11 +19,13 @@ package scheduler
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,10 +83,19 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
 		},
 	}
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithResourceTransformations(transformations))
+	afsConfig := config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 10 * time.Minute},
+		ResourceWeights: map[corev1.ResourceName]float64{
+			corev1.ResourceCPU: 1,
+		},
+	}
+	cCache := cache.New(mgr.GetClient(), cache.WithAdmissionFairSharing(&afsConfig))
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithResourceTransformations(transformations), queue.WithAdmissionFairSharing(&afsConfig))
 
-	configuration := &config.Configuration{}
+	configuration := &config.Configuration{
+		AdmissionFairSharing: &afsConfig,
+	}
 	mgr.GetScheme().Default(configuration)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
