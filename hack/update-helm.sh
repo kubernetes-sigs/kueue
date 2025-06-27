@@ -308,6 +308,9 @@ for output_file in "${webhook_files[@]}"; do
   if [ "$(< "$output_file" $YQ '.metadata | has("namespace")')" = "true" ]; then
     $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
+  if [[ "$output_file" == "${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml" ]]; then
+    $YQ -N -i '.webhooks.[].reinvocationPolicy = "{{ .Values.mutatingWebhook.reinvocationPolicy }}"' "$output_file"
+  fi
   $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
   $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"

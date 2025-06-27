@@ -18,7 +18,7 @@ controllerManager:
     # priorityClassName: "system-cluster-critical"
     image:
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
-      # This should be set to 'IfNotPresent' for released version      
+      # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
     podAnnotations: {}
     resources:
@@ -151,6 +151,8 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   type: ClusterIP
+mutatingWebhook:
+  reinvocationPolicy: Never
 # kueue-viz dashboard
 enableKueueViz: false
 metrics:
