@@ -91,7 +91,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// as a fallback.
 		if controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, &flavor); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Added finalizer")
 		}
@@ -107,7 +107,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 			controllerutil.RemoveFinalizer(&flavor, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, &flavor); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Removed finalizer")
 		}
