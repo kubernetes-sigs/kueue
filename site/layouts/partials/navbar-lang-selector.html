@@ -1,0 +1,15 @@
+<a class="nav-link dropdown-toggle" href="#" id="navbarLanguageDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+	<i class="fa fa-globe"></i>
+	{{ .Site.Language.LanguageName }}
+</a>
+<div class="dropdown-menu dropdown-menu-md-right dropdown-menu-lg-left" aria-labelledby="navbarLanguageDropdown">
+	{{ range .Site.Languages }}
+		{{ if ne .Lang $.Site.Language.Lang }}
+			{{ $url := urls.Parse $.Site.BaseURL }}
+			{{ $url = $url.ResolveReference (urls.Parse .Lang) }}
+			<a class="dropdown-item" href="{{ $url.String }}" lang="{{ .Lang }}">
+				{{ .LanguageName }}
+			</a>
+		{{ end }}
+	{{ end }}
+</div>
