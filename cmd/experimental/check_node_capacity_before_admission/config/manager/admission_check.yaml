@@ -1,0 +1,6 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: check-node-capacity-before-admission
+spec:
+  controllerName: experimental.kueue.x-k8s.io/check-node-capacity-before-admission
