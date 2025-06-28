@@ -39,6 +39,7 @@ var (
 	cfg             *rest.Config
 	restClient      *rest.RESTClient
 	kueueNS         = util.GetKueueNamespace()
+	kindClusterName string
 )
 
 func TestAPIs(t *testing.T) {
@@ -55,6 +56,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
+	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 	k8sClient, cfg = util.CreateClientUsingCluster("")
 	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
@@ -70,6 +72,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	util.ApplyKueueConfiguration(ctx, k8sClient, defaultKueueCfg)
-	util.RestartKueueController(ctx, k8sClient)
+	util.RestartKueueController(ctx, k8sClient, kindClusterName)
 	ginkgo.GinkgoLogr.Info("Default Kueue configuration restored")
 })
