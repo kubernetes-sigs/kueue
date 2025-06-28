@@ -78,18 +78,20 @@ func TestPodReconciler(t *testing.T) {
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"shouldn't set default values without queue name": {
+		"shouldn't set default values with managed by kueue label": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				ManagedByKueueLabel().
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				ManagedByKueueLabel().
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
@@ -97,7 +99,6 @@ func TestPodReconciler(t *testing.T) {
 		"should set default values": {
 			lws: leaderworkerset.MakeLeaderWorkerSet("lws", "ns").
 				UID(testUID).
-				Queue("queue").
 				Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
@@ -108,7 +109,6 @@ func TestPodReconciler(t *testing.T) {
 			wantPod: testingjobspod.MakePod("pod", "ns").
 				Label(leaderworkersetv1.SetNameLabelKey, "lws").
 				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-				Queue("queue").
 				ManagedByKueueLabel().
 				Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
 				GroupTotalCount("1").
