@@ -574,58 +574,6 @@ files:
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-workload-codeflare-dev-v1beta2-appwrapper"'
-  - path: ./config/components/kueueviz/*.yaml
-    outputDir: ./charts/kueue/templates/kueueviz
-    excludes:
-      - kustomization.yaml
-    continueOnError: true
-    operations:
-      - type: UPDATE
-        key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
-        onFileCondition: '.metadata.name == "kueueviz-backend"'
-      - type: UPDATE
-        key: .spec.template.spec.containers[0].imagePullPolicy
-        value: '"{{ .Values.kueueViz.backend.image.pullPolicy }}"'
-        onFileCondition: '.metadata.name == "kueueviz-backend"'
-      - type: UPDATE
-        key: .spec.template.spec.containers[0].image
-        value: '"{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}"'
-        onFileCondition: '.metadata.name == "kueueviz-frontend"'
-      - type: UPDATE
-        key: .spec.template.spec.containers[0].imagePullPolicy
-        value: '"{{ .Values.kueueViz.frontend.image.pullPolicy }}"'
-        onFileCondition: '.metadata.name == "kueueviz-frontend"'
-      - type: APPEND
-        key: .metadata.name
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-      - type: APPEND
-        key: .spec.rules.[].http.paths.[].backend.service.name
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Ingress"'
-      - type: APPEND
-        key: .spec.tls.[].secretName
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Ingress"'
-      - type: APPEND
-        key: .roleRef.name
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "ClusterRoleBinding"'
-      - type: UPDATE
-        key: .subjects.[].namespace
-        value: '"{{ .Release.Namespace }}"'
-      - type: UPDATE
-        key: .metadata.namespace
-        value: '"{{ .Release.Namespace }}"'
-    postOperations:
-      - type: INSERT_TEXT
-        position: START
-        value: |
-          {{- if .Values.enableKueueViz }}
-      - type: INSERT_TEXT
-        position: END
-        value: |
-          {{- end }}
   - path: ./config/components/internalcert/*.yaml
     outputDir: ./charts/kueue/templates/internalcert
     excludes:
