@@ -122,10 +122,10 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if needsUpdate {
 		err := a.client.Status().Update(ctx, ac)
-		if err != nil {
+		if client.IgnoreNotFound(err) != nil {
 			log.V(2).Error(err, "Updating check condition", "newCondition", newCondition)
+			return reconcile.Result{}, err
 		}
-		return reconcile.Result{}, err
 	}
 
 	return reconcile.Result{}, nil
