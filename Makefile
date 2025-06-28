@@ -187,6 +187,25 @@ helm-verify: helm helm-lint ## run helm template and detect any rendering failur
 # test kueueViz frontend nodeSelector and tolerations
 	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 
+.PHONY: i18n-verify
+i18n-verify: ## Verify all localized docs are in sync with English version. Usage: make i18n-verify [TARGET_LANG=zh-CN]
+	@if [ -n "$(TARGET_LANG)" ]; then \
+		if [ ! -d "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs" ]; then \
+			echo "Error: $(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs does not exist"; \
+			exit 1; \
+		fi; \
+		echo "Checking $(TARGET_LANG) docs sync status..."; \
+		$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs/"; \
+	else \
+		for lang_dir in $(PROJECT_DIR)/site/content/*/; do \
+			lang_code=$$(basename "$$lang_dir"); \
+			if [ "$$lang_code" != "en" ] && [ -d "$$lang_dir/docs" ]; then \
+				echo "Checking $$lang_code docs sync status..."; \
+				$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$$lang_code/docs/"; \
+			fi; \
+		done; \
+	fi
+
 # test
 .PHONY: helm-unit-test
 helm-unit-test: helm
@@ -214,7 +233,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify i18n-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
