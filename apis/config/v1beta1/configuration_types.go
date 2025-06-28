@@ -363,6 +363,7 @@ type Integrations struct {
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
 	//  - "ray.io/raycluster"
+	//  - "ray.io/rayservice"
 	//  - "jobset.x-k8s.io/jobset"
 	//  - "kubeflow.org/paddlejob"
 	//  - "kubeflow.org/pytorchjob"
