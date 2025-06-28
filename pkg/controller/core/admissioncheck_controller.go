@@ -93,7 +93,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if ac.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(ac, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, ac); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Added finalizer")
 		}
@@ -108,7 +108,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			controllerutil.RemoveFinalizer(ac, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, ac); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Removed finalizer")
 		}
