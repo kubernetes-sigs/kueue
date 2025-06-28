@@ -60,9 +60,10 @@ const (
 )
 
 type options struct {
-	workloadInfoOptions []workload.InfoOption
-	podsReadyTracking   bool
-	fairSharingEnabled  bool
+	workloadInfoOptions  []workload.InfoOption
+	podsReadyTracking    bool
+	fairSharingEnabled   bool
+	admissionFairSharing *config.AdmissionFairSharing
 }
 
 // Option configures the reconciler.
@@ -96,6 +97,12 @@ func WithFairSharing(enabled bool) Option {
 	}
 }
 
+func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		o.admissionFairSharing = afs
+	}
+}
+
 var defaultOptions = options{}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
@@ -103,13 +110,14 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client              client.Client
-	assumedWorkloads    map[workload.Reference]kueue.ClusterQueueReference
-	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	podsReadyTracking   bool
-	admissionChecks     map[kueue.AdmissionCheckReference]AdmissionCheck
-	workloadInfoOptions []workload.InfoOption
-	fairSharingEnabled  bool
+	client               client.Client
+	assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
+	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	podsReadyTracking    bool
+	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
+	workloadInfoOptions  []workload.InfoOption
+	fairSharingEnabled   bool
+	admissionFairSharing *config.AdmissionFairSharing
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -122,15 +130,16 @@ func New(client client.Client, opts ...Option) *Cache {
 		opt(&options)
 	}
 	c := &Cache{
-		client:              client,
-		assumedWorkloads:    make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:     make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		podsReadyTracking:   options.podsReadyTracking,
-		workloadInfoOptions: options.workloadInfoOptions,
-		fairSharingEnabled:  options.fairSharingEnabled,
-		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:            NewTASCache(client),
+		client:               client,
+		assumedWorkloads:     make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:      make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:      make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		podsReadyTracking:    options.podsReadyTracking,
+		workloadInfoOptions:  options.workloadInfoOptions,
+		fairSharingEnabled:   options.fairSharingEnabled,
+		admissionFairSharing: options.admissionFairSharing,
+		hm:                   hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:             NewTASCache(client),
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -147,6 +156,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
+		AdmissionScope:      cq.Spec.AdmissionScope,
 
 		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
 	}

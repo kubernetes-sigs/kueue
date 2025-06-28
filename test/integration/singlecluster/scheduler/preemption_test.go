@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -206,6 +207,191 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, highWl)
 
 			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "job-uid")
+		})
+	})
+
+	ginkgo.When("In a single ClusterQueue with AdmissionScope set to UsageBasedFairSharing", func() {
+		var (
+			cq  *kueue.ClusterQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+			lq3 *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, true)).To(gomega.Succeed())
+			cq = testing.MakeClusterQueue("cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			lq1 = testing.MakeLocalQueue("lq1", ns.Name).
+				ClusterQueue(cq.Name).
+				FairSharingStatus(&kueue.FairSharingStatus{
+					WeightedShare: 1,
+					AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("2")},
+						LastUpdate: metav1.Now(),
+					}}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq1)
+
+			lq2 = testing.MakeLocalQueue("lq2", ns.Name).
+				ClusterQueue(cq.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq2)
+
+			lq3 = testing.MakeLocalQueue("lq3", ns.Name).
+				ClusterQueue(cq.Name).
+				FairSharingStatus(&kueue.FairSharingStatus{
+					WeightedShare: 1,
+					AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("0")},
+						LastUpdate: metav1.Now(),
+					}}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq3)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, false)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should preempt Workload with lower LQ's usage over priorities/timestamp", func() {
+			ginkgo.By("Creating an initial mid priority Workload submitted to LQ with higher usage")
+			midWl1 := testing.MakeWorkload("mid-wl-1", ns.Name).
+				Queue(kueue.LocalQueueName(lq1.Name)).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, midWl1)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl1)
+
+			ginkgo.By("Creating an initial mid priority Workload submitted to LQ with lower usage")
+			midWl2 := testing.MakeWorkload("mid-wl-2", ns.Name).
+				Queue(kueue.LocalQueueName(lq2.Name)).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, midWl2)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl2)
+
+			ginkgo.By("Creating a high priority Workload that should preempt others")
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
+				Queue(kueue.LocalQueueName(lq3.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, midWl1)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl2, highWl)
+
+			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 1)
+			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 1)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 1)
+		})
+	})
+
+	ginkgo.When("In a single ClusterQueue with AdmissionScope set to UsageBasedFairSharing", func() {
+		var (
+			cq  *kueue.ClusterQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+			lq3 *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, true)).To(gomega.Succeed())
+			cq = testing.MakeClusterQueue("cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
+				AdmissionMode(kueue.NoAdmissionFairSharing).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			lq1 = testing.MakeLocalQueue("lq1", ns.Name).
+				ClusterQueue(cq.Name).
+				FairSharingStatus(&kueue.FairSharingStatus{
+					WeightedShare: 1,
+					AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("2")},
+						LastUpdate: metav1.Now(),
+					}}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq1)
+
+			lq2 = testing.MakeLocalQueue("lq2", ns.Name).
+				ClusterQueue(cq.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq2)
+
+			lq3 = testing.MakeLocalQueue("lq3", ns.Name).
+				ClusterQueue(cq.Name).
+				FairSharingStatus(&kueue.FairSharingStatus{
+					WeightedShare: 1,
+					AdmissionFairSharingStatus: &kueue.AdmissionFairSharingStatus{
+						ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("0")},
+						LastUpdate: metav1.Now(),
+					}}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lq3)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, false)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should ignore LQ's usage when preempting Workloads", func() {
+			ginkgo.By("Creating an initial mid priority Workload submitted to LQ with higher usage")
+			midWl1 := testing.MakeWorkload("mid-wl-1", ns.Name).
+				Queue(kueue.LocalQueueName(lq1.Name)).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, midWl1)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl1)
+
+			ginkgo.By("Creating an initial low priority Workload submitted to LQ with lower usage")
+			midWl2 := testing.MakeWorkload("mid-wl-2", ns.Name).
+				Queue(kueue.LocalQueueName(lq2.Name)).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, midWl2)
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl2)
+
+			ginkgo.By("Creating a high priority Workload that should preempt others")
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
+				Queue(kueue.LocalQueueName(lq3.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, midWl2)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, midWl1, highWl)
+
+			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 1)
+			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 1)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 1)
 		})
 	})
 
