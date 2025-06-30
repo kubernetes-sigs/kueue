@@ -13,7 +13,7 @@
     "check-unused": "depcheck"
   },
   "dependencies": {
-    "@mui/icons-material": "^7.1.2",
+    "@mui/icons-material": "^7.2.0",
     "@mui/material": "^7.1.2",
     "react": "^19.1.0",
     "react-dom": "^19.0.0",
