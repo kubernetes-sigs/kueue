@@ -79,6 +79,10 @@ controllerManager:
     failureThreshold: 3
     # -- ControllerManager's livenessProbe successThreshold
     successThreshold: 1
+  # -- ControllerManager's nodeSelector
+  nodeSelector: {}
+  # -- ControllerManager's tolerations
+  tolerations: []
   # -- ControllerManager's topologySpreadConstraints
   topologySpreadConstraints: []
   podDisruptionBudget:
@@ -217,6 +221,10 @@ kueueViz:
       # -- KueueViz dashboard backend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
+    # -- KueueViz backend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz backend tolerations
+    tolerations: []
   frontend:
     image:
       # -- KueueViz dashboard frontend image repository
@@ -226,6 +234,10 @@ kueueViz:
       # -- KueueViz dashboard frontend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
+    # -- KueueViz frontend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz frontend tolerations
+    tolerations: []
 metrics:
   # -- Prometheus namespace
   prometheusNamespace: monitoring
