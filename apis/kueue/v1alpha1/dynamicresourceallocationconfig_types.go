@@ -28,6 +28,7 @@ import (
 // DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
 // in the cluster. Only one instance named "default" in the kueue-system namespace
 // is allowed.
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default'",message="DynamicResourceAllocationConfig is a singleton, .metadata.name must be 'default'"
 type DynamicResourceAllocationConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -49,12 +50,32 @@ type DynamicResourceAllocationConfigSpec struct {
 // to quota in ClusterQueue.
 type DynamicResource struct {
 	// Name is referenced in ClusterQueue.nominalQuota and Workload status.
+	// Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
+	// followed by a slash and a DNS label, or just a DNS label.
+	// DNS labels consist of lower-case alphanumeric characters or hyphens,
+	// and must start and end with an alphanumeric character.
+	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+	// The total length must not exceed 253 characters.
+
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self.matches(r'^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\\/)?[a-z0-9]([-a-z0-9]*[a-z0-9])?$')"
+	// +required
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+	// Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+	// followed by a slash and a DNS label, or just a DNS label.
+	// DNS labels consist of lower-case alphanumeric characters or hyphens,
+	// and must start and end with an alphanumeric character.
+	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+	// The total length of each name must not exceed 253 characters.
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:items:MaxLength=253
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:XValidation:rule="self.matches(r'^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\\/)?[a-z0-9]([-a-z0-9]*[a-z0-9])?$')"
 	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
 }
 

@@ -167,6 +167,12 @@ const (
 	//
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
+
+	// owner: @alaypatel07
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devies in workloads
+	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 )
 
 func init() {
@@ -257,6 +263,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASReplaceNodeOnPodTermination: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
