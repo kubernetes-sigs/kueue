@@ -581,6 +581,34 @@ files:
     continueOnError: true
     operations:
       - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default \"kueueviz-frontend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "backend.kueueviz.local"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "frontend.kueueviz.local"'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
         onFileCondition: '.metadata.name == "kueueviz-backend"'
@@ -604,10 +632,6 @@ files:
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Ingress"'
       - type: APPEND
-        key: .spec.tls.[].secretName
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Ingress"'
-      - type: APPEND
         key: .roleRef.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "ClusterRoleBinding"'
@@ -617,7 +641,50 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .spec.template.spec.containers.[].env.[].value
+        value: '"wss://{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+        onItemCondition: '.spec.template.spec.containers.[].env.[].name == "REACT_APP_WEBSOCKET_URL"'
     postOperations:
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.frontend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
+            imagePullSecrets:
+            {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.frontend.priorityClassName }}
+            priorityClassName: {{ . }}
+          {{- end }}
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.backend.imagePullSecrets  }}
+            imagePullSecrets:
+            {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.backend.priorityClassName }}
+            priorityClassName: {{ . }}
+          {{- end }}
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
       - type: INSERT_TEXT
         position: START
         value: |
