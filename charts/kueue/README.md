@@ -135,6 +135,19 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
 | kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
+| kueueViz.backend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend and frontend deployments This is useful when the images are in a private registry. |
+| kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
+| kueueViz.backend.ingress.ingressClassName | string | `nil` | KueueViz dashboard backend ingress class name |
+| kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
+| kueueViz.backend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend and frontend deployments |
+| kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
+| kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
+| kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
+| kueueViz.frontend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend and frontend deployments This is useful when the images are in a private registry. |
+| kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
+| kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
+| kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
+| kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend and frontend deployments |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |

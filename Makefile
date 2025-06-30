@@ -187,6 +187,10 @@ helm-verify: helm helm-lint ## run helm template and detect any rendering failur
 # test kueueViz frontend nodeSelector and tolerations
 	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 
+# test kueueViz priorityClassName options for backend
+	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+# test kueueViz priorityClassName options for frontend
+	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
 # test
 .PHONY: helm-unit-test
 helm-unit-test: helm
