@@ -23,7 +23,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.6.0",
     "depcheck": "^1.4.7",
-    "vite": "^6.2.1"
+    "vite": "^7.0.0"
   },
   "browserslist": {
     "production": [
