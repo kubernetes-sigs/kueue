@@ -701,6 +701,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		// optimize the potentially last domain
 		topDomain = sortedDomain[findBestFitDomainIdx(sortedDomain, count)]
 	}
+	if useLeastFreeCapacityAlgorithm(unconstrained) {
+		for _, candidateDomain := range sortedDomain {
+			if candidateDomain.state >= count {
+				return levelIdx, []*domain{candidateDomain}, ""
+			}
+		}
+		if required {
+			maxCapacityFound := sortedDomain[len(sortedDomain)-1].state
+			return 0, nil, s.notFitMessage(maxCapacityFound, count)
+		}
+	}
 	if topDomain.state < count {
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.state, count)
