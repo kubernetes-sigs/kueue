@@ -763,7 +763,7 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 	if strict {
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
-	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+	wlCopy.Status.AccumulatedPastExecutionTimeSeconds = w.Status.AccumulatedPastExecutionTimeSeconds
 	if w.Status.SchedulingStats != nil {
 		if wlCopy.Status.SchedulingStats == nil {
 			wlCopy.Status.SchedulingStats = &kueue.SchedulingStats{}
