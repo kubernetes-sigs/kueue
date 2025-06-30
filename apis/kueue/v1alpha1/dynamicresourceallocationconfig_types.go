@@ -26,7 +26,7 @@ import (
 // +kubebuilder:storageversion
 
 // DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-// in the cluster. Only one instance named "default" in the kueue-system namespace
+// in the cluster. Only one instance named "default" in the configured namespace
 // is allowed.
 // +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default'",message="DynamicResourceAllocationConfig is a singleton, .metadata.name must be 'default'"
 type DynamicResourceAllocationConfig struct {

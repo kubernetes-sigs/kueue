@@ -17,10 +17,10 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-          in the cluster. Only one instance named "default" in the kueue-system namespace
-          is allowed.
+            description: |-
+      DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
+      in the cluster. Only one instance named "default" in the configured namespace
+      is allowed.
         properties:
           apiVersion:
             description: |-
