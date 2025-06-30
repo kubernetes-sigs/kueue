@@ -259,6 +259,7 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
+  - dynamicresourceallocationconfigs
   - multikueueclusters
   - multikueueconfigs
   - provisioningrequestconfigs
@@ -331,6 +332,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - resource.k8s.io
+  resources:
+  - resourceclaims
+  - resourceclaimtemplates
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - scheduling.k8s.io
   resources:
