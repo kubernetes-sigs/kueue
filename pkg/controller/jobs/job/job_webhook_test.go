@@ -44,6 +44,9 @@ import (
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
+
+	// without this only the job framework is registered
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
 const (
