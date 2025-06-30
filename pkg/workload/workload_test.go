@@ -1303,28 +1303,42 @@ func TestNeedsSecondPass(t *testing.T) {
 }
 
 func TestValidateImmutablePodSet(t *testing.T) {
+	type fields struct {
+		dynamicallySizedJobsFeatureGateEnabled bool
+	}
 	type args struct {
 		new  kueue.PodSet
 		old  kueue.PodSet
 		path *field.Path
 	}
 	tests := map[string]struct {
+		fields    fields
 		args      args
 		wantError bool
 	}{
 		"SamePodSets_SameCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: kueue.PodSet{Count: 3},
 				old: kueue.PodSet{Count: 3},
 			},
 		},
+		"SamePodSets_DifferentCount_DynamicallySizedJobsFeatureDisabled": {
+			args: args{
+				new: kueue.PodSet{Count: 3},
+				old: kueue.PodSet{Count: 4},
+			},
+			wantError: true,
+		},
 		"SamePodSets_DifferentCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: kueue.PodSet{Count: 3},
 				old: kueue.PodSet{Count: 4},
 			},
 		},
 		"DifferentPodSets_SameCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: kueue.PodSet{Count: 3, Name: "foo"},
 				old: kueue.PodSet{Count: 3, Name: "bar"},
@@ -1332,6 +1346,7 @@ func TestValidateImmutablePodSet(t *testing.T) {
 			wantError: true,
 		},
 		"DifferentPodSets_DifferentCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: kueue.PodSet{Count: 3, Name: "foo"},
 				old: kueue.PodSet{Count: 4, Name: "bar"},
@@ -1341,6 +1356,7 @@ func TestValidateImmutablePodSet(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicallySizedJob, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
 			err := ValidateImmutablePodSet(tt.args.new, tt.args.old, tt.args.path)
 			if len(err) > 0 != tt.wantError {
 				t.Errorf("ValidateImmutablePodSet() wantError: %v, got: %v", tt.wantError, err)
@@ -1350,28 +1366,42 @@ func TestValidateImmutablePodSet(t *testing.T) {
 }
 
 func TestValidateImmutablePodSets(t *testing.T) {
+	type fields struct {
+		dynamicallySizedJobsFeatureGateEnabled bool
+	}
 	type args struct {
 		new  []kueue.PodSet
 		old  []kueue.PodSet
 		path *field.Path
 	}
 	tests := map[string]struct {
+		fields    fields
 		args      args
 		wantError bool
 	}{
 		"SamePodSets_SameCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
 				old: []kueue.PodSet{{Count: 3}, {Count: 42}},
 			},
 		},
+		"SamePodSets_DifferentCount_DynamicallySizedJobFeatureDisabled": {
+			args: args{
+				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
+				old: []kueue.PodSet{{Count: 4}, {Count: 5}},
+			},
+			wantError: true,
+		},
 		"SamePodSets_DifferentCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
 				old: []kueue.PodSet{{Count: 4}, {Count: 5}},
 			},
 		},
 		"DifferentPodSets_SameCount": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: []kueue.PodSet{{Count: 3, Name: "foo"}, {Count: 42}},
 				old: []kueue.PodSet{{Count: 3}, {Count: 42}},
@@ -1379,6 +1409,7 @@ func TestValidateImmutablePodSets(t *testing.T) {
 			wantError: true,
 		},
 		"DifferentPodSets_AddedPodSet": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: []kueue.PodSet{{Count: 3}, {Count: 42}},
 				old: []kueue.PodSet{{Count: 3}},
@@ -1386,6 +1417,7 @@ func TestValidateImmutablePodSets(t *testing.T) {
 			wantError: true,
 		},
 		"DifferentPodSets_RemovedPodSet": {
+			fields: fields{dynamicallySizedJobsFeatureGateEnabled: true},
 			args: args{
 				new: []kueue.PodSet{{Count: 3}},
 				old: []kueue.PodSet{{Count: 4}, {Count: 42}},
@@ -1395,6 +1427,7 @@ func TestValidateImmutablePodSets(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicallySizedJob, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
 			err := ValidateImmutablePodSets(tt.args.new, tt.args.old, tt.args.path)
 			if len(err) > 0 != tt.wantError {
 				t.Errorf("ValidateImmutablePodSets() wantError: %v, got: %v", tt.wantError, err)
