@@ -13,6 +13,8 @@ defaultContentLanguage = "en"
 defaultContentLanguageInSubdir = false
 # useful when translating
 enableMissingTranslationPlaceholders = true
+# Enable automatic translation links discovery
+disableLanguages = []
 # disable taxonomies
 disableKinds = ["taxonomy"]
 # deprecated directories
