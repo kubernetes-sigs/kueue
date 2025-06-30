@@ -8,13 +8,15 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  {{- if .Values.kueueViz.frontend.ingress.ingressClassName }}
   ingressClassName: {{ .Values.kueueViz.frontend.ingress.ingressClassName | default "ingress-nginx" }}
+  {{- end }}
   tls:
     - hosts:
-        - {{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}
-      secretName: {{ .Values.kueueViz.frontend.ingress.tlsSecretName | default "kueueviz-frontend-tls" }}
+      - {{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}
+      secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default "kueueviz-frontend-tls" }}'
   rules:
-    - host: {{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}
+    - host: '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
       http:
         paths:
           - path: /

@@ -14,18 +14,19 @@ spec:
       labels:
         app: kueueviz-frontend
     spec:
-      {{- with  .Values.kueueViz.frontend.priorityClassName }}
+    {{- with .Values.kueueViz.imagePullSecrets  }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with  .Values.kueueViz.priorityClassName }}
       priorityClassName: {{ . }}
-      {{- end }}
+    {{- end }}
       containers:
         - name: frontend
           image: '{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.frontend.image.pullPolicy }}'
           ports:
             - containerPort: 8080
-          env:
-            - name: REACT_APP_WEBSOCKET_URL
-              value: "wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}"
           resources:
             limits:
               cpu: 500m
@@ -33,4 +34,7 @@ spec:
             requests:
               cpu: 500m
               memory: 512Mi
+          env:
+            - name: KUEUEVIZ_BACKEND_URL
+              value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
 {{- end }}

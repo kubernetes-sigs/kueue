@@ -14,9 +14,13 @@ spec:
       labels:
         app: kueueviz-backend
     spec:
-      {{- with  .Values.kueueViz.backend.priorityClassName }}
+    {{- with .Values.kueueViz.imagePullSecrets  }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with  .Values.kueueViz.priorityClassName }}
       priorityClassName: {{ . }}
-      {{- end }}
+    {{- end }}
       containers:
         - name: backend
           image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'

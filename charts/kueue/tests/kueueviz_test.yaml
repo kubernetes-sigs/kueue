@@ -5,77 +5,67 @@ templates:
   - kueueviz/backend-ingress.yaml
   - kueueviz/frontend-ingress.yaml
 tests:
-  - it: should set the pod priorityClassName when provided
+  - it: should set the pod priorityClassName when provided for backend deployment
     template: kueueviz/backend-deployment.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        backend:
-          priorityClassName: "foo"
+        priorityClassName: "foo"
     asserts:
       - equal:
           path: spec.template.spec.priorityClassName
           value: foo
-  - it: should not render the pod priorityClassName if not set
+  - it: should not render the pod priorityClassName if not set for backend deployment
     template: kueueviz/backend-deployment.yaml
     set:
       enableKueueViz: true
-      kueueViz:
-        backend:
-          priorityClassName: ""
+      priorityClassName:
     asserts:
       - notExists:
           path: spec.template.spec.priorityClassName
-  - it: should set the pod priorityClassName when provided
+  - it: should set the pod priorityClassName when provided for frontend deployment 
     template: kueueviz/frontend-deployment.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          priorityClassName: "foo"
+        priorityClassName: "foo"
     asserts:
       - equal:
           path: spec.template.spec.priorityClassName
           value: foo
-  - it: should not render the pod priorityClassName if not set
+  - it: should not render the pod priorityClassName if not set for frontend deployment
     template: kueueviz/frontend-deployment.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
-          priorityClassName: ""
+        priorityClassName:       
     asserts:
       - notExists:
           path: spec.template.spec.priorityClassName
-  - it: should not render the ingress value in backend if set
+  - it: should  render the ingress value of backend ingress in frontend deployment as ENV variables
     template: kueueviz/frontend-deployment.yaml
     set:
       enableKueueViz: true
       kueueViz:
         backend:
           ingress:
-            # -- KueueViz dashboard frontend ingress class name
-            ingressClassName: "ingress-nginx"
-            # -- KueueViz dashboard frontend ingress host
+            ingressClassName: "ingress-external"
             host: "backend.kueueviz.local"
-            # -- KueueViz dashboard frontend ingress tls secret name
             tlsSecretName: "kueueviz-frontend-tls"
     asserts:
       - equal:
           path: spec.template.spec.containers[0].env[0].value
           value: "wss://backend.kueueviz.local"
-  - it: Render Backend Ingress
+  - it: Render  Ingress for Backend Component
     template: kueueviz/backend-ingress.yaml
     set:
       enableKueueViz: true
       kueueViz:
+        
         backend:
           ingress:
-            # -- KueueViz dashboard backend ingress class name
             ingressClassName: "ingress-internal"
-            # -- KueueViz dashboard backend ingress host
             host: "backend.kueueviz.in"
-            # -- KueueViz dashboard backend ingress tls secret name
             tlsSecretName: "kueueviz-backend-tls"
     asserts:
       - equal:
@@ -88,18 +78,16 @@ tests:
           path: spec.tls[0].secretName
           value: "kueueviz-backend-tls"
 
-  - it: Render Frontend Ingress
+  - it: Render  Ingress for Frontend Component
     template: kueueviz/frontend-ingress.yaml
     set:
       enableKueueViz: true
       kueueViz:
+        ingressClassName: "ingress-external"
         frontend:
           ingress:
-            # -- KueueViz dashboard frontend ingress class name
             ingressClassName: "ingress-external"
-            # -- KueueViz dashboard frontend ingress host
             host: "frontend.kueueviz.in"
-            # -- KueueViz dashboard frontend ingress tls secret name
             tlsSecretName: "kueueviz-frontend-tls"
     asserts:
       - equal:
@@ -111,3 +99,25 @@ tests:
       - equal:
           path: spec.tls[0].secretName
           value: "kueueviz-frontend-tls"
+  - it: should set the imagePullSecrets for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        imagePullSecrets:
+          - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"
+  - it: should set the imagePullSecrets for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        imagePullSecrets:
+          - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"

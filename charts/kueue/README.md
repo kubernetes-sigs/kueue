@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.12.4](https://img.shields.io/badge/Version-0.12.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.12.2](https://img.shields.io/badge/AppVersion-v0.12.2-informational?style=flat-square)
+![Version: 0.12.3](https://img.shields.io/badge/Version-0.12.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.12.3](https://img.shields.io/badge/AppVersion-v0.12.3-informational?style=flat-square)
 
 Kueue is a set of APIs and controller for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -106,7 +106,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.image.tag | string | `"main"` | ControllerManager's image tag |
 | controllerManager.manager.podAnnotations | object | `{}` |  |
 | controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
-| controllerManager.manager.priorityClassName | string | `""` | ControllerManager's pod priorityClassName |
+| controllerManager.manager.priorityClassName | string | `nil` | ControllerManager's pod priorityClassName |
 | controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
 | controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
 | controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
@@ -129,14 +129,15 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
 | kueueViz.backend.ingress.ingressClassName | string | `"ingress-nginx"` | KueueViz dashboard backend ingress class name |
 | kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
-| kueueViz.backend.priorityClassName | string | `""` |  |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
 | kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
 | kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
 | kueueViz.frontend.ingress.ingressClassName | string | `"ingress-nginx"` | KueueViz dashboard frontend ingress class name |
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
-| kueueViz.frontend.priorityClassName | string | `""` |  |
+| kueueViz.imagePullSecrets | list | `[]` |  |
+| kueueViz.ingressClassName | string | `"ingress-nginx"` |  |
+| kueueViz.priorityClassName | string | `nil` |  |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |

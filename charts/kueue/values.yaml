@@ -23,7 +23,7 @@ controllerManager:
   #    enabled: true
   manager:
     # -- ControllerManager's pod priorityClassName
-    priorityClassName: ""
+    priorityClassName:
     image:
       # -- ControllerManager's image repository
       repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
@@ -208,6 +208,9 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 kueueViz:
+  imagePullSecrets: []
+  priorityClassName:
+  ingressClassName: "ingress-nginx"
   backend:
     ingress:
       # -- KueueViz dashboard backend ingress class name
@@ -216,7 +219,6 @@ kueueViz:
       host: "backend.kueueviz.local"
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
-    priorityClassName: ""
     image:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
@@ -233,7 +235,6 @@ kueueViz:
       host: "frontend.kueueviz.local"
       # -- KueueViz dashboard frontend ingress tls secret name
       tlsSecretName: "kueueviz-frontend-tls"
-    priorityClassName: ""
     image:
       # -- KueueViz dashboard frontend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
