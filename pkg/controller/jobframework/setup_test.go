@@ -40,6 +40,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -238,7 +239,7 @@ func TestSetupIndexes(t *testing.T) {
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job"}),
 			},
-			filter:        OwnerReferenceIndexFieldMatcher(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha"),
+			filter:        indexer.WorkloadOwnerReferenceIndexFieldMatcher(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha"),
 			wantWorkloads: []string{"alpha-wl"},
 		},
 		"kubeflow.org/mpijob is disabled in the configAPI": {
@@ -253,7 +254,7 @@ func TestSetupIndexes(t *testing.T) {
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job"}),
 			},
-			filter:                OwnerReferenceIndexFieldMatcher(kfmpi.SchemeGroupVersionKind, "alpha"),
+			filter:                indexer.WorkloadOwnerReferenceIndexFieldMatcher(kfmpi.SchemeGroupVersionKind, "alpha"),
 			wantFieldMatcherError: true,
 		},
 	}

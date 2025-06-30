@@ -47,6 +47,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1086,7 +1087,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 
 	// List related workloads for the single pod
 	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
-		client.MatchingFields{jobframework.OwnerReferenceIndexKey(gvk): key.Name}); err != nil {
+		client.MatchingFields{indexer.WorkloadOwnerIndexKey(gvk): key.Name}); err != nil {
 		log.Error(err, "Unable to get related workload for the single pod")
 		return nil, err
 	}
