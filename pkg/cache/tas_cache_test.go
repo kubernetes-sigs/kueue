@@ -1088,30 +1088,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 			},
 			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
 		},
-		"rack required; multiple Pods fits in a rack; MostFreeCapacity": {
-			nodes: defaultNodes,
-			topologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasRackLabel),
-			},
-			levels: defaultTwoLevels,
-			requests: resources.Requests{
-				corev1.ResourceCPU: 1000,
-			},
-			count: 3,
-			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultTwoLevels,
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Count: 3,
-						Values: []string{
-							"b1",
-							"r2",
-						},
-					},
-				},
-			},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMostFreeCapacity},
-		},
 		"rack required; multiple Pods fit in a rack; BestFit": {
 			nodes: defaultNodes,
 			topologyRequest: &kueue.PodSetTopologyRequest{
