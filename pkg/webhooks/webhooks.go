@@ -20,6 +20,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+var kueueNamespace = ""
+
+func SetKueueNamespace(namespace string) {
+	kueueNamespace = namespace
+}
+
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
 func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
@@ -37,6 +43,10 @@ func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
 
 	if err := setupWebhookForCohort(mgr); err != nil {
 		return "Cohort", err
+	}
+
+	if err := setupWebhookForDynamicResourceAllocationConfig(mgr, kueueNamespace); err != nil {
+		return "DynamicResourceAllocationConfig", err
 	}
 
 	return "", nil
