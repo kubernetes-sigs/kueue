@@ -99,7 +99,10 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
