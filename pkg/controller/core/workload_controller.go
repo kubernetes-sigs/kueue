@@ -144,6 +144,8 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -364,6 +366,21 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()) {
 			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
+	if features.Enabled(features.DynamicResourceAllocation) {
+		wlCopy := wl.DeepCopy()
+		workload.AdjustResources(ctx, r.client, wlCopy)
+
+		if err := workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy, r.cache.GetResourceNameForDeviceClass); err != nil {
+			log.V(2).Info("Skipping workload due to unmapped DeviceClass", "error", err)
+			_ = workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadInadmissible, metav1.ConditionTrue, "UnmappedDeviceClass", err.Error(), "workload-reconciler", r.clock)
+			return ctrl.Result{}, nil
+		}
+		// Enqueue the mutated copy so the scheduler sees the injected resources.
+		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+			log.V(4).Info("Unable to enqueue workload copy with injected resources", "workload", klog.KObj(wlCopy), "error", err)
 		}
 	}
 
@@ -620,6 +637,19 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
+	// If DynamicResourceAllocation is enabled, translate deviceClasses into logical
+	// resource requests before the workload is enqueued so that the scheduler
+	// always sees an object with the correct resource footprint.
+	if features.Enabled(features.DynamicResourceAllocation) {
+		if err := workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy, r.cache.GetResourceNameForDeviceClass); err != nil {
+			// If we cannot map a deviceClass, mark the workload inadmissible and do
+			// not add it to the scheduling queues.
+			log.V(2).Info("Skipping workload due to unmapped DeviceClass", "error", err)
+			_ = workload.UpdateStatus(ctx, r.client, wlCopy, kueue.WorkloadInadmissible, metav1.ConditionTrue, "UnmappedDeviceClass", err.Error(), "workload-controller", r.clock)
+			return true
+		}
+	}
+
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
@@ -692,8 +722,15 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
-	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
+
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		if err := workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy, r.cache.GetResourceNameForDeviceClass); err != nil {
+			log.V(2).Info("Skipping workload due to unmapped DeviceClass", "error", err)
+			_ = workload.UpdateStatus(ctx, r.client, e.ObjectNew, kueue.WorkloadInadmissible, metav1.ConditionTrue, "UnmappedDeviceClass", err.Error(), "workload-reconciler", r.clock)
+			return true
+		}
+	}
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -915,6 +952,12 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
+		if features.Enabled(features.DynamicResourceAllocation) {
+			if err := workload.AddDeviceClassesToContainerRequests(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy, h.r.cache.GetResourceNameForDeviceClass); err != nil {
+				log.V(2).Info("Skipping workload due to unmapped DeviceClass", "error", err)
+				continue
+			}
+		}
 		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}

@@ -114,16 +114,19 @@ type Cache struct {
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
+
+	draDeviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 }
 
 func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
-		client:           client,
-		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:         NewTASCache(client),
+		client:                   client,
+		assumedWorkloads:         make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:          make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		hm:                       hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:                 NewTASCache(client),
+		draDeviceClassToResource: make(map[corev1.ResourceName]corev1.ResourceName),
 	}
 	for _, option := range options {
 		option(cache)
@@ -980,4 +983,31 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
+}
+
+// AddOrUpdateDynamicResourceAllocationConfig ingests the singleton CRD and updates
+// the in-memory DeviceClass → logical resource map.
+// It is idempotent and thread-safe.
+func (c *Cache) AddOrUpdateDynamicResourceAllocationConfig(log logr.Logger, draCfg *kueuealpha.DynamicResourceAllocationConfig) {
+	c.Lock()
+	defer c.Unlock()
+
+	// Rebuild from scratch to avoid stale entries.
+	deviceClassNameToResName := make(map[corev1.ResourceName]corev1.ResourceName)
+	for _, res := range draCfg.Spec.Resources {
+		for _, dc := range res.DeviceClassNames {
+			deviceClassNameToResName[dc] = res.Name
+		}
+	}
+	c.draDeviceClassToResource = deviceClassNameToResName
+	log.V(2).Info("Updated DRA DeviceClass mapping", "entries", len(deviceClassNameToResName))
+}
+
+// GetResourceNameForDeviceClass converts a DeviceClass to its logical resource name.
+// Returns (logicalRes, true) on success or ("", false) when unmapped.
+func (c *Cache) GetResourceNameForDeviceClass(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	lr, ok := c.draDeviceClassToResource[dc]
+	return lr, ok
 }
