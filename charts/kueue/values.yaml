@@ -208,7 +208,16 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 kueueViz:
+  imagePullSecrets: []
+  priorityClassName:
   backend:
+    ingress:
+      # -- KueueViz dashboard backend ingress class name
+      ingressClassName:
+      # -- KueueViz dashboard backend ingress host
+      host: "backend.kueueviz.local"
+      # -- KueueViz dashboard backend ingress tls secret name
+      tlsSecretName: "kueueviz-backend-tls"
     image:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
@@ -218,6 +227,13 @@ kueueViz:
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
   frontend:
+    ingress:
+      # -- KueueViz dashboard frontend ingress class name
+      ingressClassName:
+      # -- KueueViz dashboard frontend ingress host
+      host: "frontend.kueueviz.local"
+      # -- KueueViz dashboard frontend ingress tls secret name
+      tlsSecretName: "kueueviz-frontend-tls"
     image:
       # -- KueueViz dashboard frontend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
