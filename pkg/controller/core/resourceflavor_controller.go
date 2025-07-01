@@ -254,7 +254,10 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
 }
