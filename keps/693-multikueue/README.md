@@ -335,6 +335,7 @@ Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we i
 When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
 the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
 specified in the Workload's .spec.multiKueueNominatedClusters field.
+
 Additionally, we implement a built-in incremental dispatcher as a reference implementation. 
 Including the pre-existing dispatching algorithm we distinguish the following dispatchers:
 
