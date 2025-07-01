@@ -13,7 +13,7 @@ spec:
   {{- end }}
   tls:
     - hosts:
-      - {{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}
+        - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
       secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default "kueueviz-frontend-tls" }}'
   rules:
     - host: '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'

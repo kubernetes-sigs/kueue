@@ -582,9 +582,26 @@ files:
     operations:
       - type: DELETE
         key: .spec.template.spec.containers[0].env
-      - type: DELETE
-        key: .spec.tls
-        onFileCondition: '.kind == "Ingress"'
+      - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default \"kueueviz-frontend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "backend.kueueviz.local"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "frontend.kueueviz.local"'
       - type: UPDATE
         key: .spec.rules[0].host
         value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
@@ -617,10 +634,6 @@ files:
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Ingress"'
       - type: APPEND
-        key: .spec.tls.[].secretName
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Ingress"'
-      - type: APPEND
         key: .roleRef.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "ClusterRoleBinding"'
@@ -638,24 +651,6 @@ files:
           - name: REACT_APP_WEBSOCKET_URL
             value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
     postOperations:
-      - type: INSERT_TEXT
-        key: .spec
-        indentation: 2
-        value: |
-          tls:
-            - hosts:
-              - {{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
-              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName | default "kueueviz-backend-tls" }}'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
-      - type: INSERT_TEXT
-        key: .spec
-        indentation: 2
-        value: |
-          tls:
-            - hosts:
-              - {{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}
-              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default "kueueviz-frontend-tls" }}'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
       - type: INSERT_TEXT
         key: .spec
         value: |
