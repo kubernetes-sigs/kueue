@@ -3,70 +3,69 @@ title: "安装"
 linkTitle: "安装"
 weight: 2
 description: >
-  Installing Kueue to a Kubernetes Cluster
+  将 Kueue 安装到 Kubernetes 集群
 ---
 
 <!-- toc -->
-- [Before you begin](#before-you-begin)
-- [Install a released version](#install-a-released-version)
-  - [Install by kubectl](#install-by-kubectl)
-  - [Install by Helm](#install-by-helm)
-  - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
-  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
-  - [Uninstall](#uninstall)
-- [Install a custom-configured released version](#install-a-custom-configured-released-version)
-- [Install the latest development version](#install-the-latest-development-version)
-  - [Uninstall](#uninstall-1)
-- [Build and install from source](#build-and-install-from-source)
-  - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator-1)
-  - [Uninstall](#uninstall-2)
-- [Install via Helm](#install-via-helm)
-- [Change the feature gates configuration](#change-the-feature-gates-configuration)
-  - [Feature gates for alpha and beta features](#feature-gates-for-alpha-and-beta-features)
-  - [Feature gates for graduated or deprecated features](#feature-gates-for-graduated-or-deprecated-features)
-- [What's next](#whats-next)
+- [开始之前](#before-you-begin)
+- [安装正式版本](#install-a-released-version)
+  - [通过 kubectl 安装](#install-by-kubectl)
+  - [通过 Helm 安装](#install-by-helm)
+  - [为 Prometheus-Operator 添加指标采集](#add-metrics-scraping-for-prometheus-operator)
+  - [为可见性 API 添加 API 优先级和公平性配置](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
+  - [卸载](#uninstall)
+- [安装自定义配置的正式版本](#install-a-custom-configured-released-version)
+- [安装最新开发版本](#install-the-latest-development-version)
+  - [卸载](#uninstall-1)
+- [从源代码构建和安装](#build-and-install-from-source)
+  - [为 Prometheus-Operator 添加指标采集](#add-metrics-scraping-for-prometheus-operator-1)
+  - [卸载](#uninstall-2)
+- [通过 Helm 安装](#install-via-helm)
+- [更改特性配置](#change-the-feature-gates-configuration)
+  - [Alpha 和 Beta 级别特性的特性门控](#feature-gates-for-alpha-and-beta-features)
+  - [已毕业或已弃用特性的特性门控](#feature-gates-for-graduated-or-deprecated-features)
+- [接下来是什么](#whats-next)
 
 <!-- /toc -->
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-Make sure the following conditions are met:
+确保满足以下条件：
 
-- A Kubernetes cluster with version 1.29 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
-- The `SuspendJob` [feature gate][feature_gate] is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
-- (Optional) The `JobMutableNodeSchedulingDirectives` [feature gate][feature_gate] (available in Kubernetes 1.22 or newer) is enabled.
-  In Kubernetes 1.23 or newer, the feature gate is enabled by default.
-- The kubectl command-line tool has communication with your cluster.
+- 运行版本为 1.29 或更新的 Kubernetes 集群。了解如何[安装 Kubernetes 工具](https://kubernetes.io/docs/tasks/tools/)。
+- 启用了 `SuspendJob` [特性][feature_gate]。在 Kubernetes 1.22 或更新版本中，该特性默认启用。
+- （可选）启用了 `JobMutableNodeSchedulingDirectives` [特性][feature_gate]（在 Kubernetes 1.22 或更新版本中可用）。
+  在 Kubernetes 1.23 或更新版本中，该特性默认启用。
+- kubectl 命令行工具已与你的集群通信。
 
-Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
-You can scrape these metrics with Prometheus.
-Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
-if you don't have your own monitoring system.
+Kueue 发布[指标](/docs/reference/metrics)以监控其控制器组件。
+你可以使用 Prometheus 采集这些指标。
+如果你没有自己的监控系统，请使用 [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)。
 
-The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
+Kueue 中的 Webhook 服务使用内部证书管理来配置证书。如果你想使用第三方证书，例如
+[cert-manager](https://github.com/cert-manager/cert-manager)，请遵循[证书管理指南](/docs/tasks/manage/installation)。
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
-## Install a released version
+## 安装正式版本 {#install-a-released-version}
 
-### Install by kubectl
+### 通过 kubectl 安装 {#install-by-kubectl}
 
-To install a released version of Kueue in your cluster by kubectl, run the following command:
+要通过 kubectl 在集群中安装已发布的 Kueue 版本，请运行以下命令：
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
-To wait for Kueue to be fully available, run:
+要等待 Kueue 完全可用，请运行：
 
 ```shell
 kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 ```
 
-### Install by Helm
+### 通过 Helm 安装 {#install-by-helm}
 
-To install a released version of Kueue in your cluster by [Helm](https://helm.sh/), run the following command:
+要通过 [Helm](https://helm.sh/) 在集群中安装已发布的 Kueue 版本，请运行以下命令：
 
 ```shell
 helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
@@ -76,7 +75,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --wait --timeout 300s
 ```
 
-You can also use the following command:
+你还可以使用以下命令：
 
 ```shell
 helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-chart-{{< param "version" >}}.tgz \
@@ -85,54 +84,54 @@ helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{
   --wait --timeout 300s
 ```
 
-### Add metrics scraping for prometheus-operator
+### 为 Prometheus-Operator 添加指标采集 {#add-metrics-scraping-for-prometheus-operator}
 
-To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
-to scrape metrics from kueue components, run the following command:
+要允许 [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
+从 Kueue 组件中采集指标，请运行以下命令：
 
 {{% alert title="Note" color="primary" %}}
-This feature depends on [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml), please ensure that CRD is installed first.
+此功能依赖于 [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml)，请确保首先安装了 CRD。
 
-We can follow [Prometheus Operator Installing guide](https://prometheus-operator.dev/docs/getting-started/installation/) to install it.
+我们可以遵循 [Prometheus Operator 安装指南](https://prometheus-operator.dev/docs/getting-started/installation/)来安装它。
 {{% /alert %}}
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
 
-### Add API Priority and Fairness configuration for the visibility API
+### 为可见性 API 添加 API 优先级和公平性配置 {#add-api-priority-and-fairness-configuration-for-the-visibility-api}
 
-See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
+有关更多详细信息，请参阅[配置 API 优先级和公平性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness)。
 
-### Uninstall
+### 卸载 {#uninstall}
 
-To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
+要通过 kubectl 从集群中卸载已发布的 Kueue 版本，请运行以下命令：
 
 ```shell
 kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
-To uninstall a released version of Kueue from your cluster by Helm, run the following command:
+要通过 Helm 从集群中卸载已发布的 Kueue 版本，请运行以下命令：
 
 ```shell
 helm uninstall kueue --namespace kueue-system
 ```
 
-## Install a custom-configured released version
+## 安装自定义配置的正式版本 {#install-a-custom-configured-released-version}
 
-To install a custom-configured released version of Kueue in your cluster, execute the following steps:
+要安装自定义配置的已发布版本的 Kueue，请执行以下步骤：
 
-1. Download the release's `manifests.yaml` file:
+1. 下载发布的 `manifests.yaml` 文件：
 
 ```shell
 wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
-2. With an editor of your preference, open `manifests.yaml`.
-3. In the `kueue-manager-config` ConfigMap manifest, edit the
-`controller_manager_config.yaml` data entry. The entry represents
-the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
-The contents of the ConfigMap are similar to the following:
+2. 使用你喜欢的编辑器打开 `manifests.yaml`。
+3. 在 `kueue-manager-config` ConfigMap 清单中，编辑
+  `controller_manager_config.yaml` 数据条目。该条目代表默认的
+  [KueueConfiguration](/docs/reference/kueue-config.v1beta1)。
+  ConfigMap 的内容类似于以下内容：
 
 ```yaml
 apiVersion: v1
@@ -165,48 +164,46 @@ data:
       - "batch/job"
 ```
 
-__The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
+__`integrations.externalFrameworks` 字段在 Kueue v0.7.0 及更高版本中可用。__
 
 {{% alert title="Note" color="primary" %}}
-See [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready) to learn
-more about using `waitForPodsReady` for Kueue.
+请参阅 [All-or-nothing 与就绪 Pod](/docs/tasks/manage/setup_wait_for_pods_ready) 以了解
+有关为 Kueue 使用 `waitForPodsReady` 的更多信息。
 {{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
-Certain Kubernetes distributions might use batch/jobs to perform maintenance operations.
-For these distributions, setting `manageJobsWithoutQueueName` to `true` without disabling the
-`batch/job` integration may prevent system-created jobs from executing.
+某些 Kubernetes 发行版可能会使用 batch/jobs 执行维护操作。
+对于这些发行版，将 `manageJobsWithoutQueueName` 设置为 `true` 而不禁用
+`batch/job` 集成可能会阻止系统创建的作业执行。
 {{% /alert %}}
 
-4. Apply the customized manifests to the cluster:
+4. 将自定义清单应用于集群：
 
 ```shell
 kubectl apply --server-side -f manifests.yaml
 ```
 
-## Install the latest development version
+## 安装最新开发版本 {#install-the-latest-development-version}
 
-To install the latest development version of Kueue in your cluster, run the
-following command:
+要安装最新开发版本的 Kueue，请运行以下命令：
 
 ```shell
 kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
 ```
 
-The controller runs in the `kueue-system` namespace.
+控制器在 `kueue-system` 命名空间中运行。
 
-### Uninstall
+### 卸载 {#uninstall-1}
 
-To uninstall Kueue, run the following command:
+要卸载 Kueue，请运行以下命令：
 
 ```shell
 kubectl delete -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
 ```
 
-## Build and install from source
+## 从源代码构建和安装 {#build-and-install-from-source}
 
-To build Kueue from source and install Kueue in your cluster, run the following
-commands:
+要从源代码构建 Kueue 并将其安装在你的集群中，请运行以下命令：
 
 ```sh
 git clone https://github.com/kubernetes-sigs/kueue.git
@@ -214,38 +211,41 @@ cd kueue
 IMAGE_REGISTRY=registry.example.com/my-user make image-local-push deploy
 ```
 
-### Add metrics scraping for prometheus-operator
+### 为 Prometheus-Operator 添加指标采集 {#add-metrics-scraping-for-prometheus-operator-1}
 
-To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
-to scrape metrics from kueue components, run the following command:
+要允许 [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
+从 Kueue 组件中采集指标，请运行以下命令：
 
 ```shell
 make prometheus
 ```
 
-### Uninstall
+### 卸载 {#uninstall-2}
 
-To uninstall Kueue, run the following command:
+要卸载 Kueue，请运行以下命令：
 
 ```sh
 make undeploy
 ```
 
-## Install via Helm
+## 通过 Helm 安装 {#install-via-helm}
 
-To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
+要使用 [Helm](https://helm.sh/) 安装和配置 Kueue，请遵循[说明](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md)。
 
-## Change the feature gates configuration
+## 更改特性门控配置 {#change-the-feature-gates-configuration}
 
-Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
+Kueue 使用类似于
+[Kubernetes 特性门控](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates)
+中描述的机制来配置功能。
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
+为了更改功能的默认值，你需要编辑 kueue 安装命名空间中的 `kueue-controller-manager` 部署，
+并更改 `manager` 容器参数以包括
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>
 ```
 
-For example, to enable `PartialAdmission`, you should change the manager deployment as follows:
+例如，要启用 `PartialAdmission`，你应该按如下方式更改管理器部署：
 
 ```diff
 kind: Deployment
@@ -263,9 +263,9 @@ spec:
 +       - --feature-gates=PartialAdmission=true
 ```
 
-### Feature gates for alpha and beta features
+### Alpha 和 Beta 级别特性的特性门控 {#feature-gates-for-alpha-and-beta-features}
 
-| Feature                               | Default | Stage | Since | Until |
+| 功能                                  | 默认值   | 阶段  | 起始版本| 截止版本|
 |---------------------------------------|---------|-------|-------|-------|
 | `FlavorFungibility`                   | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                          | `false` | Alpha | 0.6   | 0.8   |
@@ -297,9 +297,9 @@ spec:
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 
-### Feature gates for graduated or deprecated features
+### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
-| Feature                           | Default | Stage      | Since | Until |
+| 功能 | 默认值 | 阶段 | 起始版本 | 截止版本 |
 |-----------------------------------|---------|------------|-------|-------|
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
@@ -313,6 +313,6 @@ spec:
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
 
-## What's next
+## 接下来是什么 {#whats-next}
 
-- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for  `Configuration`
+- 阅读 [`Configuration` 的 API 参考](/docs/reference/kueue-config.v1beta1/#Configuration)
