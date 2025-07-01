@@ -3,62 +3,75 @@ title: "概览"
 linkTitle: "概览"
 weight: 1
 description: >
-  Why Kueue?
+  为什么选择 Kueue?
 ---
 
-Kueue is a kubernetes-native system that manages quotas and how jobs consume them. Kueue decides when a job should wait, when a job should be admitted to start (as in pods can be created) and when a job should be preempted (as in active pods should be deleted).
+Kueue 是一个 Kubernetes 原生系统，用于管理配额以及作业如何使用配额。
+Kueue 决定作业何时应该等待，何时应该被接纳开始（即可以创建 Pod），
+以及何时应该被抢占（即应该删除活跃的 Pod）。
 
-## Why use Kueue
+## 为什么选择 Kueue {#why-use-kueue}
 
-You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not replace any existing Kubernetes components. Kueue is compatible with cloud environments where:
+你可以在一个普通的 Kubernetes 集群之上安装 Kueue。Kueue 不会替换任何现有的 Kubernetes 组件。Kueue 与云环境兼容，在这些环境中：
 
-* Compute resources are elastic and can be scaled up and down.
-* Compute resources are heterogeneous (in architecture, availability, price, etc.).
+*   计算资源是弹性的，可以扩展和缩减。
+*   计算资源是异构的（在架构、可用性、价格等方面）。
 
-Kueue APIs allow you to express:
+Kueue API 允许你表达：
 
-* Quotas and policies for Fair Sharing among tenants.
-* Resource fungibility: if a resource flavor is fully utilized, Kueue can admit the job using a different flavor.
+* 租户间公平共享的配额和策略。
+* 资源可替代性：如果一种资源 Flavor 已被完全利用，Kueue 可以使用不同的 Flavor 接纳作业。
 
-A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
+Kueue 的一个核心设计原则是避免重复 Kubernetes 组件和成熟的第三方控制器中的功能。
+自动扩缩、Pod 到节点的调度和作业生命周期管理分别是 cluster-autoscaler、kube-scheduler
+和 kube-controller-manager 的职责。高级准入控制可以委托给像 Gatekeeper 这样的控制器。
 
-## Features overview
+## 功能概览 {#features-overview}
 
-- **Job management:** Support job queueing based on [priorities](/docs/concepts/workload/#priority) with different [strategies](/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
-- **Advanced Resource management:** Comprising: [resource flavor fungibility](/docs/concepts/cluster_queue/#flavorfungibility), [Fair Sharing](/docs/concepts/preemption/#fair-sharing), [Cohorts](/docs/concepts/cohort) and [preemption](/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
-- **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](/docs/tasks/run/jobs/), [Kubeflow training jobs](/docs/tasks/run/kubeflow/), [RayJob](/docs/tasks/run/rayjobs/), [RayCluster](/docs/tasks/run/rayclusters/), [JobSet](/docs/tasks/run/jobsets/),  [AppWrappers](/docs/tasks/run/appwrappers/), [plain Pod and Pod Groups](/docs/tasks/run/plain_pods/).
-- **System insight:** Build-in [prometheus metrics](/docs/reference/metrics/) to help monitor the state of the system, and on-demand visibility endpoint for [monitoring of pending workloads](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
-- **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](/docs/concepts/admission_check/).
-- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
-- **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/manage/setup_wait_for_pods_ready/).
-- **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete..
-- **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](/docs/tasks/run/deployment/) or [StatefulSets](/docs/tasks/run/statefulset/))
-- **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
-- **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
+- **作业管理：** 支持基于[优先级](/docs/concepts/workload/#priority)的作业排队，
+  并提供不同的[策略](/docs/concepts/cluster_queue/#queueing-strategy)：`StrictFIFO` 和 `BestEffortFIFO`。
+- **高级资源管理：** 包括：[资源 Flavor 可替代性(resource flavor fungibility)](/docs/concepts/cluster_queue/#flavorfungibility)、
+  [公平共享(Fair Sharing)](/docs/concepts/preemption/#fair-sharing)、
+  [队列组(Cohorts)](/docs/concepts/cohort)和[抢占(preemption)](/docs/concepts/cluster_queue/#preemption)，
+  并为不同租户提供多种策略。
+- **集成：** 内置支持流行的作业，例如[BatchJob](/docs/tasks/run/jobs/)、
+  [Kubeflow 训练作业](/docs/tasks/run/kubeflow/)、[RayJob](/docs/tasks/run/rayjobs/)、
+  [RayCluster](/docs/tasks/run/rayclusters/)、[JobSet](/docs/tasks/run/jobsets/)、
+  [AppWrappers](/docs/tasks/run/appwrappers/)、[普通 Pod 和 Pod 组](/docs/tasks/run/plain_pods/)。
+- **系统洞察：** 内置 [Prometheus 指标](/docs/reference/metrics/)帮助监控系统状态，并提供按需可见性端点用于[监控待处理工作负载](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)。
+- **准入检查(AdmissionChecks)：** 一种供内部或外部组件影响工作负载是否可以被[接纳](/docs/concepts/admission_check/)的机制。
+- **高级自动扩缩支持：** 通过准入检查与 cluster-autoscaler 的 [provisioningRequest](/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) 集成。
+- **All-or-nothing 与就绪 Pod：** 一种基于超时的 [All-or-nothing 调度](/docs/tasks/manage/setup_wait_for_pods_ready/)实现。
+- **部分接纳(Partial admission)和动态回收(dynamic reclaim)：** 基于可用配额以[减少并行度](/docs/tasks/run/jobs/#partial-admission)运行作业，
+  并在 Pod 完成后[释放](/docs/concepts/workload/#dynamic-reclaim)配额的机制。
+- **混合训练和推理：** 同时管理批处理工作负载和服务工作负载（例如 [Deployments](/docs/tasks/run/deployment/) 或
+  [StatefulSets](/docs/tasks/run/statefulset/)）。
+- **多集群作业分发：** 称为[MultiKueue](/docs/concepts/multikueue/)，允许搜索容量并从主集群卸载工作。
+- **拓扑感知调度：** 允许通过[感知数据中心拓扑的调度](/docs/concepts/topology_aware_scheduling/)来优化 Pod 间的通信吞吐量。
 
-## Job-integrated features
+## 作业集成功能 {#job-integrated-features}
 
-| Feature                                                                                                         | Batch&nbsp;Job | JobSet | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | JAXJob | Pod | RayCluster | RayJob | AppWrapper | Deployment | StatefulSet | LeaderWorkerSet |
-|-----------------------------------------------------------------------------------------------------------------|----------------|--------|-----------|------------|-------|------------|--------|:------:|-----|------------|--------|------------|------------|-------------|-----------------|
-| [Dynamic Reclaim](/docs/concepts/workload/#dynamic-reclaim)                                                     | +              | +      |           |            |       |            |        |        | +   |            |        |            |            |             |                 |
-| [MultiKueue](/docs/concepts/multikueue/)                                                                        | +              | +      | +         | +          | +     | +          | +      |   +    |     | +          | +      | +          |            |             |                 |
-| [MultiKueueBatchJobWithManagedBy](/docs/concepts/multikueue/#multikueuebatchjobwithmanagedby-enabled)           | +              |        |           |            |       |            |        |        |     |            |        |            |            |             |                 |
-| [PartialAdmission](/docs/tasks/run/jobs/#partial-admission)                                                     | +              |        |           |            |       |            |        |        |     |            |        |            |            |             |                 |
-| [Workload Priority Class](/docs/concepts/workload_priority_class/)                                              | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility)                                            | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [ProvisioningACC](/docs/admission-check-controllers/provisioning/)                                              | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [QueueVisibility](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_status/)                    | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [VisibilityOnDemand](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)                 | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [PrioritySortingWithinCohort](/docs/concepts/cluster_queue/#flavors-and-borrowing-semantics)                    | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [LendingLimit](/docs/concepts/cluster_queue/#lendinglimit)                                                      | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [All-or-nothing with ready Pods](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment) | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [Fair Sharing](/docs/concepts/preemption/#fair-sharing)                                                         | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
-| [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)                                           | +              | +      | +         | +          | +     | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
+| 功能 | Batch&nbsp;Job | JobSet | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | JAXJob | Pod | RayCluster | RayJob | AppWrapper | Deployment | StatefulSet | LeaderWorkerSet |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| [动态回收](/docs/concepts/workload/#dynamic-reclaim) | + | + | | | | | | | + | | | | | | |
+| [MultiKueue](/docs/concepts/multikueue/) | + | + | + | + | + | + | + | + | | + | + | + | | | |
+| [MultiKueueBatchJobWithManagedBy](/docs/concepts/multikueue/#multikueuebatchjobwithmanagedby-enabled) | + | | | | | | | | | | | | | | |
+| [部分接纳](/docs/tasks/run/jobs/#partial-admission) | + | | | | | | | | | | | | | | |
+| [工作负载优先级类别](/docs/concepts/workload_priority_class/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [Flavor 可替代性](/docs/concepts/cluster_queue/#flavorfungibility) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [ProvisioningACC](/docs/admission-check-controllers/provisioning/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [队列可见性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_status/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [按需可见性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [队列组内优先级排序](/docs/concepts/cluster_queue/#flavors-and-borrowing-semantics) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [借用限制](/docs/concepts/cluster_queue/#lendinglimit) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [All-or-nothing 与就绪 Pod](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [公平共享](/docs/concepts/preemption/#fair-sharing) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
+| [拓扑感知调度](/docs/concepts/topology_aware_scheduling) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 
-## High-level Kueue operation
+## Kueue 高级操作 {#high-level-kueue-operation}
 
-![High Level Kueue Operation](/images/theory-of-operation.svg)
+![Kueue 高级操作](/images/theory-of-operation.svg)
 
-To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
+要了解有关 Kueue 概念的更多信息，请参阅[概念](/docs/concepts)部分。
 
-To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
+要了解不同的 Kueue 用户角色以及如何使用 Kueue，请参阅[任务](/docs/tasks)部分。
