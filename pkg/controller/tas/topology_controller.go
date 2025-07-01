@@ -78,7 +78,10 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 			&handler.TypedEnqueueRequestForObject[*kueuealpha.Topology]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueuealpha.GroupVersion.WithKind("Topology").GroupKind().String()],
+		}).
 		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
 		Complete(core.WithLeadingManager(mgr, r, &kueuealpha.Topology{}, cfg))
 }

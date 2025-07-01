@@ -587,7 +587,10 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 			&handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
+		}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).
