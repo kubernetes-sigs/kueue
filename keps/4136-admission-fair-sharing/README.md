@@ -1,24 +1,24 @@
 # KEP-4136: Admission Fair Sharing
 
 <!-- toc -->
-- [KEP-4136: Admission Fair Sharing](#kep-4136-admission-fair-sharing)
-  - [Summary](#summary)
-  - [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-  - [Proposal](#proposal)
-    - [User Stories (Optional)](#user-stories-optional)
-      - [Story 1](#story-1)
-      - [Story 2](#story-2)
-    - [Risks and Mitigations](#risks-and-mitigations)
-  - [Design Details](#design-details)
-    - [Test Plan](#test-plan)
-        - [Prerequisite testing updates](#prerequisite-testing-updates)
-      - [Unit Tests](#unit-tests)
-      - [Integration tests](#integration-tests)
-    - [Graduation Criteria](#graduation-criteria)
-  - [Drawbacks](#drawbacks)
-  - [Alternatives](#alternatives)
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [Entry penalty](#entry-penalty)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+    - [Story 2](#story-2)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -191,7 +191,8 @@ within AdmissionScope and then other mechanisms are applied as usual.
 workloads based on the LocalQueue resource usage when considering workloads within the same ClusterQueue. 
 Workloads from different ClusterQueues are not compared against each other using the resource usage dimension.
 
-* Because of the interval between updating FairSharingStatus the mechanism can be exploited. We may end up in a situation where one tenant
+### Entry penalty
+Because of the interval between updating FairSharingStatus the mechanism can be exploited. We may end up in a situation where one tenant
 can submit thousands of jobs which will be prioritized because they had slightly lower FairSharingStatus. 
 
 E.g. Let's assume:
