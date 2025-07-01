@@ -137,7 +137,7 @@ func newNodeFailureReconciler(client client.Client, recorder record.EventRecorde
 
 func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
 	return TASNodeFailureController, builder.ControllerManagedBy(mgr).
-		Named(TASNodeFailureController).
+		Named("tas_node_failure_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Node{},
