@@ -202,7 +202,7 @@ Tenant's B FairSharingStatus: 0.05 CPU
 usageSamplingInterval: 5mins
 ```
 
-In the worst case scenario all of the jobs submitted by Tenant B will be prioritized and could be admitted for the next 5mins.
+Here, all Jobs submitted by Tenant B  within the next 5min get scheduled.
 Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
 
 Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with similar formula: `penalty = A * requested_resource`. We assume the amount of time had passed since the last update is equal to the `usageSamplingInterval`.
