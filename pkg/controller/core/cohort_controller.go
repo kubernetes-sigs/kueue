@@ -149,7 +149,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
-	return ctrl.Result{}, err
+	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
