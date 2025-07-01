@@ -254,6 +254,13 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 }
 
 func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	if s.leaves[domainID] == nil {
+		// this can happen if there is an admitted workload for which the
+		// backing node was deleted or is no longer Ready (so the addCapacity
+		// function was not called).
+		s.log.Info("skip removing TAS usage in domain", "domain", domainID, "usage", usage)
+		return
+	}
 	if s.leaves[domainID].tasUsage == nil {
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
