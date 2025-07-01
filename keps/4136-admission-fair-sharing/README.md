@@ -1,24 +1,25 @@
 # KEP-4136: Admission Fair Sharing
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [Entry penalty](#entry-penalty)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Risks and Mitigations](#risks-and-mitigations)
-- [Design Details](#design-details)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
+- [KEP-4136: Admission Fair Sharing](#kep-4136-admission-fair-sharing)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [Entry penalty](#entry-penalty)
+    - [User Stories (Optional)](#user-stories-optional)
+      - [Story 1](#story-1)
+      - [Story 2](#story-2)
+    - [Risks and Mitigations](#risks-and-mitigations)
+  - [Design Details](#design-details)
+    - [Test Plan](#test-plan)
+        - [Prerequisite testing updates](#prerequisite-testing-updates)
+      - [Unit Tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+    - [Graduation Criteria](#graduation-criteria)
+  - [Drawbacks](#drawbacks)
+  - [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -193,7 +194,7 @@ Workloads from different ClusterQueues are not compared against each other using
 
 ### Entry penalty
 The mechanism as implemented in Kueue 0.12 can be exploited, because a tenant
-can submit thousands of jobs which get scheduled in a short period of time. 
+can submit thousands of jobs which get scheduled in a short period of time.
 
 E.g. Let's assume:
 ```
@@ -224,8 +225,6 @@ some guaranteed capacity and at the same time, allow them to fairly share some b
 * Having 2 fair sharing mechanisms and confusion between preemption-based fair sharing and admission time fair sharing.
 
 * Increased complexity of the project.
-
-
 
 ## Design Details
 
