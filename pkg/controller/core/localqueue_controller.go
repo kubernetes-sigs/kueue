@@ -429,7 +429,10 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
