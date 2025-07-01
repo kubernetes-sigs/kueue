@@ -157,24 +157,24 @@ func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
+func snapshotClusterQueue(cq *clusterQueue) *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
-		Name:                          c.Name,
-		ResourceGroups:                make([]ResourceGroup, len(c.ResourceGroups)),
-		FlavorFungibility:             c.FlavorFungibility,
-		FairWeight:                    c.FairWeight,
-		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Workloads:                     maps.Clone(c.Workloads),
-		Preemption:                    c.Preemption,
-		NamespaceSelector:             c.NamespaceSelector,
-		Status:                        c.Status,
-		AdmissionChecks:               utilmaps.DeepCopySets(c.AdmissionChecks),
-		ResourceNode:                  c.resourceNode.Clone(),
+		Name:                          cq.Name,
+		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
+		FlavorFungibility:             cq.FlavorFungibility,
+		FairWeight:                    cq.FairWeight,
+		AllocatableResourceGeneration: cq.AllocatableResourceGeneration,
+		Workloads:                     maps.Clone(cq.Workloads),
+		Preemption:                    cq.Preemption,
+		NamespaceSelector:             cq.NamespaceSelector,
+		Status:                        cq.Status,
+		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
+		ResourceNode:                  cq.resourceNode.Clone(),
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
-		tasOnly:                       c.isTASOnly(),
-		flavorsForProvReqACs:          c.flavorsWithProvReqAdmissionCheck(),
+		tasOnly:                       cq.isTASOnly(),
+		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 	}
-	for i, rg := range c.ResourceGroups {
+	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
 	return cc
