@@ -1,23 +1,24 @@
 # KEP-4136: Admission Fair Sharing
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Risks and Mitigations](#risks-and-mitigations)
-- [Design Details](#design-details)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
+- [KEP-4136: Admission Fair Sharing](#kep-4136-admission-fair-sharing)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [User Stories (Optional)](#user-stories-optional)
+      - [Story 1](#story-1)
+      - [Story 2](#story-2)
+    - [Risks and Mitigations](#risks-and-mitigations)
+  - [Design Details](#design-details)
+    - [Test Plan](#test-plan)
+        - [Prerequisite testing updates](#prerequisite-testing-updates)
+      - [Unit Tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+    - [Graduation Criteria](#graduation-criteria)
+  - [Drawbacks](#drawbacks)
+  - [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -190,6 +191,21 @@ within AdmissionScope and then other mechanisms are applied as usual.
 workloads based on the LocalQueue resource usage when considering workloads within the same ClusterQueue. 
 Workloads from different ClusterQueues are not compared against each other using the resource usage dimension.
 
+* Because of the interval between updating FairSharingStatus the mechanism can be exploited. We may end up in a situation where one tenant
+can submit thousands of jobs which will be prioritized because they had slightly lower FairSharingStatus. 
+
+E.g. Let's assume:
+```
+Tenant's A FairSharingStatus: 0.1 CPU
+Tenant's B FairSharingStatus: 0.05 CPU
+usageSamplingInterval: 5mins
+```
+
+In the worst case scenario all of the jobs submitted by Tenant B will be prioritized and could be admitted for the next 5mins.
+Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
+
+Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with similar formula: `penalty = A * requested_resource`. We assume the amount of time had passed since the last update is equal to the `usageSamplingInterval`.
+
 ### User Stories (Optional)
 #### Story 1
 
@@ -208,21 +224,7 @@ some guaranteed capacity and at the same time, allow them to fairly share some b
 
 * Increased complexity of the project.
 
-* Because of the interval between updating FairSharingStatus the mechanism can be exploited. We may end up in a situation where one tenant
-can submit thousands of jobs which will be prioritized because they had slightly lower FairSharingStatus. 
 
-E.g. Let's assume:
-```
-Tenant's A FairSharingStatus: 0.1 CPU
-Tenant's B FairSharingStatus: 0.05 CPU
-usageSamplingInterval: 5mins
-```
-
-In the worst case scenario all of the jobs submitted by Tenant B will be prioritized and could be admitted for the next 5mins.
-Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
-
-**Mitigation:** Add an entrance penalty to FairSharingStatus every time Kueue admits a Workload. The penalty should be calculated with the same
-formula as regular usage with the assumption the amount of time had passed since the last update is equal to the above-mentioned interval.
 
 ## Design Details
 
